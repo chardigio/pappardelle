@@ -56,6 +56,9 @@
 # when nothing sets it. agent_rules_flags renders the entry's rules_args, which
 # no profile sets, when workspace_aware_agents is on.
 #
+# agent_env is the agent profile's env map as JSON, merged per variable across
+# layers like every other map; idow hands it to start-agent-session.sh.
+#
 # model and effort are the agent profile's own values, else (claude agent
 # profiles only) the deprecated claude.model / claude.effort. They are rendered
 # into agent_launch_flags through the agent profile's model_args / effort_args
@@ -80,7 +83,7 @@
 #    "agent_profile": "...", "agent_command": "...", "agent_args": "...",
 #    "agent_resume_args": "...", "agent_prompt_args": "...",
 #    "agent_is_claude": "true|false",
-#    "agent_launch_flags": "...", "agent_rules_flags": "...", "workspace_aware": "true|false",
+#    "agent_launch_flags": "...", "agent_env": "{...}", "agent_rules_flags": "...", "workspace_aware": "true|false",
 #    "deprecation_warnings": "...",
 #    "profile_deprecation_warnings": "..."}
 
@@ -166,7 +169,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     ((.agent_profiles // {}) | keys) as $agent_profile_names |
     (.profiles[strenv(PROFILE)] // {}) as $selected |
     ((strenv(AGENT_PROFILE_OVERRIDE) | select(. != "")) // $selected.agent_profile // .agent_profile // "claude") as $agent_profile_ref |
-    ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args", "prompt_args", "skill_prefix"] as $fields |
+    ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args", "prompt_args", "skill_prefix", "env"] as $fields |
     {
         "workspace_aware_agents": .workspace_aware_agents,
         "initialization_command": .initialization_command,
@@ -204,10 +207,18 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     ([if $defined and (($def.command | type) != "string" or ($def.command | test("^\\s*$"))) then
         "agent_profiles.\($agent_profile).command: required non-empty string" else empty end
     ] + [$def | to_entries[]
-        | select(.key != "command" and .key != "is_claude" and (.value | type) != "string")
+        | select(.key != "command" and .key != "is_claude" and .key != "env" and (.value | type) != "string")
         | "agent_profiles.\($agent_profile).\(.key): must be a string"
     ] + [$def | select(has("is_claude") and (.is_claude | type) != "boolean")
         | "agent_profiles.\($agent_profile).is_claude: must be a boolean"
+    ] + [$def | select(has("env")) | .env
+        | if type != "object" then "agent_profiles.\($agent_profile).env: must be a map of variable names to strings"
+          else to_entries[] |
+            if (.key | test("\\A[A-Za-z_][A-Za-z0-9_]*\\z") | not) then "agent_profiles.\($agent_profile).env.\(.key): must be an environment variable name"
+            elif (.key | startswith("PAPPARDELLE_")) then "agent_profiles.\($agent_profile).env.\(.key): PAPPARDELLE_ variables are set by pappardelle"
+            elif (.value | type) != "string" then "agent_profiles.\($agent_profile).env.\(.key): must be a string"
+            else empty end
+          end
     ]) as $type_errors |
     if $type_errors != [] then
         {agent_profile_missing: "", agent_type_errors: ($type_errors | join("\n")), agent_launch_errors: ""}
@@ -271,6 +282,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         agent_launch_flags: ([render($launch.model.template; "{model}"; $launch.model.value),
                               render($launch.effort.template; "{effort}"; $launch.effort.value),
                               ($extra_args[] | tostring | quote_value)] | join(" ")),
+        agent_env: ($def_resolved.env // {} | tojson),
         workspace_aware: (.workspace_aware_agents == true),
         # Mirrors agentRulesFlags() in source/companion-rules.ts.
         agent_rules_flags: if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
@@ -304,8 +316,12 @@ fi
 # is ambiguous: the per-layer rename silently keeps the new one. Same error as
 # initializationCommandConflictErrors() in source/config.ts, which idow never
 # runs.
+LAYER_SPEC_MERGE=()
+for layer in "${LAYERS[@]}"; do
+    has_yaml_merge_keys "$(<"$layer")" && LAYER_SPEC_MERGE=(--yaml-fix-merge-anchor-to-spec)
+done
 # shellcheck disable=SC2016 # yq and jq expressions, not shell
-LAYER_CHECKS=$(PROFILE="$PROFILE" yq eval -o=json -I=0 '
+LAYER_CHECKS=$(PROFILE="$PROFILE" yq eval "${LAYER_SPEC_MERGE[@]}" -o=json -I=0 '
     ["model", "effort", "extra_args"] as $launch_keys |
     (.profiles[strenv(PROFILE)].claude // {}) as $profile_claude |
     {

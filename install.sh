@@ -269,8 +269,21 @@ else
 fi
 
 # Check yq (YAML processor - required for reading .pappardelle.yml)
+# 4.47 is the first yq that reads YAML merge keys the way the spec (and the
+# TUI) does; see merge_config_layers in scripts/provider-helpers.sh.
+YQ_MIN_MINOR=47
 if command -v yq &>/dev/null; then
-    print_status "yq installed"
+    yq_version=$(yq --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    yq_major=${yq_version%%.*}
+    yq_minor=${yq_version#*.}
+    yq_minor=${yq_minor%%.*}
+    if [[ "$yq_major" -gt 4 || ( "$yq_major" -eq 4 && "$yq_minor" -ge "$YQ_MIN_MINOR" ) ]]; then
+        print_status "yq installed ($yq_version)"
+    else
+        print_error "yq ${yq_version:-of unknown version} is too old (need 4.${YQ_MIN_MINOR} or newer)"
+        print_info "Upgrade with: brew upgrade yq, or see https://github.com/mikefarah/yq#install"
+        MISSING+=("yq")
+    fi
 else
     print_error "yq not found (required for reading .pappardelle.yml)"
     print_info "Install with: brew install yq"

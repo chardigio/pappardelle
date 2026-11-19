@@ -23,6 +23,7 @@ import {
 } from './pane-frame-options.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 import {shellQuote} from './shell-quote.ts';
+import {DEFAULT_RESOLVED_AGENT_PROFILE} from './config.ts';
 import {attachStatusMonitor} from './program-status-monitor.ts';
 import {
 	StartupTrace,
@@ -1056,6 +1057,34 @@ test.serial(
 					arg.startsWith('PAPPARDELLE_AGENT_SESSIONS=') &&
 					arg.endsWith('/space-state/TEST-NEW.agent-sessions.json'),
 			),
+		);
+	},
+);
+
+test.serial(
+	"a new agent session carries its agent profile's env, one -e per variable",
+	async t => {
+		const calls: string[][] = [];
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			if (args.includes('has-session')) throw new Error('no session');
+			return '';
+		};
+		await ensureAgentSession('TEST-ENV', '/tmp', false, run, {
+			...DEFAULT_RESOLVED_AGENT_PROFILE,
+			name: 'opus',
+			env: {CODE_MODE: '1', SPACED: "a b'c", PI_PROGRAM_STATUS: '0'},
+		});
+		const created = calls.find(args => args.includes('new-session'))!;
+		const envFlags = created.flatMap((arg, i) =>
+			arg === '-e' ? [created[i + 1]!] : [],
+		);
+		t.true(envFlags.includes('CODE_MODE=1'));
+		t.true(envFlags.includes("SPACED=a b'c"));
+		// tmux keeps the last -e for a name, so pappardelle's own value wins.
+		t.is(
+			envFlags.findLast(flag => flag.startsWith('PI_PROGRAM_STATUS=')),
+			'PI_PROGRAM_STATUS=1',
 		);
 	},
 );

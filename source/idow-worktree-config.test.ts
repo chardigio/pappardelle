@@ -733,6 +733,30 @@ test('--agent-profile launches another agent profile for that run only', async t
 	t.is(launchArg('--agent-profile'), 'claude');
 });
 
+test("the agent profile's env reaches start-agent-session.sh, one --agent-env per variable", async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		stringify({
+			agent_profiles: {
+				opus: {command: 'claude', env: {CODE_MODE: '1', SPACED: "a b'c"}},
+			},
+		}),
+	);
+	const envArgs = () => {
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		return args.flatMap((arg, i) =>
+			arg === '--agent-env' ? [args[i + 1]] : [],
+		);
+	};
+
+	await fixture.run({agentProfile: 'opus'});
+	t.deepEqual(envArgs(), ['CODE_MODE=1', "SPACED=a b'c"]);
+
+	await fixture.run();
+	t.deepEqual(envArgs(), []);
+});
+
 test('--agent-profile on a space whose agent is running says it was not applied', async t => {
 	const fixture = setup(t);
 	fs.writeFileSync(

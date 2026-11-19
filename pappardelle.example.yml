@@ -56,6 +56,9 @@ team_prefix: ENG
 # rendered through model_args/effort_args. claude, codex and agy need only
 # command/model/effort: their flags, prompt and resume args are built in
 # (scripts/builtin-agents.json), and any field set here overrides them.
+# `env` sets variables for that agent only. The sous-chef launches with the
+# top-level `agent_profile`, so env meant only for spaces goes on the profiles
+# spaces select, not that one.
 # agent_profiles:
 #   claude:
 #     command: claude
@@ -72,6 +75,10 @@ team_prefix: ENG
 #   claude-local:
 #     command: claude-local
 #     is_claude: true                       # Force claude treatment despite the name
+#   claude-code-mode:
+#     command: claude
+#     env:                                  # Set on the agent's tmux session, launch and resume alike
+#       CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '1'   # Strings only, so quote numbers
 #   aider:
 #     command: aider
 #     model: sonnet

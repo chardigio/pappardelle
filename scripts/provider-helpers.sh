@@ -16,35 +16,55 @@
 _RENAME_ONE_INIT_CMD='with(select(.initialization_command == null and (.claude.initialization_command | tag) == "!!str"); .initialization_command = .claude.initialization_command | del(.claude.initialization_command))'
 RENAME_DEPRECATED_INIT_CMD_EXPR="($_RENAME_ONE_INIT_CMD | with(select(.profiles | tag == \"!!map\"); .profiles[] |= ($_RENAME_ONE_INIT_CMD)))"
 
+# Whether the YAML text uses a merge key (`<<: *anchor`). A `<<` with no colon
+# after it, such as a heredoc in a command, isn't one.
+# Args: $1=YAML text
+has_yaml_merge_keys() {
+    local merge_key='(^|[[:space:]{,])<<[[:space:]]*:'
+    [[ "$1" =~ $merge_key ]]
+}
+
 # Deep-merge the config layers into one YAML document on stdout, lowest to
 # highest priority: home -> project -> local. Missing files are skipped. Maps
 # merge key by key and arrays replace wholesale, which is what deepMerge() in
 # source/config.ts does, so the TUI and idow see the same effective config.
+# YAML merge keys (`<<: *anchor`) are resolved here, the way the YAML spec and
+# the TUI's parser do (a map's own keys win wherever the merge key sits), so
+# nothing downstream reads one with yq's older rules. That needs yq 4.47+, so
+# only configs that use merge keys need it.
 # Args: $1=home_config_path, $2=project_config_path, $3=local_config_path
 merge_config_layers() {
-    local files=() f needs_rename=false
+    local files=() f needs_rename=false has_merge_keys=false
     for f in "$@"; do
         [[ -n "$f" && -f "$f" ]] || continue
         files+=("$f")
         # A layer that never names the key has nothing to rename, and the yq
         # pass per layer is most of a merge's cost. Read without a subprocess.
-        [[ "$(<"$f")" == *initialization_command* ]] && needs_rename=true
+        local content
+        content="$(<"$f")"
+        [[ "$content" == *initialization_command* ]] && needs_rename=true
+        has_yaml_merge_keys "$content" && has_merge_keys=true
     done
     [[ ${#files[@]} -gt 0 ]] || { echo "{}"; return; }
+    local spec_merge=() explode=""
+    if [[ "$has_merge_keys" == true ]]; then
+        spec_merge=(--yaml-fix-merge-anchor-to-spec)
+        explode=" | explode(.)"
+    fi
     if [[ ${#files[@]} -eq 1 ]]; then
-        if [[ "$needs_rename" == true ]]; then
-            yq "$RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[0]}"
+        if [[ "$needs_rename" == true || "$has_merge_keys" == true ]]; then
+            yq eval "${spec_merge[@]}" ".$explode | $RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[0]}"
         else
             cat "${files[0]}"
         fi
         return
     fi
-    local expr="select(fileIndex==0)" i
+    local expr="(select(fileIndex==0)$explode)" i
     for (( i=1; i<${#files[@]}; i++ )); do
-        expr="$expr * select(fileIndex==$i)"
+        expr="$expr * (select(fileIndex==$i)$explode)"
     done
     if [[ "$needs_rename" == false ]]; then
-        yq eval-all "$expr" "${files[@]}"
+        yq eval-all "${spec_merge[@]}" "$expr" "${files[@]}"
         return
     fi
     # Each layer is rewritten to its own file first: yq's `*` ignores per-document
@@ -56,7 +76,7 @@ merge_config_layers() {
         trap 'rm -rf "$tmpdir"' EXIT
         renamed=()
         for (( i=0; i<${#files[@]}; i++ )); do
-            yq "$RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[$i]}" > "$tmpdir/$i.yml" || exit 1
+            yq eval "${spec_merge[@]}" ".$explode | $RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[$i]}" > "$tmpdir/$i.yml" || exit 1
             renamed+=("$tmpdir/$i.yml")
         done
         yq eval-all "$expr" "${renamed[@]}"
