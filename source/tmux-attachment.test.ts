@@ -1096,10 +1096,6 @@ test.serial(
 		);
 		t.true(calls[1]!.includes('PAPPARDELLE_SPACE=TEST-NEW'));
 		t.true(calls[1]!.includes('custom-ui'));
-		// An agent started by hand in the companion isn't the space's agent.
-		t.false(
-			calls[1]!.some(arg => arg.startsWith('PAPPARDELLE_AGENT_PROFILE=')),
-		);
 	},
 );
 

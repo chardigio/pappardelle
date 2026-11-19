@@ -25,14 +25,14 @@ LOG_INTERVAL_SECONDS = 60
 Statements = Sequence[tuple[str, Sequence[Any]]]
 
 
-def _state_dir() -> Path:
+def state_dir() -> Path:
     return Path.home() / ".pappardelle"
 
 
 def _recorded_flag() -> dict[str, Any]:
     """What the CLI last read from the home config (source/state-flag.ts)."""
     try:
-        with open(_state_dir() / "state-flag.json") as f:
+        with open(state_dir() / "state-flag.json") as f:
             recorded = json.load(f)
         return recorded if isinstance(recorded, dict) else {}
     except (OSError, ValueError):
@@ -50,7 +50,7 @@ def state_db_path(environ: Mapping[str, str] = os.environ) -> Optional[str]:
     return (
         environ.get("PAPPARDELLE_STATE_DB")
         or recorded.get("db")
-        or str(_state_dir() / "state.db")
+        or str(state_dir() / "state.db")
     )
 
 
@@ -79,7 +79,7 @@ def _log_failure(message: str) -> None:
     hook event of every agent meets them.
     """
     try:
-        log_dir = _state_dir() / "logs"
+        log_dir = state_dir() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         stamp = log_dir / "state-db-failure.stamp"
         try:
@@ -192,15 +192,8 @@ class SpaceRow(NamedTuple):
     agent_session: str
 
 
-def space_at_path(db_path: str, cwd: str) -> Optional[SpaceRow]:
-    """The open space or main whose stored worktree is cwd or its nearest
-    ancestor, as identityAt in source/space-identity.ts.
-
-    Both sides go through realpath, so a directory reached through a symlink
-    belongs to the same space. A path inside a git checkout nested in that
-    worktree (an agent's worktree under the main checkout) belongs to none.
-    None when no space holds cwd, or when the database cannot be read.
-    """
+def _read(db_path: str, sql: str, parameters: Sequence[Any] = ()) -> Optional[list[Any]]:
+    """The rows a query returns, or None when the database cannot be read."""
     try:
         import sqlite3
     except ImportError:
@@ -212,16 +205,31 @@ def space_at_path(db_path: str, cwd: str) -> Optional[SpaceRow]:
             timeout=BUSY_TIMEOUT_SECONDS,
         )
         try:
-            # Closed rows are kept forever, and a closed space holds no caller.
-            rows = connection.execute(
-                """SELECT i.repo, i.key, i.worktree_path, i.agent_session
-                FROM space_identities i
-                WHERE i.key = 'main' OR EXISTS (
-                    SELECT 1 FROM spaces s WHERE s.repo = i.repo AND s.key = i.key)"""
-            ).fetchall()
+            return connection.execute(sql, parameters).fetchall()
         finally:
             connection.close()
     except sqlite3.Error:
+        return None
+
+
+def space_at_path(db_path: str, cwd: str) -> Optional[SpaceRow]:
+    """The open space or main whose stored worktree is cwd or its nearest
+    ancestor, as identityAt in source/space-identity.ts.
+
+    Both sides go through realpath, so a directory reached through a symlink
+    belongs to the same space. A path inside a git checkout nested in that
+    worktree (an agent's worktree under the main checkout) belongs to none.
+    None when no space holds cwd, or when the database cannot be read.
+    """
+    # Closed rows are kept forever, and a closed space holds no caller.
+    rows = _read(
+        db_path,
+        """SELECT i.repo, i.key, i.worktree_path, i.agent_session
+        FROM space_identities i
+        WHERE i.key = 'main' OR EXISTS (
+            SELECT 1 FROM spaces s WHERE s.repo = i.repo AND s.key = i.key)""",
+    )
+    if rows is None:
         return None
     roots: dict[str, SpaceRow] = {}
     for row in rows:
@@ -236,3 +244,21 @@ def space_at_path(db_path: str, cwd: str) -> Optional[SpaceRow]:
         if parent == directory:
             return None
         directory = parent
+
+
+def agent_session_name(db_path: str, repo: str, key: str) -> Optional[str]:
+    """The name of a space's agent session, as it was stored when the space was created."""
+    rows = _read(db_path, "SELECT agent_session FROM space_identities WHERE repo = ? AND key = ?", (repo, key))
+    return rows[0][0] if rows else None
+
+
+def launched_agent_profile(db_path: str, repo: str, key: str) -> Optional[tuple[str, bool]]:
+    """The agent profile a space's agent session was last started with, and
+    whether it is a claude one (SpaceState.agentProfile in source/space-state.ts)."""
+    rows = _read(
+        db_path,
+        """SELECT agent_profile, agent_is_claude FROM space_state
+        WHERE repo = ? AND key = ? AND agent_profile IS NOT NULL""",
+        (repo, key),
+    )
+    return (rows[0][0], rows[0][1] == 1) if rows else None

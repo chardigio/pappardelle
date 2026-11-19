@@ -1,11 +1,13 @@
 import {execFile} from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import test from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
+import {newSpaceIdentity} from './space-identity.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
 
 const run = promisify(execFile);
@@ -45,7 +47,7 @@ const entry = (id: string, started: string | null = STARTED): Entry => ({
 });
 
 contractTest(
-	'the hook hands its file a path under the space-state directory',
+	"a space's file is in the space-state directory, where the hook writes it",
 	(t, state) => {
 		t.is(
 			state.daos.agentSessions.file('STA-1'),
@@ -206,13 +208,35 @@ test('the two stores leave the same files for the same history', async t => {
 // The hook and a config migration both rewrite the whole file. Without the
 // database either could write back what it read before the other's change.
 test('sqlite: a session recorded by the hook and a profile renamed by another process both survive', async t => {
-	const state = testState(t, {sqlite: true});
+	// The hook finds the files under its home directory.
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-hook-home-'));
+	t.teardown(() => {
+		fs.rmSync(home, {recursive: true, force: true});
+	});
+	const state = testState(t, {
+		sqlite: true,
+		stateDir: path.join(home, '.pappardelle'),
+	});
 	const f = fixture(state);
 	const dbPath = stateDbPath(state.stateDir);
 	// The hook only writes to a database that Pappardelle has already created.
 	openStateDb(dbPath);
 	const keys = Array.from({length: 25}, (_, i) => `STA-${i}`);
-	for (const key of keys) f.record(key, {claude: entry(`${key}-claude`)});
+	for (const key of keys) {
+		f.record(key, {claude: entry(`${key}-claude`)});
+		await state.daos.spaceIdentities.record(
+			newSpaceIdentity({
+				repo: 'repo',
+				key,
+				worktreePath: path.join(home, key),
+				socket: 'pappardelle_inner',
+			}),
+		);
+		await state.daos.spaceState.write(key, {
+			agentProfile: {name: 'codex', isClaude: false},
+		});
+	}
+
 	// The real hook code, under a process table that says codex runs in the
 	// agent pane of each space in turn.
 	const hook = run(
@@ -231,28 +255,21 @@ table = {
     97: (96, "zsh -ic codex --yolo"),
     96: (1, "tmux -L pappardelle_inner new-session"),
 }
-for key in sys.argv[3:]:
-    env = {
-        "PAPPARDELLE_AGENT_PROFILE": "codex",
-        "PAPPARDELLE_AGENT_IS_CLAUDE": "false",
-        "PAPPARDELLE_AGENT_SESSIONS": sys.argv[2] + "/" + key + ".agent-sessions.json",
-        "PAPPARDELLE_AGENT_SESSIONS_REPO": "repo",
-        "PAPPARDELLE_AGENT_SESSIONS_KEY": key,
-    }
+for key in sys.argv[2:]:
     assert agent_session.record_agent_session(
         {"session_id": key + "-codex", "hook_event_name": "SessionStart"},
-        False, env, 100, lambda: table,
-        split_pane=lambda _env: False, started=lambda _pid: ${JSON.stringify(STARTED)},
+        False, {"PAPPARDELLE_REPO": "repo", "PAPPARDELLE_SPACE": key}, 100, lambda: table,
+        pane_session=lambda _env: agent_session.PaneSession("agent-repo-" + key, True),
+        started=lambda _pid: ${JSON.stringify(STARTED)},
     )
 `,
 			HOOK_MODULE,
-			path.dirname(f.file('STA-0')),
 			...keys,
 		],
 		{
 			env: {
 				PATH: process.env['PATH'],
-				HOME: path.join(state.stateDir, 'home'),
+				HOME: home,
 				PAPPARDELLE_SQLITE_STATE: '1',
 				PAPPARDELLE_STATE_DB: dbPath,
 			},
@@ -289,15 +306,5 @@ for key in sys.argv[3:]:
 			.get()!.rows,
 		keys.length * 2,
 	);
-	t.false(
-		fs.existsSync(
-			path.join(
-				state.stateDir,
-				'home',
-				'.pappardelle',
-				'logs',
-				'hook-events.log',
-			),
-		),
-	);
+	t.false(fs.existsSync(path.join(state.stateDir, 'logs', 'hook-events.log')));
 });
