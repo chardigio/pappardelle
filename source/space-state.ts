@@ -53,7 +53,17 @@ export interface SpaceState {
 	profile?: string;
 	/** The issue's title as the tracker last gave it to Pappardelle. */
 	issueTitle?: string;
+	/**
+	 * The agent profile whose agent was last started in the space's agent
+	 * session, which is the one running there: a picker override launches once
+	 * and is saved nowhere else. The hook that records the agent's session id
+	 * (plugins/pappardelle/hooks/agent_session.py) reads it.
+	 */
+	agentProfile?: LaunchedAgentProfile;
 }
+
+/** The agent profile an agent session was started with. */
+export type LaunchedAgentProfile = {name: string; isClaude: boolean};
 
 /**
  * The fields a writer sets. A key present with the value `undefined` removes
@@ -62,7 +72,10 @@ export interface SpaceState {
 export type SpaceStatePatch = Omit<SpaceState, 'prLinks' | 'updatedAt'>;
 
 /** What the rail poll learns about a space. It never chooses the profile. */
-export type RailStatusPatch = Omit<SpaceStatePatch, 'profile' | 'issueTitle'>;
+export type RailStatusPatch = Omit<
+	SpaceStatePatch,
+	'profile' | 'issueTitle' | 'agentProfile'
+>;
 
 /** What is recorded for one space. */
 export type SpaceStateLookup =
@@ -132,6 +145,14 @@ function parseRecap(value: Record<string, unknown>): SpaceRecap {
 	};
 }
 
+function parseAgentProfile(value: unknown): LaunchedAgentProfile | undefined {
+	if (!isRecord(value)) return undefined;
+	const {name, isClaude} = value;
+	return typeof name === 'string' && typeof isClaude === 'boolean'
+		? {name, isClaude}
+		: undefined;
+}
+
 function parsePrLink(value: unknown): SpacePrLink | undefined {
 	if (!isRecord(value)) return undefined;
 	const {host, project, localBranch, remoteBranch, url, number} = value;
@@ -174,6 +195,7 @@ export function parseSpaceState(content: string): SpaceState {
 	const updatedAt = stringOrNothing(record['updatedAt']);
 	const profile = stringOrNothing(record['profile']);
 	const issueTitle = stringOrNothing(record['issueTitle']);
+	const agentProfile = parseAgentProfile(record['agentProfile']);
 	return {
 		...(Array.isArray(prLinks)
 			? {prLinks: prLinks.flatMap(link => parsePrLink(link) ?? [])}
@@ -189,6 +211,7 @@ export function parseSpaceState(content: string): SpaceState {
 		...(updatedAt === undefined ? {} : {updatedAt}),
 		...(profile === undefined ? {} : {profile}),
 		...(issueTitle === undefined ? {} : {issueTitle}),
+		...(agentProfile === undefined ? {} : {agentProfile}),
 	};
 }
 

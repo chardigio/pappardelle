@@ -74,8 +74,11 @@ const MIGRATIONS: string[] = [
 		recap_custom_title TEXT,
 		recap_last_prompt TEXT,
 		recap_last_assistant_excerpt TEXT,
+		agent_profile TEXT,
+		agent_is_claude INTEGER CHECK (agent_is_claude IN (0, 1)),
 		updated_at TEXT,
-		PRIMARY KEY (repo, key)
+		PRIMARY KEY (repo, key),
+		CHECK ((agent_profile IS NULL) = (agent_is_claude IS NULL))
 	) STRICT;
 	CREATE TABLE space_pr_links (
 		repo TEXT NOT NULL,

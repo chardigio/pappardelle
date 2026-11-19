@@ -40,6 +40,8 @@ type Columns = {
 	recap_custom_title: string | null;
 	recap_last_prompt: string | null;
 	recap_last_assistant_excerpt: string | null;
+	agent_profile: string | null;
+	agent_is_claude: 0 | 1 | null;
 };
 
 type Row = Columns & {updated_at: string | null};
@@ -63,13 +65,15 @@ const EMPTY: Columns = {
 	recap_custom_title: null,
 	recap_last_prompt: null,
 	recap_last_assistant_excerpt: null,
+	agent_profile: null,
+	agent_is_claude: null,
 };
 
 const COLUMN_NAMES = Object.keys(EMPTY) as Array<keyof Columns>;
 
-function conflictColumn(hasConflict: boolean | undefined): 0 | 1 | null {
-	if (hasConflict === undefined) return null;
-	return hasConflict ? 1 : 0;
+function booleanColumn(value: boolean | undefined): 0 | 1 | null {
+	if (value === undefined) return null;
+	return value ? 1 : 0;
 }
 
 /** The columns a patch sets, and no others. */
@@ -86,12 +90,17 @@ function columnsOf(patch: SpaceStatePatch): Partial<Columns> {
 		columns.unresolved_comment_count = patch.unresolvedCommentCount ?? null;
 	if ('prNumber' in patch) columns.pr_number = patch.prNumber ?? null;
 	if ('hasConflict' in patch)
-		columns.has_conflict = conflictColumn(patch.hasConflict);
+		columns.has_conflict = booleanColumn(patch.hasConflict);
 	if ('recap' in patch) {
 		columns.recap_custom_title = patch.recap?.customTitle ?? null;
 		columns.recap_last_prompt = patch.recap?.lastPrompt ?? null;
 		columns.recap_last_assistant_excerpt =
 			patch.recap?.lastAssistantExcerpt ?? null;
+	}
+
+	if ('agentProfile' in patch) {
+		columns.agent_profile = patch.agentProfile?.name ?? null;
+		columns.agent_is_claude = booleanColumn(patch.agentProfile?.isClaude);
 	}
 
 	return columns;
@@ -138,6 +147,14 @@ function toState(row: Row | null, links: SpacePrLink[]): SpaceState | null {
 		...(stored.updated_at === null ? {} : {updatedAt: stored.updated_at}),
 		...(stored.profile === null ? {} : {profile: stored.profile}),
 		...(stored.issue_title === null ? {} : {issueTitle: stored.issue_title}),
+		...(stored.agent_profile === null || stored.agent_is_claude === null
+			? {}
+			: {
+					agentProfile: {
+						name: stored.agent_profile,
+						isClaude: stored.agent_is_claude === 1,
+					},
+				}),
 	};
 }
 
@@ -217,15 +234,17 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 			`INSERT INTO space_state (repo, key) VALUES (?, ?)
 			ON CONFLICT (repo, key) DO NOTHING`,
 		).run(this.repo, key);
-		for (const name of changed) {
-			db.query(
-				`UPDATE space_state SET ${name} = ? WHERE repo = ? AND key = ?`,
-			).run(columns[name] ?? null, this.repo, key);
-		}
-
+		// One statement, so a pair of columns that must be set together never
+		// fails its check halfway.
 		db.query(
-			'UPDATE space_state SET updated_at = ? WHERE repo = ? AND key = ?',
-		).run(updatedAt, this.repo, key);
+			`UPDATE space_state SET ${changed.map(name => `${name} = ?`).join(', ')},
+				updated_at = ? WHERE repo = ? AND key = ?`,
+		).run(
+			...changed.map(name => columns[name] ?? null),
+			updatedAt,
+			this.repo,
+			key,
+		);
 		return true;
 	}
 
