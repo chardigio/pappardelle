@@ -8,27 +8,29 @@ the id is what keeps each space on its own conversation. The ids get a file of
 their own, beside the space-state file the TUI rewrites after every rail poll,
 so neither writer can drop the other's update.
 
-The agent session carries these variables, set by start-agent-session.sh and
-buildAgentSessionEnvArgs() in source/spawn-env.ts:
-    PAPPARDELLE_AGENT_PROFILE       - the agent profile the pane runs, from `agent_profiles:`
-    PAPPARDELLE_AGENT_IS_CLAUDE     - whether that agent profile is a claude one
-    PAPPARDELLE_AGENT_SESSIONS      - the agent-sessions file to write
-    PAPPARDELLE_AGENT_SESSIONS_REPO - the repo the space belongs to
-    PAPPARDELLE_AGENT_SESSIONS_KEY  - the space's key
+The space is the one the tmux session's PAPPARDELLE_REPO and PAPPARDELLE_SPACE
+name. The main space's sessions have no PAPPARDELLE_SPACE (buildSessionEnvArgs
+in source/spawn-env.ts), so a repo without a space is main. The space's record
+says which agent profile its agent session was last started with and whether
+it is a claude one (SpaceState.agentProfile in source/space-state.ts), and the
+id is recorded under that agent profile. With experimental.sqliteState on, the
+record is read from the state database and the id's rows are written there
+too (state_db.py); the file is written either way.
 
-The last two name the file's rows in the state database (state_db.py). The
-main space has no PAPPARDELLE_SPACE, so they are variables of their own.
-Without them, or without the database, only the file is written.
+The companion session carries the same space variables, so the hook only
+records from the first pane of the space's agent session: the session stored
+for the space, or without the database any session named agent-. An agent run
+by hand in the companion, or in a pane split off the agent's own (an Agent
+Teams teammate), is not the space's agent.
 
-Anything the agent spawns inherits them, including other agents: Claude
+Anything the agent spawns runs in its pane too, including other agents: Claude
 running codex for a review, or `claude -p` in a script. Those must not
 overwrite the id. Each hook knows which kind of agent fired it (update-status.py
 is Claude's, record-agent-session.py everyone else's), so an agent of the other
 kind is rejected outright, whatever the agent profile's command is called. One
 of the same kind is rejected when a shell separates it from the pane's agent: a
 session is only recorded when its agent is the only run of non-shell processes
-under tmux. The variables are set on the whole tmux session, so an agent in a
-pane split off the agent's own (an Agent Teams teammate) is rejected too.
+under tmux.
 
 An agent that spawns another of its own kind without a shell between them (an
 MCP server running `claude -p`) makes one run, so the run alone can't tell them
@@ -40,8 +42,8 @@ chat, and a relaunch ends it.
 codex 0.159+ runs hooks in its shared app-server daemon. The daemon carries the
 env of whichever codex started it, which may be no agent at all, and sits under
 that codex's tmux pane until it exits. Neither says which conversation fired a
-hook, so for a hook the daemon runs, the variables come from the agent session
-whose directory holds the payload's cwd instead. Only the daemon itself may
+hook, so for a hook the daemon runs, the space is the one whose agent session
+holds the payload's cwd instead. Only the daemon itself may
 record this way: it also runs codex's shell commands, so `codex exec` or
 `claude -p` run through one sits under the daemon with hooks of its own, and
 an agent in another terminal, or the app-server the Claude codex plugin runs,
@@ -68,13 +70,11 @@ RECORDED_EVENTS = {"SessionStart", "UserPromptSubmit"}
 
 SHELLS = {"sh", "bash", "zsh", "dash", "fish", "ksh", "tcsh", "csh"}
 
-SESSION_VARIABLES = (
-    "PAPPARDELLE_AGENT_PROFILE",
-    "PAPPARDELLE_AGENT_IS_CLAUDE",
-    "PAPPARDELLE_AGENT_SESSIONS",
-    "PAPPARDELLE_AGENT_SESSIONS_REPO",
-    "PAPPARDELLE_AGENT_SESSIONS_KEY",
-)
+# MAIN_WORKTREE_KEY in source/space-utils.ts.
+MAIN_KEY = "main"
+
+# sessionPrefix('agent', ...) in source/space-identity.ts.
+AGENT_SESSION_PREFIX = "agent-"
 
 # pid: (ppid, command line)
 ProcessTable = dict[int, tuple[int, str]]
@@ -83,11 +83,77 @@ ProcessTable = dict[int, tuple[int, str]]
 Chain = list[tuple[int, str]]
 
 
-class AgentPane(NamedTuple):
-    """The session variables of an agent session and the pid of its first pane."""
+class Space(NamedTuple):
+    repo: str
+    key: str
 
-    env: dict[str, str]
+
+class LaunchedAgent(NamedTuple):
+    """The agent profile a space's agent session was last started with."""
+
+    profile: str
+    is_claude: bool
+
+
+class AgentPane(NamedTuple):
+    """The space whose agent session holds a directory, and the pid of that session's first pane."""
+
+    space: Space
     pid: int
+
+
+class PaneSession(NamedTuple):
+    """The tmux session a pane is in, and whether it is the session's first
+    pane, where the agent was launched."""
+
+    name: str
+    first: bool
+
+
+def env_space(environ: Mapping[str, str]) -> Optional[Space]:
+    repo = environ.get("PAPPARDELLE_REPO", "").strip()
+    if not repo:
+        return None
+    return Space(repo, environ.get("PAPPARDELLE_SPACE", "").strip() or MAIN_KEY)
+
+
+class Stores:
+    """Where a space's record and its agent-sessions file are, in this hook's
+    mode: the state database while experimental.sqliteState is on, else the
+    files alone."""
+
+    def __init__(self) -> None:
+        self.state_db = _load_state_db()
+        self.db_path: Optional[str] = self.state_db.state_db_path()
+
+    def space_state_dir(self, space: Space) -> Path:
+        # getSpaceStateDir in source/space-state.ts.
+        return self.state_db.state_dir() / "repos" / space.repo / "space-state"
+
+    def sessions_file(self, space: Space) -> Path:
+        # JsonAgentSessionsDao.file in source/space-state.ts.
+        return self.space_state_dir(space) / f"{space.key}.agent-sessions.json"
+
+    def launched_agent(self, space: Space) -> Optional[LaunchedAgent]:
+        if self.db_path is not None:
+            launched = self.state_db.launched_agent_profile(self.db_path, space.repo, space.key)
+            return LaunchedAgent(*launched) if launched else None
+        try:
+            state = json.loads((self.space_state_dir(space) / f"{space.key}.json").read_text())
+        except (OSError, ValueError):
+            return None
+        agent = state.get("agentProfile") if isinstance(state, dict) else None
+        if not isinstance(agent, dict):
+            return None
+        name, is_claude = agent.get("name"), agent.get("isClaude")
+        if not isinstance(name, str) or not name or not isinstance(is_claude, bool):
+            return None
+        return LaunchedAgent(name, is_claude)
+
+    def is_agent_session(self, space: Space, session_name: str) -> bool:
+        if self.db_path is not None:
+            return self.state_db.agent_session_name(self.db_path, space.repo, space.key) == session_name
+        return session_name.startswith(AGENT_SESSION_PREFIX)
 
 
 def read_process_table() -> ProcessTable:
@@ -190,7 +256,7 @@ def process_start(pid: int) -> Optional[str]:
 
 
 def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
-    """The agent session of the space whose directory holds cwd."""
+    """The space whose agent session holds cwd, and that session's first pane."""
     tmux = shutil.which("tmux")
     if not tmux:
         return None
@@ -202,29 +268,35 @@ def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
         )
         return result.stdout if result.returncode == 0 else None
 
-    state_db = _load_state_db()
-    db_path = state_db.state_db_path() if state_db else None
-    if db_path is not None:
-        row = state_db.space_at_path(db_path, cwd)
+    stores = Stores()
+    space: Optional[Space] = None
+    if stores.db_path is not None:
+        row = stores.state_db.space_at_path(stores.db_path, cwd)
         if row is None:
             return None
-        session = row.agent_session
+        session, space = row.agent_session, Space(row.repo, row.key)
     else:
         session = _agent_session_holding(cwd, run)
         if session is None:
             return None
 
     target_session = f"={session}:"
-    output = run("show-environment", "-t", target_session)
     panes = run("list-panes", "-s", "-t", target_session, "-F", "#{pane_pid}")
-    if output is None or not panes or not panes.split()[0].isdigit():
+    if not panes or not panes.split()[0].isdigit():
         return None
-    env: dict[str, str] = {}
-    for line in output.splitlines():
-        key, sep, value = line.partition("=")
-        if sep and key in SESSION_VARIABLES:
-            env[key] = value
-    return AgentPane(env, int(panes.split()[0]))
+    if space is None:
+        output = run("show-environment", "-t", target_session)
+        if output is None:
+            return None
+        env = {}
+        for line in output.splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                env[key] = value
+        space = env_space(env)
+        if space is None:
+            return None
+    return AgentPane(space, int(panes.split()[0]))
 
 
 def _agent_session_holding(cwd: str, run: Callable[..., Optional[str]]) -> Optional[str]:
@@ -249,26 +321,24 @@ def _agent_session_holding(cwd: str, run: Callable[..., Optional[str]]) -> Optio
     return matches[0][1]
 
 
-def in_split_pane(environ: Mapping[str, str]) -> bool:
-    """
-    Whether the hook runs in a pane other than the first one of its tmux
-    session, which is where the agent was launched. False when that can't be
-    told.
-    """
+def tmux_pane_session(environ: Mapping[str, str]) -> Optional[PaneSession]:
+    """The tmux session the hook's pane is in, or None outside tmux."""
     pane = environ.get("TMUX_PANE", "")
     tmux = shutil.which("tmux")
     if not pane or not environ.get("TMUX") or not tmux:
-        return False
+        return None
     # With TMUX set, tmux talks to the server the pane belongs to.
     result = subprocess.run(
-        [tmux, "list-panes", "-s", "-t", pane, "-F", "#{pane_id}"],
+        [tmux, "list-panes", "-s", "-t", pane, "-F", "#{pane_id}\t#{session_name}"],
         capture_output=True,
         text=True,
         timeout=5,
         env=dict(environ),
     )
-    panes = result.stdout.split()
-    return result.returncode == 0 and bool(panes) and panes[0] != pane
+    first, _, session = result.stdout.partition("\n")[0].partition("\t")
+    if result.returncode != 0 or not session:
+        return None
+    return PaneSession(session, first == pane)
 
 
 def is_agy_payload(payload: Any) -> bool:
@@ -282,13 +352,13 @@ def record_agent_session(
     hook_pid: Optional[int] = None,
     process_table: Callable[[], ProcessTable] = read_process_table,
     agent_pane_for_cwd: Callable[[str], Optional[AgentPane]] = tmux_agent_pane,
-    split_pane: Callable[[Mapping[str, str]], bool] = in_split_pane,
+    pane_session: Callable[[Mapping[str, str]], Optional[PaneSession]] = tmux_pane_session,
     started: Optional[Callable[[int], Optional[str]]] = None,
 ) -> bool:
     """
-    Record the id and the agent's pid under the agent profile's name in the
-    agent-sessions file. is_claude_hook says whether Claude Code fired the
-    hook. Returns whether it wrote.
+    Record the id and the agent's pid under the launched agent profile's name
+    in the space's agent-sessions file. is_claude_hook says whether Claude
+    Code fired the hook. Returns whether it wrote.
     """
     env = os.environ if environ is None else environ
     started = started or process_start
@@ -307,47 +377,49 @@ def record_agent_session(
     # UserPromptSubmit fires on every prompt; the process walk only runs when
     # the entry would change. A relaunch resuming the same id still records its
     # new pid.
-    env_sessions_path = env.get("PAPPARDELLE_AGENT_SESSIONS", "").strip()
-    if env_sessions_path:
-        env_profile = env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
-        recorded = read_sessions(Path(env_sessions_path))
-        entry = recorded.get(env_profile) if recorded is not None else None
+    pane_space = env_space(env)
+    if pane_space is None and (is_claude_hook or is_agy):
+        # Only codex's daemon runs hooks away from the agent's own env, so
+        # another agent outside a space's sessions isn't a pappardelle agent.
+        return False
+    stores = Stores()
+    if pane_space is not None:
+        launched = stores.launched_agent(pane_space)
+        recorded = read_sessions(stores.sessions_file(pane_space)) if launched else None
+        entry = recorded.get(launched.profile) if launched and recorded is not None else None
         # A live agy keeps its first id, so its subagents' ids end here too.
         if owner_alive(entry, started) and (is_agy or entry_session_id(entry) == session_id):
             return False
-    elif is_claude_hook or is_agy:
-        # Only codex's daemon runs hooks away from the agent's own env, so
-        # another agent without the variables isn't a pappardelle agent.
-        return False
 
     table = process_table()
     chain, in_tmux = ancestors(hook_pid or os.getpid(), table)
     hook_agent = hook_agent_pid(chain)
     daemons = {pid for pid, args in chain if _is_managed_daemon(args)}
     from_daemon = hook_agent in daemons
-    session_env: Optional[Mapping[str, str]]
+    space: Optional[Space]
     if from_daemon:
         cwd = payload.get("cwd")
         pane = agent_pane_for_cwd(cwd) if isinstance(cwd, str) and cwd else None
-        session_env = pane.env if pane else None
+        space = pane.space if pane else None
         agent_pid = pane_agent_pid(pane.pid, table) if pane else None
-    elif in_tmux and not daemons:
-        if sole_agent_run(chain) is None or split_pane(env):
+    elif in_tmux and not daemons and pane_space is not None:
+        if sole_agent_run(chain) is None:
             return False
-        session_env = env
+        session = pane_session(env)
+        if session is None or not session.first or not stores.is_agent_session(pane_space, session.name):
+            return False
+        space = pane_space
         agent_pid = hook_agent
     else:
         return False
-    if session_env is None or agent_pid is None:
+    if space is None or agent_pid is None:
         return False
 
-    agent_profile = session_env.get("PAPPARDELLE_AGENT_PROFILE", "").strip()
-    sessions_path = session_env.get("PAPPARDELLE_AGENT_SESSIONS", "").strip()
-    is_claude = session_env.get("PAPPARDELLE_AGENT_IS_CLAUDE", "").strip() == "true"
-    if not agent_profile or not sessions_path or is_claude != is_claude_hook:
+    launched = stores.launched_agent(space)
+    if launched is None or launched.is_claude != is_claude_hook:
         return False
-
-    path = Path(sessions_path)
+    agent_profile = launched.profile
+    path = stores.sessions_file(space)
     written_sessions: dict[str, Any] = {}
 
     # The read, the ownership check and the write run as one step: with the
@@ -378,14 +450,10 @@ def record_agent_session(
         written_sessions.update(sessions)
         return written
 
-    repo = session_env.get("PAPPARDELLE_AGENT_SESSIONS_REPO", "").strip()
-    key = session_env.get("PAPPARDELLE_AGENT_SESSIONS_KEY", "").strip()
-    state_db = _load_state_db() if repo and key else None
-    db_path = state_db.state_db_path() if state_db else None
-    if state_db is None or db_path is None:
+    if stores.db_path is None:
         return write_file() is not None
-    state_db.write_through(
-        db_path, path, write_file, lambda: session_rows(repo, key, written_sessions)
+    stores.state_db.write_through(
+        stores.db_path, path, write_file, lambda: session_rows(space.repo, space.key, written_sessions)
     )
     return bool(written_sessions)
 
@@ -396,7 +464,7 @@ def _load_state_db() -> Any:
 
     spec = importlib.util.spec_from_file_location("state_db", Path(__file__).parent / "state_db.py")
     if spec is None or spec.loader is None:
-        return None
+        raise ImportError("Could not load state_db")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
