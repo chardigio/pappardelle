@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'ava';
 import {
 	SESSION_LABEL,
@@ -77,4 +80,14 @@ test('envArgsToMap ignores anything that is not a -e pair', t => {
 	t.deepEqual(envArgsToMap(['-d', '-s', 'name']), {});
 	// An empty name would be meaningless in the environment.
 	t.deepEqual(envArgsToMap(['-e', '=value']), {});
+});
+
+test('consumePendingAgentCommand returns the recorded command once', async t => {
+	const {consumePendingAgentCommand} = await import('./sessions.ts');
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pending-'));
+	const dir = path.join(home, '.pappardelle/repos/r/pending-agent');
+	fs.mkdirSync(dir, {recursive: true});
+	fs.writeFileSync(path.join(dir, 'K-1.cmd'), 'claude K-1');
+	t.is(consumePendingAgentCommand('r', 'K-1', home), 'claude K-1');
+	t.is(consumePendingAgentCommand('r', 'K-1', home), null);
 });

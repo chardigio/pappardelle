@@ -1102,7 +1102,7 @@ backend?: 'tmux' | 'herdr' | 'herdr-app';
 - Sessions survive a restart: hc keeps terminals alive with no viewer attached, as tmux keeps its sessions
 - A send into an agent showing an approval or question is refused. Under tmux Pappardelle reads the screen; under herdr, `hc` refuses and reports `blocked`, and Pappardelle reports the same `prompt` result
 - `herdr-app` must run **inside** the Herdr window: start Pappardelle from a Herdr pane. Outside it, Pappardelle says so and exits rather than running a rail nobody can see
-- Under `herdr-app`, each workspace gets a tab in the window, named after the space, holding its agent and companion panes. Selecting a space selects that tab, and the window's tab strip becomes the space switcher
+- Under `herdr-app`, the window holds one tab with three panes: the rail, the selected space's agent and its companion. Selecting a space shows that space's terminals in the agent and companion panes, as tmux does
 - Two tmux-only behaviours have no equivalent here: the startup gate that held an agent until the status monitor attached (status comes from the terminal's screen) and the hidden status bar on inner sessions. Pane sizing, drag-to-resize and zoom come from Herdr instead of Pappardelle's own layout code
 - `PAPPARDELLE_BACKEND=herdr-app pappardelle` tries a backend without editing a config
 

@@ -361,10 +361,22 @@ if ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$AGENT_SESSION:" 2>/dev/null
             if [[ -n "$INIT_CMD" ]]; then
                 RESUME_CMD="${RESUME_CMD}${PROMPT_WORDS:+ $PROMPT_WORDS}"
             fi
-            new_launch_session "$AGENT_SESSION" "${RESUME_CMD} || { printf '\\033[A\\033[2K'; false; } || ${LAUNCH_CMD}" "${AGENT_SESSION_ENV[@]}"
+            FINAL_CMD="${RESUME_CMD} || { printf '\\033[A\\033[2K'; false; } || ${LAUNCH_CMD}"
         else
-            new_launch_session "$AGENT_SESSION" "${LAUNCH_CMD}" "${AGENT_SESSION_ENV[@]}"
+            FINAL_CMD="${LAUNCH_CMD}"
         fi
+        case "${PAPPARDELLE_BACKEND:-tmux}" in
+        herdr | herdr-app)
+            # The TUI starts the agent as an hc terminal and takes this command
+            # as is (consumePendingAgentCommand in source/herdr/sessions.ts), so
+            # the first prompt and resume args match what tmux would have run.
+            PENDING_DIR="$HOME/.pappardelle/repos/$REPO_NAME/pending-agent"
+            mkdir -p "$PENDING_DIR"
+            printf '%s' "$FINAL_CMD" >"$PENDING_DIR/$ISSUE_KEY.cmd"
+            exit 0
+            ;;
+        esac
+        new_launch_session "$AGENT_SESSION" "$FINAL_CMD" "${AGENT_SESSION_ENV[@]}"
     fi
 fi
 

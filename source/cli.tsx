@@ -339,6 +339,9 @@ bootstrapDone?.();
 // Logged once, so a bug report says which pane backend was in play.
 {
 	const backend = activeBackend();
+	// Scripts the TUI spawns (idow) read the choice from the environment; a
+	// config-file `backend:` would otherwise be invisible to them.
+	process.env['PAPPARDELLE_BACKEND'] = backend;
 	if (backend !== 'tmux') {
 		createLogger('cli').info(`Terminal backend: ${backend}`);
 	}

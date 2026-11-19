@@ -15,6 +15,9 @@
 //     chrome and session lifecycle.
 
 import {execFileSync} from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
 	DEFAULT_COMPANION_COMMAND,
 	DEFAULT_RESOLVED_AGENT_PROFILE,
@@ -77,6 +80,32 @@ function agentEnv(
 }
 
 /**
+ * The launch command idow's start-agent-session.sh recorded for a new space,
+ * which carries its first prompt. Read once: a later start is a resume.
+ */
+export function consumePendingAgentCommand(
+	repoName: string,
+	issueKey: string,
+	home = os.homedir(),
+): string | null {
+	const file = path.join(
+		home,
+		'.pappardelle',
+		'repos',
+		repoName,
+		'pending-agent',
+		`${issueKey}.cmd`,
+	);
+	try {
+		const command = fs.readFileSync(file, 'utf8').trim();
+		fs.rmSync(file, {force: true});
+		return command || null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Start a space's agent unless one is already live. Mirrors
  * `ensureAgentSession` in tmux.ts: the same resume command, the same
  * login-shell handoff, and `keep` so a lost program leaves a shell rather than
@@ -116,13 +145,15 @@ export async function ensureHerdrAgentSession(
 	// `buildAgentResumeCommand` already folds in the rules flag when the launch
 	// asks for it, so the command is taken as it comes. That keeps an agent
 	// launched here byte-identical to one launched under tmux.
-	const command = buildAgentResumeCommand(
-		issueKey,
-		options.skipPermissions ?? false,
-		profile,
-		options.sessionId,
-		options.launch,
-	);
+	const command =
+		consumePendingAgentCommand(repoName, issueKey) ??
+		buildAgentResumeCommand(
+			issueKey,
+			options.skipPermissions ?? false,
+			profile,
+			options.sessionId,
+			options.launch,
+		);
 
 	try {
 		await runTerminal({

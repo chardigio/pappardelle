@@ -208,6 +208,8 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 			// from inside a Pappardelle session inherits it and the fixture
 			// resolves the real checkout instead of its own.
 			delete env.PAPPARDELLE_MAIN_REPO_ROOT;
+			// Likewise the backend a Herdr-hosted suite run inherits.
+			delete env.PAPPARDELLE_BACKEND;
 			return new Promise((resolve, reject) => {
 				const child = execFile(
 					'bash',
@@ -630,6 +632,21 @@ test('idow passes no companion rules without workspace_aware_agents', async t =>
 	t.is(launchFlags(), '-m gpt-5.5');
 	await fixture.run({profile: 'ag'});
 	t.false(fs.existsSync(path.join(worktree, '.agents')));
+});
+
+// Under herdr Pappardelle starts the agent as an hc terminal; a tmux one from
+// idow would be a second agent on the same conversation.
+test('idow leaves the agent session to Pappardelle under a herdr backend', async t => {
+	const fixture = setup(t);
+	const worktree = path.join(fixture.home, '.worktrees/main checkout/test-abc');
+	fs.mkdirSync(worktree, {recursive: true});
+
+	const output = await fixture.run({
+		extraEnv: {PAPPARDELLE_BACKEND: 'herdr-app'},
+	});
+	// The script still runs, to record the launch; it must not start tmux.
+	t.true(fs.existsSync(fixture.launchArgs), output);
+	t.regex(output, /Agent session left to Pappardelle/);
 });
 
 // codex's `resume --last` is not scoped to the cwd, so resuming in a brand new
