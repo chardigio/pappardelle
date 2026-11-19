@@ -34,6 +34,7 @@ test('rm anywhere else needs a person', t => {
 	t.false(allowed('find /home/u -delete'));
 	t.false(allowed('find /tmp/q-a -exec rm {} +'));
 	t.false(allowed('D=$(mktemp -d)/../../home/u; rm -rf $D'));
+	t.false(allowed('D=$(mktemp)/../../home; rm -rf $D'));
 	t.false(allowed('D="$(mktemp -d; echo $HOME)"; rm -rf $D'));
 });
 

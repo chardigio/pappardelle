@@ -46,8 +46,9 @@ function unquote(word: string): string {
 // appends to whatever the variable held, so it's never scratch.
 const ASSIGNMENT_STATEMENT =
 	/(?:^|[;&|\n])\s*((?:[A-Za-z_]\w*\+?=(?:"[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)\s*)+)(?=[;&|\n]|$)/g;
+// The value runs to the end of the word, so $(mktemp)/../.. is read whole.
 const ANY_ASSIGNMENT =
-	/\b([A-Za-z_]\w*)(\+?)=("[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)/g;
+	/\b([A-Za-z_]\w*)(\+?)=("[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)(?=[\s;&|]|$)/g;
 // Builtins that set a variable without NAME=, so the value can't be read here.
 const SET_BY_BUILTIN = [
 	/\b(?:read|mapfile|readarray)\b([^;&|\n]*)/g,
