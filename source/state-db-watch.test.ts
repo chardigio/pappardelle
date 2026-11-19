@@ -54,7 +54,8 @@ test("another process's write reaches a listener well inside the poll interval",
 
 test("this process's own write reaches its listeners", async t => {
 	const {dbPath, state} = fixture(t);
-	const seen = changed(dbPath, 1500);
+	// Past the 2-second fallback poll: macOS can report the bell later.
+	const seen = changed(dbPath, 3000);
 	await state.writeRows(() => state.db.run("INSERT INTO marks VALUES ('own')"));
 	t.true(await seen);
 });
