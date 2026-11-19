@@ -10,11 +10,16 @@ import {
 import {paintFrame} from './components/frame-paint.ts';
 import {routeDrops} from './drop-routing.ts';
 import {FrameInputRouter} from './frame-input.ts';
+import {createLogger} from './logger.ts';
 import {interceptInput} from './lone-escape.ts';
 import {FramedOutput, GraphicsForwarder} from './pane-frame-graphics.ts';
 import {ImageIds} from './pane-frame-image-ids.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
-import {paletteSequences, queryPalette} from './pane-frame-palette.ts';
+import {
+	type FrameColors,
+	paletteSequences,
+	queryPalette,
+} from './pane-frame-palette.ts';
 import {
 	CLIENT_TTY_OPTION,
 	FRAME_COMMAND_OPTION,
@@ -216,6 +221,27 @@ if (outerSocket && paneId)
 
 graphics.probe();
 
+// Agent text has turned dark on dark over SSH without a reproduction
+// (pappardelle-mocn), so every palette the frame applies is logged.
+const log = createLogger('pane-frame');
+const startedAt = performance.now();
+const PALETTE_TIMEOUT_MS = 500;
+
+function describeColors(colors: FrameColors): string {
+	const reported = colors.palette.filter(Boolean).length;
+	return [
+		`fg=${colors.defaultForeground ?? 'none'}`,
+		`bg=${colors.defaultBackground ?? 'none'}`,
+		`palette=${reported}/${colors.palette.length}`,
+		`color7=${colors.palette[7] ?? 'none'}`,
+		`color8=${colors.palette[8] ?? 'none'}`,
+	].join(' ');
+}
+
+function paneLabel(): string {
+	return `pane=${paneId || 'none'} title=${JSON.stringify(title)}`;
+}
+
 // Loaded before the child starts so its first output is already in the
 // user's colors, and again whenever the terminal switches theme.
 const palette = await queryPalette(
@@ -231,10 +257,17 @@ const palette = await queryPalette(
 			renderer.removeInputHandler(handler);
 		},
 	},
-	500,
+	PALETTE_TIMEOUT_MS,
+);
+const queryMs = Math.round(performance.now() - startedAt);
+log.info(
+	`palette query ${paneLabel()} ms=${queryMs} timedOut=${queryMs >= PALETTE_TIMEOUT_MS} ${describeColors(palette)} TERM=${process.env['TERM'] ?? ''} COLORTERM=${process.env['COLORTERM'] ?? ''} ssh=${process.env['SSH_CONNECTION'] ? 'yes' : 'no'}`,
 );
 terminal.write(paletteSequences(palette));
-renderer.on('palette', (colors: Parameters<typeof paletteSequences>[0]) => {
+renderer.on('palette', (colors: FrameColors) => {
+	log.info(
+		`palette event ${paneLabel()} atMs=${Math.round(performance.now() - startedAt)} ${describeColors(colors)}`,
+	);
 	terminal.write(paletteSequences(colors));
 	terminal.invalidate();
 	renderer.requestRender();
