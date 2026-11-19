@@ -24,7 +24,8 @@ function fakeRegistry(
 ): CloseCommandDeps['registry'] {
 	return {
 		keepsLifecycle: false,
-		has: key => open.includes(key),
+		phase: key =>
+			open.includes(key) ? {kind: 'phase', phase: 'open'} : {kind: 'unknown'},
 		async markClosing(key) {
 			events.push(`closing ${key}`);
 		},
@@ -275,6 +276,21 @@ function busyRegistry(
 		},
 	};
 }
+
+// idow opens it when setup finishes, which would undo the close.
+test('a space still being set up is not closed', async t => {
+	for (const close of closes) {
+		const events: string[] = [];
+		const {deps} = fakeDeps({
+			registry: {
+				...fakeRegistry([], events),
+				phase: () => ({kind: 'phase', phase: 'starting'}),
+			},
+		});
+		t.is(await close(deps), 1);
+		t.false(events.some(event => /^(closing|kill|unregister) /.test(event)));
+	}
+});
 
 test('a close that a lifecycle registry cannot record ends no sessions and says why', async t => {
 	for (const close of closes) {
