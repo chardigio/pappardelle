@@ -352,7 +352,9 @@ contractTest(
 				requests: companionRequests,
 				space: 'A',
 				tuiIsRunning: () => true,
-				attemptMs: 500,
+				// Past the watchers' 2-second fallback poll: macOS can deliver the
+				// change later than a shorter wait.
+				attemptMs: 3000,
 				attempts: 1,
 				pollMs: 5,
 			}),
