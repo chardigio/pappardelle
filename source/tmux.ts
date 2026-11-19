@@ -168,7 +168,11 @@ import {
 } from './herdr/sessions.ts';
 import {setupHerdrLayout, attachHerdrViewers} from './herdr/layout-setup.ts';
 import {setupDesktopLayout} from './herdr/app-layout-setup.ts';
-import {focusPaneInApp, showTerminalInPane} from './herdr/app-layout.ts';
+import {
+	focusPaneInApp,
+	showTerminalInPane,
+	sizeRailColumnsInApp,
+} from './herdr/app-layout.ts';
 import {findTerminal} from './herdr/terminals.ts';
 import {runInPane} from './herdr/layout.ts';
 import {agentRulesFlags, installAgentRules} from './companion-rules.ts';
@@ -2696,6 +2700,8 @@ async function attachDesktopSpace(
 		mainWorktreePath: string | undefined;
 		issueTitle: string | undefined;
 		name: string;
+		/** The rail's own pane, whose width the 1/4 : 1/2 : 1/4 layout sets. */
+		listPaneId?: string;
 	},
 	options: AttachOptions,
 	traceDone: ((outcome?: TraceOutcome) => void) | undefined,
@@ -2703,7 +2709,7 @@ async function attachDesktopSpace(
 	const {signal} = options;
 	const {agentViewerPaneId, companionViewerPaneId, issueKey, mainWorktreePath} =
 		viewers;
-	const {issueTitle, name} = viewers;
+	const {issueTitle, name, listPaneId} = viewers;
 	const repoName = getRepoName();
 	const sessions = getSessionNames(issueKey, repoName);
 
@@ -2799,6 +2805,15 @@ async function attachDesktopSpace(
 			}
 		}
 
+		// Showing a space does not touch the panes' widths, and a person may
+		// have dragged them, so the three columns are put back to 1/4 : 1/2 :
+		// 1/4 here rather than only when the layout is first built.
+		await sizeRailColumnsInApp({
+			listPaneId: listPaneId ?? '',
+			agentViewerPaneId,
+			companionViewerPaneId,
+		});
+
 		currentlyViewingSpace = issueKey;
 		log.info(
 			`Showing ${name} (agent: ${agentTerminal.address} in pane ${agentViewerPaneId}, companion: ${companionReady ? sessions.companion : 'none'})`,
@@ -2846,6 +2861,7 @@ async function attachViewers(
 				mainWorktreePath,
 				issueTitle,
 				name,
+				listPaneId,
 			},
 			options,
 			traceDone,

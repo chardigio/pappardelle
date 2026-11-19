@@ -23,6 +23,7 @@ import {
 	findViewerPanes,
 	locateInApp,
 	nameTab,
+	sizeRailColumnsInApp,
 	splitPaneInApp,
 } from './app-layout.ts';
 import {labelTerminal, VIEWER_LABEL, VIEWER_ROLE_LABEL} from './terminals.ts';
@@ -103,6 +104,15 @@ export async function setupDesktopLayout(): Promise<PaneLayout | null> {
 			);
 			companionViewerPaneId = companion?.paneId ?? '';
 		}
+
+		// The columns asked for: rail at a quarter, agent at half, companion at
+		// a quarter. Splitting alone leaves the half at an edge, so the widths
+		// are set here (see sizeRailColumnsInApp).
+		await sizeRailColumnsInApp({
+			listPaneId: location.paneId,
+			agentViewerPaneId,
+			companionViewerPaneId,
+		});
 
 		// The rail keeps the keyboard, as the tmux layout leaves it.
 		await focusPaneInApp(location.paneId).catch(() => undefined);

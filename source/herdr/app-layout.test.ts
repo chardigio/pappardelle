@@ -4,6 +4,7 @@ import {
 	findTerminalIn,
 	paneHoldingTerminal,
 	panesOfTab,
+	railColumnWidths,
 	viewerPanesAmong,
 } from './app-layout.ts';
 import {VIEWER_ROLE_LABEL} from './terminals.ts';
@@ -146,5 +147,37 @@ test('viewerPanesAmong drops a viewer the window no longer shows', t => {
 			address => (address === 't9' ? null : {paneId: 'p-t8'}),
 		),
 		{agent: 'p-t8', companion: ''},
+	);
+});
+
+// The three columns are 1/4 : 1/2 : 1/4, which splits cannot express: a split
+// halves its source, so three panes always come out {1/2, 1/4, 1/4}. The widths
+// are asked for directly instead.
+test('railColumnWidths puts the agent at twice the rail and companion', t => {
+	const widths = railColumnWidths({
+		listPaneId: 'pRail',
+		agentViewerPaneId: 'pAgent',
+		companionViewerPaneId: 'pComp',
+	});
+	const px = Object.fromEntries(widths.map(w => [w.paneId, w.px]));
+	t.is(px['pAgent'], px['pRail']! * 2);
+	t.is(px['pComp'], px['pRail']);
+	t.deepEqual(
+		widths.map(w => w.paneId),
+		['pRail', 'pAgent', 'pComp'],
+	);
+});
+
+// A space with no companion gets two columns; nothing is sent for a pane that
+// does not exist.
+test('railColumnWidths leaves out a missing companion', t => {
+	const widths = railColumnWidths({
+		listPaneId: 'pRail',
+		agentViewerPaneId: 'pAgent',
+		companionViewerPaneId: '',
+	});
+	t.deepEqual(
+		widths.map(w => w.paneId),
+		['pRail', 'pAgent'],
 	);
 });
