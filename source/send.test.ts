@@ -24,6 +24,7 @@ function makeRunner(options: {
 	listFails?: boolean;
 	failOn?: (args: readonly string[]) => boolean;
 	screen?: string;
+	captureFails?: boolean;
 }): {
 	runner: SendTmuxRunner;
 	calls: string[][];
@@ -41,7 +42,10 @@ function makeRunner(options: {
 		}
 
 		if (args[0] === 'capture-pane') {
-			return {status: 0, stdout: options.screen ?? ''};
+			return {
+				status: options.captureFails ? 1 : 0,
+				stdout: options.screen ?? '',
+			};
 		}
 
 		calls.push([...args]);
@@ -170,6 +174,18 @@ test('sendToSpaceAgent never types into a permission prompt, even forced', async
 		);
 	}
 
+	t.deepEqual(calls, []);
+});
+
+test('sendToSpaceAgent sends nothing when it cannot read the screen for a prompt', async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		captureFails: true,
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', '1', {repoName: 'r', runner, lockDir}),
+		'failed',
+	);
 	t.deepEqual(calls, []);
 });
 

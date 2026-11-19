@@ -72,7 +72,9 @@ const tmuxKeys = z
  * Approved without a prompt on every agent: the companion tools because an
  * agent changes its companion constantly to show its work, and the
  * supervision tools because watching other spaces means calling them in a
- * loop. space_answer stays safe unprompted because it approves only what
+ * loop. companion_run, companion_type and companion_press_keys can run any
+ * shell line in a pane, so this gives an agent Bash's power without a Bash
+ * prompt; the companion workflow was judged worth that. space_answer stays safe unprompted because it approves only what
  * passes both gates (approve-policy.ts, then approve-classifier.ts), and has
  * no override.
  */
