@@ -1342,6 +1342,7 @@ agent_profiles:
     command: claude
     env:
       1BAD: x
+      "TRAILING\\n": x
       PAPPARDELLE_SPACE: x
       NUMBER: 1
 `,
@@ -1351,6 +1352,12 @@ agent_profiles:
 		t.true(
 			stderr.includes(
 				'agent_profiles.opus.env.1BAD: must be an environment variable name',
+			),
+			stderr,
+		);
+		t.true(
+			stderr.includes(
+				'agent_profiles.opus.env.TRAILING\n: must be an environment variable name',
 			),
 			stderr,
 		);

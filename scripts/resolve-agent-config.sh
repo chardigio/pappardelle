@@ -214,7 +214,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     ] + [$def | select(has("env")) | .env
         | if type != "object" then "agent_profiles.\($agent_profile).env: must be a map of variable names to strings"
           else to_entries[] |
-            if (.key | test("^[A-Za-z_][A-Za-z0-9_]*$") | not) then "agent_profiles.\($agent_profile).env.\(.key): must be an environment variable name"
+            if (.key | test("\\A[A-Za-z_][A-Za-z0-9_]*\\z") | not) then "agent_profiles.\($agent_profile).env.\(.key): must be an environment variable name"
             elif (.key | startswith("PAPPARDELLE_")) then "agent_profiles.\($agent_profile).env.\(.key): PAPPARDELLE_ variables are set by pappardelle"
             elif (.value | type) != "string" then "agent_profiles.\($agent_profile).env.\(.key): must be a string"
             else empty end
