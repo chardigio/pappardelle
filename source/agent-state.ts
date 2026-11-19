@@ -30,9 +30,11 @@ import {
 	fromSessionKey,
 	getSessionNames,
 	getSessionPrefix,
+	usesHerdrCore,
 	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
 } from './tmux.ts';
+import {herdrAgentScreen, listHerdrAgentKeysSync} from './herdr/sessions.ts';
 import {mergeProgramStatus} from './workspace-status.ts';
 
 export const AGENT_STATES = [
@@ -155,6 +157,10 @@ function pinnedStatusPane(
 
 /** The keys of every space in `repo` with an agent session. */
 export function listAgentKeys(repo: string, runner: OuterTmuxRunner): string[] {
+	if (usesHerdrCore()) {
+		return listHerdrAgentKeysSync(repo);
+	}
+
 	const prefix = getSessionPrefix('agent', repo);
 	return (tmuxOut(runner, ['list-sessions', '-F', '#{session_name}']) ?? '')
 		.split('\n')
@@ -220,6 +226,12 @@ export async function captureAgentScreen(
 	lines: number,
 	deps: Pick<AgentStateDeps, 'repo' | 'runner' | 'sleep'>,
 ): Promise<string | null> {
+	if (usesHerdrCore()) {
+		// hc keeps its own scrollback, so there is no window to grow and no
+		// alternate-screen caveat: the read returns what the agent drew.
+		return herdrAgentScreen(key, {repoName: deps.repo, lines});
+	}
+
 	const target = resolveInnerSessionTargetSync(
 		getSessionNames(key, deps.repo).agent,
 		deps.runner,

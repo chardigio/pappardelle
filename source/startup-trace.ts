@@ -36,6 +36,7 @@ type Outcome =
 	| 'unavailable'
 	| 'incomplete'
 	| 'delegated';
+export type TraceOutcome = Outcome;
 export type LayoutTraceInputs = {
 	cause?: 'state' | 'resize';
 	loading?: boolean;

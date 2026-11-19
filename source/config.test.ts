@@ -6418,6 +6418,34 @@ test('validateConfig rejects groups that the rail could not place', t => {
 });
 
 // ============================================================================
+// backend
+// ============================================================================
+
+const withBackend = (value: unknown) => ({
+	version: 1,
+	profiles: {test: {display_name: 'Test'}},
+	backend: value,
+});
+
+test('validateConfig accepts the three backends and their aliases', t => {
+	t.notThrows(() => validateConfig(withBackend('tmux')));
+	t.notThrows(() => validateConfig(withBackend('herdr')));
+	t.notThrows(() => validateConfig(withBackend('herdr-app')));
+	t.notThrows(() => validateConfig({version: 1, profiles: {}}));
+});
+
+for (const value of ['screen', '', true, 3, null]) {
+	test(`validateConfig rejects backend ${JSON.stringify(value)}`, t => {
+		const error = t.throws(() => validateConfig(withBackend(value)), {
+			instanceOf: ConfigValidationError,
+		});
+		t.true(
+			error?.message.includes('backend: must be one of tmux, herdr, herdr-app'),
+		);
+	});
+}
+
+// ============================================================================
 // sous_chef_key
 // ============================================================================
 

@@ -1083,6 +1083,29 @@ auto_remove_when_done?: boolean;
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
 
+## Terminal backend
+
+The top-level `backend` chooses what runs the rail's panes and each space's agent: `tmux` (the default), `herdr`, or `herdr-app`. `PAPPARDELLE_BACKEND` overrides it for one run.
+
+```yaml
+backend: herdr-app # default: tmux
+```
+
+```typescript
+backend?: 'tmux' | 'herdr' | 'herdr-app';
+```
+
+- `tmux` is the historical layout: a `pappardelle-<repo>` session, and per-space `agent-<repo>-<key>` / `companion-<repo>-<key>` sessions on the `pappardelle_inner` socket
+- `herdr` runs each space's agent and companion as a [herdr-core](https://herdr.dev) terminal in a `herdr` workspace. A viewer pane runs `hc attach`; the tmux path runs `tmux attach`
+- `herdr-app` runs them in the **Herdr desktop window**. The window owns the panes: Pappardelle starts the terminals and labels them, and Herdr shows them as panes in a tab of its own. You can drag, resize and zoom them with Herdr's own controls
+- The agent command, env, resume behaviour and companion command are the same under every backend, so an agent started under one is the same agent it would be under another
+- Sessions survive a restart: hc keeps terminals alive with no viewer attached, as tmux keeps its sessions
+- A send into an agent showing an approval or question is refused. Under tmux Pappardelle reads the screen; under herdr, `hc` refuses and reports `blocked`, and Pappardelle reports the same `prompt` result
+- `herdr-app` must run **inside** the Herdr window: start Pappardelle from a Herdr pane. Outside it, Pappardelle says so and exits rather than running a rail nobody can see
+- Under `herdr-app`, each workspace gets a tab in the window, named after the space, holding its agent and companion panes. Selecting a space selects that tab, and the window's tab strip becomes the space switcher
+- Two tmux-only behaviours have no equivalent here: the startup gate that held an agent until the status monitor attached (status comes from the terminal's screen) and the hidden status bar on inner sessions. Pane sizing, drag-to-resize and zoom come from Herdr instead of Pappardelle's own layout code
+- `PAPPARDELLE_BACKEND=herdr-app pappardelle` tries a backend without editing a config
+
 ## Sous-chef key
 
 The top-level `sous_chef_key` sets the key that jumps to the sous-chef: from any pane in the Pappardelle window (the rail, an agent pane or a companion pane), it selects the `main` space and focuses its agent pane. It is on by default with `M-s` (Option+s). When the rail has focus, plain `s` does the same; it is an overridable default like `g`, so a custom `s` keybinding replaces it.

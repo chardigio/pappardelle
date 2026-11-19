@@ -28,7 +28,13 @@ import {
 	getWorktreePath,
 	getMainWorktreeInfo,
 	INNER_SOCKET,
+	activeBackend,
+	usesDesktopWindow,
 } from './tmux.ts';
+import {isInHerdr} from './herdr/layout.ts';
+import {locateInApp} from './herdr/app-layout.ts';
+import {launchHerdrWorkspace} from './herdr/launch.ts';
+import {cleanupOrphanedHerdrTerminals} from './herdr/sessions.ts';
 import type {PaneLayout} from './types.ts';
 import {
 	configExists,
@@ -324,6 +330,14 @@ const bootstrapDone = startupTrace.current?.begin('repo-bootstrap');
 const {repoName} = bootstrapRepo();
 bootstrapDone?.();
 
+// Logged once, so a bug report says which pane backend was in play.
+{
+	const backend = activeBackend();
+	if (backend !== 'tmux') {
+		createLogger('cli').info(`Terminal backend: ${backend}`);
+	}
+}
+
 if (isRestart) {
 	process.exit(await restartRepo(repoName, defaultRestartCommandDeps()));
 }
@@ -551,49 +565,100 @@ if (tmuxVersion && tmuxVersionTooOld(tmuxVersion.version)) {
 	process.exit(1);
 }
 
-// If not in tmux, re-exec inside tmux
+// If not in tmux, re-exec inside the backend that owns the panes.
 if (!isInTmux() && cli.flags.layout) {
-	const outerDone = startupTrace.current?.begin('outer-bootstrap');
-	const repoName = getRepoName();
-	const sessionName = outerSessionName(repoName);
+	if (usesDesktopWindow()) {
+		// The desktop window owns the panes, and this process must be one of
+		// them: a rail with no window around it has nowhere to put them, so the
+		// launch fails loudly instead of running a rail nobody can see.
+		const located = await locateInApp();
+		if (!located) {
+			console.error(
+				'\x1b[31mError: backend is herdr-app, but this terminal is not inside the Herdr window.\x1b[0m',
+			);
+			console.error(
+				'Start pappardelle from a pane in Herdr, or set PAPPARDELLE_BACKEND=tmux.',
+			);
+			process.exit(1);
+		}
+	} else if (activeBackend() === 'herdr') {
+		const outerDone = startupTrace.current?.begin('outer-bootstrap');
+		if (!isInHerdr()) {
+			const repoName = getRepoName();
+			const command = tuiLaunchCommand({
+				execPath: process.execPath,
+				cliPath: cliFilePath(),
+				args: process.argv.slice(2),
+				home: homedir(),
+			});
 
-	if (
-		sessionExists(sessionName) &&
-		isTuiDead(DEFAULT_REPO_STATE_ROOT, repoName)
-	) {
-		spawnSync('tmux', ['kill-session', '-t', exactSessionTarget(sessionName)]);
-	}
+			const launched = await launchHerdrWorkspace(
+				repoName,
+				command,
+				getRepoRoot(),
+				{},
+			);
+			outerDone?.(launched ? 'delegated' : 'failed');
+			startupTrace.current?.finish('delegated');
+			process.exit(launched ? 0 : 1);
+		}
 
-	// Check if a pappardelle session already exists
-	if (sessionExists(sessionName)) {
-		// Attach to the existing session
+		outerDone?.('ok');
+	} else {
+		const outerDone = startupTrace.current?.begin('outer-bootstrap');
+		const repoName = getRepoName();
+		const sessionName = outerSessionName(repoName);
+
+		if (
+			sessionExists(sessionName) &&
+			isTuiDead(DEFAULT_REPO_STATE_ROOT, repoName)
+		) {
+			spawnSync('tmux', [
+				'kill-session',
+				'-t',
+				exactSessionTarget(sessionName),
+			]);
+		}
+
+		// Check if a pappardelle session already exists
+		if (sessionExists(sessionName)) {
+			// Attach to the existing session
+			outerDone?.();
+			startupTrace.current?.finish('delegated');
+			const tmuxArgs = [
+				'attach-session',
+				'-t',
+				exactSessionTarget(sessionName),
+			];
+			const result = spawnSync('tmux', tmuxArgs, {
+				stdio: 'inherit',
+				env: process.env,
+			});
+			exitWithTmux(result);
+		}
+
+		// No existing session - create a new one.
+		const cmd = tuiLaunchCommand({
+			execPath: process.execPath,
+			cliPath: cliFilePath(),
+			args: process.argv.slice(2),
+			home: homedir(),
+		});
+
+		const tmuxArgs = newOuterSessionArgs(
+			repoName,
+			startupSessionEnvArgs(),
+			cmd,
+		);
 		outerDone?.();
 		startupTrace.current?.finish('delegated');
-		const tmuxArgs = ['attach-session', '-t', exactSessionTarget(sessionName)];
-		const result = spawnSync('tmux', tmuxArgs, {
-			stdio: 'inherit',
-			env: process.env,
-		});
-		exitWithTmux(result);
+		exitWithTmux(
+			spawnSync('tmux', tmuxArgs, {
+				stdio: 'inherit',
+				env: process.env,
+			}),
+		);
 	}
-
-	// No existing session - create a new one.
-	const cmd = tuiLaunchCommand({
-		execPath: process.execPath,
-		cliPath: cliFilePath(),
-		args: process.argv.slice(2),
-		home: homedir(),
-	});
-
-	const tmuxArgs = newOuterSessionArgs(repoName, startupSessionEnvArgs(), cmd);
-	outerDone?.();
-	startupTrace.current?.finish('delegated');
-	exitWithTmux(
-		spawnSync('tmux', tmuxArgs, {
-			stdio: 'inherit',
-			env: process.env,
-		}),
-	);
 }
 
 // Set up tmux layout if in tmux and not disabled
@@ -658,12 +723,37 @@ function startWorkspaceReads() {
 
 const initialWorkspaces = startWorkspaceReads();
 
-// tmux splits the panes while the renderer's modules load below.
+// tmux splits the panes while the renderer's modules load below; under herdr
+// the same split happens through herdr's own pane calls, and the desktop app
+// makes the panes itself.
 let layoutSetup: ReturnType<typeof setupPappardellLayout> | undefined;
-if (isInTmux() && cli.flags.layout) {
-	maintainSessions();
-	enableTmuxControlClients();
+const inTerminalSession = isInTmux() || isInHerdr() || usesDesktopWindow();
+if (inTerminalSession && cli.flags.layout) {
+	if (activeBackend() === 'tmux') maintainSessions();
+	else maintainHerdrTerminals();
+	if (activeBackend() === 'tmux') enableTmuxControlClients();
 	layoutSetup = setupPappardellLayout();
+}
+
+/**
+ * The herdr counterpart of `maintainSessions`: drop terminals left behind by
+ * spaces this repo no longer has registered.
+ */
+function maintainHerdrTerminals() {
+	const reapingDone = startupTrace.current?.begin('inner-reaping');
+	void cleanupOrphanedHerdrTerminals(
+		getRepoName(),
+		new Set(getRegisteredSpaces()),
+	)
+		.then(reaped => {
+			reapingDone?.();
+			if (reaped > 0) {
+				console.error(
+					`\x1b[33mPappardelle: reaped ${reaped} orphaned herdr terminal(s).\x1b[0m`,
+				);
+			}
+		})
+		.catch(() => reapingDone?.('failed'));
 }
 
 function readDisplayMetadata() {
