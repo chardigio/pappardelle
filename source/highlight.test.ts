@@ -6,7 +6,7 @@ import {promisify} from 'node:util';
 import test, {type ExecutionContext} from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {waitUntil, watcherReady} from '../test/helpers/wait.ts';
 import {
 	findSpaceIndexByIssueKey,
 	getHighlightFilePath,
@@ -20,11 +20,12 @@ const daosUrl = new URL('state-daos.ts', import.meta.url).href;
 const targetFile = (s: TestState) => getHighlightFilePath('repo', s.stateDir);
 
 /** The keys a watcher is told to select, in order. */
-function watching(t: ExecutionContext, s: TestState): string[] {
+async function watching(t: ExecutionContext, s: TestState): Promise<string[]> {
 	const selected: string[] = [];
 	t.teardown(
 		s.daos.highlight.watch(request => selected.push(request.issueKey)),
 	);
+	await watcherReady();
 	return selected;
 }
 
@@ -51,6 +52,7 @@ contractTest(
 	async (t, s) => {
 		const requests: HighlightRequest[] = [];
 		t.teardown(s.daos.highlight.watch(request => requests.push(request)));
+		await watcherReady();
 		await s.daos.highlight.request({issueKey: 'main', focus: true});
 		t.is(fs.readFileSync(targetFile(s), 'utf8'), 'main\tfocus\n');
 		await waitUntil(() => requests.length > 0, 'a highlight request');
@@ -64,6 +66,7 @@ contractTest(
 	async (t, s) => {
 		const requests: HighlightRequest[] = [];
 		t.teardown(s.daos.highlight.watch(request => requests.push(request)));
+		await watcherReady();
 		await exec('sh', [
 			'-c',
 			s.daos.highlight.shellRequest({issueKey: 'main', focus: true}),
@@ -74,7 +77,7 @@ contractTest(
 );
 
 contractTest('a request reaches a watching listener', async (t, s) => {
-	const selected = watching(t, s);
+	const selected = await watching(t, s);
 	await s.daos.highlight.request({issueKey: 'STA-500', focus: false});
 	await waitUntil(() => selected.length > 0, 'a highlight request');
 	t.is(selected[0], 'STA-500');
@@ -82,7 +85,7 @@ contractTest('a request reaches a watching listener', async (t, s) => {
 
 // The user asks for a space, moves the selection away, and asks again.
 contractTest('asking for the same key twice selects it twice', async (t, s) => {
-	const selected = watching(t, s);
+	const selected = await watching(t, s);
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
 	await waitUntil(() => selected.length > 0, 'a highlight request');
 	await settle();
@@ -97,7 +100,7 @@ contractTest(
 	async (t, s) => {
 		await s.daos.highlight.request({issueKey: 'OLD-1', focus: false});
 		await settle();
-		const selected = watching(t, s);
+		const selected = await watching(t, s);
 		// Another store changing is not a request.
 		await s.daos.stateColors.set('Done', '#74d09f');
 		await settle();
@@ -116,7 +119,7 @@ contractTest('clearing removes the target file', async (t, s) => {
 });
 
 contractTest('a request after a clear is reported', async (t, s) => {
-	const selected = watching(t, s);
+	const selected = await watching(t, s);
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
 	await waitUntil(() => selected.length > 0, 'a highlight request');
 	await s.daos.highlight.clear();
@@ -142,7 +145,7 @@ contractTest('a listener that stopped watching is not told', async (t, s) => {
 for (const sqlite of [false, true]) {
 	test(`${sqlite ? 'sqlite' : 'json'}: a request from another process reaches a watching listener`, async t => {
 		const s = testState(t, {sqlite});
-		const selected = watching(t, s);
+		const selected = await watching(t, s);
 		await exec(
 			process.execPath,
 			[
