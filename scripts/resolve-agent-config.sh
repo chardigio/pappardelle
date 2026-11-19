@@ -318,7 +318,7 @@ fi
 # runs.
 LAYER_SPEC_MERGE=()
 for layer in "${LAYERS[@]}"; do
-    [[ "$(<"$layer")" == *'<<'* ]] && LAYER_SPEC_MERGE=(--yaml-fix-merge-anchor-to-spec)
+    has_yaml_merge_keys "$(<"$layer")" && LAYER_SPEC_MERGE=(--yaml-fix-merge-anchor-to-spec)
 done
 # shellcheck disable=SC2016 # yq and jq expressions, not shell
 LAYER_CHECKS=$(PROFILE="$PROFILE" yq eval "${LAYER_SPEC_MERGE[@]}" -o=json -I=0 '

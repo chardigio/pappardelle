@@ -1472,12 +1472,15 @@ maybeMacro(
 		const {configPath, localConfigPath, homeConfigPath, cleanup} =
 			setupConfigFiles(
 				`version: 1
+# A heredoc (<<) in a command is not a merge key
 profiles:
   dev: {display_name: Dev, claude: {initialization_command: /old}}
 agent_profiles:
   opus: {command: claude, env: {A: '1'}}
+post_workspace_init:
+  - run: 'cat <<EOF > .env'
 `,
-				'agent_profile: opus\n',
+				"agent_profile: opus\npost_workspace_init:\n  - run: 'cat <<EOF > .env'\n",
 				'version: 1\ninitialization_command: idow\n',
 			);
 		const stubs = fs.mkdtempSync(path.join(os.tmpdir(), 'old-yq-'));

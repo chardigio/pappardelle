@@ -16,6 +16,14 @@
 _RENAME_ONE_INIT_CMD='with(select(.initialization_command == null and (.claude.initialization_command | tag) == "!!str"); .initialization_command = .claude.initialization_command | del(.claude.initialization_command))'
 RENAME_DEPRECATED_INIT_CMD_EXPR="($_RENAME_ONE_INIT_CMD | with(select(.profiles | tag == \"!!map\"); .profiles[] |= ($_RENAME_ONE_INIT_CMD)))"
 
+# Whether the YAML text uses a merge key (`<<: *anchor`). A `<<` with no colon
+# after it, such as a heredoc in a command, isn't one.
+# Args: $1=YAML text
+has_yaml_merge_keys() {
+    local merge_key='(^|[[:space:]{,])<<[[:space:]]*:'
+    [[ "$1" =~ $merge_key ]]
+}
+
 # Deep-merge the config layers into one YAML document on stdout, lowest to
 # highest priority: home -> project -> local. Missing files are skipped. Maps
 # merge key by key and arrays replace wholesale, which is what deepMerge() in
@@ -35,7 +43,7 @@ merge_config_layers() {
         local content
         content="$(<"$f")"
         [[ "$content" == *initialization_command* ]] && needs_rename=true
-        [[ "$content" == *'<<'* ]] && has_merge_keys=true
+        has_yaml_merge_keys "$content" && has_merge_keys=true
     done
     [[ ${#files[@]} -gt 0 ]] || { echo "{}"; return; }
     local spec_merge=() explode=""
