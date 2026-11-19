@@ -127,6 +127,7 @@ test('parseSpaceState leaves out each value that is not what its field holds, an
 		updatedAt: '2026-01-02T03:04:05.678Z',
 		profile: 'codex',
 		issueTitle: 'Fix the rail',
+		agentProfile: {name: 'codex-high', isClaude: false},
 	};
 	t.deepEqual(parseSpaceState(JSON.stringify(valid)), valid);
 
@@ -143,6 +144,7 @@ test('parseSpaceState leaves out each value that is not what its field holds, an
 				updatedAt: 7,
 				profile: 'codex',
 				issueTitle: 12,
+				agentProfile: {name: 'codex'},
 			}),
 		),
 		{prLinks: [link()], recap: {lastPrompt: 'Prompt'}, profile: 'codex'},
@@ -212,6 +214,28 @@ contractTest(
 				profile: 'dev',
 				pipeline: 'passing',
 			});
+	},
+);
+
+contractTest(
+	'the launched agent profile is read back from the store and from a file written without it, and kept through a rail poll',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		const agentProfile = {name: 'codex-high', isClaude: false};
+		await spaceState.write('STA-330', {agentProfile});
+		await spaceState.writeMany([
+			{key: 'STA-330', patch: {pipeline: 'passing'}},
+		]);
+		t.deepEqual(spaceState.read('STA-330')?.agentProfile, agentProfile);
+		t.deepEqual(fileContent(s, 'STA-330').agentProfile, agentProfile);
+
+		writeStateFile(s, 'STA-331', {
+			agentProfile: {name: 'opus', isClaude: true},
+		});
+		t.deepEqual(spaceState.read('STA-331')?.agentProfile, {
+			name: 'opus',
+			isClaude: true,
+		});
 	},
 );
 
@@ -381,6 +405,9 @@ test('both stores leave the same files for the same writes', async t => {
 		const s = testState(t, {sqlite});
 		const {spaceState} = s.daos;
 		await spaceState.write('STA-1', {profile: 'dev'});
+		await spaceState.write('STA-1', {
+			agentProfile: {name: 'claude', isClaude: true},
+		});
 		await spaceState.writeMany([
 			{
 				key: 'STA-1',
