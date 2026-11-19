@@ -28,7 +28,7 @@ const log = createLogger('close-command');
 export type CloseCommandDeps = {
 	registry: Pick<
 		SpaceRegistryDao,
-		'keepsLifecycle' | 'has' | 'markClosing' | 'reopen' | 'remove'
+		'keepsLifecycle' | 'phase' | 'markClosing' | 'reopen' | 'remove'
 	>;
 	getIssue: (key: string) => Promise<TrackerIssue | null>;
 	worktreePath: (key: string) => string | null;
@@ -52,8 +52,9 @@ export async function runCloseCommand(
 	deps: CloseCommandDeps,
 ): Promise<number> {
 	const {key} = options;
-	if (!isOpenSpace(key, deps)) {
-		deps.print(`No open space ${key}`);
+	const refusal = closeRefusal(key, deps);
+	if (refusal) {
+		deps.print(refusal);
 		return 1;
 	}
 
@@ -116,18 +117,29 @@ export async function runCloseTeardown(
 	key: string,
 	deps: CloseCommandDeps,
 ): Promise<number> {
-	if (!isOpenSpace(key, deps)) {
-		deps.logError(`No open space ${key}`);
+	const refusal = closeRefusal(key, deps);
+	if (refusal) {
+		deps.logError(refusal);
 		return 1;
 	}
 
 	return (await tearDown(key, {...deps, print: deps.logError})) ? 0 : 1;
 }
 
-function isOpenSpace(key: string, deps: CloseCommandDeps): boolean {
+/** Why `key` can't be closed, or null when it can. */
+function closeRefusal(key: string, deps: CloseCommandDeps): string | null {
+	if (key === MAIN_WORKTREE_KEY) return `No open space ${key}`;
+	const lookup = deps.registry.phase(key);
+	if (lookup.kind === 'unreadable')
+		return `Could not read the space registry: ${String(lookup.error)}`;
+	if (lookup.kind === 'unknown') return `No open space ${key}`;
+	// idow is still setting it up and opens it when it finishes, so a close
+	// now would not stick.
+	if (lookup.phase === 'starting')
+		return `${key} is still being set up; close it once it has opened`;
 	// A space left closing by an interrupted close counts, so closing it
 	// again finishes the job.
-	return key !== MAIN_WORKTREE_KEY && deps.registry.has(key);
+	return null;
 }
 
 // The TUI leaves simulator cleanup running in the background; this process
