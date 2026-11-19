@@ -316,8 +316,12 @@ fi
 # is ambiguous: the per-layer rename silently keeps the new one. Same error as
 # initializationCommandConflictErrors() in source/config.ts, which idow never
 # runs.
+LAYER_SPEC_MERGE=()
+for layer in "${LAYERS[@]}"; do
+    [[ "$(<"$layer")" == *'<<'* ]] && LAYER_SPEC_MERGE=(--yaml-fix-merge-anchor-to-spec)
+done
 # shellcheck disable=SC2016 # yq and jq expressions, not shell
-LAYER_CHECKS=$(PROFILE="$PROFILE" yq eval --yaml-fix-merge-anchor-to-spec -o=json -I=0 '
+LAYER_CHECKS=$(PROFILE="$PROFILE" yq eval "${LAYER_SPEC_MERGE[@]}" -o=json -I=0 '
     ["model", "effort", "extra_args"] as $launch_keys |
     (.profiles[strenv(PROFILE)].claude // {}) as $profile_claude |
     {

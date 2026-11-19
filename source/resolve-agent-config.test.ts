@@ -1465,3 +1465,52 @@ profiles:
 		}
 	},
 );
+
+maybeMacro(
+	'a config without merge keys resolves on a yq older than 4.47',
+	t => {
+		const {configPath, localConfigPath, homeConfigPath, cleanup} =
+			setupConfigFiles(
+				`version: 1
+profiles:
+  dev: {display_name: Dev, claude: {initialization_command: /old}}
+agent_profiles:
+  opus: {command: claude, env: {A: '1'}}
+`,
+				'agent_profile: opus\n',
+				'version: 1\ninitialization_command: idow\n',
+			);
+		const stubs = fs.mkdtempSync(path.join(os.tmpdir(), 'old-yq-'));
+		const realYq = execSync('command -v yq', {encoding: 'utf8'}).trim();
+		fs.writeFileSync(
+			path.join(stubs, 'yq'),
+			`#!/bin/bash\nfor a in "$@"; do [[ "$a" == --yaml-fix-merge-anchor-to-spec ]] && { echo "Error: unknown flag: $a" >&2; exit 1; }; done\nexec ${realYq} "$@"\n`,
+			{mode: 0o755},
+		);
+		try {
+			const result = spawnSync(
+				'bash',
+				[
+					SCRIPT_PATH,
+					'--config',
+					configPath,
+					'--local-config',
+					localConfigPath,
+					'--home-config',
+					homeConfigPath,
+					'--profile',
+					'dev',
+				],
+				{
+					encoding: 'utf8',
+					env: {...process.env, PATH: `${stubs}:${process.env['PATH']!}`},
+				},
+			);
+			t.is(result.status, 0, result.stderr);
+			t.deepEqual(JSON.parse(JSON.parse(result.stdout).agent_env), {A: '1'});
+		} finally {
+			cleanup();
+			fs.rmSync(stubs, {recursive: true, force: true});
+		}
+	},
+);

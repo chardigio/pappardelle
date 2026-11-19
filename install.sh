@@ -281,7 +281,7 @@ if command -v yq &>/dev/null; then
         print_status "yq installed ($yq_version)"
     else
         print_error "yq ${yq_version:-of unknown version} is too old (need 4.${YQ_MIN_MINOR} or newer)"
-        print_info "Upgrade with: brew upgrade yq"
+        print_info "Upgrade with: brew upgrade yq, or see https://github.com/mikefarah/yq#install"
         MISSING+=("yq")
     fi
 else

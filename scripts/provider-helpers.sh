@@ -22,7 +22,8 @@ RENAME_DEPRECATED_INIT_CMD_EXPR="($_RENAME_ONE_INIT_CMD | with(select(.profiles 
 # source/config.ts does, so the TUI and idow see the same effective config.
 # YAML merge keys (`<<: *anchor`) are resolved here, the way the YAML spec and
 # the TUI's parser do (a map's own keys win wherever the merge key sits), so
-# nothing downstream reads one with yq's older rules. That needs yq 4.47+.
+# nothing downstream reads one with yq's older rules. That needs yq 4.47+, so
+# only configs that use merge keys need it.
 # Args: $1=home_config_path, $2=project_config_path, $3=local_config_path
 merge_config_layers() {
     local files=() f needs_rename=false has_merge_keys=false
@@ -37,20 +38,25 @@ merge_config_layers() {
         [[ "$content" == *'<<'* ]] && has_merge_keys=true
     done
     [[ ${#files[@]} -gt 0 ]] || { echo "{}"; return; }
+    local spec_merge=() explode=""
+    if [[ "$has_merge_keys" == true ]]; then
+        spec_merge=(--yaml-fix-merge-anchor-to-spec)
+        explode=" | explode(.)"
+    fi
     if [[ ${#files[@]} -eq 1 ]]; then
         if [[ "$needs_rename" == true || "$has_merge_keys" == true ]]; then
-            yq eval --yaml-fix-merge-anchor-to-spec "explode(.) | $RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[0]}"
+            yq eval "${spec_merge[@]}" ".$explode | $RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[0]}"
         else
             cat "${files[0]}"
         fi
         return
     fi
-    local expr="(select(fileIndex==0) | explode(.))" i
+    local expr="(select(fileIndex==0)$explode)" i
     for (( i=1; i<${#files[@]}; i++ )); do
-        expr="$expr * (select(fileIndex==$i) | explode(.))"
+        expr="$expr * (select(fileIndex==$i)$explode)"
     done
     if [[ "$needs_rename" == false ]]; then
-        yq eval-all --yaml-fix-merge-anchor-to-spec "$expr" "${files[@]}"
+        yq eval-all "${spec_merge[@]}" "$expr" "${files[@]}"
         return
     fi
     # Each layer is rewritten to its own file first: yq's `*` ignores per-document
@@ -62,10 +68,10 @@ merge_config_layers() {
         trap 'rm -rf "$tmpdir"' EXIT
         renamed=()
         for (( i=0; i<${#files[@]}; i++ )); do
-            yq eval --yaml-fix-merge-anchor-to-spec "explode(.) | $RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[$i]}" > "$tmpdir/$i.yml" || exit 1
+            yq eval "${spec_merge[@]}" ".$explode | $RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[$i]}" > "$tmpdir/$i.yml" || exit 1
             renamed+=("$tmpdir/$i.yml")
         done
-        yq eval-all --yaml-fix-merge-anchor-to-spec "$expr" "${renamed[@]}"
+        yq eval-all "$expr" "${renamed[@]}"
     )
 }
 
