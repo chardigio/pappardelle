@@ -37,6 +37,12 @@ test('rm anywhere else needs a person', t => {
 	t.false(allowed('D="$(mktemp -d; echo $HOME)"; rm -rf $D'));
 });
 
+test('an rm target that brace expansion turns into another path needs a person', t => {
+	t.false(allowed('rm -rf /tmp/q-x/{..,}/{..,}/home'));
+	t.false(allowed('rm -rf /tmp/q-x/{.,.}{.,}/home'));
+	t.false(allowed('dir=$(mktemp -d); rm -rf $dir/{..,}/home'));
+});
+
 test('publishing anything needs a person', t => {
 	for (const command of [
 		'git push origin main',

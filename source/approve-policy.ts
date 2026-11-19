@@ -70,8 +70,13 @@ function scratchVariables(
 	return scratch;
 }
 
+// Brace expansion builds `..` out of pieces such as {..,} or {.,.}{.,}.
+function mayClimb(target: string): boolean {
+	return target.includes('{') || target.split('/').includes('..');
+}
+
 function isScratchPath(target: string, policy: ApprovalPolicy): boolean {
-	if (!target.startsWith('/') || target.split('/').includes('..')) return false;
+	if (!target.startsWith('/') || mayClimb(target)) return false;
 	const normalized = path.posix.normalize(target);
 	return policy.scratchRoots.some(root => normalized.startsWith(root));
 }
@@ -91,8 +96,7 @@ function checkRm(
 		const target = unquote(word);
 		const variable = /^\$\{?([A-Za-z_]\w*)\}?(\/.*)?$/.exec(target);
 		if (variable) {
-			if (scratch.has(variable[1]!) && !variable[2]?.split('/').includes('..'))
-				continue;
+			if (scratch.has(variable[1]!) && !mayClimb(variable[2] ?? '')) continue;
 			return {
 				allow: false,
 				reason: `rm of ${target}, not set to QA scratch here`,
