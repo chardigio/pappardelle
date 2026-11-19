@@ -120,14 +120,12 @@ function isolatedTmux(words: string[]): boolean {
 	const [program = '', ...args] = words;
 	if (/^q(?:kill|tmux|env)$/.test(program)) return true;
 	if (program !== 'tmux') return false;
-	const socket = args.indexOf('-S');
 	const kill = args.findIndex(word => KILL.test(word));
+	// tmux takes the last -S it is given.
+	const socket = args.slice(0, Math.max(kill, 0)).lastIndexOf('-S');
 	const socketPath = unquote(args[socket + 1] ?? '');
 	return (
-		socket !== -1 &&
-		socket < kill &&
-		socketPath.startsWith('/tmp/q-') &&
-		!mayClimb(socketPath)
+		socket !== -1 && socketPath.startsWith('/tmp/q-') && !mayClimb(socketPath)
 	);
 }
 

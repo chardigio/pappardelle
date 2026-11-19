@@ -112,6 +112,7 @@ test('kill-server counts as isolated only when the wrapper or socket is what run
 	t.false(allowed('tmux kill-server # qtmux cleanup'));
 	t.false(allowed('tmux kill-server qenv'));
 	t.false(allowed('tmux kill-server # -S /tmp/q-a/s'));
+	t.false(allowed('tmux -S /tmp/q-a/s -S /tmp/tmux-1000/default kill-server'));
 	t.false(allowed('tmux -S /tmp/q-a/../../run/tmux-1000/default kill-server'));
 });
 
