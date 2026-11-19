@@ -18,15 +18,39 @@ import {createLogger} from '../logger.ts';
 import {startupTrace} from '../startup-trace.ts';
 import type {PaneLayout} from '../types.ts';
 import {
+	closePaneInApp,
 	focusPaneInApp,
+	findViewerPanes,
 	locateInApp,
 	nameTab,
 	splitPaneInApp,
-	viewerPanesOf,
 } from './app-layout.ts';
-import {listSpaces} from './app.ts';
+import {labelTerminal, VIEWER_LABEL, VIEWER_ROLE_LABEL} from './terminals.ts';
 
 const log = createLogger('herdr-app-layout');
+
+/** Split a pane and label the terminal as one of the rail's viewers. */
+async function makeViewer(
+	railPaneId: string,
+	railTerminal: string,
+	role: 'agent' | 'companion',
+): Promise<{paneId: string; terminalId: string} | null> {
+	const viewer = await splitPaneInApp(railPaneId, 'right');
+	if (!viewer) return null;
+	const labelled = await labelTerminal(viewer.terminalId, {
+		[VIEWER_LABEL]: railTerminal,
+		[VIEWER_ROLE_LABEL]: role,
+	}).catch(() => false);
+	if (!labelled) {
+		// Unlabelled, a relaunch cannot tell this pane from one the person
+		// made, so it is closed rather than left to be adopted by guesswork.
+		log.warn(`Could not label the ${role} viewer; closing it`);
+		await closePaneInApp(viewer.paneId).catch(() => undefined);
+		return null;
+	}
+
+	return viewer;
+}
 
 /**
  * The rail's own pane plus the two viewer panes, in the shape the TUI expects.
@@ -45,25 +69,40 @@ export async function setupDesktopLayout(): Promise<PaneLayout | null> {
 			return null;
 		}
 
-		const spaces = await listSpaces();
-		const existing = viewerPanesOf(spaces, process.env['HC_TERMINAL_ID'] ?? '');
+		// The rail's terminal is what the viewers are labelled with, so a
+		// relaunch can tell its own panes from any the person split.
+		const railTerminal = process.env['HC_TERMINAL_ID'] ?? '';
+		if (!railTerminal) {
+			log.error('This process has no HC_TERMINAL_ID to key the layout on');
+			done?.('failed');
+			return null;
+		}
 
-		// A relaunch finds the panes an earlier run made. Two is the shape this
-		// builds; one means the companion was closed by hand, which the TUI
-		// already handles.
-		let viewerPanes = existing;
-		if (viewerPanes.length === 0) {
-			const agent = await splitPaneInApp(location.paneId, 'right');
+		const existing = await findViewerPanes(railTerminal).catch(() => ({
+			agent: '',
+			companion: '',
+		}));
+
+		// A relaunch finds the panes an earlier run labelled. An empty agent
+		// entry means there are none yet, not that the tab is bare: a person's
+		// own panes sit here too, and those are left alone.
+		let agentViewerPaneId = existing.agent;
+		let companionViewerPaneId = existing.companion;
+		if (!agentViewerPaneId) {
+			const agent = await makeViewer(location.paneId, railTerminal, 'agent');
 			if (!agent) {
 				done?.('failed');
 				return null;
 			}
 
-			const companion = await splitPaneInApp(agent, 'right');
-			viewerPanes = companion ? [agent, companion] : [agent];
+			agentViewerPaneId = agent.paneId;
+			const companion = await makeViewer(
+				agent.paneId,
+				railTerminal,
+				'companion',
+			);
+			companionViewerPaneId = companion?.paneId ?? '';
 		}
-
-		const [agentViewerPaneId = '', companionViewerPaneId = ''] = viewerPanes;
 
 		// The rail keeps the keyboard, as the tmux layout leaves it.
 		await focusPaneInApp(location.paneId).catch(() => undefined);

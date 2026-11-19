@@ -47,6 +47,7 @@ import {
 	sendKeysSync,
 	sendText,
 	terminalExists,
+	VIEWER_LABEL,
 } from './terminals.ts';
 
 const log = createLogger('herdr-sessions');
@@ -344,6 +345,9 @@ export async function cleanupOrphanedHerdrTerminals(
 	for (const terminal of terminals) {
 		const session = terminal.labels['pappardelle.session'];
 		if (!session) continue;
+		// A viewer pane's terminal belongs to the window's layout, not to a
+		// space. Killing it would empty a pane the rail is drawing into.
+		if (terminal.labels[VIEWER_LABEL]) continue;
 		if (keys.some(key => session.endsWith(key))) continue;
 		if (await killTerminal(session)) swept++;
 	}

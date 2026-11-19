@@ -21,6 +21,16 @@ export const SESSION_LABEL = 'pappardelle.session';
 export const KIND_LABEL = 'pappardelle.kind';
 /** The repo, so one core shared by several repos can be swept per repo. */
 export const REPO_LABEL = 'pappardelle.repo';
+/**
+ * The rail whose viewer panes these terminals sit in, as its terminal address.
+ *
+ * The desktop window gives every pane a terminal of its own, and nothing on the
+ * pane says who made it. This label does: it names the rail that split it, so a
+ * relaunch finds its own two viewers and leaves the person's own panes alone.
+ */
+export const VIEWER_LABEL = 'pappardelle.viewer';
+/** Which of that rail's viewers a terminal is: `agent` or `companion`. */
+export const VIEWER_ROLE_LABEL = 'pappardelle.viewer-role';
 
 export type TerminalFacts = {
 	address: string;
@@ -183,6 +193,32 @@ export async function findTerminals(
 		{labels: {[SESSION_LABEL]: sessionName}, all: options.all ?? false},
 	);
 	return (raw.terminals ?? []).map(terminal => toFacts(terminal));
+}
+
+/** Every terminal carrying all of these labels, or none. */
+export async function findTerminalsByLabels(
+	labels: Record<string, string>,
+	options: {all?: boolean} = {},
+): Promise<TerminalFacts[]> {
+	const raw = await coreClient().call<{terminals?: RawTerminal[]}>(
+		'terminal.list',
+		{labels, all: options.all ?? false},
+	);
+	return (raw.terminals ?? []).map(terminal => toFacts(terminal));
+}
+
+/** Put a label on a terminal, so a later run can find it again. */
+export async function labelTerminal(
+	address: string,
+	labels: Record<string, string>,
+): Promise<boolean> {
+	try {
+		await coreClient().call('terminal.label', {terminal: address, labels});
+		return true;
+	} catch (error) {
+		if (isHerdrMissing(error)) return false;
+		throw error;
+	}
 }
 
 /** The one terminal a session name names, live or finished, or null. */

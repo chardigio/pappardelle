@@ -25,6 +25,11 @@
 
 import {createLogger} from '../logger.ts';
 import {answerField, doCommand, listSpaces, type AppSpace} from './app.ts';
+import {
+	findTerminalsByLabels,
+	VIEWER_LABEL,
+	VIEWER_ROLE_LABEL,
+} from './terminals.ts';
 
 const log = createLogger('herdr-app-layout');
 
@@ -97,44 +102,76 @@ export function panesOfTab(
 	return tab ? tab.terminals.map(terminal => terminal.pane) : [];
 }
 
-/**
- * The panes of the tab holding `terminalId`, except the one it is in.
- *
- * These are the viewer panes: they were split off the rail's pane on an
- * earlier run, and they survive relaunches because a pane outlives the
- * process that made it.
- */
-export function viewerPanesOf(
+/** Where a terminal is drawn: its pane, and the space and tab holding it. */
+export function paneHoldingTerminal(
 	spaces: readonly AppSpace[],
 	terminalId: string,
-): string[] {
-	const location = findTerminalIn(spaces, terminalId);
-	if (!location) return [];
-	const tab = findSpace(spaces, location.spaceId)?.tabs.find(
-		candidate => candidate.id === location.tabId,
-	);
-	if (!tab) return [];
-	return tab.terminals
-		.filter(terminal => terminal.terminal !== terminalId)
-		.map(terminal => terminal.pane);
+): {paneId: string; spaceId: string; tabId: string} | null {
+	return findTerminalIn(spaces, terminalId);
 }
 
 /**
- * Split a pane, returning the new pane's id.
+ * The rail's own viewer panes, found by the label `pane.split` put on them.
+ *
+ * The pane itself carries no mark saying who made it, so a relaunch cannot tell
+ * its own viewers from a pane the person split in the same tab. The label does:
+ * each viewer terminal names the rail that made it, so these are Pappardelle's
+ * panes and nobody else's.
+ */
+export async function findViewerPanes(
+	railTerminal: string,
+): Promise<{agent: string; companion: string}> {
+	const viewers = await findTerminalsByLabels({[VIEWER_LABEL]: railTerminal});
+	const spaces = await listSpaces();
+	return viewerPanesAmong(viewers, address =>
+		paneHoldingTerminal(spaces, address),
+	);
+}
+
+/**
+ * The pane ids of the labelled viewers, by role.
+ *
+ * Separated from the listing calls so the rule that matters -- a labelled
+ * terminal only counts if the window is still drawing it in a pane -- is
+ * checkable without a live window. An empty id means the role has no viewer,
+ * which the caller answers by making one.
+ */
+export function viewerPanesAmong(
+	viewers: ReadonlyArray<{address: string; labels: Record<string, string>}>,
+	locate: (terminalId: string) => {paneId: string} | null,
+): {agent: string; companion: string} {
+	const paneOf = (role: string): string => {
+		const viewer = viewers.find(
+			candidate => candidate.labels[VIEWER_ROLE_LABEL] === role,
+		);
+		if (!viewer) return '';
+		return locate(viewer.address)?.paneId ?? '';
+	};
+
+	return {agent: paneOf('agent'), companion: paneOf('companion')};
+}
+
+/**
+ * Split a pane, returning the new pane and the terminal it came with.
  *
  * The new pane comes with a terminal of its own, which is what the window
- * draws until something is shown in it.
+ * draws until something is shown in it. That terminal is what carries the
+ * viewer label, so it is returned with the pane.
  */
 export async function splitPaneInApp(
 	paneId: string,
 	direction: 'right' | 'down' = 'right',
-): Promise<string | null> {
+): Promise<{paneId: string; terminalId: string} | null> {
 	try {
 		const answer = await doCommand('pane.split', {
 			pane: paneId,
 			direction,
 		});
-		return answerField(answer, 'pane') ?? null;
+		const newPane = answerField(answer, 'pane');
+		const newTerminal = answerField(answer, 'terminal');
+		return newPane && newTerminal
+			? {paneId: newPane, terminalId: newTerminal}
+			: null;
 	} catch (error) {
 		log.error(
 			`Could not split pane ${paneId}`,

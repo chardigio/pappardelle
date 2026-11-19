@@ -2,9 +2,11 @@ import test from 'ava';
 import {
 	findSpace,
 	findTerminalIn,
+	paneHoldingTerminal,
 	panesOfTab,
-	viewerPanesOf,
+	viewerPanesAmong,
 } from './app-layout.ts';
+import {VIEWER_ROLE_LABEL} from './terminals.ts';
 import type {AppSpace} from './app.ts';
 
 // A window shaped like the real one: spaces hold tabs, and a tab holds panes,
@@ -80,18 +82,69 @@ test('panesOfTab lists a tab pane in the window order', t => {
 	t.deepEqual(panesOfTab(SPACES, 'nope'), []);
 });
 
-// The viewers are the panes beside the rail, in the order they were split:
-// agent first, companion second. This order is what tells the layout which
-// pane to show a space's agent in.
-test('viewerPanesOf lists the tab panes beside the rail, in split order', t => {
-	t.deepEqual(viewerPanesOf(SPACES, 't1'), ['p8', 'p9']);
+// `paneHoldingTerminal` is how a labelled viewer terminal is turned back into
+// the pane it is drawn in, which is what `terminal.show` needs.
+test('paneHoldingTerminal finds the pane a terminal is drawn in', t => {
+	t.deepEqual(paneHoldingTerminal(SPACES, 't1'), {
+		spaceId: 'spA',
+		tabId: 'tbRail',
+		paneId: 'p1',
+	});
+	t.is(paneHoldingTerminal(SPACES, 't404'), null);
 });
 
-test('viewerPanesOf is empty for a rail with no viewers yet', t => {
-	t.deepEqual(viewerPanesOf(SPACES, 't2'), []);
-	t.deepEqual(viewerPanesOf(SPACES, 't404'), []);
+// The case the caller relies on: a labelled viewer the window is no longer
+// drawing (its tab was closed) has no pane, so the layout makes a new one
+// instead of showing into a pane that is gone.
+test('paneHoldingTerminal is null for a viewer the window stopped showing', t => {
+	t.is(paneHoldingTerminal(SPACES, 't-split-tab-closed'), null);
 });
 
-test('viewerPanesOf never names the rail', t => {
-	t.false(viewerPanesOf(SPACES, 't1').includes('p1'));
+// The panes the layout may reuse are the ones it labelled. A pane the person
+// split carries no such label, so it is never adopted -- that is the whole
+// point of the label.
+test('viewerPanesAmong returns the labelled viewers by role', t => {
+	t.deepEqual(
+		viewerPanesAmong(
+			[
+				{address: 't8', labels: {[VIEWER_ROLE_LABEL]: 'agent'}},
+				{address: 't9', labels: {[VIEWER_ROLE_LABEL]: 'companion'}},
+			],
+			address => ({paneId: `p-${address}`}),
+		),
+		{agent: 'p-t8', companion: 'p-t9'},
+	);
+});
+
+// Roles are independent: a space with only an agent viewer still lays out.
+test('viewerPanesAmong leaves a missing role empty', t => {
+	t.deepEqual(
+		viewerPanesAmong(
+			[{address: 't8', labels: {[VIEWER_ROLE_LABEL]: 'agent'}}],
+			address => ({paneId: `p-${address}`}),
+		),
+		{agent: 'p-t8', companion: ''},
+	);
+	t.deepEqual(
+		viewerPanesAmong([], () => ({paneId: 'p'})),
+		{
+			agent: '',
+			companion: '',
+		},
+	);
+});
+
+// A labelled terminal that is no longer drawn in a pane cannot be shown into,
+// so it counts as missing and the caller splits a fresh viewer.
+test('viewerPanesAmong drops a viewer the window no longer shows', t => {
+	t.deepEqual(
+		viewerPanesAmong(
+			[
+				{address: 't8', labels: {[VIEWER_ROLE_LABEL]: 'agent'}},
+				{address: 't9', labels: {[VIEWER_ROLE_LABEL]: 'companion'}},
+			],
+			address => (address === 't9' ? null : {paneId: 'p-t8'}),
+		),
+		{agent: 'p-t8', companion: ''},
+	);
 });
