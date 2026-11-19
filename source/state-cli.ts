@@ -186,5 +186,6 @@ try {
 	console.error(
 		`pappardelle --internal-state ${name}: ${error instanceof Error ? error.message : String(error)}`,
 	);
-	process.exitCode = 1;
+	// Not 1: idow reads `space get`'s 1 as "no such space" and carries on.
+	process.exitCode = 3;
 }

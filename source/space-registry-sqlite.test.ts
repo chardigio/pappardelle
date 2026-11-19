@@ -643,6 +643,6 @@ test('a space that cannot be recorded fails the script that asked, before it sta
 	);
 	other.run('COMMIT');
 	other.close();
-	t.is((failure as {code?: number} | undefined)?.code, 1);
+	t.is((failure as {code?: number} | undefined)?.code, 3);
 	t.deepEqual(f.states(), {});
 });
