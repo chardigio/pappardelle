@@ -181,6 +181,7 @@ import {
 } from './send-to-claude.ts';
 import {
 	isInTmux,
+	usesHerdrCore,
 	getWorktreePath,
 	getWorktreePathAsync,
 	getMainWorktreeInfo,
@@ -2784,8 +2785,11 @@ export default function App({
 		);
 	};
 
-	// Check if running in tmux
+	// Whether the panes are laid out by a multiplexer at all. The tmux paths
+	// below are genuinely tmux's (a popup, say), so they keep `isInTmux`;
+	// this one is only about whether anything shares the screen.
 	const inTmux = isInTmux();
+	const panesLaidOut = inTmux || usesHerdrCore();
 	const dialogHeight = listRows;
 
 	if (loading && spaces.length === 0) {
@@ -2824,7 +2828,11 @@ export default function App({
 			</box>
 		</box>
 	);
-	const workspaceTitle = workspaceTitleRuns({repoName, inTmux, errorCount});
+	const workspaceTitle = workspaceTitleRuns({
+		repoName,
+		inTmux: panesLaidOut,
+		errorCount,
+	});
 	const banner = updateInfo && (
 		<UpdateBanner info={updateInfo} onMeasure={setBannerHeight} />
 	);

@@ -4,6 +4,7 @@ import {sameFile} from './same-file.ts';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {
+	activeBackend,
 	clearSousChefKeyArgs,
 	defaultServerTmuxRunner,
 	outerSessionName,
@@ -405,6 +406,10 @@ export function closeTuiLayout(
 	layout: PaneLayout,
 	deps: CloseLayoutDeps,
 ): void {
+	// Under the desktop window the panes are the window's, and the person's
+	// other spaces and tabs live in it: quitting must not close any of them.
+	if (activeBackend() === 'herdr-app') return;
+
 	const current = deps.currentSession();
 	if (isOwnTuiSession(repoName, current)) deps.killSession(current);
 	else closeViewerPanes(layout, deps);

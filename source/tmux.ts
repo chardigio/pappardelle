@@ -1,6 +1,13 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
+import {
+	exec,
+	execFile,
+	execFileSync,
+	execSync,
+	spawn,
+	spawnSync,
+} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
@@ -134,6 +141,11 @@ import {
 	getCompanionSplits,
 	quoteLaunchValue,
 	getDangerouslySkipPermissions,
+	getConfiguredBackend,
+	getDefaultHomeConfigDir,
+	configLayerFiles,
+	parseConfigLayer,
+	getRepoRoot,
 	getMainRepoRoot,
 	getListLayout,
 	getPaneWidths,
@@ -146,6 +158,23 @@ import {
 	type AgentLaunch,
 	workspaceAwareAgents,
 } from './config.ts';
+import {selectBackend, type TerminalBackendName} from './backend.ts';
+import {
+	ensureHerdrAgentSession,
+	ensureHerdrCompanionSession,
+	killHerdrSpaceSessions,
+	sendKeysToHerdrAgentSync,
+	sendToHerdrAgent,
+} from './herdr/sessions.ts';
+import {setupHerdrLayout, attachHerdrViewers} from './herdr/layout-setup.ts';
+import {setupDesktopLayout} from './herdr/app-layout-setup.ts';
+import {
+	focusPaneInApp,
+	showTerminalInPane,
+	sizeRailColumnsInApp,
+} from './herdr/app-layout.ts';
+import {findTerminal} from './herdr/terminals.ts';
+import {runInPane} from './herdr/layout.ts';
 import {agentRulesFlags, installAgentRules} from './companion-rules.ts';
 import {
 	MAIN_PANE,
@@ -176,7 +205,7 @@ import {
 } from './pane-frame-options.ts';
 import {parseAgentScreen} from './agent-screen.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
-import {startupTrace} from './startup-trace.ts';
+import {startupTrace, type TraceOutcome} from './startup-trace.ts';
 import type {PaneLayout} from './types.ts';
 import {
 	paneGeometryArgs,
@@ -235,6 +264,118 @@ export {
 } from './layout-sizing.ts';
 
 const log = createLogger('tmux');
+
+/**
+ * Which terminal backend this process drives. Resolved once, on first use:
+ * the environment can override the config, and the config can override the
+ * default, but a process does not change backend mid-run.
+ */
+let resolvedBackend: TerminalBackendName | null = null;
+
+export function activeBackend(): TerminalBackendName {
+	if (resolvedBackend) return resolvedBackend;
+
+	// A developer's machine-wide ~/.pappardelle/.pappardelle.yml must not choose
+	// the backend for a test run: before this, `backend: herdr-app` at home made
+	// the whole tmux suite take the herdr path. Tests are recognised the way
+	// ava runs them -- a .test.ts entry point is on the command line -- and a
+	// repo's own config still counts. An explicit PAPPARDELLE_BACKEND wins
+	// either way, and PAPPARDELLE_HOME_CONFIG opts a test back in.
+	const homeCounts =
+		!underTest() || Boolean(process.env['PAPPARDELLE_HOME_CONFIG']);
+
+	let configured: string | undefined;
+	try {
+		configured = getConfiguredBackend(loadConfig());
+	} catch (error) {
+		// A config that will not load must not silently pick a backend: with
+		// `backend: herdr-app` in the home layer, an invalid *repo* config used
+		// to fall back to tmux and start a tmux layout the user never asked
+		// for. Say so, and keep the configured intent when it can be read.
+		configured = readBackendIgnoringValidation({repoOnly: !homeCounts});
+		if (configured === undefined) {
+			log.error(
+				'Could not read the configured backend; falling back to tmux',
+				error instanceof Error ? error : undefined,
+			);
+		} else {
+			log.warn(
+				`Config did not validate, but its backend: ${configured} still applies`,
+			);
+		}
+	}
+
+	// Under test the home layer was skipped above, so read the repo's own key
+	// rather than accepting whatever merged value that produced.
+	if (!homeCounts) configured = readBackendIgnoringValidation({repoOnly: true});
+
+	resolvedBackend = selectBackend({configured}).name;
+	return resolvedBackend;
+}
+
+/**
+ * Whether this process is a test run.
+ *
+ * ava runs each case in a worker at `node_modules/ava/lib/worker/base.js`,
+ * which is the one signal available without a test-only helper module. The
+ * entry points passed to `ava` are not visible in the worker's argv.
+ */
+function underTest(): boolean {
+	if (process.env.NODE_ENV === 'test') return true;
+	return process.argv.some(argument =>
+		/(?:^|[/\\])ava[/\\]lib[/\\]worker[/\\]/.test(argument),
+	);
+}
+
+/**
+ * The `backend:` value from the config files, read without validation.
+ *
+ * `loadConfig` throws on any invalid key, and losing the backend to an
+ * unrelated mistake (a missing `profiles:`, say) is worse than reading the one
+ * key this function needs.
+ */
+function readBackendIgnoringValidation(
+	options: {repoOnly?: boolean} = {},
+): string | undefined {
+	try {
+		const layers = configLayerFiles({
+			homeConfigDir: options.repoOnly ? undefined : getDefaultHomeConfigDir(),
+			projectDir: getRepoRoot(),
+			fallbackProjectDir: getMainRepoRoot,
+		});
+		// Highest priority last, as the loader merges them.
+		let backend: string | undefined;
+		for (const {path: filePath} of layers) {
+			if (!filePath) continue;
+			const layer = parseConfigLayer(filePath, readFileSync(filePath, 'utf8'));
+			const value = layer?.['backend'];
+			if (typeof value === 'string') backend = value;
+		}
+
+		return backend;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Forget the cached choice. Tests only: a real process picks one backend. */
+export function resetActiveBackendForTests(): void {
+	resolvedBackend = null;
+}
+
+/**
+ * True when herdr-core runs this backend's terminals -- the `herdr` CLI or the
+ * Herdr desktop app. Both share the session, send and screen code; only the
+ * pane side differs.
+ */
+export function usesHerdrCore(): boolean {
+	return activeBackend() !== 'tmux';
+}
+
+/** True when the Herdr desktop window owns the panes. */
+export function usesDesktopWindow(): boolean {
+	return activeBackend() === 'herdr-app';
+}
 
 // Dedicated tmux socket for per-issue claude/companion sessions. The root
 // `pappardelle-{repo}` session and its layout panes stay on the default
@@ -832,6 +973,10 @@ export async function installSousChefKey(
 	command: string,
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<void> {
+	// The sous-chef key is a tmux root-table binding. Under the desktop window
+	// the panes are Herdr's, so there is no tmux table to bind into.
+	if (usesDesktopWindow()) return;
+
 	try {
 		await run(
 			key === null
@@ -1506,6 +1651,17 @@ export async function killSpaceSessions(
 	},
 ): Promise<boolean> {
 	const sessions = getSessionNames(issueKey, options?.repoName);
+	if (usesHerdrCore()) {
+		const killed = await killHerdrSpaceSessions(issueKey, options?.repoName);
+		if (currentlyViewingSpace === issueKey) {
+			currentlyViewingSpace = null;
+			agentViewerHasClient = false;
+			companionViewerHasClient = false;
+		}
+
+		return killed;
+	}
+
 	// Keep the agent running until companion teardown succeeds. Reattaching
 	// after a companion failure must not recreate Claude with --continue.
 	const run = options?.run ?? runTmux;
@@ -1571,6 +1727,19 @@ export async function focusPane(
 	paneId: string,
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<void> {
+	// Under the desktop window the panes are the app's own, so focus is the
+	// app's `pane.focus` rather than tmux's `select-pane`.
+	if (usesDesktopWindow()) {
+		if (!paneId) return;
+		try {
+			await focusPaneInApp(paneId);
+		} catch (error) {
+			log.warn(`Failed to focus pane ${paneId}`, error as Error);
+		}
+
+		return;
+	}
+
 	try {
 		await run(['select-pane', '-t', paneId]);
 	} catch (error) {
@@ -1832,6 +2001,13 @@ export async function sendToSpaceAgent(
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
 	const session = getSessionNames(issueKey, options.repoName).agent;
+	if (usesHerdrCore()) {
+		return sendToHerdrAgent(issueKey, text, {
+			repoName: options.repoName,
+			force: options.force,
+		});
+	}
+
 	const target = await resolveInnerSessionTarget(session, runner);
 	if (!target) return 'no-session';
 	try {
@@ -1875,6 +2051,12 @@ export function sendKeysToSpaceAgent(
 	} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
+	if (usesHerdrCore()) {
+		return sendKeysToHerdrAgentSync(issueKey, keys, {
+			repoName: options.repoName,
+		});
+	}
+
 	const target = resolveInnerSessionTargetSync(
 		getSessionNames(issueKey, options.repoName).agent,
 		runner,
@@ -2049,6 +2231,9 @@ function currentPaneWidths(): PaneWidths {
  * Asynchronous so the caller can load the renderer while tmux works.
  */
 export async function setupPappardellLayout(): Promise<PaneLayout | null> {
+	if (usesDesktopWindow()) return setupDesktopLayout();
+	if (usesHerdrCore()) return setupHerdrLayout();
+
 	const done = startupTrace.current?.begin('layout-setup');
 	try {
 		// Get current pane from TMUX_PANE env var
@@ -2378,13 +2563,280 @@ export async function attachToSpace(
 	);
 }
 
+/**
+ * Show a space under the herdr backend: make sure its two terminals exist,
+ * then point the viewers at them.
+ *
+ * The tmux path below reasons about nested clients, ttys and copy-mode; an hc
+ * viewer has none of that. Its pane simply runs `hc attach`, so the work here
+ * is the session side plus retargeting the panes, which mirrors what
+ * `switch-client` did.
+ */
+async function attachHerdrSpace(
+	viewers: {
+		agentViewerPaneId: string;
+		companionViewerPaneId: string;
+		issueKey: string;
+		mainWorktreePath: string | undefined;
+		issueTitle: string | undefined;
+		name: string;
+	},
+	options: AttachOptions,
+	traceDone: ((outcome?: TraceOutcome) => void) | undefined,
+): Promise<boolean> {
+	const {signal} = options;
+	const {
+		agentViewerPaneId,
+		companionViewerPaneId,
+		issueKey,
+		mainWorktreePath,
+		issueTitle,
+		name,
+	} = viewers;
+	const repoName = getRepoName();
+	const sessions = getSessionNames(issueKey, repoName);
+
+	try {
+		signal?.throwIfAborted();
+
+		// Same resolution order as the tmux path: the saved profile wins, and
+		// the issue title is the fallback for spaces that predate it.
+		let skipPermissions = false;
+		let companionCommand = DEFAULT_COMPANION_COMMAND;
+		let agentProfile: ResolvedAgentProfile | undefined;
+		let sessionId: string | undefined;
+		let launch: AgentLaunch = {rules: false};
+		try {
+			const config = loadConfig();
+			launch = {
+				rules: workspaceAwareAgents(config),
+				...(issueKey === MAIN_WORKTREE_KEY ? sousChefLaunch(config) : {}),
+			};
+			const profileName = savedSpaceProfile(issueKey);
+			skipPermissions = getDangerouslySkipPermissions(config);
+			companionCommand = getCompanionCommand(config, issueTitle, profileName);
+			agentProfile = getAgentProfile(config, issueTitle, profileName);
+			sessionId = readAgentSession(repoName, issueKey, agentProfile.name);
+		} catch {
+			// Config load failed — use safe defaults.
+		}
+
+		const worktreePath =
+			mainWorktreePath ?? getWorktreePath(issueKey) ?? undefined;
+		if (!worktreePath) {
+			log.warn(`No worktree for ${issueKey}; leaving the viewers as they are`);
+			traceDone?.('failed');
+			return false;
+		}
+
+		const [agentReady, companionReady] = await Promise.all([
+			ensureHerdrAgentSession(issueKey, worktreePath, {
+				skipPermissions,
+				profile: agentProfile,
+				sessionId,
+				launch,
+			}),
+			companionViewerPaneId
+				? ensureHerdrCompanionSession(issueKey, worktreePath, {
+						command: companionCommand,
+					})
+				: Promise.resolve(false),
+		]);
+		signal?.throwIfAborted();
+
+		if (!agentReady) {
+			traceDone?.('failed');
+			return false;
+		}
+
+		await attachHerdrViewers({
+			layout: {
+				listPaneId: process.env['HERDR_PANE_ID'] ?? '',
+				agentViewerPaneId,
+				companionViewerPaneId,
+			},
+			agentTerminal: sessions.agent,
+			companionTerminal: companionReady ? sessions.companion : '',
+		});
+
+		currentlyViewingSpace = issueKey;
+		log.info(`Showing ${name} (agent: ${sessions.agent})`);
+		traceDone?.();
+		return true;
+	} catch (error) {
+		clearCurrentlyViewingSpace();
+		if (!signal?.aborted) {
+			log.error(
+				`Failed to attach to space ${issueKey}`,
+				error instanceof Error ? error : undefined,
+			);
+		}
+
+		traceDone?.(signal?.aborted ? 'cancelled' : 'failed');
+		return false;
+	}
+}
+
 // What tmux says of a pane that no longer exists; the wording depends on the
 // command.
 const PANE_GONE = /^(?:can't find pane|no such pane):/m;
 
-// Companion viewer panes that have closed: the shell left in one after its
-// program ends can be exited. The layout still names the pane until it is
-// rebuilt, and a workspace then has only its agent to show.
+/**
+ * Show a space under the Herdr desktop backend.
+ *
+ * The rail's tab holds all three panes (see app-layout-setup.ts), so showing a
+ * space is `terminal.show`: the space's agent goes in the agent pane and its
+ * companion in the companion pane, exactly as `tmux attach` would put them in
+ * the viewer panes. The rail stays beside them the whole time.
+ *
+ * A shown terminal takes the keyboard and stays shown across switches, so this
+ * needs no tab selection and no reattach.
+ */
+async function attachDesktopSpace(
+	viewers: {
+		agentViewerPaneId: string;
+		companionViewerPaneId: string;
+		issueKey: string;
+		mainWorktreePath: string | undefined;
+		issueTitle: string | undefined;
+		name: string;
+		/** The rail's own pane, whose width the 1/4 : 1/2 : 1/4 layout sets. */
+		listPaneId?: string;
+	},
+	options: AttachOptions,
+	traceDone: ((outcome?: TraceOutcome) => void) | undefined,
+): Promise<boolean> {
+	const {signal} = options;
+	const {agentViewerPaneId, companionViewerPaneId, issueKey, mainWorktreePath} =
+		viewers;
+	const {issueTitle, name, listPaneId} = viewers;
+	const repoName = getRepoName();
+	const sessions = getSessionNames(issueKey, repoName);
+
+	try {
+		signal?.throwIfAborted();
+
+		let skipPermissions = false;
+		let companionCommand = DEFAULT_COMPANION_COMMAND;
+		let agentProfile: ResolvedAgentProfile | undefined;
+		let sessionId: string | undefined;
+		let launch: AgentLaunch = {rules: false};
+		try {
+			const config = loadConfig();
+			launch = {
+				rules: workspaceAwareAgents(config),
+				...(issueKey === MAIN_WORKTREE_KEY ? sousChefLaunch(config) : {}),
+			};
+			const profileName = savedSpaceProfile(issueKey);
+			skipPermissions = getDangerouslySkipPermissions(config);
+			companionCommand = getCompanionCommand(config, issueTitle, profileName);
+			agentProfile = getAgentProfile(config, issueTitle, profileName);
+			sessionId = readAgentSession(repoName, issueKey, agentProfile.name);
+		} catch {
+			// Config load failed — use safe defaults.
+		}
+
+		const worktreePath =
+			mainWorktreePath ?? getWorktreePath(issueKey) ?? undefined;
+		if (!worktreePath) {
+			log.warn(`No worktree for ${issueKey}; leaving the window as it is`);
+			traceDone?.('failed');
+			return false;
+		}
+
+		if (!agentViewerPaneId) {
+			log.warn(`No agent pane in the Herdr window for ${issueKey}`);
+			traceDone?.('failed');
+			return false;
+		}
+
+		// No `appTab`: these terminals are shown in the rail's panes, not
+		// adopted into tabs of their own. A space's tab per workspace is what
+		// left the rail stranded in a tab by itself.
+		const [agentReady, companionReady] = await Promise.all([
+			ensureHerdrAgentSession(issueKey, worktreePath, {
+				skipPermissions,
+				profile: agentProfile,
+				sessionId,
+				launch,
+			}),
+			ensureHerdrCompanionSession(issueKey, worktreePath, {
+				command: companionCommand,
+			}),
+		]);
+		signal?.throwIfAborted();
+
+		if (!agentReady) {
+			traceDone?.('failed');
+			return false;
+		}
+
+		// These terminals are not in the window's listing: the listing only has
+		// terminals the window has adopted, and adopting would put each space
+		// in a tab of its own. `terminal.show` takes a core address directly,
+		// so the space's terminals need no listing entry to be shown.
+		const agentTerminal = await findTerminal(sessions.agent);
+		if (!agentTerminal) {
+			log.warn(
+				`No terminal for ${sessions.agent}, so ${issueKey} is not shown`,
+			);
+			traceDone?.('failed');
+			return false;
+		}
+
+		const agentShown = await showTerminalInPane(
+			agentTerminal.address,
+			agentViewerPaneId,
+		);
+		if (!agentShown) {
+			traceDone?.('failed');
+			return false;
+		}
+
+		// The companion is optional: a space with none, or a layout too narrow
+		// for its pane, still shows its agent.
+		if (companionViewerPaneId && companionReady) {
+			const companionTerminal = await findTerminal(sessions.companion);
+			if (companionTerminal) {
+				await showTerminalInPane(
+					companionTerminal.address,
+					companionViewerPaneId,
+				);
+			}
+		}
+
+		// Showing a space does not touch the panes' widths, and a person may
+		// have dragged them, so the three columns are put back to 1/4 : 1/2 :
+		// 1/4 here rather than only when the layout is first built.
+		await sizeRailColumnsInApp({
+			listPaneId: listPaneId ?? '',
+			agentViewerPaneId,
+			companionViewerPaneId,
+		});
+
+		currentlyViewingSpace = issueKey;
+		log.info(
+			`Showing ${name} (agent: ${agentTerminal.address} in pane ${agentViewerPaneId}, companion: ${companionReady ? sessions.companion : 'none'})`,
+		);
+		traceDone?.();
+		return true;
+	} catch (error) {
+		clearCurrentlyViewingSpace();
+		if (!signal?.aborted) {
+			log.error(
+				`Failed to show space ${issueKey}`,
+				error instanceof Error ? error : undefined,
+			);
+		}
+
+		traceDone?.(signal?.aborted ? 'cancelled' : 'failed');
+		return false;
+	}
+}
+
+/** Companion viewer panes that have closed: the shell left in one after its
+ * program ends can be exited. The layout still names the pane until it is
+ * rebuilt, and a workspace then has only its agent to show. */
 const closedCompanionPanes = new Set<string>();
 
 async function attachViewers(
@@ -2399,6 +2851,38 @@ async function attachViewers(
 	const traceDone = startupTrace.current?.begin('attachment');
 	const {signal} = options;
 	const name = options.label ?? issueKey;
+
+	if (usesDesktopWindow()) {
+		return attachDesktopSpace(
+			{
+				agentViewerPaneId,
+				companionViewerPaneId,
+				issueKey,
+				mainWorktreePath,
+				issueTitle,
+				name,
+				listPaneId,
+			},
+			options,
+			traceDone,
+		);
+	}
+
+	if (usesHerdrCore()) {
+		return attachHerdrSpace(
+			{
+				agentViewerPaneId,
+				companionViewerPaneId,
+				issueKey,
+				mainWorktreePath,
+				issueTitle,
+				name,
+			},
+			options,
+			traceDone,
+		);
+	}
+
 	const run: AsyncTmuxRunner = async args => {
 		signal?.throwIfAborted();
 		const output = await (options.run ?? runTmux)(args);
@@ -3148,9 +3632,33 @@ async function innerSessionExistsAsync(
  * Display a message in a pane (for empty state)
  */
 export function displayMessageInPane(paneId: string, message: string): boolean {
-	// The companion viewer does not exist in the vertical layout.
+	// The companion viewer does not exist in the vertical layout, and the
+	// desktop window has no message pane to write into.
 	if (!paneId) return false;
 	forgetViewerClient(paneId);
+
+	if (usesDesktopWindow()) {
+		// The window's panes have terminals of their own; showing a message
+		// would replace the space's agent with text. The rail already carries
+		// the empty state, so there is nothing to write here.
+		log.debug(`No message pane under the desktop window (${message})`);
+		return false;
+	}
+
+	// A herdr pane is a terminal like any other: run the message command in it
+	// instead of respawning a tmux pane.
+	if (usesHerdrCore()) {
+		try {
+			runInPaneSync(paneId, viewerMessageCommand(message));
+			return true;
+		} catch (error) {
+			log.error(
+				`Failed to display message in pane ${paneId}: ${String(error)}`,
+			);
+			return false;
+		}
+	}
+
 	const result = spawnSync(
 		'tmux',
 		viewerStartArgs(paneId, viewerMessageCommand(message)),
@@ -3170,6 +3678,25 @@ export async function displayMessageInPaneAsync(
 ): Promise<void> {
 	if (!paneId) return;
 	forgetViewerClient(paneId);
+
+	if (usesDesktopWindow()) {
+		log.debug(`No message pane under the desktop window (${message})`);
+		return;
+	}
+
+	if (usesHerdrCore()) {
+		try {
+			await runInPane(paneId, viewerMessageCommand(message));
+		} catch (err) {
+			log.error(
+				`Failed to display message in pane ${paneId}`,
+				err instanceof Error ? err : undefined,
+			);
+		}
+
+		return;
+	}
+
 	try {
 		await run(viewerStartArgs(paneId, viewerMessageCommand(message)));
 	} catch (err) {
@@ -3178,6 +3705,15 @@ export async function displayMessageInPaneAsync(
 			err instanceof Error ? err : undefined,
 		);
 	}
+}
+
+/** Type a command into a pane now, for the callers that cannot await. */
+function runInPaneSync(paneId: string, command: string): void {
+	execFileSync('herdr', ['pane', 'run', paneId, command], {
+		encoding: 'utf8',
+		timeout: 5000,
+		stdio: ['ignore', 'ignore', 'pipe'],
+	});
 }
 
 // A respawned viewer pane has a new pty and no nested client, so the cached
@@ -3578,6 +4114,19 @@ export async function reconcilePaneLayout(
 	/** The narrow layout: rail across the top, agent below, no companion. */
 	stacked: boolean;
 }> {
+	if (usesDesktopWindow()) {
+		// The window owns every pane's size, and the rail gets exactly the
+		// terminal it was given: there is nothing to resize or rebuild.
+		return {
+			layout,
+			dimensions: {
+				rows: process.stdout.rows ?? 40,
+				cols: process.stdout.columns ?? 120,
+			},
+			stacked: false,
+		};
+	}
+
 	// Captured before any await: the selection can change while this waits on
 	// tmux, and a drag belongs to the space that was showing.
 	const spaceWidth = spaceCompanionWidth;
@@ -3878,6 +4427,9 @@ async function releaseStartupGate(
  *
  * The session outlives the agent: a login shell takes over the pane when the
  * agent exits (see buildShellLaunchArgs).
+ *
+ * Under the herdr backend the "session" is an hc terminal (see
+ * herdr/sessions.ts); the tmux code below is skipped entirely.
  */
 export async function ensureAgentSession(
 	issueKey: string,
@@ -3888,6 +4440,23 @@ export async function ensureAgentSession(
 	sessionId?: string,
 	launch?: AgentLaunch,
 ): Promise<boolean> {
+	if (usesHerdrCore()) {
+		const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
+		if (!worktreePath) {
+			log.warn(
+				`Cannot create agent session for ${issueKey}: no worktree found`,
+			);
+			return false;
+		}
+
+		return ensureHerdrAgentSession(issueKey, worktreePath, {
+			skipPermissions,
+			profile: agentProfile,
+			sessionId,
+			launch,
+		});
+	}
+
 	const traceDone = startupTrace.current?.begin('agent-session');
 	const sessions = getSessionNames(issueKey);
 	const sessionName = sessions.agent;
@@ -4101,6 +4670,20 @@ export async function ensureCompanionSession(
 	companionCommand: string = DEFAULT_COMPANION_COMMAND,
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<boolean> {
+	if (usesHerdrCore()) {
+		const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
+		if (!worktreePath) {
+			log.warn(
+				`Cannot create companion session for ${issueKey}: no worktree found`,
+			);
+			return false;
+		}
+
+		return ensureHerdrCompanionSession(issueKey, worktreePath, {
+			command: companionCommand,
+		});
+	}
+
 	const traceDone = startupTrace.current?.begin('companion-session');
 	const sessionName = getSessionNames(issueKey).companion;
 

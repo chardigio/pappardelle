@@ -24,6 +24,7 @@ import {
 } from './issue-utils.ts';
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import {isPaneWidth, type PaneWidth, type PaneWidths} from './layout-sizing.ts';
+import {BACKEND_NAMES, parseBackendName} from './backend.ts';
 import {
 	DEFAULT_SPLIT,
 	isPaneName,
@@ -392,6 +393,13 @@ export interface PappardelleConfig {
 	 * `false` turns it off. Absent ⇒ DEFAULT_SOUS_CHEF_KEY.
 	 */
 	sous_chef_key?: string | false;
+	/**
+	 * Which terminal backend the rail drives: `tmux` (the default), `herdr`
+	 * (herdr-core terminals in a `herdr` workspace), or `herdr-app` (the
+	 * Herdr desktop window, which owns the panes itself).
+	 * The `PAPPARDELLE_BACKEND` environment variable overrides this per run.
+	 */
+	backend?: 'tmux' | 'herdr' | 'herdr-app';
 	/**
 	 * When true, an agent session in the repo but outside any space (the
 	 * main checkout's) is told it coordinates the other spaces. Off by default.
@@ -1273,9 +1281,23 @@ export function loadAgentProfileSources(
 /**
  * Check if a .pappardelle.yml exists at the repo root
  */
-export function configExists(): boolean {
+/**
+ * Whether a config exists for this repo: its own file (working tree or main
+ * checkout), or the machine-wide home layer, which every repo inherits.
+ *
+ * The home layer counting is what lets a repo with no `.pappardelle.yml` run
+ * on machine-wide defaults instead of refusing to start.
+ */
+export function configExists(
+	options: {homeConfigDir?: string; repoConfig?: () => string | undefined} = {},
+): boolean {
 	try {
-		return findRepoConfig('.pappardelle.yml') !== undefined;
+		const repoConfig =
+			options.repoConfig ?? (() => findRepoConfig('.pappardelle.yml'));
+		if (repoConfig() !== undefined) return true;
+
+		const homeConfigDir = options.homeConfigDir ?? getDefaultHomeConfigDir();
+		return fs.existsSync(path.join(homeConfigDir, '.pappardelle.yml'));
 	} catch {
 		return false;
 	}
@@ -1484,6 +1506,13 @@ export function validateConfig(
 		(typeof sousChefKey !== 'string' || sousChefKey.trim() === '')
 	) {
 		errors.push('sous_chef_key: must be a tmux key name or false');
+	}
+	const {backend} = cfg;
+	if (
+		backend !== undefined &&
+		(typeof backend !== 'string' || parseBackendName(backend) === null)
+	) {
+		errors.push(`backend: must be one of ${BACKEND_NAMES.join(', ')}`);
 	}
 	if (cfg['sous_chef'] !== undefined && typeof cfg['sous_chef'] !== 'boolean') {
 		errors.push('sous_chef: must be a boolean');
@@ -2971,6 +3000,13 @@ export function getDangerouslySkipPermissions(
 	config: PappardelleConfig,
 ): boolean {
 	return config.claude?.dangerously_skip_permissions ?? false;
+}
+
+/** The `backend:` setting, or undefined when the config does not set one. */
+export function getConfiguredBackend(
+	config: PappardelleConfig | null,
+): 'tmux' | 'herdr' | 'herdr-app' | undefined {
+	return config?.backend;
 }
 
 /**

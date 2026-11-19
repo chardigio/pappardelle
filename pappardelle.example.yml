@@ -21,6 +21,13 @@ default_emoji: ''
 # For beads this is the database's issue prefix (e.g. 'myproj').
 team_prefix: ENG
 
+# Which terminal backend runs the panes and each space's session.
+#   tmux       (default) — the pappardelle-<repo> session plus one tmux session per space
+#   herdr      — herdr-core terminals in a herdr workspace; panes run `hc attach`
+#   herdr-app  — the Herdr desktop window owns the panes; start from a Herdr pane
+# PAPPARDELLE_BACKEND=<name> overrides this for a single run.
+# backend: herdr-app
+
 # Issue tracker (optional). Linear is assumed when omitted.
 # For Jira, you can set `default_issue_type` if your project doesn't accept the
 # default of "Task" — and override it per-profile via `profiles.<name>.jira.issue_type`.

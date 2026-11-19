@@ -964,11 +964,24 @@ if [[ -n "$FORCED_AGENT_PROFILE" ]] && {
     # Read by idowSkippedAgentOverride() in source/session-routing.ts.
     echo "PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped"
 fi
-"$SCRIPT_DIR/start-agent-session.sh" "${AGENT_SESSION_ARGS[@]}" || print_warning "Failed to start agent tmux session"
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null; then
-    print_success "Agent session: $AGENT_SESSION_NAME"
+# Under a herdr backend Pappardelle starts the agent and companion itself, as
+# herdr-core terminals (source/herdr/sessions.ts). Starting tmux ones here too
+# would run a second, invisible agent on the same conversation.
+case "${PAPPARDELLE_BACKEND:-tmux}" in
+herdr | herdr-app) USES_HERDR=true ;;
+*) USES_HERDR=false ;;
+esac
+if [[ "$USES_HERDR" == true ]]; then
+    # Only records the launch command; Pappardelle starts the terminal.
+    "$SCRIPT_DIR/start-agent-session.sh" "${AGENT_SESSION_ARGS[@]}" || print_warning "Failed to record the agent launch"
+    print_success "Agent session left to Pappardelle (backend: $PAPPARDELLE_BACKEND)"
 else
-    print_warning "Agent session not created (is tmux running?)"
+    "$SCRIPT_DIR/start-agent-session.sh" "${AGENT_SESSION_ARGS[@]}" || print_warning "Failed to start agent tmux session"
+    if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null; then
+        print_success "Agent session: $AGENT_SESSION_NAME"
+    else
+        print_warning "Agent session not created (is tmux running?)"
+    fi
 fi
 
 # Steps 7-11: Find the PR, run commands, open apps, links, terminal
@@ -1184,7 +1197,9 @@ if [[ -n "$PR_URL" ]]; then
 fi
 echo "Worktree:  $WORKTREE_PATH"
 echo ""
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null; then
+if [[ "$USES_HERDR" == true ]]; then
+    echo "Agent session starts in Pappardelle (backend: $PAPPARDELLE_BACKEND)."
+elif tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$AGENT_SESSION_NAME:" 2>/dev/null; then
     if [[ "$RESUME_MODE" == true ]]; then
         echo "Agent session ready (resume mode)."
     elif [[ -n "$INIT_CMD" ]]; then
