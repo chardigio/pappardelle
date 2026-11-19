@@ -10,14 +10,15 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	readdirSync,
 	renameSync,
 	rmSync,
-	watch,
 	writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {isPaneWidth, type PaneWidth} from './layout-sizing.ts';
+import {fileVersion, watchDirChanges} from './file-watch.ts';
 import {withFileLock} from './file-lock.ts';
 
 export function companionWidthsPath(repoName: string, baseDir: string) {
@@ -176,13 +177,20 @@ export class JsonCompanionRequestDao implements CompanionRequestDao {
 	}
 
 	watch(onRequest: (request: LayoutRequest) => void): () => void {
-		mkdirSync(this.dir, {recursive: true});
-		const watcher = watch(this.dir, (_event, file) => {
-			if (!file?.endsWith('.json') || file.endsWith(ACK_SUFFIX)) return;
-			const request = readRequest(path.join(this.dir, file));
-			if (request) onRequest(request);
+		// A request is reported each time it is written. One already waiting
+		// when the watch begins was left by a CLI that has stopped waiting,
+		// unless it asks again.
+		let reported = this.requestVersions();
+		return watchDirChanges(this.dir, () => {
+			const current = this.requestVersions();
+			for (const [file, version] of current) {
+				if (reported.get(file) === version) continue;
+				const request = readRequest(path.join(this.dir, file));
+				if (request) onRequest(request);
+			}
+
+			reported = current;
 		});
-		return () => watcher.close();
 	}
 
 	async answer(ack: LayoutAck): Promise<void> {
@@ -201,6 +209,24 @@ export class JsonCompanionRequestDao implements CompanionRequestDao {
 	remove(id: string): void {
 		rmSync(this.requestPath(id), {force: true});
 		rmSync(this.ackPath(id), {force: true});
+	}
+
+	private requestVersions(): Map<string, string> {
+		const versions = new Map<string, string>();
+		let files: string[];
+		try {
+			files = readdirSync(this.dir);
+		} catch {
+			return versions;
+		}
+
+		for (const file of files) {
+			if (!file.endsWith('.json') || file.endsWith(ACK_SUFFIX)) continue;
+			const version = fileVersion(path.join(this.dir, file));
+			if (version) versions.set(file, version);
+		}
+
+		return versions;
 	}
 
 	private requestPath(id: string): string {
