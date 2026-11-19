@@ -109,7 +109,7 @@ fi
 
 # Run the script
 "$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH" --no-agent \
-    --agent-env "SPACED=a b" --agent-env "QUOTED=x'y" 2>/dev/null
+    --agent-env "SPACED=a b" --agent-env "QUOTED=x'y" --agent-env "PI_PROGRAM_STATUS=0" 2>/dev/null
 EXIT_CODE=$?
 
 assert_eq "exits 0" "0" "$EXIT_CODE"
@@ -144,6 +144,8 @@ assert_eq "agent session env carries a profile var with a space" "SPACED=a b" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" SPACED 2>/dev/null)"
 assert_eq "agent session env carries a profile var with a quote" "QUOTED=x'y" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" QUOTED 2>/dev/null)"
+assert_eq "pappardelle's own agent var wins over a profile var of the same name" "PI_PROGRAM_STATUS=1" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PI_PROGRAM_STATUS 2>/dev/null)"
 assert_eq "companion session env has no profile var" "" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$COMPANION_SESSION" SPACED 2>/dev/null || true)"
 # An agent started by hand in the companion isn't the space's agent

@@ -1073,14 +1073,19 @@ test.serial(
 		await ensureAgentSession('TEST-ENV', '/tmp', false, run, {
 			...DEFAULT_RESOLVED_AGENT_PROFILE,
 			name: 'opus',
-			env: {CODE_MODE: '1', SPACED: "a b'c"},
+			env: {CODE_MODE: '1', SPACED: "a b'c", PI_PROGRAM_STATUS: '0'},
 		});
 		const created = calls.find(args => args.includes('new-session'))!;
-		const envFlags = new Set(
-			created.flatMap((arg, i) => (arg === '-e' ? [created[i + 1]] : [])),
+		const envFlags = created.flatMap((arg, i) =>
+			arg === '-e' ? [created[i + 1]!] : [],
 		);
-		t.true(envFlags.has('CODE_MODE=1'));
-		t.true(envFlags.has("SPACED=a b'c"));
+		t.true(envFlags.includes('CODE_MODE=1'));
+		t.true(envFlags.includes("SPACED=a b'c"));
+		// tmux keeps the last -e for a name, so pappardelle's own value wins.
+		t.is(
+			envFlags.findLast(flag => flag.startsWith('PI_PROGRAM_STATUS=')),
+			'PI_PROGRAM_STATUS=1',
+		);
 	},
 );
 

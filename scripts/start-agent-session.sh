@@ -73,7 +73,7 @@ AGENT_PROMPT_ARGS=""
 NO_PROMPT=false
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
-PROFILE_ENV=()
+AGENT_PROFILE_ENV=()
 AGENT_PROFILE="claude"
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
 # An empty value (passed explicitly via --companion-command "") leaves a plain
@@ -144,7 +144,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --agent-env)
-            PROFILE_ENV+=(-e "$2")
+            AGENT_PROFILE_ENV+=(-e "$2")
             shift 2
             ;;
         *)
@@ -220,12 +220,12 @@ fi
 # source/spawn-env.ts: an agent started by hand in the companion pane isn't the
 # space's agent, so its session id must not be recorded.
 AGENT_SESSION_ENV=(
+    "${AGENT_PROFILE_ENV[@]}"
     -e "PI_PROGRAM_STATUS=1"
     -e "AGY_CLI_OSC7501=on"
     -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE"
     -e "PAPPARDELLE_AGENT_IS_CLAUDE=$AGENT_IS_CLAUDE"
     -e "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
-    "${PROFILE_ENV[@]}"
 )
 
 # Pre-trust the worktree directory for Claude Code (skipped for other agents:

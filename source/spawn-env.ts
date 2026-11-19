@@ -56,9 +56,10 @@ export function buildSessionEnvArgs(
 }
 
 /**
- * The `-e` flags only the agent session gets: the agent profile's env, and,
- * for the hook that records the
- * agent's session id (plugins/pappardelle/hooks/agent_session.py): which agent profile the pane
+ * The `-e` flags only the agent session gets. The agent profile's env comes
+ * first, so pappardelle's own variables win a name clash (tmux keeps the last).
+ * Then, for the hook that records the agent's session id
+ * (plugins/pappardelle/hooks/agent_session.py): which agent profile the pane
  * runs, so a later relaunch with a different one ignores the id; whether it is
  * a claude agent profile, so the hook of an agent of the other kind started in
  * the pane isn't recorded; and the file to write the id to. Kept off the
