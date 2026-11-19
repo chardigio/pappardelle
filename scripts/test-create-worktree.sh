@@ -138,6 +138,22 @@ assert_no_auto_stash() {
     fi
 }
 
+# create-worktree.sh with the path idow passes for a new space of this repo.
+# A call that names its own path keeps it.
+create_worktree() {
+    local args=("$@") key="" named=false index
+    for ((index = 0; index < ${#args[@]}; index++)); do
+        case "${args[index]}" in
+            --issue-key) key="${args[index + 1]}" ;;
+            --worktree) named=true ;;
+        esac
+    done
+    if [[ "$named" == false ]]; then
+        args+=(--worktree "$WORKTREES_ROOT/repo/$key")
+    fi
+    "$SCRIPT_DIR/create-worktree.sh" "${args[@]}"
+}
+
 # Set up a fresh temp git repo with a local "origin" remote
 setup_repo() {
     TMPDIR_ROOT=$(mktemp -d)
@@ -169,7 +185,7 @@ echo -e "${BOLD}Test: create-worktree with clean repo (main repo untouched)${RES
 setup_repo
 
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-100" --project-key "test" 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key "STA-100" --project-key "test" 2>/dev/null)
 
 assert_valid_json "stdout is valid JSON" "$OUTPUT"
 assert_single_line "stdout is a single line" "$OUTPUT"
@@ -185,7 +201,7 @@ setup_repo
 git -C "$MAIN_REPO" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
 git -C "$MAIN_REPO" branch origin/master
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key STA-125 --project-key test 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key STA-125 --project-key test 2>/dev/null)
 assert_valid_json "ambiguous short ref still creates a worktree" "$OUTPUT"
 assert_eq "worktree uses origin's default branch" "$SNAPSHOT_HEAD" \
     "$(git -C "$WORKTREES_ROOT/repo/STA-125" rev-parse HEAD)"
@@ -204,7 +220,7 @@ git -C "$tag_clone" commit -m release --quiet
 git -C "$tag_clone" tag -a v1.2.3 -m release
 git -C "$tag_clone" push --quiet origin master v1.2.3
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key STA-130 --project-key test 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key STA-130 --project-key test 2>/dev/null)
 assert_valid_json "tagged history creates a worktree" "$OUTPUT"
 assert_eq "git describe sees the newly fetched tag" "v1.2.3" \
     "$(git -C "$WORKTREES_ROOT/repo/STA-130" describe --tags --exact-match)"
@@ -218,7 +234,7 @@ setup_repo
 git -C "$MAIN_REPO" branch STA-150
 git -C "$MAIN_REPO" remote set-url origin "$TMPDIR_ROOT/missing-origin.git"
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key STA-150 --project-key test 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key STA-150 --project-key test 2>/dev/null)
 assert_valid_json "offline branch reuse succeeds" "$OUTPUT"
 assert_eq "reused branch preserves its commit" "$SNAPSHOT_HEAD" \
     "$(git -C "$WORKTREES_ROOT/repo/STA-150" rev-parse HEAD)"
@@ -234,7 +250,7 @@ setup_repo
 echo "dirty" > "$MAIN_REPO/README.md"
 
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-200" --project-key "test" 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key "STA-200" --project-key "test" 2>/dev/null)
 
 assert_valid_json "stdout is valid JSON despite dirty repo" "$OUTPUT"
 assert_single_line "stdout is a single line" "$OUTPUT"
@@ -253,7 +269,7 @@ echo "staged content" > "$MAIN_REPO/newfile.txt"
 cd "$MAIN_REPO" && git add newfile.txt
 
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-300" --project-key "test" 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key "STA-300" --project-key "test" 2>/dev/null)
 
 assert_valid_json "stdout is valid JSON despite staged changes" "$OUTPUT"
 assert_single_line "stdout is a single line" "$OUTPUT"
@@ -276,7 +292,7 @@ git add feature.txt
 git commit -m "feature work" --quiet
 
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-350" --project-key "test" 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key "STA-350" --project-key "test" 2>/dev/null)
 
 assert_valid_json "stdout is valid JSON" "$OUTPUT"
 assert_single_line "stdout is a single line" "$OUTPUT"
@@ -314,7 +330,7 @@ cd "$MAIN_REPO"
 echo "local change" > conflict.txt
 
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-400" --project-key "test" 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key "STA-400" --project-key "test" 2>/dev/null)
 
 assert_valid_json "stdout is valid JSON" "$OUTPUT"
 assert_single_line "stdout is a single line" "$OUTPUT"
@@ -345,7 +361,7 @@ for i in $(seq 1 5); do
 done
 
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-500" --project-key "test" 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key "STA-500" --project-key "test" 2>/dev/null)
 
 assert_valid_json "stdout is valid JSON with many dirty files" "$OUTPUT"
 assert_single_line "stdout is a single line with many dirty files" "$OUTPUT"
@@ -373,7 +389,7 @@ git commit -m "initial commit" --quiet
 git push --quiet -u origin main 2>/dev/null
 
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "CHEX-100" --project-key "test" 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key "CHEX-100" --project-key "test" 2>/dev/null)
 
 assert_valid_json "stdout is valid JSON (main-based repo)" "$OUTPUT"
 assert_single_line "stdout is a single line (main-based repo)" "$OUTPUT"
@@ -410,7 +426,7 @@ else
 fi
 
 snapshot_main_repo
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-600" --project-key "test" 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key "STA-600" --project-key "test" 2>/dev/null)
 EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
@@ -448,7 +464,7 @@ setup_repo
 touch "$MAIN_REPO/.git/index.lock"
 echo "dirty" > "$MAIN_REPO/README.md"
 
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-700" --project-key "test" 2>/dev/null)
+OUTPUT=$(create_worktree --issue-key "STA-700" --project-key "test" 2>/dev/null)
 EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
@@ -482,7 +498,7 @@ setup_repo
 touch "$MAIN_REPO/.git/index.lock"
 
 EXIT_CODE=0
-OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-800" --project-key "test" 2>/dev/null) || EXIT_CODE=$?
+OUTPUT=$(create_worktree --issue-key "STA-800" --project-key "test" 2>/dev/null) || EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
     echo -e "  ${GREEN}PASS${RESET} succeeds despite stale index.lock on clean repo"
@@ -528,7 +544,7 @@ fi
 
 # Run create-worktree pointing MAIN_REPO at the worktree. The lock removal
 # step runs before any git operation that would observe the lock.
-MAIN_REPO="$WORKTREE_EXTRA" "$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-900" --project-key "test" >/dev/null 2>&1 || true
+MAIN_REPO="$WORKTREE_EXTRA" create_worktree --issue-key "STA-900" --project-key "test" >/dev/null 2>&1 || true
 
 if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
     echo -e "  ${GREEN}PASS${RESET} stale index.lock removed via git-common-dir resolution"
@@ -538,6 +554,20 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+teardown_repo
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: the worktree goes where it is told${RESET}"
+# The path is decided by the stores (a stored space's own, or the one a new
+# space gets), so the script never builds one from the key.
+setup_repo
+TOLD="$TMPDIR_ROOT/elsewhere/not-the-key"
+OUTPUT=$(create_worktree --issue-key "STA-950" --project-key "test" --worktree "$TOLD" 2>/dev/null)
+assert_json_field "worktree_path is the path given" "$OUTPUT" "worktree_path" "$TOLD"
+assert_eq "worktree is a checkout of the branch" "STA-950" "$(git -C "$TOLD" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-951" --project-key "test" 2>&1 || true)
+assert_eq "--worktree is required" "Error: --worktree is required" "$OUTPUT"
 teardown_repo
 
 # ==========================================================================

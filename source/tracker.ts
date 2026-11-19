@@ -1,6 +1,6 @@
 // Issue tracker facade — thin wrapper over IssueTrackerProvider
 // All exports preserved for backwards compatibility.
-import {createIssueTracker} from './providers/index.ts';
+import {createIssueTracker, recordIssueTitles} from './providers/index.ts';
 import type {TrackerIssue} from './providers/types.ts';
 
 // Re-export TrackerIssue as LinearIssue for callers that import from here
@@ -11,7 +11,9 @@ function tracker() {
 }
 
 export async function getIssue(issueKey: string): Promise<TrackerIssue | null> {
-	return tracker().getIssue(issueKey);
+	const issue = await tracker().getIssue(issueKey);
+	await recordIssueTitles([[issueKey, issue]]);
+	return issue;
 }
 
 export function getIssueCached(issueKey: string): TrackerIssue | null {
@@ -25,7 +27,9 @@ export function getWorkflowStateColor(stateName: string): string | null {
 export async function getIssues(
 	issueKeys: string[],
 ): Promise<Map<string, TrackerIssue | null>> {
-	return tracker().getIssues(issueKeys);
+	const issues = await tracker().getIssues(issueKeys);
+	await recordIssueTitles(issues);
+	return issues;
 }
 
 export async function searchAssignedIssues(

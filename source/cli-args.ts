@@ -10,6 +10,8 @@ const helpText = `
 	  $ pappardelle close <issue-key> [--yes]
 	  $ pappardelle send <issue-key> --keys <key>...
 	  $ pappardelle spaces [--json]
+	  $ pappardelle space get [issue-key] [--json] [--field <name>]...
+	  $ pappardelle space list [--json]
 	  $ pappardelle read <issue-key> [--turns N] [--json]
 	  $ pappardelle companion <command...>
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
@@ -40,6 +42,10 @@ const helpText = `
 	                   Repeat --keys for several
 	  spaces           List open spaces with status, title, PR and branch
 	                   summary (--json for the full record)
+	  space get [key]  What a space is: its phase, title, worktree, branch,
+	                   profile, tmux sessions and panes, PR and status. With
+	                   no key, the space this runs in. See pappardelle space --help
+	  space list       The main space and every open space, as space get
 	  read <key>       Print the last turns of a space's conversation
 	                   (--turns N, default 5; --json)
 	  screen|state|wait|answer <key>
@@ -102,6 +108,38 @@ const helpText = `
 	  $ pappardelle update       # Update, then ask before restarting running TUIs
 	  $ pappardelle restart      # Restart this repo's TUI in place
 	  $ pappardelle restart --hard  # End agent sessions, restart every TUI
+`;
+
+export const SPACE_USAGE = `Usage: pappardelle space get [issue-key] [--json] [--field <name>]...
+       pappardelle space list [--json]`;
+
+export const SPACE_HELP = `
+	Usage
+	  $ pappardelle space get [issue-key] [--json] [--field <name>]...
+	  $ pappardelle space list [--json]
+
+	space get prints what Pappardelle knows about a space, from its stores:
+	repo, key, phase (starting, open, closing or closed), title, worktreePath,
+	branch, profile, agentSessions, tmux (socket, socketFlag, agentSession,
+	companionSession, agentTarget, companionTarget), panes (agent, companion),
+	prNumber, prLinks, pipeline, unresolvedCommentCount and status. With no
+	key it answers for the space it runs in: PAPPARDELLE_SPACE, else the
+	worktree or main checkout that holds the working directory.
+
+	space list prints the main space, then every open space in the rail's order.
+
+	Options
+	  --json          Print the record as JSON
+	  --field <name>  Print one field, such as profile or tmux.agentTarget: a
+	                  string bare, an object as JSON, nothing for null. Repeat
+	                  for several, printed as one JSON object keyed by name
+
+	Exit codes
+	  0  Printed
+	  1  No such space, or not in a space and no key given
+	  2  Usage
+	  3  A state store could not be read. space list still prints the
+	     spaces it could read and names each one it could not
 `;
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {

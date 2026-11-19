@@ -5,6 +5,11 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
+import {
+	sqliteRun,
+	testTmuxSpaces,
+	type TestState,
+} from '../test/helpers/state.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {
 	CLEAR_COMPOSER_ROUNDS,
@@ -13,6 +18,19 @@ import {
 	sendToSpaceAgent,
 	type SendTmuxRunner,
 } from './tmux.ts';
+
+// tmux.ts names a space's sessions from the stores, as idow recorded them.
+const stateTeardowns: Array<() => void> = [];
+let state: TestState;
+test.before(async () => {
+	state = await testTmuxSpaces({teardown: fn => stateTeardowns.push(fn)}, 'r', [
+		'agc.17',
+		'STA-1',
+	]);
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
+});
 
 const lockDir = mkdtempSync(path.join(tmpdir(), 'pappa-send-test-'));
 test.after.always(() => {
@@ -78,10 +96,7 @@ test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-
 
 	const buffer = `pappardelle-send-${process.pid}`;
 
-	t.is(
-		await sendToSpaceAgent('agc.17', text, {repoName: 'r', runner, lockDir}),
-		'sent',
-	);
+	t.is(await sendToSpaceAgent('agc.17', text, {runner, lockDir}), 'sent');
 	t.deepEqual(calls, [
 		['copy-mode', '-q', '-t', '=agent-r-agc_17:'],
 		...Array.from(
@@ -111,7 +126,7 @@ test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-
 // in one call submitted and 16 rounds failed, so each call stays well under.
 test('sendToSpaceAgent sends at most 16 clear keys in each send-keys call, so the agent does not read the clear as a paste', async t => {
 	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1']});
-	await sendToSpaceAgent('STA-1', '/context', {repoName: 'r', runner, lockDir});
+	await sendToSpaceAgent('STA-1', '/context', {runner, lockDir});
 	const clears = calls.filter(
 		args => args[0] === 'send-keys' && args.at(-1) !== 'Enter',
 	);
@@ -129,14 +144,10 @@ test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced'
 		sessions: ['agent-r-STA-1'],
 		screen: draft,
 	});
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir}),
-		'draft',
-	);
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'draft');
 	t.deepEqual(calls, []);
 	t.is(
 		await sendToSpaceAgent('STA-1', 'hi', {
-			repoName: 'r',
 			runner,
 			lockDir,
 			force: true,
@@ -161,7 +172,6 @@ test('sendToSpaceAgent never types into a permission prompt, even forced', async
 	for (const force of [false, true]) {
 		t.is(
 			await sendToSpaceAgent('STA-1', '1', {
-				repoName: 'r',
 				runner,
 				lockDir,
 				force,
@@ -178,10 +188,7 @@ test('a dim placeholder in the Codex composer is not a draft', async t => {
 		sessions: ['agent-r-STA-1'],
 		screen: '\u001B[1m›\u001B[0m \u001B[2mAsk Codex to do anything\u001B[0m\n',
 	});
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir}),
-		'sent',
-	);
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'sent');
 });
 
 test('sendToSpaceAgent stops before pasting or pressing Enter when load-buffer fails', async t => {
@@ -190,10 +197,7 @@ test('sendToSpaceAgent stops before pasting or pressing Enter when load-buffer f
 		failOn: args => args[0] === 'load-buffer',
 	});
 
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir}),
-		'failed',
-	);
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'failed');
 	t.is(calls.at(-1)?.[0], 'load-buffer');
 });
 
@@ -203,10 +207,7 @@ test('sendToSpaceAgent deletes the loaded buffer and never presses Enter when pa
 		failOn: args => args[0] === 'paste-buffer',
 	});
 
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir}),
-		'failed',
-	);
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'failed');
 	t.deepEqual(calls.slice(-2), [
 		[
 			'paste-buffer',
@@ -227,10 +228,7 @@ test('sendToSpaceAgent reports no-session and sends nothing when the space has n
 		sessions: ['companion-r-STA-1', 'agent-other-STA-1'],
 	});
 
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir}),
-		'no-session',
-	);
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'no-session');
 	t.deepEqual(calls, []);
 });
 
@@ -247,8 +245,8 @@ test('two sends to one session at once submit one whole prompt after the other',
 	};
 
 	await Promise.all([
-		sendToSpaceAgent('STA-1', 'first', {repoName: 'r', runner, lockDir}),
-		sendToSpaceAgent('STA-1', 'second', {repoName: 'r', runner, lockDir}),
+		sendToSpaceAgent('STA-1', 'first', {runner, lockDir}),
+		sendToSpaceAgent('STA-1', 'second', {runner, lockDir}),
 	]);
 	const prompts = calls.filter(call => call === 'first' || call === 'second');
 	t.deepEqual([...prompts].sort(), ['first', 'second']);
@@ -271,7 +269,6 @@ test('sendToSpaceAgent reports busy and sends nothing while another live sender 
 	};
 	t.is(
 		await sendToSpaceAgent('STA-1', 'hi', {
-			repoName: 'r',
 			runner,
 			lockDir: heldDir,
 			lockTimeoutMs: 100,
@@ -368,7 +365,7 @@ function composer(lines: string[], row: number, col: number) {
 
 test('the keys sent before a prompt empty a multi-line draft wherever the cursor is', async t => {
 	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1']});
-	await sendToSpaceAgent('STA-1', 'hi', {repoName: 'r', runner, lockDir});
+	await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir});
 	const clearKeys = calls
 		.filter(args => args[0] === 'send-keys' && args.at(-1) !== 'Enter')
 		.flatMap(args => args.slice(3));
@@ -384,3 +381,27 @@ test('the keys sent before a prompt empty a multi-line draft wherever the cursor
 		t.is(box.value, '', `cursor at line ${row}, column ${col}`);
 	}
 });
+
+if (sqliteRun) {
+	test('sendToSpaceAgent sends to the agent session stored for the space', async t => {
+		await state.daos.spaceIdentities.record({
+			repo: 'r',
+			key: 'HAND-1',
+			worktreePath: '/w/HAND-1',
+			tmux: {
+				socket: 'pappardelle_inner',
+				agentSession: 'hand-named-agent',
+				companionSession: 'hand-named-companion',
+			},
+		});
+		const {runner, calls} = makeRunner({
+			sessions: ['hand-named-agent', 'agent-r-HAND-1'],
+		});
+		t.is(await sendToSpaceAgent('HAND-1', 'hi', {runner, lockDir}), 'sent');
+		t.is(
+			calls.find(args => args[0] === 'paste-buffer')?.at(-1),
+			'=hand-named-agent:',
+		);
+		t.false(calls.some(args => args.includes('=agent-r-HAND-1:')));
+	});
+}

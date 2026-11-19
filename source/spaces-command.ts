@@ -7,9 +7,11 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {readableHookStatusKey} from './claude-status.ts';
-import {claudeProjectDir} from './space-state.ts';
-import {getSessionNames} from './tmux.ts';
+import type {ClaudeStatusDao} from './claude-status.ts';
+import type {IssueMetaDao} from './issue-meta.ts';
+import type {SpaceRegistryDao} from './space-registry.ts';
+import {claudeProjectDir, type SpaceStateDao} from './space-state.ts';
+import type {SpaceIdentity, SpaceIdentityDao} from './space-identity.ts';
 import {getIssues} from './tracker.ts';
 
 const execFileAsync = promisify(execFile);
@@ -42,7 +44,7 @@ export type SpaceEntry = {
 	conversationLog?: string;
 	logModified?: number;
 	logMinutesAgo?: number;
-	tmuxSession: string;
+	tmuxSession: string | null;
 	title: string | null;
 	prUrl: string | null;
 	git: GitSummary | null;
@@ -54,6 +56,11 @@ export type SpacesReport =
 
 export interface SpacesDeps {
 	repoName: string;
+	registry: Pick<SpaceRegistryDao, 'openSpaces'>;
+	spaceIdentities: Pick<SpaceIdentityDao, 'get'>;
+	claudeStatus: Pick<ClaudeStatusDao, 'readableKey' | 'readState'>;
+	spaceState: Pick<SpaceStateDao, 'read'>;
+	issueMeta: Pick<IssueMetaDao, 'read'>;
 	home: string;
 	now?: number;
 	fetchTitles: (keys: string[]) => Promise<Map<string, string | null>>;
@@ -74,17 +81,16 @@ function roundTenth(value: number): number {
 }
 
 /**
- * Claude Code's session file for each worktree of this repo, newest first
- * when one worktree has several. The prefix ends in `/` so `repo-api` never
- * matches `repo`.
+ * Claude Code's newest session file in each space's stored worktree, by
+ * space. A session in a subdirectory counts for the space whose worktree is
+ * its nearest ancestor.
  */
-function sessionsByWorktree(
+function sessionsBySpace(
 	home: string,
-	repoName: string,
+	worktrees: ReadonlyMap<string, string>,
 ): Map<string, Record<string, unknown>> {
 	const map = new Map<string, Record<string, unknown>>();
 	const dir = path.join(home, '.claude', 'sessions');
-	const prefix = path.join(home, '.worktrees', repoName) + '/';
 	let files: string[];
 	try {
 		files = fs.readdirSync(dir).filter(file => file.endsWith('.json'));
@@ -101,8 +107,7 @@ function sessionsByWorktree(
 		}
 
 		if (!isRecord(session) || typeof session['cwd'] !== 'string') continue;
-		if (!session['cwd'].startsWith(prefix)) continue;
-		const key = session['cwd'].slice(prefix.length).split('/')[0];
+		const key = spaceHolding(session['cwd'], worktrees);
 		if (!key) continue;
 		const existing = map.get(key);
 		const started = String(session['startedAt'] ?? '');
@@ -111,6 +116,20 @@ function sessionsByWorktree(
 	}
 
 	return map;
+}
+
+function spaceHolding(
+	cwd: string,
+	worktrees: ReadonlyMap<string, string>,
+): string | undefined {
+	let found: {key: string; depth: number} | undefined;
+	for (const [key, worktree] of worktrees) {
+		if (cwd !== worktree && !cwd.startsWith(worktree + '/')) continue;
+		if (!found || worktree.length > found.depth)
+			found = {key, depth: worktree.length};
+	}
+
+	return found?.key;
 }
 
 function newestJsonl(
@@ -161,18 +180,32 @@ async function withTimeout<T>(
 export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 	const {repoName, home} = deps;
 	const now = deps.now ?? Date.now();
-	const repoState = path.join(home, '.pappardelle', 'repos', repoName);
-	let keys: string[];
+	let keys: string[] | null;
 	try {
-		const parsed = readJson(path.join(repoState, 'open-spaces.json'));
-		keys = Array.isArray(parsed)
-			? parsed.filter((key): key is string => typeof key === 'string')
-			: [];
-	} catch {
-		return {error: 'No open spaces file found', spaces: []};
+		keys = deps.registry.openSpaces();
+	} catch (error) {
+		// An agent reads this as the list of spaces. A registry that could not
+		// be read must not tell it there are none.
+		return {
+			error: `Could not read the open spaces: ${error instanceof Error ? error.message : String(error)}`,
+			spaces: [],
+		};
 	}
 
-	const sessions = sessionsByWorktree(home, repoName);
+	if (!keys) return {error: 'No open spaces file found', spaces: []};
+
+	const identities = new Map<string, SpaceIdentity>();
+	for (const key of keys) {
+		const lookup = deps.spaceIdentities.get(key);
+		if (lookup.kind === 'identity') identities.set(key, lookup.identity);
+	}
+
+	const sessions = sessionsBySpace(
+		home,
+		new Map(
+			[...identities].map(([key, identity]) => [key, identity.worktreePath]),
+		),
+	);
 	// bd alone can take several seconds on a busy machine; a title is worth the
 	// wait for the board, but a hung tracker must not hold it forever.
 	const titles = withTimeout(
@@ -185,64 +218,44 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 		keys.map(async (name): Promise<SpaceEntry> => {
 			const entry: Partial<SpaceEntry> & {name: string} = {name};
 
-			const statusDir = path.join(home, '.pappardelle', 'claude-status');
-			const statusFile = path.join(
-				statusDir,
-				`${readableHookStatusKey(repoName, name, statusDir)}.json`,
+			const stored = await deps.claudeStatus.readState(
+				await deps.claudeStatus.readableKey(repoName, name),
 			);
-			if (fs.existsSync(statusFile)) {
-				try {
-					const status = readJson(statusFile);
-					const record = isRecord(status) ? status : {};
-					entry.status =
-						typeof record['status'] === 'string' ? record['status'] : 'unknown';
-					entry.currentTool = (record['currentTool'] as string) ?? null;
-					entry.lastUpdate = (record['lastUpdate'] as number) ?? null;
-					if (entry.lastUpdate)
-						entry.minutesAgo = roundTenth((now - entry.lastUpdate) / 60_000);
-					entry.sessionId = (record['sessionId'] as string) ?? null;
-				} catch {
-					entry.status = 'unknown';
-				}
+			if (stored.kind === 'state') {
+				const {state} = stored;
+				entry.status = state.status;
+				entry.currentTool = state.currentTool ?? null;
+				entry.lastUpdate = state.lastUpdate;
+				if (entry.lastUpdate)
+					entry.minutesAgo = roundTenth((now - entry.lastUpdate) / 60_000);
+				entry.sessionId = state.sessionId;
 			} else {
-				entry.status = 'no_status';
+				entry.status = stored.kind === 'unreadable' ? 'unknown' : 'no_status';
 			}
 
-			try {
-				entry.meta = readJson(
-					path.join(repoState, 'issue-meta', `${name}.json`),
-				);
-			} catch {
-				// No metadata cached for this space
+			const meta = deps.issueMeta.read(name);
+			if (meta) {
+				entry.meta = {
+					created_by_pappardelle: meta.createdByPappardelle,
+					created_at: meta.createdAt,
+				};
 			}
 
-			let prUrl: string | null = null;
-			try {
-				const state = readJson(
-					path.join(repoState, 'space-state', `${name}.json`),
-				);
-				if (isRecord(state)) {
-					for (const field of [
-						'pipeline',
-						'unresolvedCommentCount',
-						'prNumber',
-						'recap',
-					] as const) {
-						if (field in state) entry[field] = state[field];
-					}
-
-					if ('updatedAt' in state)
-						entry.spaceStateUpdatedAt = state['updatedAt'];
-					const links = state['prLinks'];
-					if (Array.isArray(links)) {
-						const last: unknown = links.at(-1);
-						if (isRecord(last) && typeof last['url'] === 'string')
-							prUrl = last['url'];
-					}
+			const state = deps.spaceState.read(name);
+			if (state) {
+				for (const field of [
+					'pipeline',
+					'unresolvedCommentCount',
+					'prNumber',
+					'recap',
+				] as const) {
+					if (field in state) entry[field] = state[field];
 				}
-			} catch {
-				// No rail state cached for this space
+
+				if ('updatedAt' in state) entry.spaceStateUpdatedAt = state.updatedAt;
 			}
+
+			const prUrl = state?.prLinks?.at(-1)?.url ?? null;
 
 			const session = sessions.get(name);
 			if (session) {
@@ -250,21 +263,25 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 				entry.worktreePath = session['cwd'];
 			}
 
-			const worktree = path.join(home, '.worktrees', repoName, name);
-			const log = newestJsonl(
-				claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
-			);
+			const identity = identities.get(name);
+			const worktree = identity?.worktreePath ?? null;
+			const log =
+				worktree &&
+				newestJsonl(
+					claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
+				);
 			if (log) {
 				entry.conversationLog = log.file;
 				entry.logModified = log.mtimeMs / 1000;
 				entry.logMinutesAgo = roundTenth((now - log.mtimeMs) / 60_000);
 			}
 
-			entry.tmuxSession = getSessionNames(name, repoName).agent;
+			entry.tmuxSession = identity?.tmux.agentSession ?? null;
 			entry.prUrl = prUrl;
-			entry.git = fs.existsSync(worktree)
-				? await deps.gitSummary(worktree).catch(() => null)
-				: null;
+			entry.git =
+				worktree && fs.existsSync(worktree)
+					? await deps.gitSummary(worktree).catch(() => null)
+					: null;
 			const titleMap = await titles;
 			entry.title = titleMap.get(name) ?? null;
 			return entry as SpaceEntry;
@@ -375,12 +392,22 @@ export function formatSpaces(report: SpacesReport): string {
 
 export async function runSpacesCommand(options: {
 	repoName: string;
+	registry: SpacesDeps['registry'];
+	spaceIdentities: SpacesDeps['spaceIdentities'];
+	claudeStatus: SpacesDeps['claudeStatus'];
+	spaceState: SpacesDeps['spaceState'];
+	issueMeta: SpacesDeps['issueMeta'];
 	home: string;
 	json: boolean;
 	out: (text: string) => void;
 }): Promise<number> {
 	const report = await gatherSpaces({
 		repoName: options.repoName,
+		registry: options.registry,
+		spaceIdentities: options.spaceIdentities,
+		claudeStatus: options.claudeStatus,
+		spaceState: options.spaceState,
+		issueMeta: options.issueMeta,
 		home: options.home,
 		async fetchTitles(keys) {
 			const issues = await getIssues(keys);

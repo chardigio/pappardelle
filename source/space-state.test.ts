@@ -2,15 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
+import {contractTest} from '../test/helpers/dao-contract.ts';
+import {testState, type TestState} from '../test/helpers/state.ts';
 import {
-	getAgentSessionsPath,
-	getSpaceStatePath,
-	latestAgentProfile,
-	readSpaceState,
-	writeSpaceState,
 	extractRecapFromJsonl,
 	findLatestSessionJsonl,
+	parseSpaceState,
 	type SpaceState,
+	type SpacePrLink,
 } from './space-state.ts';
 
 let tempCounter = 0;
@@ -25,151 +24,442 @@ function tempDir(): string {
 }
 
 // ============================================================================
-// getSpaceStatePath
+// SpaceStateDao
 // ============================================================================
 
-test('getSpaceStatePath uses ~/.pappardelle/repos/{repo}/space-state/{space}.json', t => {
-	const base = tempDir();
-	const p = getSpaceStatePath('stardust-labs', 'STA-123', base);
+const stateFile = (s: TestState, key: string) =>
+	path.join(s.stateDir, 'repos', 'repo', 'space-state', `${key}.json`);
+
+const fileContent = (s: TestState, key: string) =>
+	JSON.parse(fs.readFileSync(stateFile(s, key), 'utf8')) as SpaceState;
+
+/** A state file as a process that does not use the database leaves it. */
+function writeStateFile(s: TestState, key: string, state: unknown): void {
+	fs.mkdirSync(path.dirname(stateFile(s, key)), {recursive: true});
+	fs.writeFileSync(stateFile(s, key), JSON.stringify(state, null, 2) + '\n');
+}
+
+const link = (rest: Partial<SpacePrLink> = {}): SpacePrLink => ({
+	host: 'github.com',
+	project: 'user/repo',
+	localBranch: 'STA-1',
+	remoteBranch: 'published',
+	url: 'https://github.com/user/repo/pull/1',
+	number: 1,
+	...rest,
+});
+
+contractTest('a space with nothing recorded reads as null', (t, s) => {
+	t.is(s.daos.spaceState.read('STA-999'), null);
 	t.is(
-		p,
-		path.join(base, 'repos', 'stardust-labs', 'space-state', 'STA-123.json'),
+		s.daos.spaceState.file('STA-999'),
+		path.join(s.stateDir, 'repos', 'repo', 'space-state', 'STA-999.json'),
 	);
 });
 
-// ============================================================================
-// readSpaceState
-// ============================================================================
-
-test('readSpaceState returns null when file does not exist', t => {
-	const base = tempDir();
-	t.is(readSpaceState('stardust-labs', 'STA-999', base), null);
+contractTest('a file that is not JSON reads as nothing recorded', (t, s) => {
+	fs.mkdirSync(path.dirname(stateFile(s, 'STA-100')), {recursive: true});
+	fs.writeFileSync(stateFile(s, 'STA-100'), 'not json{{{');
+	t.is(s.daos.spaceState.read('STA-100'), null);
 });
 
-test('readSpaceState returns parsed state when file exists', t => {
-	const base = tempDir();
-	const p = getSpaceStatePath('stardust-labs', 'STA-100', base);
-	fs.mkdirSync(path.dirname(p), {recursive: true});
-	fs.writeFileSync(
-		p,
-		JSON.stringify({
+contractTest(
+	'a lookup tells a recorded space from one with nothing recorded',
+	async (t, s) => {
+		t.deepEqual(s.daos.spaceState.lookup('STA-1'), {kind: 'none'});
+		await s.daos.spaceState.write('STA-1', {profile: 'dev'});
+		const lookup = s.daos.spaceState.lookup('STA-1');
+		t.is(lookup.kind === 'state' ? lookup.state.profile : undefined, 'dev');
+	},
+);
+
+test('json: a lookup of a file that cannot be read is unreadable, not nothing recorded', t => {
+	const s = testState(t, {sqlite: false});
+	writeStateFile(s, 'STA-1', {});
+	fs.writeFileSync(stateFile(s, 'STA-1'), 'not json{{{');
+	fs.mkdirSync(stateFile(s, 'STA-2'), {recursive: true});
+	t.is(s.daos.spaceState.lookup('STA-1').kind, 'unreadable');
+	t.is(s.daos.spaceState.lookup('STA-2').kind, 'unreadable');
+});
+
+// Another build, or a hand edit, can leave a value this build does not use.
+// The rail rewrites the file on its next poll, from what was read.
+contractTest(
+	'a file with a field that cannot be used keeps its other fields, through a rail write too',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		writeStateFile(s, 'STA-150', {
+			profile: 'codex',
+			prLinks: [link()],
+			pipeline: 'purple',
+			prNumber: null,
+			recap: {customTitle: 5, lastPrompt: 'Prompt'},
+		});
+		const expected = {
+			profile: 'codex',
+			prLinks: [link()],
+			recap: {lastPrompt: 'Prompt'},
+		};
+		t.like(spaceState.read('STA-150'), expected);
+
+		await spaceState.writeMany([
+			{key: 'STA-150', patch: {unresolvedCommentCount: 4}},
+		]);
+		t.like(spaceState.read('STA-150'), {
+			...expected,
+			unresolvedCommentCount: 4,
+		});
+		t.like(fileContent(s, 'STA-150'), {
+			...expected,
+			unresolvedCommentCount: 4,
+		});
+	},
+);
+
+test('parseSpaceState leaves out each value that is not what its field holds, and keeps the rest', t => {
+	const valid = {
+		prLinks: [link(), link({localBranch: 'STA-2', number: 2})],
+		pipeline: null,
+		unresolvedCommentCount: 2,
+		prNumber: 9,
+		hasConflict: true,
+		recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
+		updatedAt: '2026-01-02T03:04:05.678Z',
+		profile: 'codex',
+		issueTitle: 'Fix the rail',
+		agentProfile: {name: 'codex-high', isClaude: false},
+	};
+	t.deepEqual(parseSpaceState(JSON.stringify(valid)), valid);
+
+	const {number: _number, ...incompleteLink} = link({localBranch: 'STA-3'});
+	t.deepEqual(
+		parseSpaceState(
+			JSON.stringify({
+				prLinks: [link(), incompleteLink, 'not a link'],
+				pipeline: 'purple',
+				unresolvedCommentCount: null,
+				prNumber: '9',
+				hasConflict: 'yes',
+				recap: {customTitle: 5, lastPrompt: 'Prompt', lastAssistantExcerpt: []},
+				updatedAt: 7,
+				profile: 'codex',
+				issueTitle: 12,
+				agentProfile: {name: 'codex'},
+			}),
+		),
+		{prLinks: [link()], recap: {lastPrompt: 'Prompt'}, profile: 'codex'},
+	);
+
+	t.deepEqual(
+		parseSpaceState(JSON.stringify({prLinks: 'none', recap: 'none'})),
+		{},
+	);
+	for (const content of ['[]', '"profile"', 'null'])
+		t.throws(() => parseSpaceState(content), {message: 'Not a space state'});
+});
+
+for (const sqlite of [false, true]) {
+	test(`${sqlite ? 'sqlite' : 'json'}: a write records its fields with the time of the write, in the store and in the file`, async t => {
+		const s = testState(t, {
+			sqlite,
+			clock: () => new Date('2026-01-02T03:04:05.678Z'),
+		});
+		await s.daos.spaceState.write('STA-200', {
 			pipeline: 'passing',
 			unresolvedCommentCount: 2,
-			prNumber: 849,
-			updatedAt: '2026-04-21T05:00:00.000Z',
-		}),
-	);
-	const state = readSpaceState('stardust-labs', 'STA-100', base);
-	t.truthy(state);
-	t.is(state!.pipeline, 'passing');
-	t.is(state!.unresolvedCommentCount, 2);
-	t.is(state!.prNumber, 849);
-});
+			hasConflict: false,
+		});
+		const expected = {
+			pipeline: 'passing',
+			unresolvedCommentCount: 2,
+			hasConflict: false,
+			updatedAt: '2026-01-02T03:04:05.678Z',
+		};
+		t.deepEqual(s.daos.spaceState.read('STA-200'), expected);
+		t.deepEqual(fileContent(s, 'STA-200'), expected);
+	});
+}
 
-test('readSpaceState returns null for malformed JSON', t => {
-	const base = tempDir();
-	const p = getSpaceStatePath('stardust-labs', 'STA-100', base);
-	fs.mkdirSync(path.dirname(p), {recursive: true});
-	fs.writeFileSync(p, 'not valid json{{{');
-	t.is(readSpaceState('stardust-labs', 'STA-100', base), null);
-});
+contractTest(
+	'a write keeps the fields its patch does not name',
+	async (t, {daos: {spaceState}}) => {
+		await spaceState.write('STA-300', {
+			pipeline: 'failing',
+			unresolvedCommentCount: 5,
+			recap: {customTitle: 'Initial title'},
+		});
+		await spaceState.write('STA-300', {
+			pipeline: 'passing',
+			unresolvedCommentCount: 0,
+		});
+		const state = spaceState.read('STA-300');
+		t.is(state?.pipeline, 'passing');
+		t.is(state?.unresolvedCommentCount, 0);
+		t.deepEqual(state?.recap, {customTitle: 'Initial title'});
+	},
+);
 
-// ============================================================================
-// writeSpaceState
-// ============================================================================
+contractTest(
+	'the issue title is read back, and kept through a profile write and a rail poll',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-320', {issueTitle: 'Fix the rail'});
+		await spaceState.write('STA-320', {profile: 'dev'});
+		await spaceState.writeMany([
+			{key: 'STA-320', patch: {pipeline: 'passing'}},
+		]);
+		for (const state of [spaceState.read('STA-320'), fileContent(s, 'STA-320')])
+			t.like(state, {
+				issueTitle: 'Fix the rail',
+				profile: 'dev',
+				pipeline: 'passing',
+			});
+	},
+);
 
-test('writeSpaceState creates file with given fields and updatedAt', t => {
-	const base = tempDir();
-	writeSpaceState(
-		'stardust-labs',
-		'STA-200',
-		{pipeline: 'failing', unresolvedCommentCount: 3, prNumber: 42},
-		base,
-	);
-	const state = readSpaceState('stardust-labs', 'STA-200', base);
-	t.truthy(state);
-	t.is(state!.pipeline, 'failing');
-	t.is(state!.unresolvedCommentCount, 3);
-	t.is(state!.prNumber, 42);
-	t.truthy(state!.updatedAt);
-	// ISO 8601 sanity check
-	t.regex(state!.updatedAt!, /^\d{4}-\d{2}-\d{2}T/);
-});
+contractTest(
+	'the launched agent profile is read back from the store and from a file written without it, and kept through a rail poll',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		const agentProfile = {name: 'codex-high', isClaude: false};
+		await spaceState.write('STA-330', {agentProfile});
+		await spaceState.writeMany([
+			{key: 'STA-330', patch: {pipeline: 'passing'}},
+		]);
+		t.deepEqual(spaceState.read('STA-330')?.agentProfile, agentProfile);
+		t.deepEqual(fileContent(s, 'STA-330').agentProfile, agentProfile);
 
-test('writeSpaceState merges with existing state rather than replacing it', t => {
-	const base = tempDir();
-	writeSpaceState(
-		'stardust-labs',
-		'STA-300',
-		{pipeline: 'passing', unresolvedCommentCount: 0},
-		base,
-	);
-	writeSpaceState(
-		'stardust-labs',
-		'STA-300',
-		{recap: {customTitle: 'Refactor auth', lastPrompt: 'ship it'}},
-		base,
-	);
-	const state = readSpaceState('stardust-labs', 'STA-300', base);
-	t.is(state!.pipeline, 'passing');
-	t.is(state!.unresolvedCommentCount, 0);
-	t.is(state!.recap?.customTitle, 'Refactor auth');
-	t.is(state!.recap?.lastPrompt, 'ship it');
-});
+		writeStateFile(s, 'STA-331', {
+			agentProfile: {name: 'opus', isClaude: true},
+		});
+		t.deepEqual(spaceState.read('STA-331')?.agentProfile, {
+			name: 'opus',
+			isClaude: true,
+		});
+	},
+);
 
-// Persisted at workspace-creation time by `idow` so the TUI can resolve the
-// profile (and therefore the emoji) on first paint, before the in-memory
-// issue cache has filled. See STA-930.
-test('writeSpaceState round-trips the profile field', t => {
-	const base = tempDir();
-	writeSpaceState('stardust-labs', 'STA-930', {profile: 'pappardelle'}, base);
-	const state = readSpaceState('stardust-labs', 'STA-930', base);
-	t.is(state!.profile, 'pappardelle');
-});
+contractTest(
+	'a patch key with no value removes the field, and a recap replaces the whole recap',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-310', {
+			prNumber: 12,
+			recap: {
+				customTitle: 'Title',
+				lastPrompt: 'Prompt',
+				lastAssistantExcerpt: 'Excerpt',
+			},
+		});
+		await spaceState.write('STA-310', {
+			prNumber: undefined,
+			recap: {lastPrompt: 'Newer prompt'},
+		});
+		for (const state of [
+			spaceState.read('STA-310'),
+			fileContent(s, 'STA-310'),
+		]) {
+			t.false('prNumber' in state!);
+			t.deepEqual(state?.recap, {lastPrompt: 'Newer prompt'});
+		}
+	},
+);
 
-test('writeSpaceState merges profile alongside rail-status fields', t => {
-	const base = tempDir();
-	// idow writes the profile first, then the rail-status poller adds pipeline data.
-	writeSpaceState('stardust-labs', 'STA-931', {profile: 'stardust_jams'}, base);
-	writeSpaceState(
-		'stardust-labs',
-		'STA-931',
-		{pipeline: 'passing', unresolvedCommentCount: 0, prNumber: 100},
-		base,
-	);
-	const state = readSpaceState('stardust-labs', 'STA-931', base);
-	t.is(state!.profile, 'stardust_jams');
-	t.is(state!.pipeline, 'passing');
-	t.is(state!.prNumber, 100);
-});
+// `pappardelle spaces` prints pipeline as null for a branch with no PR and
+// leaves it out for a space the rail has not polled.
+contractTest(
+	'a pipeline of null is kept apart from no pipeline at all',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('POLLED', {
+			pipeline: null,
+			unresolvedCommentCount: 0,
+		});
+		await spaceState.write('UNPOLLED', {profile: 'dev'});
+		for (const state of [spaceState.read('POLLED'), fileContent(s, 'POLLED')]) {
+			t.true('pipeline' in state!);
+			t.is(state?.pipeline, null);
+		}
 
-test('writeSpaceState creates parent directories if missing', t => {
-	const base = tempDir();
-	// Note: base exists but repos/.../space-state does not.
-	writeSpaceState(
-		'stardust-labs',
-		'STA-400',
-		{pipeline: 'progressing_clean', unresolvedCommentCount: 1},
-		base,
-	);
-	const p = getSpaceStatePath('stardust-labs', 'STA-400', base);
-	t.true(fs.existsSync(p));
-});
+		for (const state of [
+			spaceState.read('UNPOLLED'),
+			fileContent(s, 'UNPOLLED'),
+		])
+			t.false('pipeline' in state!);
 
-test('writeSpaceState serialises null pipeline as null (not undefined)', t => {
-	const base = tempDir();
-	writeSpaceState(
-		'stardust-labs',
-		'STA-500',
-		{pipeline: null, unresolvedCommentCount: 0},
-		base,
-	);
-	const raw = fs.readFileSync(
-		getSpaceStatePath('stardust-labs', 'STA-500', base),
-		'utf-8',
-	);
-	const parsed = JSON.parse(raw) as SpaceState;
-	t.is(parsed.pipeline, null);
+		await spaceState.write('POLLED', {pipeline: undefined});
+		t.false('pipeline' in spaceState.read('POLLED')!);
+	},
+);
+
+contractTest(
+	'a rail poll leaves the profile, the recap and the PR links as they were',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-1', {profile: 'stardust_jams'});
+		await spaceState.addPrLink('STA-1', link());
+		await spaceState.writeMany([
+			{
+				key: 'STA-1',
+				patch: {
+					pipeline: 'progressing_clean',
+					unresolvedCommentCount: 1,
+					prNumber: 1,
+					hasConflict: false,
+					recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
+				},
+			},
+			{
+				key: 'STA-2',
+				patch: {pipeline: null, unresolvedCommentCount: 0, hasConflict: false},
+			},
+		]);
+		await spaceState.writeMany([
+			{
+				key: 'STA-1',
+				patch: {
+					pipeline: 'failing',
+					unresolvedCommentCount: 3,
+					prNumber: undefined,
+					hasConflict: true,
+				},
+			},
+		]);
+		for (const state of [spaceState.read('STA-1'), fileContent(s, 'STA-1')]) {
+			t.like(state, {
+				profile: 'stardust_jams',
+				pipeline: 'failing',
+				unresolvedCommentCount: 3,
+				hasConflict: true,
+				recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
+				prLinks: [link()],
+			});
+			t.false('prNumber' in state!);
+		}
+
+		t.is(spaceState.read('STA-2')?.pipeline, null);
+	},
+);
+
+contractTest(
+	'a PR link replaces the one for the same checkout and becomes the newest',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		const nested = link({project: 'user/nested', localBranch: 'local'});
+		await spaceState.addPrLink('STA-1', link());
+		await spaceState.addPrLink('STA-1', nested);
+		t.deepEqual(spaceState.read('STA-1')?.prLinks, [link(), nested]);
+
+		const republished = link({remoteBranch: 'published-again', number: 2});
+		await spaceState.addPrLink('STA-1', republished);
+		for (const state of [spaceState.read('STA-1'), fileContent(s, 'STA-1')])
+			t.deepEqual(state?.prLinks, [nested, republished]);
+	},
+);
+
+contractTest(
+	'a file written by a process without the database is what the next read returns',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-1', {profile: 'dev', prNumber: 4});
+		const edited = {
+			profile: 'other',
+			issueTitle: 'Renamed by hand',
+			pipeline: null,
+			unresolvedCommentCount: 2,
+			hasConflict: true,
+			recap: {lastAssistantExcerpt: 'Done'},
+			prLinks: [link()],
+			updatedAt: '2026-05-06T07:08:09Z',
+		};
+		writeStateFile(s, 'STA-1', edited);
+		t.deepEqual(spaceState.read('STA-1'), edited);
+
+		await spaceState.write('STA-1', {prNumber: 9});
+		const {updatedAt, ...kept} = edited;
+		const {updatedAt: rewrittenAt, ...rewritten} = fileContent(s, 'STA-1');
+		t.deepEqual(rewritten, {...kept, prNumber: 9});
+		t.not(rewrittenAt, updatedAt);
+	},
+);
+
+contractTest(
+	'a space whose file was deleted has nothing recorded',
+	async (t, s) => {
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-1', {profile: 'dev'});
+		await spaceState.addPrLink('STA-1', link());
+		fs.rmSync(stateFile(s, 'STA-1'));
+		t.is(spaceState.read('STA-1'), null);
+
+		await spaceState.write('STA-1', {prNumber: 3});
+		t.deepEqual(Object.keys(fileContent(s, 'STA-1')).sort(), [
+			'prNumber',
+			'updatedAt',
+		]);
+	},
+);
+
+test('both stores leave the same files for the same writes', async t => {
+	const files = async (sqlite: boolean) => {
+		const s = testState(t, {sqlite});
+		const {spaceState} = s.daos;
+		await spaceState.write('STA-1', {profile: 'dev'});
+		await spaceState.write('STA-1', {
+			agentProfile: {name: 'claude', isClaude: true},
+		});
+		await spaceState.writeMany([
+			{
+				key: 'STA-1',
+				patch: {
+					pipeline: 'passing',
+					unresolvedCommentCount: 0,
+					prNumber: 7,
+					hasConflict: false,
+					recap: {customTitle: 'Title', lastAssistantExcerpt: 'Excerpt'},
+				},
+			},
+			{
+				key: 'STA-2',
+				patch: {
+					pipeline: null,
+					unresolvedCommentCount: 0,
+					prNumber: undefined,
+					hasConflict: false,
+				},
+			},
+		]);
+		await spaceState.addPrLink('STA-1', link());
+		await spaceState.addPrLink('STA-1', link({remoteBranch: 'again'}));
+		await spaceState.addPrLink('STA-3', link({localBranch: 'STA-3'}));
+		await spaceState.writeMany([
+			{
+				key: 'STA-1',
+				patch: {
+					pipeline: 'failing',
+					unresolvedCommentCount: 2,
+					prNumber: undefined,
+					hasConflict: true,
+				},
+			},
+		]);
+		const dir = path.dirname(stateFile(s, 'STA-1'));
+		return Object.fromEntries(
+			fs
+				.readdirSync(dir)
+				.sort()
+				.map(name => {
+					const {updatedAt, ...rest} = JSON.parse(
+						fs.readFileSync(path.join(dir, name), 'utf8'),
+					) as SpaceState;
+					return [name, rest];
+				}),
+		);
+	};
+
+	const json = await files(false);
+	t.deepEqual(Object.keys(json), ['STA-1.json', 'STA-2.json', 'STA-3.json']);
+	t.deepEqual(await files(true), json);
 });
 
 // ============================================================================
@@ -416,20 +706,4 @@ test('a 20 MiB line spanning chunks preserves its recap and following lines', as
 	t.log(
 		`20 MiB single-line transcript: ${(performance.now() - start).toFixed(1)} ms`,
 	);
-});
-
-test('the agent running in a space is the one that started last', t => {
-	const base = tempDir();
-	const file = getAgentSessionsPath('repo', 'STA-1', base);
-	fs.mkdirSync(path.dirname(file), {recursive: true});
-	fs.writeFileSync(
-		file,
-		JSON.stringify({
-			claude: {session_id: 'a', pid: 1, started: 'Mon Nov  2 10:00:00 2026'},
-			codex: {session_id: 'b', pid: 2, started: 'Mon Nov  2 11:30:00 2026'},
-			old: {session_id: 'c', pid: 3, started: 'Sun Nov  1 23:00:00 2026'},
-		}),
-	);
-
-	t.is(latestAgentProfile('repo', 'STA-1', base), 'codex');
 });

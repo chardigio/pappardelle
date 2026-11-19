@@ -1,20 +1,13 @@
-import {existsSync, mkdirSync, watch} from 'node:fs';
 import {isDeepStrictEqual} from 'node:util';
 import {
-	getClaudeStatusInfoAsync,
-	ensureStatusDir,
-	getHookStatusDir,
 	mapClaudeStatus,
+	type ClaudeStatusDao,
 	type ClaudeStatusInfo,
 } from './claude-status.ts';
 import {
 	listStatusPanes,
-	monitorStatusPane,
-	programStatusDir,
-	programStatusPath,
-	readProgramSnapshot,
-	statusKeyFromFilename,
 	statusSocket,
+	type ProgramStatusDao,
 	type StatusTmuxRunner,
 	type StatusPane,
 	type ProgramStatusSnapshot,
@@ -76,19 +69,23 @@ export type StatusReader = (
 
 export class WorkspaceStatuses {
 	private readonly sessionKeys = new Map<string, string>();
+	/** A space's names never change once stored, so each is looked up once. */
+	private readonly sessionNames = new Map<string, string>();
 	private readonly panes = new Map<
 		string,
 		{
 			socket: string;
 			sessionKey: string;
-			session: string;
+			session: string | null;
 			pane: Promise<StatusPane | null>;
 		}
 	>();
 
 	constructor(
-		private readonly repo: string,
-		private readonly sessionName: (key: string) => string,
+		private readonly programStatus: ProgramStatusDao,
+		/** Null for a space with no stored session names, which has no pane. */
+		private readonly sessionName: (key: string) => string | null,
+		private readonly claudeStatus: Pick<ClaudeStatusDao, 'read' | 'watch'>,
 		private readonly run?: StatusTmuxRunner,
 	) {}
 
@@ -97,22 +94,24 @@ export class WorkspaceStatuses {
 		let listing: ReturnType<typeof listStatusPanes> | undefined;
 		return async (key, sessionKey) => {
 			this.sessionKeys.set(key, sessionKey);
-			const session = this.sessionName(sessionKey);
-			listing ??= listStatusPanes(socket, this.run);
+			const session = this.storedSession(sessionKey);
+			if (session) listing ??= listStatusPanes(socket, this.run);
 			const entry = {
 				socket,
 				sessionKey,
 				session,
-				pane: listing.then(async panes =>
-					monitorStatusPane(
-						this.repo,
-						sessionKey,
-						session,
-						panes.get(session),
-						socket,
-						this.run,
-					),
-				),
+				pane:
+					session && listing
+						? listing.then(async panes =>
+								this.programStatus.monitor(
+									sessionKey,
+									session,
+									panes.get(session),
+									socket,
+									this.run,
+								),
+							)
+						: Promise.resolve(null),
 			};
 			this.panes.set(key, entry);
 			return this.readPane(key, sessionKey, await entry.pane);
@@ -130,25 +129,32 @@ export class WorkspaceStatuses {
 			!entry ||
 			entry.socket !== statusSocket() ||
 			entry.sessionKey !== sessionKey ||
-			entry.session !== this.sessionName(sessionKey)
+			entry.session !== this.storedSession(sessionKey)
 		)
 			return this.read(key, sessionKey);
 		const pane = await entry.pane;
 		if (this.panes.get(key) !== entry) return this.readKnown(key);
 		const snapshot = pane
-			? readProgramSnapshot(this.repo, sessionKey, pane)
+			? await this.programStatus.read(sessionKey, pane)
 			: null;
+		if (this.panes.get(key) !== entry) return this.readKnown(key);
 		if (
 			!pane ||
 			!snapshot ||
 			snapshot.exited ||
-			!existsSync(
-				`${programStatusPath(this.repo, sessionKey, pane.generation)}.lease`,
-			)
+			!this.programStatus.monitored(sessionKey, pane.generation)
 		)
 			return this.read(key, sessionKey);
 		const info = await this.readPane(key, sessionKey, pane);
 		return this.panes.get(key) === entry ? info : this.readKnown(key);
+	}
+
+	private storedSession(sessionKey: string): string | null {
+		const known = this.sessionNames.get(sessionKey);
+		if (known) return known;
+		const session = this.sessionName(sessionKey);
+		if (session) this.sessionNames.set(sessionKey, session);
+		return session;
 	}
 
 	private async readPane(
@@ -157,8 +163,8 @@ export class WorkspaceStatuses {
 		pane: StatusPane | null,
 	): Promise<ProgramStatusInfo | null> {
 		return mergeProgramStatus(
-			await getClaudeStatusInfoAsync(key),
-			pane ? readProgramSnapshot(this.repo, sessionKey, pane) : null,
+			await this.claudeStatus.read(key),
+			pane ? await this.programStatus.read(sessionKey, pane) : null,
 			pane,
 		);
 	}
@@ -167,8 +173,6 @@ export class WorkspaceStatuses {
 		callback: (updates: ReadonlyMap<string, ProgramStatusInfo>) => void,
 		relevant: (key: string) => boolean,
 	): () => void {
-		ensureStatusDir();
-		mkdirSync(programStatusDir(this.repo), {recursive: true});
 		const pending = new Set<string>();
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let reading = false;
@@ -197,7 +201,7 @@ export class WorkspaceStatuses {
 					reading = false;
 					schedule();
 				}
-			}, 50);
+			}, 10);
 		};
 		const queue = (key: string | undefined) => {
 			if (key && relevant(key)) {
@@ -205,24 +209,17 @@ export class WorkspaceStatuses {
 				schedule();
 			}
 		};
-		const hookWatcher = watch(getHookStatusDir(), (_event, filename) => {
-			if (filename?.endsWith('.json')) queue(filename.slice(0, -5));
+		const stopHookWatch = this.claudeStatus.watch(queue);
+		const stopSnapshotWatch = this.programStatus.watch(snapshotKey => {
+			for (const [key, sessionKey] of this.sessionKeys)
+				if (sessionKey === snapshotKey) queue(key);
 		});
-		const oscWatcher = watch(
-			programStatusDir(this.repo),
-			(_event, filename) => {
-				if (!filename) return;
-				const snapshotKey = statusKeyFromFilename(filename);
-				for (const [key, sessionKey] of this.sessionKeys)
-					if (sessionKey === snapshotKey) queue(key);
-			},
-		);
 		return () => {
 			stopped = true;
 			clearTimeout(timer);
 			pending.clear();
-			hookWatcher.close();
-			oscWatcher.close();
+			stopHookWatch();
+			stopSnapshotWatch();
 		};
 	}
 }

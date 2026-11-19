@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {idowIdentities} from '../test/helpers/state.ts';
 import test from 'ava';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
 import {
@@ -44,7 +45,11 @@ const permission = (command: string) =>
  * Agent sessions in repo `repo`, keyed by space, each showing its screen.
  * `between` runs each time the watch sleeps, to change screens mid-wait.
  */
-function spaces(initial: Record<string, string>) {
+function spaces(
+	initial: Record<string, string>,
+	/** The spaces with an identity; by default every one with a screen. */
+	identified?: string[],
+) {
 	const screens = {...initial};
 	const logged: SuperviseEntry[] = [];
 	const out: string[] = [];
@@ -74,8 +79,14 @@ function spaces(initial: Record<string, string>) {
 
 	const deps: SuperviseDeps = {
 		repo: () => 'repo',
+		identities: idowIdentities(
+			'repo',
+			() => identified ?? Object.keys(screens),
+		),
 		resolveKey: raw => (/^\d+$/.test(raw) ? `STA-${raw}` : raw),
-		hookKey: async key => `no-such-hook-${key}`,
+		hookKey: async key => key,
+		readHook: async () => ({status: 'unknown'}),
+		readSnapshot: async () => null,
 		runner,
 		serverRunner: () => ({status: 1, stdout: ''}),
 		now: () => new Date(clock),
@@ -132,6 +143,19 @@ test('without a cursor, spaces already blocked come back at once, the caller lef
 		key: 'STA-1',
 		detail: 'new -> permission',
 	});
+});
+
+test('watching every space watches exactly those with a live stored agent session', async t => {
+	// STA-2 has an identity and no session; STA-3 a session and no identity.
+	const h = spaces({'STA-1': permission('ls'), 'STA-3': permission('ls')}, [
+		'STA-1',
+		'STA-2',
+	]);
+	const result = await h.watch('--until', 'blocked');
+	t.deepEqual(
+		result.changes.map(change => change.key),
+		['STA-1'],
+	);
 });
 
 test('a change while the supervisor was busy is returned by the next call', async t => {

@@ -171,7 +171,7 @@ def fixture_directory():
 SEARCH_PLACEHOLDER = 'filter by key'
 
 
-def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None, outside_tmux=False, profile_emoji=None, cold_switch=False, status_checks=0, skill_count=0, observe_seconds=0, poll_interval_ms=20, search_modes=(), agent_keys=0, popup_cycles=0, resize_cycles=0):
+def run_sample(binary, shell_delay_ms, traced, timeout, width=100, existing=False, workspaces=0, startup_trace=False, filter_cycles=0, tmux_delay_ms=0, max_filter_close_ms=None, outside_tmux=False, profile_emoji=None, cold_switch=False, status_checks=0, skill_count=0, observe_seconds=0, poll_interval_ms=20, search_modes=(), agent_keys=0, popup_cycles=0, resize_cycles=0, sqlite_state=False):
     with fixture_directory() as tmp:
         root = Path(tmp)
         home, repo, bin_dir = (root / name for name in ('home', 'repo', 'bin'))
@@ -270,6 +270,8 @@ signal.pause()
                    TMUX_TMPDIR=str(root), PAPPARDELLE_TMUX_SOCKET='bench-inner')
         if startup_trace:
             env['PAPPARDELLE_STARTUP_TRACE'] = '1'
+        # The fixture's HOME has no config, so the state mode comes from the override.
+        env['PAPPARDELLE_SQLITE_STATE'] = '1' if sqlite_state else '0'
         subprocess.run([real_tools['git'], 'init', '-q', '-b', 'main'], cwd=repo, env=env, check=True)
         subprocess.run([real_tools['git'], '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
                         'commit', '--allow-empty', '-qm', 'Fixture'], cwd=repo, env=env, check=True)
@@ -615,6 +617,7 @@ def main():
     parser.add_argument('--shell-delay-ms', type=int, default=1000)
     parser.add_argument('--trace', action='store_true')
     parser.add_argument('--startup-trace', action='store_true', help='Enable application spans; do not mix these timings with trace-disabled medians')
+    parser.add_argument('--sqlite-state', action='store_true', help='Run with experimental.sqliteState on')
     parser.add_argument('--compare-tracing', action='store_true', help='Alternate trace-disabled/enabled launches of the same binary')
     parser.add_argument('--timeout', type=float, default=30)
     parser.add_argument('--filter-cycles', type=int, default=0, help='Measure / then Escape until workspace rows return')
@@ -751,7 +754,7 @@ def main():
                     status_checks=args.status_checks, skill_count=args.skill_count,
                     observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms,
                     search_modes=args.search, agent_keys=args.agent_keys, popup_cycles=args.popup_cycles,
-                    resize_cycles=args.resize_cycles)
+                    resize_cycles=args.resize_cycles, sqlite_state=args.sqlite_state)
                 samples.setdefault(key, []).append(sample)
                 save()
                 print(key, index + 1, json.dumps(sample['milestones'] if sample['success'] else sample['error']), flush=True)
@@ -764,7 +767,7 @@ def main():
             status_checks=args.status_checks, skill_count=args.skill_count,
             observe_seconds=args.observe_seconds, poll_interval_ms=args.poll_interval_ms,
             search_modes=args.search, agent_keys=args.agent_keys, popup_cycles=args.popup_cycles,
-                    resize_cycles=args.resize_cycles)
+                    resize_cycles=args.resize_cycles, sqlite_state=args.sqlite_state)
         result['instrumentedSample'] = trace
         chrome = {'traceEvents': [dict(name=e['tool'] + ' ' + shlex.join(e['args']),
                    cat='subprocess', ph='X', ts=e['elapsedMs'] * 1000,

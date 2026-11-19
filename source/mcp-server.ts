@@ -5,7 +5,6 @@
 
 import {spawn} from 'node:child_process';
 import fs from 'node:fs';
-import {homedir} from 'node:os';
 import path from 'node:path';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -22,7 +21,9 @@ import {
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
-import {spaceFromWorktreePath} from './space-target.ts';
+import {callerSpace, readCheckout} from './space-target.ts';
+import {createStateDaos} from './state-daos.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 export type CliResult = {code: number | null; stdout: string; stderr: string};
 export type RunCli = (call: CliCall, signal: AbortSignal) => Promise<CliResult>;
@@ -190,17 +191,24 @@ function findSousChefFile(): string | undefined {
 
 /** Resolves when the client closes the connection. */
 export async function runMcpServer(): Promise<void> {
-	let repoName: string | undefined;
-	try {
-		repoName = getRepoName();
-	} catch {
-		// A key in the environment is enough to name the space.
-	}
-
+	const checkout = readCheckout({
+		repoName: getRepoName,
+		mainRoot: getMainRepoRoot,
+	});
+	const caller = callerSpace({
+		env: process.env,
+		cwd: process.cwd(),
+		checkout,
+		identities: repo => createStateDaos({repo}).spaceIdentities,
+	});
+	// The main checkout's session gets the instructions for a session in no
+	// space, which are where the sous-chef's routine is given.
 	const space =
-		process.env['PAPPARDELLE_SPACE'] ||
-		(repoName && spaceFromWorktreePath(process.cwd(), homedir(), repoName)) ||
-		undefined;
+		caller.kind === 'none' || caller.key === MAIN_WORKTREE_KEY
+			? undefined
+			: caller.key;
+	const repoName =
+		checkout.kind === 'checkout' ? checkout.checkout.repoName : undefined;
 	const config = loadRepoConfig();
 	const enabled = workspaceAwareAgents(config);
 	const sousChef = enabled && sousChefLaunch(config) !== undefined;

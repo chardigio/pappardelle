@@ -5,12 +5,18 @@ import {GitLabProvider} from './gitlab-provider.ts';
 import {JiraProvider} from './jira-provider.ts';
 import {createDefaultLinearGraphQLClient} from './linear-graphql.ts';
 import {LinearProvider} from './linear-provider.ts';
+import {createLogger} from '../logger.ts';
+import type {PrLinkStampDao} from '../pr-link-stamp.ts';
+import type {SpaceStateDao} from '../space-state.ts';
+import {StateColorCache, type StateColorDao} from './state-color-cache.ts';
 import type {
 	IssueTrackerProvider,
+	TrackerIssue,
 	TrackerProviderName,
 	VcsHostProvider,
 	VcsProviderName,
 } from './types.ts';
+import type {RepositoryDiscovery} from './workspace-repositories.ts';
 
 export type {
 	TrackerIssue,
@@ -38,6 +44,79 @@ let issueTrackerInstance: IssueTrackerProvider | null = null;
 let issueTrackerConfigKey: string | null = null;
 let vcsHostInstance: VcsHostProvider | null = null;
 let vcsHostConfigKey: string | null = null;
+let workspaceDiscovery: RepositoryDiscovery | undefined;
+let stateColors: StateColorDao | undefined;
+let prLinkStamp: PrLinkStampDao | undefined;
+let issueTitles: SpaceStateDao | undefined;
+
+const log = createLogger('providers');
+
+/**
+ * How the VCS host finds the repositories in a workspace. The host is built
+ * on first use, wherever that is, so startup hands this over beforehand: it
+ * is what makes the rail follow a branch recorded by link-pr.
+ */
+export function setWorkspaceDiscovery(discover: RepositoryDiscovery): void {
+	workspaceDiscovery = discover;
+}
+
+/**
+ * Where the issue tracker keeps workflow state colors between runs. Like the
+ * discovery above, startup hands it over before the tracker is first built.
+ * Without it a tracker remembers colors only while the process lives.
+ */
+export function setStateColors(dao: StateColorDao): void {
+	stateColors = dao;
+}
+
+/**
+ * Where `pappardelle link-pr` records that a PR was just linked, which ends
+ * GitHub's failure backoff early. Handed over at startup like the two above.
+ * Without it a failed lookup waits out its backoff.
+ */
+export function setPrLinkStamp(dao: PrLinkStampDao): void {
+	prLinkStamp = dao;
+}
+
+/**
+ * Where each space's issue title is kept, so that `pappardelle space get`
+ * answers with it without calling the tracker. Handed over at startup like
+ * the stores above. Without it titles are not kept.
+ */
+export function setIssueTitles(dao: SpaceStateDao): void {
+	issueTitles = dao;
+}
+
+/**
+ * Keep the titles of issues just read from the tracker, by space key. Only
+ * titles that changed are written, since the rail reads every space's issue
+ * on each refresh. A failed read (null) leaves the stored title alone.
+ */
+export async function recordIssueTitles(
+	issues: Iterable<[key: string, issue: TrackerIssue | null]>,
+): Promise<void> {
+	const dao = issueTitles;
+	if (!dao) return;
+	const changed = [...issues].flatMap(([key, issue]) => {
+		if (!issue) return [];
+		// A record that cannot be read is not overwritten: the write would
+		// replace it with the title alone and lose the space's profile and PR links.
+		const stored = dao.lookup(key);
+		if (stored.kind === 'unreadable') return [];
+		if (stored.kind === 'state' && stored.state.issueTitle === issue.title)
+			return [];
+		return [{key, patch: {issueTitle: issue.title}}];
+	});
+	if (changed.length === 0) return;
+	try {
+		await dao.writeMany(changed);
+	} catch (error) {
+		log.warn(
+			'Could not store issue titles',
+			error instanceof Error ? error : undefined,
+		);
+	}
+}
 
 function trackerKey(config?: IssueTrackerConfig): string {
 	const provider = config?.provider ?? 'linear';
@@ -85,7 +164,7 @@ export function createIssueTracker(
 			issueTrackerInstance = new LinearProvider(
 				undefined,
 				undefined,
-				undefined,
+				new StateColorCache(stateColors),
 				createDefaultLinearGraphQLClient(),
 			);
 			break;
@@ -98,12 +177,21 @@ export function createIssueTracker(
 				);
 			}
 
-			issueTrackerInstance = new JiraProvider(config.base_url);
+			issueTrackerInstance = new JiraProvider(
+				config.base_url,
+				undefined,
+				undefined,
+				new StateColorCache(stateColors),
+			);
 			break;
 		}
 
 		case 'beads': {
-			issueTrackerInstance = new BeadsProvider();
+			issueTrackerInstance = new BeadsProvider(
+				undefined,
+				undefined,
+				new StateColorCache(stateColors),
+			);
 			break;
 		}
 
@@ -148,12 +236,23 @@ export function createVcsHost(config?: VcsHostConfig): VcsHostProvider {
 
 	switch (provider) {
 		case 'github': {
-			vcsHostInstance = new GitHubProvider();
+			const stamp = prLinkStamp;
+			vcsHostInstance = new GitHubProvider(
+				undefined,
+				undefined,
+				workspaceDiscovery,
+				stamp ? {linkedAt: () => stamp.read()} : {},
+			);
 			break;
 		}
 
 		case 'gitlab': {
-			vcsHostInstance = new GitLabProvider(config?.host);
+			vcsHostInstance = new GitLabProvider(
+				config?.host,
+				undefined,
+				undefined,
+				workspaceDiscovery,
+			);
 			break;
 		}
 
@@ -175,4 +274,8 @@ export function resetProviders(): void {
 	issueTrackerConfigKey = null;
 	vcsHostInstance = null;
 	vcsHostConfigKey = null;
+	workspaceDiscovery = undefined;
+	stateColors = undefined;
+	prLinkStamp = undefined;
+	issueTitles = undefined;
 }

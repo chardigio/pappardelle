@@ -7,6 +7,7 @@ import {
 	deepMerge,
 	mergeConfigLayers,
 	loadConfigFromPaths,
+	readHomeSqliteState,
 	validateConfig,
 	getTeamPrefix,
 	getProfileTeamPrefix,
@@ -1711,4 +1712,109 @@ profiles:
 	} finally {
 		cleanup();
 	}
+});
+
+// ============================================================================
+// experimental.sqliteState: home layer only
+// ============================================================================
+
+const minimalConfig = `version: 1
+profiles:
+  t:
+    display_name: T
+`;
+const sqliteStateOn = `experimental:
+  sqliteState: true
+`;
+
+test('experimental.sqliteState is accepted from the home config', t => {
+	const {dir, cleanup} = setupTempDir({
+		'home/.pappardelle.yml': minimalConfig + sqliteStateOn,
+	});
+	try {
+		const config = loadConfigFromPaths({homeConfigDir: path.join(dir, 'home')});
+		t.is(config.experimental?.sqliteState, true);
+		t.true(readHomeSqliteState(path.join(dir, 'home')));
+	} finally {
+		cleanup();
+	}
+});
+
+for (const file of ['.pappardelle.yml', '.pappardelle.local.yml']) {
+	test(`experimental.sqliteState in ${file} is rejected by name`, t => {
+		const {dir, cleanup} = setupTempDir({
+			'home/.pappardelle.yml': minimalConfig,
+			[`project/${file}`]: sqliteStateOn,
+		});
+		try {
+			const error = t.throws(
+				() =>
+					loadConfigFromPaths({
+						homeConfigDir: path.join(dir, 'home'),
+						projectDir: path.join(dir, 'project'),
+					}),
+				{instanceOf: ConfigValidationError},
+			);
+			t.true(
+				error?.message.includes(
+					`${file}: experimental.sqliteState can only be set in ~/.pappardelle/.pappardelle.yml`,
+				),
+			);
+		} finally {
+			cleanup();
+		}
+	});
+}
+
+test('the home flag is false when the home config leaves it out or is missing', t => {
+	const {dir, cleanup} = setupTempDir({
+		'home/.pappardelle.yml': minimalConfig + sqliteStateOn,
+		'bare/.pappardelle.yml': minimalConfig,
+	});
+	try {
+		t.true(readHomeSqliteState(path.join(dir, 'home')));
+		t.false(readHomeSqliteState(path.join(dir, 'bare')));
+		t.false(readHomeSqliteState(path.join(dir, 'missing')));
+		t.deepEqual(
+			getRecentErrors().filter(entry =>
+				entry.message.includes(path.join(dir, 'missing')),
+			),
+			[],
+		);
+	} finally {
+		cleanup();
+	}
+});
+
+test('a home config that does not parse leaves the flag off and says so', t => {
+	const {dir, cleanup} = setupTempDir({
+		'home/.pappardelle.yml': 'experimental: {sqliteState: true',
+	});
+	try {
+		t.false(readHomeSqliteState(path.join(dir, 'home')));
+		const warnings = getRecentErrors().filter(entry =>
+			entry.message.includes(path.join(dir, 'home', '.pappardelle.yml')),
+		);
+		t.like(warnings, [{level: 'warn'}]);
+		t.is(warnings.length, 1);
+		t.regex(warnings[0]!.message, /Could not read experimental\.sqliteState/);
+		t.truthy(warnings[0]!.error);
+	} finally {
+		cleanup();
+	}
+});
+
+test('experimental.sqliteState must be a boolean', t => {
+	const error = t.throws(
+		() =>
+			validateConfig({
+				version: 1,
+				profiles: {t: {display_name: 'T'}},
+				experimental: {sqliteState: 'yes'},
+			}),
+		{instanceOf: ConfigValidationError},
+	);
+	t.true(
+		error?.message.includes('experimental.sqliteState: must be a boolean'),
+	);
 });

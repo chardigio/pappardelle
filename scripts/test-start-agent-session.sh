@@ -87,6 +87,26 @@ wait_for_file() {
     return 1
 }
 
+# start-agent-session.sh with the names idow passes it, the ones `pappardelle
+# space get` reports. None of the keys and repos here needs tmux's escaping,
+# so those are agent-<repo>-<key> and companion-<repo>-<key>. A call that
+# names its own sessions keeps them.
+start_session() {
+    local args=("$@") key="" repo="" named=false index
+    for ((index = 0; index < ${#args[@]}; index++)); do
+        case "${args[index]}" in
+            --issue-key) key="${args[index + 1]}" ;;
+            --repo-name) repo="${args[index + 1]}" ;;
+            --agent-session) named=true ;;
+        esac
+    done
+    if [[ "$named" == false && -n "$key" && -n "$repo" ]]; then
+        args+=(--agent-session "agent-$repo-$key" --companion-session "companion-$repo-$key"
+            --legacy-agent-session "claude-$repo-$key")
+    fi
+    "$SCRIPT_DIR/start-agent-session.sh" "${args[@]}"
+}
+
 # ==========================================================================
 
 echo -e "${BOLD}Test: creates repo-qualified claude tmux session${RESET}"
@@ -108,7 +128,7 @@ else
 fi
 
 # Run the script
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH" --no-agent 2>/dev/null
+start_session --issue-key "$ISSUE_KEY" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH" --no-agent 2>/dev/null
 EXIT_CODE=$?
 
 assert_eq "exits 0" "0" "$EXIT_CODE"
@@ -130,17 +150,10 @@ assert_eq "session env carries PAPPARDELLE_SPACE" "PAPPARDELLE_SPACE=$ISSUE_KEY"
 assert_eq "session env carries PAPPARDELLE_REPO" "PAPPARDELLE_REPO=$TEST_REPO" \
     "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_REPO 2>/dev/null)"
 
-# The agent's hook records its session id under these (plugins/pappardelle/hooks/agent_session.py)
-assert_eq "agent session env names the agent" "PAPPARDELLE_AGENT_PROFILE=claude" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null)"
-assert_eq "agent session env says the agent is claude" "PAPPARDELLE_AGENT_IS_CLAUDE=true" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_IS_CLAUDE 2>/dev/null)"
-assert_eq "agent session env names the agent-sessions file" \
-    "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$TEST_REPO/space-state/$ISSUE_KEY.agent-sessions.json" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" PAPPARDELLE_AGENT_SESSIONS 2>/dev/null)"
-# An agent started by hand in the companion isn't the space's agent
-assert_eq "companion session env has no agent profile" "" \
-    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$COMPANION_SESSION" PAPPARDELLE_AGENT_PROFILE 2>/dev/null || true)"
+# The agent's hook finds its space and agent profile in the stores
+# (plugins/pappardelle/hooks/agent_session.py), not in the session
+assert_eq "agent session env has no session-id variables" "" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" show-environment -t "$CLAUDE_SESSION" | grep '^PAPPARDELLE_AGENT_' || true)"
 
 # Verify session working directory (resolve symlinks for macOS /var → /private/var)
 SESSION_PATH=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -t "$CLAUDE_SESSION" -p '#{pane_current_path}' 2>/dev/null)
@@ -152,7 +165,7 @@ assert_eq "session has correct working directory" "$RESOLVED_WORKTREE" "$RESOLVE
 
 echo -e "\n${BOLD}Test: idempotent — skips creation when session already exists${RESET}"
 
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH" --no-agent 2>/dev/null
+start_session --issue-key "$ISSUE_KEY" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH" --no-agent 2>/dev/null
 EXIT_CODE=$?
 
 assert_eq "exits 0 when session already exists" "0" "$EXIT_CODE"
@@ -175,7 +188,7 @@ ISSUE_KEY2="${TEST_PREFIX}-200"
 WORKTREE_PATH2="$TMPDIR_ROOT/worktree2"
 mkdir -p "$WORKTREE_PATH2"
 
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY2" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH2" --no-agent 2>/dev/null
+start_session --issue-key "$ISSUE_KEY2" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH2" --no-agent 2>/dev/null
 
 COMPANION_SESSION2="companion-${TEST_REPO}-${ISSUE_KEY2}"
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$COMPANION_SESSION2" 2>/dev/null; then
@@ -200,8 +213,8 @@ ISSUE_SHORT="${TEST_PREFIX}-250"
 WORKTREE_PREFIX="$TMPDIR_ROOT/worktree-prefix"
 mkdir -p "$WORKTREE_PREFIX"
 
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_LONG" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PREFIX" --no-agent 2>/dev/null
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_SHORT" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PREFIX" --no-agent 2>/dev/null
+start_session --issue-key "$ISSUE_LONG" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PREFIX" --no-agent 2>/dev/null
+start_session --issue-key "$ISSUE_SHORT" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PREFIX" --no-agent 2>/dev/null
 
 for kind in agent companion; do
     SHORT_SESSION="${kind}-${TEST_REPO}-${ISSUE_SHORT}"
@@ -221,27 +234,46 @@ done
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a repo name with a '.' gets one session on any tmux${RESET}"
-# tmux 3.6 and older store '.' in a session name as '_', so a name built with
-# the dot is never found again and every reopen adds another session.
-DOTTED_KEY="${TEST_PREFIX}-260"
-DOTTED_SESSIONS=$(for _ in 1 2; do
-    "$SCRIPT_DIR/start-agent-session.sh" --issue-key "$DOTTED_KEY" --repo-name "my.repo" --worktree "$WORKTREE_PREFIX" --no-agent 2>/dev/null
-done; tmux -L "$PAPPARDELLE_TMUX_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null | grep -- "-my.repo-${DOTTED_KEY}$\|-my_repo-${DOTTED_KEY}$" | sort | tr '\n' ' ')
-if [[ "$DOTTED_SESSIONS" == "agent-my_repo-${DOTTED_KEY} companion-my_repo-${DOTTED_KEY} " ]]; then
-    echo -e "  ${GREEN}PASS${RESET} one agent and one companion session, named with '_'"
+echo -e "\n${BOLD}Test: the sessions get exactly the names passed${RESET}"
+# The names are decided when the space is created, so the script takes them
+# as given, even ones the key and repo would never be spelled as.
+NAMED_KEY="${TEST_PREFIX}-260"
+NAMED_AGENT="hand_named-agent-$$"
+NAMED_COMPANION="hand-named-companion-$$"
+start_session --issue-key "$NAMED_KEY" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PREFIX" \
+    --agent-session "$NAMED_AGENT" --companion-session "$NAMED_COMPANION" \
+    --legacy-agent-session "hand_named-legacy-$$" --no-agent 2>/dev/null
+NAMED_SESSIONS=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null |
+    grep -- "^hand\|${NAMED_KEY}$" | sort | tr '\n' ' ')
+EXPECTED_SESSIONS=$(printf '%s\n' "$NAMED_AGENT" "$NAMED_COMPANION" | sort | tr '\n' ' ')
+assert_eq "only the passed agent and companion names exist" "$EXPECTED_SESSIONS" "$NAMED_SESSIONS"
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$NAMED_AGENT:" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$NAMED_COMPANION:" 2>/dev/null || true
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: the socket is required${RESET}"
+OUTPUT=$(env -u PAPPARDELLE_TMUX_SOCKET "$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --repo-name "$TEST_REPO" \
+    --worktree "/tmp" --agent-session agent-x --companion-session companion-x --legacy-agent-session claude-x 2>&1 || true)
+assert_eq "errors without PAPPARDELLE_TMUX_SOCKET" \
+    "Error: PAPPARDELLE_TMUX_SOCKET is required: idow exports the space's socket from pappardelle space get" "$OUTPUT"
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: the session names are required${RESET}"
+OUTPUT=$("$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --repo-name "$TEST_REPO" --worktree "/tmp" 2>&1 || true)
+if echo "$OUTPUT" | grep -q -- "--agent-session, --companion-session and --legacy-agent-session are required"; then
+    echo -e "  ${GREEN}PASS${RESET} errors when the session names are missing"
     PASS=$((PASS + 1))
 else
-    echo -e "  ${RED}FAIL${RESET} one agent and one companion session, named with '_' (got: $DOTTED_SESSIONS)"
+    echo -e "  ${RED}FAIL${RESET} errors when the session names are missing"
     FAIL=$((FAIL + 1))
 fi
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=agent-my_repo-${DOTTED_KEY}:" 2>/dev/null || true
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-my_repo-${DOTTED_KEY}:" 2>/dev/null || true
 
 # ==========================================================================
 
 echo -e "\n${BOLD}Test: --repo-name is required${RESET}"
-OUTPUT=$("$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --worktree "/tmp" 2>&1 || true)
+OUTPUT=$(start_session --issue-key "X-1" --worktree "/tmp" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "repo-name is required"; then
     echo -e "  ${GREEN}PASS${RESET} errors when --repo-name is missing"
     PASS=$((PASS + 1))
@@ -260,7 +292,7 @@ WORKTREE_PATH3="$TMPDIR_ROOT/worktree3"
 mkdir -p "$WORKTREE_PATH3"
 
 # Run WITHOUT --no-agent so the session is started with the claude command
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY3" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH3" 2>/dev/null
+start_session --issue-key "$ISSUE_KEY3" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH3" 2>/dev/null
 
 sleep 0.3
 
@@ -285,7 +317,7 @@ ISSUE_KEY4="${TEST_PREFIX}-400"
 WORKTREE_PATH4="$TMPDIR_ROOT/worktree4"
 mkdir -p "$WORKTREE_PATH4"
 
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY4" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH4" --init-cmd "/test-skill" 2>/dev/null
+start_session --issue-key "$ISSUE_KEY4" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH4" --init-cmd "/test-skill" 2>/dev/null
 
 sleep 0.3
 
@@ -312,7 +344,7 @@ mkdir -p "$WORKTREE_PATH5"
 
 # Run WITHOUT --no-agent in a fresh worktree with no prior conversations.
 # claude --continue should fail, but the error message should be erased from the pane.
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY5" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH5" 2>/dev/null
+start_session --issue-key "$ISSUE_KEY5" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH5" 2>/dev/null
 
 # Wait for claude --continue to fail and the cleanup to execute
 sleep 3
@@ -337,7 +369,7 @@ ISSUE_KEY6="${TEST_PREFIX}-600"
 WORKTREE_PATH6="$TMPDIR_ROOT/worktree6"
 mkdir -p "$WORKTREE_PATH6"
 
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY6" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH6" --no-agent 2>/dev/null
+start_session --issue-key "$ISSUE_KEY6" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH6" --no-agent 2>/dev/null
 
 # Must exist on the inner socket
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "agent-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null; then
@@ -394,7 +426,7 @@ chmod +x "$SHIM_DIR/claude"
 # PATH, so they get their own socket (the shared one may already be running).
 SHIM_SOCKET="pappardelle_inner_shim_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY7" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH7" \
     --agent-launch-flags "--model sonnet --effort high" 2>/dev/null
 
@@ -449,7 +481,7 @@ chmod +x "$SHIM_DIR/claude"
 
 SHIM_SOCKET8="pappardelle_inner_shim8_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET8" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY8" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH8" \
     2>/dev/null
 
@@ -480,7 +512,7 @@ chmod +x "$SHIM_DIR/claude"
 
 SHIM_SOCKET9="pappardelle_inner_shim9_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET9" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY9" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH9" \
     --agent-launch-flags "--effort high --strict-mcp-config --tools 'Bash,Read' '{\"mcpServers\": {}}'" 2>/dev/null
 
@@ -509,7 +541,7 @@ chmod +x "$SHIM_DIR/claude"
 
 SHIM_SOCKET10="pappardelle_inner_shim10_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET10" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY10" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH10" \
     --init-cmd '/test-skill --mode "strict"' --companion-command "" 2>/dev/null
 
@@ -552,7 +584,7 @@ ZSHRC
         local socket="$1" key="$2" companion="$3"
         mkdir -p "$TMPDIR_ROOT/wt-$key"
         SHELL="$ZSH_BIN" ZDOTDIR="$HIST_ZDOTDIR" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$socket" \
-            "$SCRIPT_DIR/start-agent-session.sh" \
+            start_session \
             --issue-key "$key" --repo-name "$TEST_REPO" --worktree "$TMPDIR_ROOT/wt-$key" \
             --companion-command "$companion" 2>/dev/null
         sleep 2
@@ -631,7 +663,7 @@ chmod +x "$SHIM_DIR/codex"
 
 SHIM_SOCKET9="pappardelle_inner_shim9_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET9" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY9" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH9" \
     --skip-permissions \
     --agent-command codex --agent-args "--yolo" --agent-resume-args "resume --last" --agent-is-claude false \
@@ -671,7 +703,7 @@ chmod +x "$SHIM_DIR/codex"
 
 SHIM_SOCKET10="pappardelle_inner_shim10_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET10" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY10" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH10" \
     --init-cmd "/idow" \
     --agent-command codex --agent-args "--yolo" --agent-resume-args "" --agent-is-claude false \
@@ -703,7 +735,7 @@ chmod +x "$SHIM_DIR/codex"
 
 SHIM_SOCKET_LF="pappardelle_inner_shim_lf_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET_LF" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY_LF" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH_LF" \
     --agent-command codex --agent-args "--yolo" --agent-resume-args "resume abc" --agent-is-claude false \
     --agent-launch-flags "-m 'gpt-5.5 [1m]' -c model_reasoning_effort=high" \
@@ -734,7 +766,7 @@ chmod +x "$SHIM_DIR/claude-local"
 
 SHIM_SOCKET11="pappardelle_inner_shim11_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET11" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY11" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH11" \
     --agent-launch-flags "--model sonnet" \
     --agent-command claude-local --agent-is-claude true --agent-resume-args --continue \
@@ -759,7 +791,7 @@ RENAMED_SESSION="agent-${TEST_REPO}-${ISSUE_KEY12}"
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$LEGACY_SESSION" -c "$WORKTREE_PATH12"
 
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
+start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$RENAMED_SESSION" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${RESET} legacy session renamed to agent-*"
@@ -780,13 +812,24 @@ fi
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$RENAMED_SESSION" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY12}" 2>/dev/null || true
 
+echo -e "\n${BOLD}Test: the legacy name renamed is the one passed${RESET}"
+HAND_LEGACY="hand-legacy-${ISSUE_KEY12}"
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$HAND_LEGACY" -c "$WORKTREE_PATH12"
+start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" \
+    --agent-session "$RENAMED_SESSION" --companion-session "companion-${TEST_REPO}-${ISSUE_KEY12}" \
+    --legacy-agent-session "$HAND_LEGACY" --no-agent 2>/dev/null
+assert_eq "the passed legacy session is renamed to the agent name" "$RENAMED_SESSION" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null | grep -x -- "$RENAMED_SESSION\|$HAND_LEGACY")"
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$RENAMED_SESSION:" 2>/dev/null || true
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY12}:" 2>/dev/null || true
+
 # With both names live, the agent- session is the one pappardelle attaches, so
 # the legacy one would run unseen.
 echo -e "\n${BOLD}Test: a legacy session beside its agent- session is killed${RESET}"
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$LEGACY_SESSION" -c "$WORKTREE_PATH12"
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$RENAMED_SESSION" -c "$WORKTREE_PATH12"
 
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
+start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_SESSION:" 2>/dev/null; then
     echo -e "  ${RED}FAIL${RESET} legacy session killed"
@@ -815,7 +858,7 @@ OTHER_LEGACY13="claude-${TEST_REPO}-${OTHER_KEY13}"
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$OTHER_LEGACY13" -c "$WORKTREE_PATH13"
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "companion-${TEST_REPO}-${OTHER_KEY13}" -c "$WORKTREE_PATH13"
 
-"$SCRIPT_DIR/start-agent-session.sh" --issue-key "$ISSUE_KEY13" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH13" --no-agent 2>/dev/null
+start_session --issue-key "$ISSUE_KEY13" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH13" --no-agent 2>/dev/null
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$OTHER_LEGACY13:" 2>/dev/null; then
     echo -e "  ${GREEN}PASS${RESET} other space's legacy session kept its name"
@@ -853,7 +896,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${IS
 echo -e "\n${BOLD}Test: --agent-command without --agent-is-claude is an error${RESET}"
 ISSUE_KEY14="${TEST_PREFIX}-1400"
 SHIM_SOCKET14="pappardelle_inner_shim14_$$"
-if PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET14" "$SCRIPT_DIR/start-agent-session.sh" \
+if PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET14" start_session \
     --issue-key "$ISSUE_KEY14" --repo-name "$TEST_REPO" --worktree "$TMPDIR_ROOT" \
     --agent-command codex 2>/dev/null; then
     echo -e "  ${RED}FAIL${RESET} script should exit non-zero"
@@ -891,7 +934,7 @@ chmod +x "$SHIM_DIR/codex"
 
 SHIM_SOCKET15="pappardelle_inner_shim15_$$"
 SHELL=/bin/bash PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET15" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY15" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH15" \
     --companion-command "/usr/bin/true" \
     --agent-command codex --agent-args "--yolo" --agent-resume-args "" --agent-is-claude false \
@@ -918,7 +961,7 @@ mkdir -p "$WORKTREE_PATH16" "$WORKTREE_PATH17"
 SHIM_SOCKET16="pappardelle_inner_shim16_$$"
 start_space() {
     (cd "$2" && PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET16" \
-        "$SCRIPT_DIR/start-agent-session.sh" \
+        start_session \
         --issue-key "$1" --repo-name "$TEST_REPO" --worktree "$2" \
         --no-agent 2>/dev/null)
 }
@@ -967,7 +1010,7 @@ mkdir -p "$WORKTREE_PATH_PA"
 make_argv_shim agy "$ARGV_LOG_PA"
 SHIM_SOCKET_PA="pappardelle_inner_shim_pa_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET_PA" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY_PA" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH_PA" \
     --init-cmd "/it's & \$HOME" \
     --agent-command agy --agent-is-claude false --agent-launch-flags "--model m1" \
@@ -990,7 +1033,7 @@ mkdir -p "$WORKTREE_PATH_PK"
 make_argv_shim agy "$ARGV_LOG_PK"
 SHIM_SOCKET_PK="pappardelle_inner_shim_pk_$$"
 PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET_PK" \
-    "$SCRIPT_DIR/start-agent-session.sh" \
+    start_session \
     --issue-key "$ISSUE_KEY_PK" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH_PK" \
     --agent-command agy --agent-is-claude false --agent-prompt-args "-i {prompt}" \
     2>/dev/null
@@ -1015,7 +1058,7 @@ for np_case in "claude|true|--resume RESUME_FAIL|" "codex|false|resume RESUME_FA
         --agent-command "$np_agent" --agent-is-claude "$np_is_claude" --agent-resume-args "$np_resume")
     [[ -n "$np_prompt_args" ]] && np_args+=(--agent-prompt-args "$np_prompt_args")
     PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_CLAUDE_CONFIG_PATH="$TMPDIR_ROOT/claude-np.json" \
-        PAPPARDELLE_TMUX_SOCKET="$np_socket" "$SCRIPT_DIR/start-agent-session.sh" "${np_args[@]}" 2>/dev/null
+        PAPPARDELLE_TMUX_SOCKET="$np_socket" start_session "${np_args[@]}" 2>/dev/null
     wait_for_lines "$np_log" 2 || true
     np_name=""
     [[ "$np_is_claude" == true ]] && np_name="<--name><$np_key>"
@@ -1037,6 +1080,8 @@ touch "$KEEP_HOME/.zshrc"
 printf 'set -g destroy-unattached on\nset -g exit-unattached on\n' > "$KEEP_HOME/.tmux.conf"
 env -u XDG_CONFIG_HOME HOME="$KEEP_HOME" PAPPARDELLE_TMUX_SOCKET="$KEEP_SOCKET" \
     "$SCRIPT_DIR/start-agent-session.sh" --issue-key "$KEEP_KEY" --repo-name "$TEST_REPO" \
+    --agent-session "agent-$TEST_REPO-$KEEP_KEY" --companion-session "companion-$TEST_REPO-$KEEP_KEY" \
+    --legacy-agent-session "claude-$TEST_REPO-$KEEP_KEY" \
     --worktree "$TMPDIR_ROOT/keep-worktree" --no-agent --companion-command '' 2>/dev/null || true
 assert_eq "agent and companion sessions outlive the script" \
     "$(printf 'agent-%s-%s\ncompanion-%s-%s' "$TEST_REPO" "$KEEP_KEY" "$TEST_REPO" "$KEEP_KEY")" \

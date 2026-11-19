@@ -5,20 +5,40 @@ import {readFileSync, readdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {getRepoName} from '../source/config.ts';
-import {ensureAgentSession, getSessionNames} from '../source/tmux.ts';
+import {createStateDaos} from '../source/state-daos.ts';
+import {ensureAgentSession, initTmuxState} from '../source/tmux.ts';
 import {
-	attachStatusMonitor,
-	programStatusDir,
-	removeProgramSnapshots,
 	shellQuoteStatus,
+	statusSocket,
 } from '../source/program-status-monitor.ts';
+import {
+	legacyAgentSession,
+	newSpaceIdentity,
+	sessionNamesFor,
+} from '../source/space-identity.ts';
 import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
 const repo = getRepoName();
 const key = 'STATUS-TS';
-const session = getSessionNames(key, repo).agent;
+const session = sessionNamesFor(key, repo).agent;
 const launchMarker = path.join(harness.root, 'launch-marker');
+// The launch names the space's agent-sessions file, which the stores place.
+const daos = createStateDaos({
+	repo,
+	stateDir: harness.stateDir,
+	sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+});
+initTmuxState(daos);
+// As idow records the space before it starts the space's sessions.
+await daos.spaceIdentities.record(
+	newSpaceIdentity({
+		repo,
+		key,
+		worktreePath: harness.root,
+		socket: statusSocket(),
+	}),
+);
 
 try {
 	const launched = await ensureAgentSession(
@@ -55,7 +75,7 @@ try {
 		'on',
 	]);
 	await harness.mount(repo, key, session);
-	harness.writeHook(key, 'waiting_for_input');
+	await harness.writeHook(key, 'waiting_for_input');
 	await harness.expect(
 		'idle',
 		'TypeScript launch: hook fallback',
@@ -85,7 +105,7 @@ try {
 		{id: 'child', kind: 'question', app: 'fixture'},
 		'?',
 	);
-	harness.writeHook(key, 'error');
+	await harness.writeHook(key, 'error');
 	await delay(150);
 	await harness.expect(
 		'blocked',
@@ -192,7 +212,7 @@ try {
 	);
 	await Promise.all(
 		Array.from({length: 8}, async () =>
-			attachStatusMonitor(repo, key, session),
+			harness.programStatus(repo).attach(key, session),
 		),
 	);
 	await harness.fixture(session);
@@ -204,7 +224,8 @@ try {
 	);
 	const shellKey = 'STATUS-SHELL';
 	const shellRepo = 'second-repo';
-	const shellSession = getSessionNames(shellKey, shellRepo).agent;
+	const shellSessions = sessionNamesFor(shellKey, shellRepo);
+	const shellSession = shellSessions.agent;
 	execFileSync(
 		'bash',
 		[
@@ -215,6 +236,12 @@ try {
 			shellRepo,
 			'--worktree',
 			harness.root,
+			'--agent-session',
+			shellSession,
+			'--companion-session',
+			shellSessions.companion,
+			'--legacy-agent-session',
+			legacyAgentSession(shellSessions.agent),
 			'--no-agent',
 		],
 		{env: process.env, timeout: 10000},
@@ -228,13 +255,18 @@ try {
 		{kind: 'permission'},
 		'!',
 	);
-	removeProgramSnapshots(shellRepo, shellKey);
+	await harness.programStatus(shellRepo).remove(shellKey);
 	await harness.tmux(['kill-session', '-t', `=${shellSession}`]);
 	await delay(500);
 	assert.equal(
-		readdirSync(programStatusDir(shellRepo)).length,
+		readdirSync(harness.statusDir(shellRepo)).length,
 		0,
 		'late monitor exit must not recreate deleted snapshots',
+	);
+	assert.equal(
+		await harness.heldSnapshots(shellRepo, shellKey),
+		0,
+		'late monitor exit must not send a snapshot the daemon forgot',
 	);
 	harness.checks.push({
 		label: 'workspace removal prevents late snapshot recreation',
@@ -248,7 +280,7 @@ try {
 		`=${unrelated}:`,
 		`cat > ${shellQuoteStatus(path.join(harness.root, 'unrelated.log'))}`,
 	]);
-	const pane = await attachStatusMonitor('other', 'other', unrelated);
+	const pane = await harness.programStatus('other').attach('other', unrelated);
 	assert.equal(pane?.marker, '');
 	harness.checks.push({
 		label: 'unrelated pipe remains owned by its original command',

@@ -14,10 +14,11 @@ Pappardelle gives each issue a git worktree, an agent session (Claude, or the ag
 ## Where you are
 
 - `PAPPARDELLE_SPACE` is the key of your space, such as `STA-696` or `pappardelle-dq9`. The main checkout's session has no `PAPPARDELLE_SPACE`; its key is `main`
-- `PAPPARDELLE_MAIN_REPO_ROOT` is the main checkout. Worktrees live in `~/.worktrees/{repo}/{KEY}`
-- Each space has two tmux sessions on the `pappardelle_inner` socket: `agent-{repo}-{key}` (the agent) and `companion-{repo}-{key}` (the companion). In the key, `_` becomes `__` and `.` becomes `_`, because tmux rejects `.` in session names
-- Each companion split is a session of its own, `companion-{repo}-{key}~{name}`, which the TUI shows in a framed pane beside the companion. Splits show only in the TUI, not in the terminal launchers
+- `PAPPARDELLE_MAIN_REPO_ROOT` is the main checkout
+- Each space has a worktree and two tmux sessions on Pappardelle's inner socket: the agent's and the companion's. Each companion split is a session of its own, which the TUI shows in a framed pane beside the companion. Splits show only in the TUI, not in the terminal launchers
 - The TUI runs in the session `pappardelle-{repo}` on the default tmux server
+
+Get a space's worktree path, branch, profile, tmux socket, session names and targets, pane ids, PR, pipeline and status from the `space_get` tool. Never build them from the key. `space` picks the space and defaults to yours, `field` returns one value such as `worktreePath` or `tmux.agentTarget`, and `all` lists the main space and every open space.
 
 Never drive tmux directly. The sessions are on another socket, and Pappardelle handles naming, exact-match targets, and quoting.
 
@@ -27,26 +28,27 @@ To talk to the agent in another space, use Claude Code's SendMessage and ListAge
 
 If you don't have the tools, either the repo's config doesn't set `workspace_aware_agents: true`, or your agent doesn't have the server: `pappardelle mcp install` adds it to Codex, OpenCode, Antigravity and Pi. Every tool is also a `pappardelle` command. Run them from the repo or any of its worktrees. `pappardelle --help` and `pappardelle companion --help` have the details.
 
-| Tools                        | Command                                                                  |
-| ---------------------------- | ------------------------------------------------------------------------ |
-| `companion_*`                | `pappardelle companion run\|keys\|read\|resize\|close\|list\|width`      |
-| `spaces_list`                | `pappardelle spaces [--json]`                                            |
-| `space_read`                 | `pappardelle read KEY [--turns N] [--json]`                              |
-| `space_highlight`            | `pappardelle highlight KEY [--focus]`                                    |
-| `space_send`                 | `pappardelle send KEY`, with the text on stdin                           |
-| `space_press_keys`           | `pappardelle send KEY --keys Escape`                                     |
-| `space_open`                 | `pappardelle [--resume\|--no-resume] [--wait] [--profile NAME] -- INPUT` |
-| `space_screen`               | `pappardelle screen KEY [--companion [--pane NAME]] [--lines N]`         |
-| `space_state`                | `pappardelle state KEY --json`, `--tabs` for `space_question_tabs`       |
-| `space_wait`                 | `pappardelle wait KEY --until STATE [--timeout S] --json`                |
-| `space_watch`                | `pappardelle watch [KEY...] [--until STATE...] [--since CURSOR] --json`  |
-| `space_answer`               | `pappardelle answer KEY --option N...`, `--text T` or `--keys K`         |
-| `space_queue`                | `pappardelle queue KEY`, with the text on stdin                          |
-| `space_schedule*`            | `pappardelle schedule\|schedules\|unschedule`                            |
-| `tui_panes`, `tui_focus_log` | `pappardelle tui panes\|focus-log`                                       |
-| `space_close`                | `pappardelle close KEY --yes`                                            |
-| `tui_restart`                | `pappardelle restart`                                                    |
-| `link_pr`                    | `pappardelle link-pr URL [--workspace ROOT]`, from the source repository |
+| Tools                        | Command                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `companion_*`                | `pappardelle companion run\|keys\|read\|resize\|close\|list\|width`           |
+| `spaces_list`                | `pappardelle spaces [--json]`                                                 |
+| `space_get`                  | `pappardelle space get [KEY] [--json] [--field NAME]`, `space list` for `all` |
+| `space_read`                 | `pappardelle read KEY [--turns N] [--json]`                                   |
+| `space_highlight`            | `pappardelle highlight KEY [--focus]`                                         |
+| `space_send`                 | `pappardelle send KEY`, with the text on stdin                                |
+| `space_press_keys`           | `pappardelle send KEY --keys Escape`                                          |
+| `space_open`                 | `pappardelle [--resume\|--no-resume] [--wait] [--profile NAME] -- INPUT`      |
+| `space_screen`               | `pappardelle screen KEY [--companion [--pane NAME]] [--lines N]`              |
+| `space_state`                | `pappardelle state KEY --json`, `--tabs` for `space_question_tabs`            |
+| `space_wait`                 | `pappardelle wait KEY --until STATE [--timeout S] --json`                     |
+| `space_watch`                | `pappardelle watch [KEY...] [--until STATE...] [--since CURSOR] --json`       |
+| `space_answer`               | `pappardelle answer KEY --option N...`, `--text T` or `--keys K`              |
+| `space_queue`                | `pappardelle queue KEY`, with the text on stdin                               |
+| `space_schedule*`            | `pappardelle schedule\|schedules\|unschedule`                                 |
+| `tui_panes`, `tui_focus_log` | `pappardelle tui panes\|focus-log`                                            |
+| `space_close`                | `pappardelle close KEY --yes`                                                 |
+| `tui_restart`                | `pappardelle restart`                                                         |
+| `link_pr`                    | `pappardelle link-pr URL [--workspace ROOT]`, from the source repository      |
 
 Keep the companion showing your work there too: what a decision depends on before you ask, what to review before you ask for a review, and the app or a test watcher in a split instead of a background task. The companion is an open terminal sandbox: a quick script that shows what you're building, kitty graphics, a process's output, the terminal app itself to try, or a login or a typed command waiting for the user.
 

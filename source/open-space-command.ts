@@ -6,7 +6,7 @@ import {
 	buildNewSessionArgs,
 	extractIssueKeyFromIdowOutput,
 } from './session-routing.ts';
-import {addSpace} from './space-registry.ts';
+import type {SpaceRegistryDao} from './space-registry.ts';
 
 export interface OpenSpaceCommandOptions {
 	command: string;
@@ -18,6 +18,7 @@ export interface OpenSpaceCommandOptions {
 	env: NodeJS.ProcessEnv;
 	/** Resolves false when the space's agent didn't start after `since`. */
 	waitForAgent?: (issueKey: string, since: number) => Promise<boolean>;
+	registry: Pick<SpaceRegistryDao, 'add'>;
 }
 
 async function writeOutput(
@@ -136,7 +137,7 @@ export async function runOpenSpaceCommand(
 	}
 
 	try {
-		await addSpace(issueKey);
+		await options.registry.add(issueKey);
 	} catch (error) {
 		await writeOutput(
 			process.stderr,

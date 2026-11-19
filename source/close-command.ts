@@ -1,18 +1,19 @@
+import {legacyAgentSession, type SpaceSessionNames} from './space-identity.ts';
 import {spawn} from 'node:child_process';
 import {selfLaunchArgs} from './runtime.ts';
-import {getMainRepoRoot, getRepoName} from './config.ts';
-import {removeProgramSnapshots} from './program-status-monitor.ts';
+import {getMainRepoRoot} from './config.ts';
 import {confirm} from './confirm.ts';
 import {runCloseHooks, type ClosingSpace} from './close-space.ts';
 import {createLogger} from './logger.ts';
 import type {TrackerIssue} from './providers/types.ts';
-import {getRegisteredSpaces, removeSpace} from './space-registry.ts';
+import type {SpaceRegistryDao} from './space-registry.ts';
+import type {StateDaos} from './state-daos.ts';
 import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
 import {
 	currentInnerServerSession,
 	deleteQaSimulator,
-	getSessionNames,
 	getWorktreePath,
+	spaceSessionNames,
 	killSpaceSessions,
 } from './tmux.ts';
 import {getIssue} from './tracker.ts';
@@ -25,18 +26,16 @@ import type {DeinitResult} from './workspace-deinit.ts';
 const log = createLogger('close-command');
 
 export type CloseCommandDeps = {
-	registeredSpaces: () => string[];
+	registry: Pick<
+		SpaceRegistryDao,
+		'keepsLifecycle' | 'phase' | 'markClosing' | 'reopen' | 'remove'
+	>;
 	getIssue: (key: string) => Promise<TrackerIssue | null>;
 	worktreePath: (key: string) => string | null;
 	runHooks: (space: ClosingSpace) => Promise<DeinitResult>;
 	killSpaceSessions: (key: string) => Promise<boolean>;
-	removeSpace: (key: string) => Promise<void>;
 	cleanup: (key: string) => Promise<boolean>;
-	sessionNames: (key: string) => {
-		agent: string;
-		companion: string;
-		legacyAgent: string;
-	};
+	sessionNames: (key: string) => SpaceSessionNames | null;
 	currentInnerSession: () => string | null;
 	// The detached teardown starts here: a hook may have deleted the worktree
 	// the close was run from.
@@ -53,8 +52,9 @@ export async function runCloseCommand(
 	deps: CloseCommandDeps,
 ): Promise<number> {
 	const {key} = options;
-	if (!isOpenSpace(key, deps)) {
-		deps.print(`No open space ${key}`);
+	const refusal = closeRefusal(key, deps);
+	if (refusal) {
+		deps.print(refusal);
 		return 1;
 	}
 
@@ -95,7 +95,12 @@ export async function runCloseCommand(
 	const current = deps.currentInnerSession();
 	if (
 		current !== null &&
-		[sessions.agent, sessions.companion, sessions.legacyAgent].includes(current)
+		sessions !== null &&
+		[
+			sessions.agent,
+			sessions.companion,
+			legacyAgentSession(sessions.agent),
+		].includes(current)
 	) {
 		deps.print('Ending this session; teardown finishes in the background');
 		deps.spawnTeardown(key, deps.mainRepoRoot);
@@ -112,25 +117,40 @@ export async function runCloseTeardown(
 	key: string,
 	deps: CloseCommandDeps,
 ): Promise<number> {
-	if (!isOpenSpace(key, deps)) {
-		deps.logError(`No open space ${key}`);
+	const refusal = closeRefusal(key, deps);
+	if (refusal) {
+		deps.logError(refusal);
 		return 1;
 	}
 
 	return (await tearDown(key, {...deps, print: deps.logError})) ? 0 : 1;
 }
 
-function isOpenSpace(key: string, deps: CloseCommandDeps): boolean {
-	return key !== MAIN_WORKTREE_KEY && deps.registeredSpaces().includes(key);
+/** Why `key` can't be closed, or null when it can. */
+function closeRefusal(key: string, deps: CloseCommandDeps): string | null {
+	if (key === MAIN_WORKTREE_KEY) return `No open space ${key}`;
+	const lookup = deps.registry.phase(key);
+	if (lookup.kind === 'unreadable')
+		return `Could not read the space registry: ${String(lookup.error)}`;
+	if (lookup.kind === 'unknown') return `No open space ${key}`;
+	// idow is still setting it up and opens it when it finishes, so a close
+	// now would not stick.
+	if (lookup.phase === 'starting')
+		return `${key} is still being set up; close it once it has opened`;
+	// A space left closing by an interrupted close counts, so closing it
+	// again finishes the job.
+	return null;
 }
 
 // The TUI leaves simulator cleanup running in the background; this process
 // exits right after teardown, so it waits for the cleanup first.
 async function tearDown(key: string, deps: CloseCommandDeps): Promise<boolean> {
 	let cleanup: Promise<boolean> | undefined;
-	const tornDown = await tearDownSpace(key, {
+	const result = await tearDownSpace(key, {
+		markClosing: async closing => deps.registry.markClosing(closing),
+		reopen: async reopened => deps.registry.reopen(reopened),
 		killSpaceSessions: deps.killSpaceSessions,
-		removeSpace: deps.removeSpace,
+		removeSpace: async removed => deps.registry.remove(removed),
 		async cleanup(cleanupKey) {
 			cleanup = deps.cleanup(cleanupKey);
 			return cleanup;
@@ -140,12 +160,26 @@ async function tearDown(key: string, deps: CloseCommandDeps): Promise<boolean> {
 		},
 	});
 	await cleanup?.catch(() => false);
-	return tornDown;
+	if (
+		result.outcome !== 'mark-failed' &&
+		result.outcome !== 'unregister-failed'
+	)
+		return result.outcome === 'closed';
+	// A registry with no record of the close fails as it always has.
+	if (!deps.registry.keepsLifecycle) throw result.error;
+	const cause =
+		result.error instanceof Error ? result.error.message : String(result.error);
+	deps.print(
+		result.outcome === 'mark-failed'
+			? `Could not start closing ${key}: ${cause}. Its sessions were not ended and it is still open`
+			: `Ended the sessions of ${key}, but could not remove it from the registry: ${cause}. Run close again to finish`,
+	);
+	return false;
 }
 
-export function defaultCloseCommandDeps(): CloseCommandDeps {
+export function defaultCloseCommandDeps(daos: StateDaos): CloseCommandDeps {
 	return {
-		registeredSpaces: getRegisteredSpaces,
+		registry: daos.registry,
 		getIssue,
 		worktreePath: getWorktreePath,
 		async runHooks(space) {
@@ -154,12 +188,11 @@ export function defaultCloseCommandDeps(): CloseCommandDeps {
 		async killSpaceSessions(key) {
 			return killSpaceSessions(key);
 		},
-		removeSpace,
 		async cleanup(key) {
-			removeProgramSnapshots(getRepoName(), key);
+			await daos.programStatus.remove(key);
 			return deleteQaSimulator(key);
 		},
-		sessionNames: key => getSessionNames(key),
+		sessionNames: spaceSessionNames,
 		currentInnerSession: () => currentInnerServerSession(process.env),
 		mainRepoRoot: getMainRepoRoot(),
 		spawnTeardown(key, cwd) {

@@ -5,7 +5,7 @@ import path from 'node:path';
 import {promisify} from 'node:util';
 import test from 'ava';
 import {PANE_TITLE_OPTION} from './pane-frame-options.ts';
-import {resetRegistryPath, setRegistryPath} from './space-registry.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
 import {SYNC_TERMINAL_FEATURE, setupPappardellLayout} from './tmux.ts';
 
 const exec = promisify(execFile);
@@ -30,7 +30,7 @@ async function isolatedPane(
 		TMUX_PANE: process.env['TMUX_PANE'],
 		TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
 	};
-	setRegistryPath(path.join(dir, 'registry.json'));
+	testTmuxState(t);
 	t.teardown(async () => {
 		for (const [name, value] of Object.entries(saved)) {
 			if (value === undefined) Reflect.deleteProperty(process.env, name);
@@ -41,7 +41,6 @@ async function isolatedPane(
 			await exec('tmux', ['-S', socket, 'kill-server']);
 		} catch {}
 
-		resetRegistryPath();
 		fs.rmSync(dir, {recursive: true, force: true});
 	});
 	await run([

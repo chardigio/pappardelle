@@ -1,4 +1,5 @@
 /* eslint-disable no-template-curly-in-string -- These are idow shell templates. */
+import {Database} from 'bun:sqlite';
 import {type ExecException, execFile, execFileSync} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 import fs from 'node:fs';
@@ -8,7 +9,18 @@ import test, {type ExecutionContext} from 'ava';
 import {parse, stringify} from 'yaml';
 import {agentRulesFlags} from './companion-rules.ts';
 import {BUILTIN_AGENTS} from './builtin-agents.ts';
+import {repoNameFromGitCommonDir} from './config.ts';
 import {idowSkippedAgentOverride} from './session-routing.ts';
+import {newSpaceIdentity, protectedSessionNames} from './space-identity.ts';
+import type {SpaceState} from './space-state.ts';
+import {createStateDaos} from './state-daos.ts';
+import {closeStateDb, stateDbPath} from './state-db.ts';
+import {
+	cleanupOrphanedInnerSessions,
+	initTmuxState,
+	type OuterTmuxRunner,
+} from './tmux.ts';
+import {sqliteRun} from '../test/helpers/state.ts';
 
 const scriptsDir = path.resolve(import.meta.dirname, '../scripts');
 
@@ -28,9 +40,12 @@ function setup(t: ExecutionContext, realWorktree = false) {
 	const scripts = path.join(root, 'scripts');
 	const bin = path.join(root, 'bin');
 	const home = path.join(root, 'home');
-	const workspace = realWorktree
-		? path.join(home, '.worktrees', path.basename(main), 'test-abc')
-		: path.join(root, 'new workspace');
+	const workspace = path.join(
+		home,
+		'.worktrees',
+		path.basename(main),
+		'test-abc',
+	);
 	const launchArgs = path.join(root, 'launch-args');
 	const vcsCalls = path.join(root, 'vcs-calls');
 	const configCalls = path.join(root, 'config-calls');
@@ -55,6 +70,7 @@ function setup(t: ExecutionContext, realWorktree = false) {
 	for (const file of [
 		'idow',
 		'provider-helpers.sh',
+		'state-cli.sh',
 		'resolve-agent-config.sh',
 		'builtin-agents.json',
 		'resolve-terminal-app.sh',
@@ -90,6 +106,14 @@ function setup(t: ExecutionContext, realWorktree = false) {
 		'test -f "$IDOW_TEST_LAUNCH_ARGS"\nprintf "%s\\n" "$*" >> "$IDOW_TEST_VCS_CALLS"\nprintf "%s\\n" "https://github.com/test/repo/pull/1"',
 	);
 	writeScript(path.join(bin, 'tmux'), 'exit 1');
+	// idow records state through the binary. The copied scripts have no build
+	// or sources beside them, so the fixture runs this checkout's state CLI.
+	const stateCli = path.join(bin, 'pappardelle-state');
+	writeScript(
+		stateCli,
+		`shift
+exec ${JSON.stringify(process.execPath)} --no-env-file --config=/dev/null ${JSON.stringify(path.resolve(import.meta.dirname, 'state-cli.ts'))} "$@"`,
+	);
 	writeScript(
 		path.join(bin, 'open'),
 		'printf "%s\\n" "$@" >> "$IDOW_TEST_OPEN_CALLS"',
@@ -109,8 +133,9 @@ exec "$IDOW_TEST_YQ" "$@"`,
 	);
 	writeScript(
 		path.join(scripts, 'create-worktree.sh'),
-		`mkdir -p "$IDOW_TEST_WORKSPACE"
-jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path}'`,
+		`while [[ "$1" != --worktree ]]; do shift; done
+mkdir -p "$2"
+jq -n --arg worktree_path "$2" '{worktree_path: $worktree_path}'`,
 	);
 	if (realWorktree) {
 		fs.copyFileSync(
@@ -190,9 +215,12 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 			profile,
 			agentProfile,
 			input,
+			cwd,
 		}: {
 			open?: boolean;
 			projectRoot?: boolean;
+			/** Where idow runs, in place of the one projectRoot picks. */
+			cwd?: string;
 			onExit?: () => void;
 			extraEnv?: Record<string, string>;
 			profile?: string;
@@ -221,7 +249,7 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 							: ['--issue-key', 'test-abc']),
 					],
 					{
-						cwd: projectRoot ? root : linked,
+						cwd: cwd ?? (projectRoot ? root : linked),
 						encoding: 'utf8',
 						timeout: 30_000,
 						env: {
@@ -236,6 +264,7 @@ jq -n --arg worktree_path "$IDOW_TEST_WORKSPACE" '{worktree_path: $worktree_path
 							IDOW_TEST_OPEN_CALLS: openCalls,
 							IDOW_TEST_YQ: yq,
 							IDOW_TEST_LAUNCHERS: launchers,
+							PAPPARDELLE_EXECUTABLE: stateCli,
 							...extraEnv,
 						},
 					},
@@ -326,6 +355,161 @@ test('idow opens from a linked checkout and expands both repository roots', asyn
 		`${fixture.main}\n${fixture.linked}\n`,
 	);
 });
+
+test('idow names a space the same from a linked worktree as from the main checkout', async t => {
+	const named = [];
+	for (const from of ['main', 'linked'] as const) {
+		const fixture = setup(t);
+		await fixture.run({projectRoot: false, cwd: fixture[from]});
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		const after = (flag: string) => args[args.indexOf(flag) + 1];
+		named.push({
+			repo: after('--repo-name'),
+			agent: after('--agent-session'),
+			companion: after('--companion-session'),
+		});
+		if (sqliteRun) {
+			const db = new Database(
+				path.join(fixture.home, '.pappardelle', 'state.db'),
+				{readonly: true},
+			);
+			t.teardown(() => {
+				db.close();
+			});
+			t.deepEqual(
+				db
+					.query(
+						'SELECT repo, key, agent_session, companion_session FROM space_identities ORDER BY key',
+					)
+					.all(),
+				[
+					{
+						repo: 'main checkout',
+						key: 'main',
+						agent_session: 'agent-main checkout-main',
+						companion_session: 'companion-main checkout-main',
+					},
+					{
+						repo: 'main checkout',
+						key: 'test-abc',
+						agent_session: 'agent-main checkout-test-abc',
+						companion_session: 'companion-main checkout-test-abc',
+					},
+				],
+			);
+		}
+	}
+
+	t.deepEqual(named, [
+		{
+			repo: 'main checkout',
+			agent: 'agent-main checkout-test-abc',
+			companion: 'companion-main checkout-test-abc',
+		},
+		{
+			repo: 'main checkout',
+			agent: 'agent-main checkout-test-abc',
+			companion: 'companion-main checkout-test-abc',
+		},
+	]);
+});
+
+if (sqliteRun) {
+	test.serial(
+		'a space idow opened from a linked worktree survives the reap of a TUI started from another',
+		async t => {
+			const fixture = setup(t);
+			await fixture.run({
+				projectRoot: false,
+				cwd: fixture.linked,
+				extraEnv: {PAPPARDELLE_REGISTER_SPACE: '1'},
+			});
+			const other = path.join(path.dirname(fixture.main), 'other linked');
+			execFileSync('git', [
+				'-C',
+				fixture.main,
+				'worktree',
+				'add',
+				'-b',
+				'other',
+				other,
+			]);
+			const repo = repoNameFromGitCommonDir(
+				execFileSync(
+					'git',
+					['rev-parse', '--path-format=absolute', '--git-common-dir'],
+					{cwd: other, encoding: 'utf8'},
+				).trim(),
+			);
+			const stateDir = path.join(fixture.home, '.pappardelle');
+			const daos = createStateDaos({
+				repo,
+				stateDir,
+				sqlite: true,
+				home: fixture.home,
+				mainRoot: () => fixture.main,
+			});
+			t.teardown(() => {
+				daos.disconnectStatusDaemon();
+				closeStateDb(stateDbPath(stateDir));
+			});
+			initTmuxState(daos);
+			const owned = protectedSessionNames(daos.registry, daos.spaceIdentities);
+			if (owned.kind !== 'names') {
+				t.fail(`the reap would be skipped: ${JSON.stringify(owned)}`);
+				return;
+			}
+
+			const live = [
+				'agent-main checkout-test-abc',
+				'companion-main checkout-test-abc',
+				'agent-main checkout-main',
+				'agent-main checkout-gone-1',
+			];
+			const killed: string[] = [];
+			const runner: OuterTmuxRunner = args => {
+				if (args[0] === 'kill-session') killed.push(args[2]!);
+				return {
+					status: 0,
+					stdout: args[0] === 'list-sessions' ? live.join('\n') : '',
+				};
+			};
+			t.is(cleanupOrphanedInnerSessions(owned, repo, runner, [repo]), 1);
+			t.deepEqual(killed, ['=agent-main checkout-gone-1:']);
+		},
+	);
+}
+
+if (sqliteRun) {
+	test.serial('idow opens a space in the worktree the stores name', async t => {
+		const fixture = setup(t);
+		const stateDir = path.join(fixture.home, '.pappardelle');
+		const daos = createStateDaos({
+			repo: path.basename(fixture.main),
+			stateDir,
+			sqlite: true,
+			home: fixture.home,
+			mainRoot: () => fixture.main,
+		});
+		t.teardown(() => {
+			daos.disconnectStatusDaemon();
+			closeStateDb(stateDbPath(stateDir));
+		});
+		const stored = path.join(fixture.home, 'elsewhere', 'login');
+		await daos.spaceIdentities.record(
+			newSpaceIdentity({
+				repo: path.basename(fixture.main),
+				key: 'test-abc',
+				worktreePath: stored,
+				socket: 'pappardelle_inner',
+			}),
+		);
+		await fixture.run();
+		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+		t.is(args[args.indexOf('--worktree') + 1], stored);
+		t.true(fs.existsSync(stored));
+	});
+}
 
 test('idow prefers a worktree project config while falling back for local config', async t => {
 	const fixture = setup(t);
@@ -718,19 +902,22 @@ test('--agent-profile launches another agent profile for that run only', async t
 		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
 		return args[args.indexOf(flag) + 1];
 	};
-
-	const stdout = await fixture.run({agentProfile: 'codex'});
-	t.is(launchArg('--agent-profile'), 'codex');
-	t.is(launchArg('--agent-command'), 'codex');
-	t.false(idowSkippedAgentOverride(stdout));
 	const statePath = path.join(
 		fixture.home,
 		'.pappardelle/repos/main checkout/space-state/test-abc.json',
 	);
-	t.false('agentProfile' in JSON.parse(fs.readFileSync(statePath, 'utf8')));
+	// The agent's hook records its session id under this.
+	const launched = () =>
+		(JSON.parse(fs.readFileSync(statePath, 'utf8')) as SpaceState).agentProfile;
+
+	const stdout = await fixture.run({agentProfile: 'codex'});
+	t.is(launchArg('--agent-command'), 'codex');
+	t.deepEqual(launched(), {name: 'codex', isClaude: false});
+	t.false(idowSkippedAgentOverride(stdout));
 
 	await fixture.run();
-	t.is(launchArg('--agent-profile'), 'claude');
+	t.is(launchArg('--agent-command'), 'claude');
+	t.deepEqual(launched(), {name: 'claude', isClaude: true});
 });
 
 test('--agent-profile on a space whose agent is running says it was not applied', async t => {
@@ -744,22 +931,16 @@ test('--agent-profile on a space whose agent is running says it was not applied'
 	const stdout = await fixture.run({agentProfile: 'codex'});
 	t.regex(stdout, /Agent session already running/);
 	t.true(idowSkippedAgentOverride(stdout));
-});
-
-// start-agent-session.sh renames a pre-upgrade claude-* session rather than
-// starting the picked agent profile.
-test('--agent-profile on a space still running under its legacy session name says it was not applied', async t => {
-	const fixture = setup(t);
-	fs.writeFileSync(
-		path.join(fixture.main, '.pappardelle.local.yml'),
-		stringify({agent_profiles: {codex: {command: 'codex'}}}),
-	);
-	writeScript(
-		path.join(fixture.bin, 'tmux'),
-		'[[ "$*" != *"has-session"* || "$*" == *"=claude-"* ]]',
-	);
-
-	t.true(idowSkippedAgentOverride(await fixture.run({agentProfile: 'codex'})));
+	const state = JSON.parse(
+		fs.readFileSync(
+			path.join(
+				fixture.home,
+				'.pappardelle/repos/main checkout/space-state/test-abc.json',
+			),
+			'utf8',
+		),
+	) as SpaceState;
+	t.false('agentProfile' in state);
 });
 
 test('an unknown --agent-profile stops idow before any setup', async t => {
@@ -814,7 +995,7 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	record({codex: 'thread-1'});
 	await fixture.run({open: true});
 	t.is(launchArg('--agent-resume-args'), 'resume thread-1');
-	t.is(launchArg('--agent-profile'), 'codex');
+	t.is(launchArg('--agent-command'), 'codex');
 
 	// An id recorded by another agent profile is not this one's conversation.
 	record({claude: 'thread-2'});
@@ -836,6 +1017,50 @@ test('a reopened space resumes the session its agent recorded', async t => {
 	t.is(launchArg('--agent-resume-args'), '--resume thread-2');
 	await fixture.run({open: true});
 	t.is(launchArg('--agent-resume-args'), 'resume thread-1');
+});
+
+// The JSON files only mirror the database while the flag exists, so a
+// reopen must read the profile from the stores, not from the file.
+if (sqliteRun) {
+	test('a reopen picks the profile the database holds when no state file mirrors it', async t => {
+		const fixture = setup(t);
+		fs.writeFileSync(
+			path.join(fixture.main, '.pappardelle.local.yml'),
+			stringify({profiles: {other: {display_name: 'Other'}}}),
+		);
+		const stateFile = path.join(
+			fixture.home,
+			'.pappardelle/repos/main checkout/space-state/test-abc.json',
+		);
+		await fixture.run({profile: 'other'});
+		fs.rmSync(stateFile);
+		const db = new Database(path.join(fixture.home, '.pappardelle/state.db'));
+		db.query('DELETE FROM json_sync WHERE path = ?').run(stateFile);
+		db.close();
+		fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
+			recursive: true,
+		});
+
+		const output = await fixture.run();
+		t.true(output.includes('Profile:   Other'), output);
+	});
+}
+
+// Taking an unreadable store for a space with no saved profile would launch
+// the default agent in a space created with another.
+test('a state store that cannot be read stops idow before any session starts', async t => {
+	const fixture = setup(t);
+	fs.mkdirSync(
+		path.join(
+			fixture.home,
+			'.pappardelle/repos/main checkout/space-state/test-abc.json',
+		),
+		{recursive: true},
+	);
+
+	const error = await t.throwsAsync(fixture.run());
+	t.regex(String(error), /Could not look up workspace test-abc/);
+	t.false(fs.existsSync(fixture.launchArgs));
 });
 
 test('a reopened claude space with no recorded session continues its conversation', async t => {
@@ -910,6 +1135,37 @@ test('newly created issues launch fresh; existing keys keep conversation resume'
 	t.is(resumeArgs(), '');
 	await fixture.run();
 	t.is(resumeArgs(), '--continue');
+});
+
+// A tracker can hand a new issue the key of one that was deleted. The agent
+// of the new issue must not resume the old one's conversation.
+test('a new issue drops the sessions recorded under its key; an existing one keeps them', async t => {
+	const fixture = setup(t);
+	const stateDir = path.join(fixture.home, '.pappardelle');
+	const sessionsPath = path.join(
+		stateDir,
+		'repos/main checkout/space-state/test-abc.agent-sessions.json',
+	);
+	const record = () => {
+		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
+		fs.writeFileSync(
+			sessionsPath,
+			JSON.stringify({claude: {session_id: 'earlier', pid: 1, started: null}}),
+		);
+	};
+
+	record();
+	await fixture.run({input: 'Make workspace startup faster'});
+	t.false(fs.existsSync(sessionsPath));
+	if (sqliteRun) {
+		const db = new Database(path.join(stateDir, 'state.db'), {readonly: true});
+		t.deepEqual(db.query('SELECT * FROM agent_sessions').all(), []);
+		db.close();
+	}
+
+	record();
+	await fixture.run();
+	t.true(fs.existsSync(sessionsPath));
 });
 
 // Resume mode reopens a space: if the agent has nothing to resume it starts
@@ -1186,3 +1442,181 @@ test.serial(
 		t.true(output.includes('Block app opened (command)'), output);
 	},
 );
+
+// A Pappardelle that starts idow lists the space afterwards, so idow records
+// it before any session exists (source/space-registry-sqlite.ts). Lookups are
+// not recorded, and a CLI that works answers them from what it recorded.
+const escapeRegExp = (text: string) =>
+	text.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function stateCli(fixture: ReturnType<typeof setup>, exitCode: number) {
+	const calls = path.join(fixture.home, 'state-cli-calls');
+	const executable = path.join(fixture.bin, 'pappardelle-state-stub');
+	writeScript(
+		executable,
+		`if [[ "$2" != space && "$2" != worktree-path ]]; then
+    test ! -f "$IDOW_TEST_LAUNCH_ARGS" || echo "after sessions" >> ${JSON.stringify(calls)}
+    printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
+fi
+${exitCode === 0 ? '' : `if [[ "$2" != space && "$2" != worktree-path ]]; then\n    echo "no state for you" >&2\n    exit ${exitCode}\nfi\n`}exec ${JSON.stringify(path.join(fixture.bin, 'pappardelle-state'))} "$@"`,
+	);
+	return {
+		calls: () => fs.readFileSync(calls, 'utf8').trim().split('\n'),
+		env: {
+			PAPPARDELLE_EXECUTABLE: executable,
+			PAPPARDELLE_REGISTER_SPACE: '1',
+		},
+	};
+}
+
+test.serial(
+	'idow started by Pappardelle records the space under its own pid before starting sessions',
+	async t => {
+		const fixture = setup(t);
+		const state = stateCli(fixture, 0);
+		await fixture.run({extraEnv: state.env});
+		const [call, ...rest] = state.calls();
+		// The agent's hook records its session id under this agent profile.
+		t.deepEqual(rest, [
+			`--internal-state launch-agent --repo ${path.basename(fixture.main)} --agent-profile claude --claude test-abc`,
+		]);
+		t.regex(
+			call!,
+			new RegExp(
+				`^--internal-state prepare-space --repo ${path.basename(fixture.main)} --title=Test issue --worktree ${escapeRegExp(fixture.workspace)} --main-root ${escapeRegExp(fixture.main)} --register --owner \\d+ --profile dev test-abc$`,
+			),
+		);
+		t.true(fs.existsSync(fixture.launchArgs));
+	},
+);
+
+test.serial(
+	'idow stops before starting sessions when the space cannot be recorded',
+	async t => {
+		const fixture = setup(t);
+		const state = stateCli(fixture, 1);
+		const error = await t.throwsAsync(fixture.run({extraEnv: state.env}));
+		t.regex(String(error?.message), /Could not record workspace test-abc/);
+		t.false(fs.existsSync(fixture.launchArgs));
+	},
+);
+
+test.serial(
+	'idow run by hand saves the profile of a new workspace without registering the space, and only the title on a reopen',
+	async t => {
+		const fixture = setup(t);
+		const state = stateCli(fixture, 0);
+		const extraEnv = {
+			PAPPARDELLE_EXECUTABLE: state.env.PAPPARDELLE_EXECUTABLE,
+		};
+		const repo = path.basename(fixture.main);
+		await fixture.run({extraEnv});
+		t.deepEqual(state.calls(), [
+			`--internal-state prepare-space --repo ${repo} --title=Test issue --worktree ${fixture.workspace} --main-root ${fixture.main} --profile dev test-abc`,
+			`--internal-state launch-agent --repo ${repo} --agent-profile claude --claude test-abc`,
+		]);
+		t.true(fs.existsSync(fixture.launchArgs));
+
+		await fixture.run({extraEnv});
+		t.is(
+			state.calls().at(-3),
+			`--internal-state prepare-space --repo ${repo} --title=Test issue --worktree ${fixture.workspace} --main-root ${fixture.main} test-abc`,
+		);
+	},
+);
+
+// A run by hand records no registration, but its sessions are still named
+// and found through the stores. scripts/state-cli.sh fails this way when it
+// finds no binary and no Bun.
+test.serial(
+	'idow run by hand stops before starting sessions when the space cannot be recorded',
+	async t => {
+		const fixture = setup(t);
+		const state = stateCli(fixture, 127);
+		const error = await t.throwsAsync(
+			fixture.run({
+				input: 'Make workspace startup faster',
+				extraEnv: {PAPPARDELLE_EXECUTABLE: state.env.PAPPARDELLE_EXECUTABLE},
+			}),
+		);
+		t.regex(
+			String(error?.message),
+			/Could not record workspace test-abc: no state for you/,
+		);
+		t.false(fs.existsSync(fixture.launchArgs));
+	},
+);
+
+// idow used to write both files itself. They now come from the same writer
+// as the TUI's, in whichever mode the run is in.
+test('a new issue is recorded as created by Pappardelle, with its profile, before post_workspace_init', async t => {
+	const fixture = setup(t);
+	const stateDir = path.join(fixture.home, '.pappardelle');
+	const repoState = path.join(stateDir, 'repos/main checkout');
+	fs.appendFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		stringify({
+			post_workspace_init: [
+				{
+					run: `cp ${JSON.stringify(path.join(repoState, 'issue-meta/test-abc.json'))} "$WORKTREE_PATH/meta-during-init.json"`,
+				},
+			],
+		}),
+	);
+	const before = Date.now();
+	await fixture.run({input: 'Make workspace startup faster'});
+
+	const meta = JSON.parse(
+		fs.readFileSync(
+			path.join(fixture.workspace, 'meta-during-init.json'),
+			'utf8',
+		),
+	) as {created_by_pappardelle: boolean; created_at: string};
+	t.deepEqual(Object.keys(meta), ['created_by_pappardelle', 'created_at']);
+	t.true(meta.created_by_pappardelle);
+	t.regex(meta.created_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+	t.true(Date.parse(meta.created_at) >= before - 1000);
+	const state = JSON.parse(
+		fs.readFileSync(path.join(repoState, 'space-state/test-abc.json'), 'utf8'),
+	) as {profile: string; updatedAt: string};
+	t.is(state.profile, 'dev');
+	t.true(Date.parse(state.updatedAt) >= before);
+
+	const dbPath = path.join(stateDir, 'state.db');
+	if (!sqliteRun) {
+		t.false(fs.existsSync(dbPath));
+		return;
+	}
+
+	const db = new Database(dbPath, {readonly: true});
+	t.teardown(() => {
+		db.close();
+	});
+	t.deepEqual(
+		db
+			.query(
+				`SELECT s.repo, s.key, s.profile, m.created_by_pappardelle, m.created_at
+				FROM space_state s JOIN issue_meta m USING (repo, key)`,
+			)
+			.all(),
+		[
+			{
+				repo: 'main checkout',
+				key: 'test-abc',
+				profile: 'dev',
+				created_by_pappardelle: 1,
+				created_at: meta.created_at,
+			},
+		],
+	);
+});
+
+test('an existing issue is not recorded as created by Pappardelle', async t => {
+	const fixture = setup(t);
+	await fixture.run();
+	t.false(
+		fs.existsSync(
+			path.join(fixture.home, '.pappardelle/repos/main checkout/issue-meta'),
+		),
+	);
+});

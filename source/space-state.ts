@@ -10,11 +10,13 @@
 // cheap and failure-tolerant — consumers should treat missing/malformed
 // files the same as "no cached data yet".
 
+import {randomUUID} from 'node:crypto';
 import fs from 'node:fs';
 import {setImmediate as yieldToInput} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import type {PipelineStatus} from './providers/types.ts';
+import {PIPELINE_STATUSES, type PipelineStatus} from './providers/types.ts';
+import type {Unreadable} from './state-db.ts';
 
 const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
 
@@ -24,15 +26,18 @@ export interface SpaceRecap {
 	lastAssistantExcerpt?: string;
 }
 
+/** A PR or MR recorded for one checkout in a space by `pappardelle link-pr`. */
+export type SpacePrLink = {
+	host: string;
+	project: string;
+	localBranch: string;
+	remoteBranch: string;
+	url: string;
+	number: number;
+};
+
 export interface SpaceState {
-	prLinks?: Array<{
-		host: string;
-		project: string;
-		localBranch: string;
-		remoteBranch: string;
-		url: string;
-		number: number;
-	}>;
+	prLinks?: SpacePrLink[];
 	pipeline?: PipelineStatus | null;
 	unresolvedCommentCount?: number;
 	prNumber?: number;
@@ -46,6 +51,168 @@ export interface SpaceState {
 	 * Written once per workspace creation; never updated by the rail-status poller.
 	 */
 	profile?: string;
+	/** The issue's title as the tracker last gave it to Pappardelle. */
+	issueTitle?: string;
+	/**
+	 * The agent profile whose agent was last started in the space's agent
+	 * session, which is the one running there: a picker override launches once
+	 * and is saved nowhere else. The hook that records the agent's session id
+	 * (plugins/pappardelle/hooks/agent_session.py) reads it.
+	 */
+	agentProfile?: LaunchedAgentProfile;
+}
+
+/** The agent profile an agent session was started with. */
+export type LaunchedAgentProfile = {name: string; isClaude: boolean};
+
+/**
+ * The fields a writer sets. A key present with the value `undefined` removes
+ * that field, and a recap replaces the whole recap.
+ */
+export type SpaceStatePatch = Omit<SpaceState, 'prLinks' | 'updatedAt'>;
+
+/** What the rail poll learns about a space. It never chooses the profile. */
+export type RailStatusPatch = Omit<
+	SpaceStatePatch,
+	'profile' | 'issueTitle' | 'agentProfile'
+>;
+
+/** What is recorded for one space. */
+export type SpaceStateLookup =
+	| {kind: 'state'; state: SpaceState}
+	| {kind: 'none'}
+	| Unreadable;
+
+/** One repo's per-space state, a record per space key. */
+export interface SpaceStateDao {
+	/** The file that holds a space's record, for messages that name it. */
+	file(key: string): string;
+	/** Null when nothing is recorded, or the record cannot be read. */
+	read(key: string): SpaceState | null;
+	/** `read` for a caller that must not take an unreadable record for none. */
+	lookup(key: string): SpaceStateLookup;
+	write(key: string, patch: SpaceStatePatch): Promise<void>;
+	/** Several spaces' patches at once, such as one rail poll's results. */
+	writeMany(
+		entries: Array<{key: string; patch: SpaceStatePatch}>,
+	): Promise<void>;
+	/**
+	 * Record `link` as the space's newest. A checkout (host, project and local
+	 * branch) has one link, so an earlier one for the same checkout is replaced.
+	 */
+	addPrLink(key: string, link: SpacePrLink): Promise<void>;
+}
+
+export function withPrLink(
+	links: SpacePrLink[],
+	link: SpacePrLink,
+): SpacePrLink[] {
+	return [
+		...links.filter(
+			item =>
+				!(
+					item.host === link.host &&
+					item.project === link.project &&
+					item.localBranch === link.localBranch
+				),
+		),
+		link,
+	];
+}
+
+export function renderSpaceState(state: SpaceState): string {
+	return JSON.stringify(state, null, 2) + '\n';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const stringOrNothing = (value: unknown): string | undefined =>
+	typeof value === 'string' ? value : undefined;
+
+const integerOrNothing = (value: unknown): number | undefined =>
+	Number.isInteger(value) ? (value as number) : undefined;
+
+function parseRecap(value: Record<string, unknown>): SpaceRecap {
+	const customTitle = stringOrNothing(value['customTitle']);
+	const lastPrompt = stringOrNothing(value['lastPrompt']);
+	const lastAssistantExcerpt = stringOrNothing(value['lastAssistantExcerpt']);
+	return {
+		...(customTitle === undefined ? {} : {customTitle}),
+		...(lastPrompt === undefined ? {} : {lastPrompt}),
+		...(lastAssistantExcerpt === undefined ? {} : {lastAssistantExcerpt}),
+	};
+}
+
+function parseAgentProfile(value: unknown): LaunchedAgentProfile | undefined {
+	if (!isRecord(value)) return undefined;
+	const {name, isClaude} = value;
+	return typeof name === 'string' && typeof isClaude === 'boolean'
+		? {name, isClaude}
+		: undefined;
+}
+
+function parsePrLink(value: unknown): SpacePrLink | undefined {
+	if (!isRecord(value)) return undefined;
+	const {host, project, localBranch, remoteBranch, url, number} = value;
+	if (
+		typeof host !== 'string' ||
+		typeof project !== 'string' ||
+		typeof localBranch !== 'string' ||
+		typeof remoteBranch !== 'string' ||
+		typeof url !== 'string' ||
+		!Number.isInteger(number)
+	)
+		return undefined;
+	return {
+		host,
+		project,
+		localBranch,
+		remoteBranch,
+		url,
+		number: number as number,
+	};
+}
+
+/**
+ * The fields of a space-state file that hold what their writers leave there.
+ * Throws when `content` is not a JSON object.
+ *
+ * The file has several writers, other builds and hand edits among them, and
+ * the next write rewrites it from what was read. A field this build cannot
+ * use is left out on its own, so it never costs the space its profile or its
+ * PR links.
+ */
+export function parseSpaceState(content: string): SpaceState {
+	const record: unknown = JSON.parse(content);
+	if (!isRecord(record)) throw new Error('Not a space state');
+	const {pipeline, hasConflict, prLinks, recap} = record;
+	const unresolvedCommentCount = integerOrNothing(
+		record['unresolvedCommentCount'],
+	);
+	const prNumber = integerOrNothing(record['prNumber']);
+	const updatedAt = stringOrNothing(record['updatedAt']);
+	const profile = stringOrNothing(record['profile']);
+	const issueTitle = stringOrNothing(record['issueTitle']);
+	const agentProfile = parseAgentProfile(record['agentProfile']);
+	return {
+		...(Array.isArray(prLinks)
+			? {prLinks: prLinks.flatMap(link => parsePrLink(link) ?? [])}
+			: {}),
+		...(pipeline === null ||
+		PIPELINE_STATUSES.includes(pipeline as PipelineStatus)
+			? {pipeline: pipeline as PipelineStatus | null}
+			: {}),
+		...(unresolvedCommentCount === undefined ? {} : {unresolvedCommentCount}),
+		...(prNumber === undefined ? {} : {prNumber}),
+		...(typeof hasConflict === 'boolean' ? {hasConflict} : {}),
+		...(isRecord(recap) ? {recap: parseRecap(recap)} : {}),
+		...(updatedAt === undefined ? {} : {updatedAt}),
+		...(profile === undefined ? {} : {profile}),
+		...(issueTitle === undefined ? {} : {issueTitle}),
+		...(agentProfile === undefined ? {} : {agentProfile}),
+	};
 }
 
 /** Claude Code's transcript directory for a worktree. */
@@ -104,13 +271,18 @@ export function getSpaceStateDir(repoName: string, baseDir?: string): string {
 	return path.join(base, 'repos', repoName, 'space-state');
 }
 
-export function getSpaceStatePath(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
-): string {
-	return path.join(getSpaceStateDir(repoName, baseDir), `${issueKey}.json`);
-}
+/** One agent profile's latest conversation in a space, as its hook records it. */
+export type AgentSession = {
+	sessionId: string;
+	/** The agent process that recorded the id, and when it started. */
+	pid: number | null;
+	started: string | null;
+};
+
+/** Each agent profile's recorded session id in one space. */
+export type AgentSessionsLookup =
+	| {kind: 'sessions'; sessions: Record<string, string>}
+	| Unreadable;
 
 /**
  * Each agent profile's latest conversation in a space, by agent profile name,
@@ -119,123 +291,239 @@ export function getSpaceStatePath(
  * in it: the TUI rewrites that file after every rail poll, and a hook write
  * landing between the TUI's read and its rename would be lost. Keyed by agent
  * profile so a one-launch override doesn't take the profile's own
- * conversation away. idow deletes it when it creates a workspace for a new
+ * conversation away. idow clears it when it creates a workspace for a new
  * issue, whose key can't own an earlier conversation.
  */
-export function getAgentSessionsPath(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
+export interface AgentSessionsDao {
+	/** The file the hook writes for a space. */
+	file(key: string): string;
+	/** The session id an agent profile recorded in a space. */
+	read(key: string, agentProfile: string): string | undefined;
+	sessions(key: string): AgentSessionsLookup;
+	/** The spaces that have recorded sessions. */
+	keys(): string[];
+	/**
+	 * Move the session recorded under `from` to `to`. Nothing changes when
+	 * `from` has none or `to` already has its own.
+	 */
+	renameProfile(key: string, from: string, to: string): Promise<void>;
+	/** Forget every session recorded in a space. */
+	clear(key: string): Promise<void>;
+}
+
+const AGENT_SESSIONS_SUFFIX = '.agent-sessions.json';
+
+/**
+ * An agent-sessions file as the hook leaves it. Throws when `content` is not
+ * an object of entries. An entry without a session id is one no reader uses,
+ * and is left out.
+ */
+export function parseAgentSessions(content: string): Map<string, AgentSession> {
+	const record: unknown = JSON.parse(content);
+	if (!isRecord(record)) throw new Error('Not an agent-sessions file');
+	const sessions = new Map<string, AgentSession>();
+	for (const [name, entry] of Object.entries(record)) {
+		if (!isRecord(entry)) continue;
+		const {session_id: sessionId, pid, started} = entry;
+		if (typeof sessionId !== 'string') continue;
+		sessions.set(name, {
+			sessionId,
+			pid: Number.isInteger(pid) ? (pid as number) : null,
+			started: typeof started === 'string' ? started : null,
+		});
+	}
+
+	return sessions;
+}
+
+export function renderAgentSessions(
+	sessions: Iterable<[string, AgentSession]>,
 ): string {
-	return path.join(
-		getSpaceStateDir(repoName, baseDir),
-		`${issueKey}.agent-sessions.json`,
+	const entries = Object.fromEntries(
+		[...sessions].map(([name, {sessionId, pid, started}]) => [
+			name,
+			{session_id: sessionId, pid, started},
+		]),
 	);
+	return JSON.stringify(entries, null, 2) + '\n';
 }
 
-function readAgentSessions(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
-): Record<string, unknown> {
-	try {
-		const sessions: unknown = JSON.parse(
-			fs.readFileSync(
-				getAgentSessionsPath(repoName, issueKey, baseDir),
-				'utf-8',
-			),
-		);
-		return sessions && typeof sessions === 'object'
-			? (sessions as Record<string, unknown>)
-			: {};
-	} catch {
-		return {};
+export class JsonAgentSessionsDao implements AgentSessionsDao {
+	constructor(private readonly dir: string) {}
+
+	file(key: string): string {
+		return path.join(this.dir, `${key}${AGENT_SESSIONS_SUFFIX}`);
 	}
-}
 
-/**
- * The agent profile whose agent started last in a space, which is the one
- * running there: a picker override launches once without being saved
- * anywhere else. `started` is the agent process's start time as the hook
- * reads it from `ps -o lstart` (LC_ALL=C).
- */
-export function latestAgentProfile(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
-): string | undefined {
-	let latest: {name: string; started: number} | undefined;
-	for (const [name, entry] of Object.entries(
-		readAgentSessions(repoName, issueKey, baseDir),
-	)) {
-		const started =
+	read(key: string, agentProfile: string): string | undefined {
+		const entry = this.entries(key)[agentProfile];
+		const id =
 			entry && typeof entry === 'object'
-				? Date.parse(String((entry as Record<string, unknown>)['started']))
-				: Number.NaN;
-		if (!Number.isNaN(started) && (!latest || started > latest.started)) {
-			latest = {name, started};
-		}
-	}
-	return latest?.name;
-}
-
-export function readAgentSession(
-	repoName: string,
-	issueKey: string,
-	agentProfile: string,
-	baseDir?: string,
-): string | undefined {
-	const entry = readAgentSessions(repoName, issueKey, baseDir)[agentProfile];
-	const id =
-		entry && typeof entry === 'object'
-			? (entry as Record<string, unknown>)['session_id']
-			: undefined;
-	return typeof id === 'string' ? id : undefined;
-}
-
-export function readSpaceState(
-	repoName: string,
-	issueKey: string,
-	baseDir?: string,
-): SpaceState | null {
-	const p = getSpaceStatePath(repoName, issueKey, baseDir);
-	try {
-		const raw = fs.readFileSync(p, 'utf-8');
-		const parsed = JSON.parse(raw);
-		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			return parsed as SpaceState;
-		}
-	} catch {
-		// File missing, unreadable, or malformed — treat as "no state".
+				? (entry as Record<string, unknown>)['session_id']
+				: undefined;
+		return typeof id === 'string' ? id : undefined;
 	}
 
-	return null;
+	sessions(key: string): AgentSessionsLookup {
+		let content: string;
+		try {
+			content = fs.readFileSync(this.file(key), 'utf8');
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+				return {kind: 'sessions', sessions: {}};
+			return {kind: 'unreadable', error};
+		}
+
+		try {
+			return {
+				kind: 'sessions',
+				sessions: Object.fromEntries(
+					[...parseAgentSessions(content)].map(([name, session]) => [
+						name,
+						session.sessionId,
+					]),
+				),
+			};
+		} catch (error) {
+			return {kind: 'unreadable', error};
+		}
+	}
+
+	keys(): string[] {
+		let files: string[];
+		try {
+			files = fs.readdirSync(this.dir);
+		} catch {
+			return [];
+		}
+
+		return files
+			.filter(
+				file =>
+					file.endsWith(AGENT_SESSIONS_SUFFIX) &&
+					file.length > AGENT_SESSIONS_SUFFIX.length,
+			)
+			.map(file => file.slice(0, -AGENT_SESSIONS_SUFFIX.length));
+	}
+
+	async renameProfile(key: string, from: string, to: string): Promise<void> {
+		const file = this.file(key);
+		try {
+			const sessions: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+			if (!isRecord(sessions) || !(from in sessions) || to in sessions) return;
+			const moved = Object.fromEntries(
+				Object.entries(sessions).map(([name, entry]) => [
+					name === from ? to : name,
+					entry,
+				]),
+			);
+			const temporary = `${file}.tmp.${process.pid}`;
+			fs.writeFileSync(temporary, JSON.stringify(moved, null, 2) + '\n');
+			fs.renameSync(temporary, file);
+		} catch {
+			// The space relaunches with --continue instead.
+		}
+	}
+
+	async clear(key: string): Promise<void> {
+		fs.rmSync(this.file(key), {force: true});
+	}
+
+	private entries(key: string): Record<string, unknown> {
+		try {
+			const sessions: unknown = JSON.parse(
+				fs.readFileSync(this.file(key), 'utf-8'),
+			);
+			return sessions && typeof sessions === 'object'
+				? (sessions as Record<string, unknown>)
+				: {};
+		} catch {
+			return {};
+		}
+	}
 }
 
-/**
- * Merge `patch` into the existing state (if any) and write atomically.
- * Fields in `patch` overwrite existing values; fields not present are preserved.
- * Always refreshes `updatedAt` to now.
- */
-export function writeSpaceState(
-	repoName: string,
-	issueKey: string,
-	patch: SpaceState,
-	baseDir?: string,
-): void {
-	const existing = readSpaceState(repoName, issueKey, baseDir) ?? {};
-	const next: SpaceState = {
-		...existing,
-		...patch,
-		updatedAt: new Date().toISOString(),
-	};
+export class JsonSpaceStateDao implements SpaceStateDao {
+	constructor(
+		private readonly dir: string,
+		private readonly clock: () => Date,
+	) {}
 
-	const p = getSpaceStatePath(repoName, issueKey, baseDir);
-	try {
-		fs.mkdirSync(path.dirname(p), {recursive: true});
-		fs.writeFileSync(p, JSON.stringify(next, null, 2) + '\n');
-	} catch {
-		// Non-critical — cache will be rebuilt on next poll.
+	file(key: string): string {
+		return path.join(this.dir, `${key}.json`);
+	}
+
+	read(key: string): SpaceState | null {
+		try {
+			const raw = fs.readFileSync(this.file(key), 'utf-8');
+			const parsed = JSON.parse(raw);
+			if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+				return parsed as SpaceState;
+			}
+		} catch {
+			// File missing, unreadable, or malformed — treat as "no state".
+		}
+
+		return null;
+	}
+
+	lookup(key: string): SpaceStateLookup {
+		let content: string;
+		try {
+			content = fs.readFileSync(this.file(key), 'utf8');
+		} catch (error) {
+			return (error as NodeJS.ErrnoException).code === 'ENOENT'
+				? {kind: 'none'}
+				: {kind: 'unreadable', error};
+		}
+
+		try {
+			return {kind: 'state', state: parseSpaceState(content)};
+		} catch (error) {
+			return {kind: 'unreadable', error};
+		}
+	}
+
+	/**
+	 * Merge `patch` into the existing state (if any) and write.
+	 * Fields in `patch` overwrite existing values; fields not present are preserved.
+	 * Always refreshes `updatedAt` to now.
+	 */
+	async write(key: string, patch: SpaceStatePatch): Promise<void> {
+		const existing = this.read(key) ?? {};
+		const next: SpaceState = {
+			...existing,
+			...patch,
+			updatedAt: this.clock().toISOString(),
+		};
+
+		const p = this.file(key);
+		try {
+			fs.mkdirSync(path.dirname(p), {recursive: true});
+			fs.writeFileSync(p, renderSpaceState(next));
+		} catch {
+			// Non-critical — cache will be rebuilt on next poll.
+		}
+	}
+
+	async writeMany(
+		entries: Array<{key: string; patch: SpaceStatePatch}>,
+	): Promise<void> {
+		for (const {key, patch} of entries) await this.write(key, patch);
+	}
+
+	async addPrLink(key: string, link: SpacePrLink): Promise<void> {
+		const state = this.read(key) ?? {};
+		state.prLinks = withPrLink(state.prLinks ?? [], link);
+		const file = this.file(key);
+		fs.mkdirSync(path.dirname(file), {recursive: true});
+		const temporary = `${file}.${randomUUID()}.tmp`;
+		try {
+			fs.writeFileSync(temporary, renderSpaceState(state));
+			fs.renameSync(temporary, file);
+		} finally {
+			fs.rmSync(temporary, {force: true});
+		}
 	}
 }
 

@@ -2,7 +2,10 @@
 
 # open-default-terminal-agent.sh - Open a workspace in the default terminal
 #
-# Usage: open-default-terminal-agent.sh --worktree <path> --issue-key <key> [options]
+# Usage: open-default-terminal-agent.sh --worktree <path> --issue-key <key> --repo-name <name> --agent-session <name> --companion-session <name> [options]
+#
+# The session names and PAPPARDELLE_TMUX_SOCKET are the ones `pappardelle space
+# get` reports for the space.
 #
 # The last rung of idow's step 9, reached when the terminal is one Pappardelle
 # cannot drive directly (no AppleScript dictionary, or terminal.app naming
@@ -22,6 +25,8 @@ set -e
 WORKTREE=""
 ISSUE_KEY=""
 REPO_NAME=""
+TMUX_SESSION=""
+COMPANION_SESSION=""
 PROMPT=""
 COMPANION_COMMAND="GIT_OPTIONAL_LOCKS=0 gitui"
 SKIP_PERMISSIONS=false
@@ -34,7 +39,6 @@ AGENT_RESUME_ARGS_SET=false
 AGENT_PROMPT_ARGS=""
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
-AGENT_PROFILE="claude"
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
 
@@ -43,6 +47,8 @@ while [[ $# -gt 0 ]]; do
         --worktree) WORKTREE="$2"; shift 2 ;;
         --issue-key) ISSUE_KEY="$2"; shift 2 ;;
         --repo-name) REPO_NAME="$2"; shift 2 ;;
+        --agent-session) TMUX_SESSION="$2"; shift 2 ;;
+        --companion-session) COMPANION_SESSION="$2"; shift 2 ;;
         --prompt) PROMPT="$2"; shift 2 ;;
         --companion-command) COMPANION_COMMAND="$2"; shift 2 ;;
         --skip-permissions) SKIP_PERMISSIONS=true; shift ;;
@@ -51,7 +57,6 @@ while [[ $# -gt 0 ]]; do
         --agent-resume-args) AGENT_RESUME_ARGS="$2"; AGENT_RESUME_ARGS_SET=true; shift 2 ;;
         --agent-is-claude) AGENT_IS_CLAUDE="$2"; shift 2 ;;
         --agent-launch-flags) PROFILE_LAUNCH_FLAGS="$2"; shift 2 ;;
-        --agent-profile) AGENT_PROFILE="$2"; shift 2 ;;
         --agent-prompt-args) AGENT_PROMPT_ARGS="$2"; shift 2 ;;
         --print-launch-flags) PRINT_LAUNCH_FLAGS=true; shift ;;
         --print-command) PRINT_COMMAND=true; shift ;;
@@ -69,6 +74,16 @@ if [[ -z "$REPO_NAME" ]]; then
     exit 1
 fi
 
+if [[ -z "$TMUX_SESSION" || -z "$COMPANION_SESSION" ]]; then
+    echo "Error: --agent-session and --companion-session are required" >&2
+    exit 1
+fi
+
+if [[ -z "${PAPPARDELLE_TMUX_SOCKET:-}" ]]; then
+    echo "Error: PAPPARDELLE_TMUX_SOCKET is required: idow exports the space's socket from pappardelle space get" >&2
+    exit 1
+fi
+
 if [[ -z "$AGENT_COMMAND" ]]; then
     AGENT_COMMAND="claude"
     AGENT_IS_CLAUDE="true"
@@ -77,17 +92,6 @@ elif [[ "$AGENT_IS_CLAUDE" != "true" && "$AGENT_IS_CLAUDE" != "false" ]]; then
     echo "Error: --agent-command requires --agent-is-claude true|false" >&2
     exit 1
 fi
-
-# Create the tmux session name based on repo and issue key. The '.' → '_'
-# encoding matches start-agent-session.sh; see the comment there.
-SESSION_KEY="${ISSUE_KEY//_/__}"
-SESSION_KEY="${SESSION_KEY//./_}"
-SESSION_REPO="${REPO_NAME//[.:]/_}"
-TMUX_SESSION="agent-${SESSION_REPO}-${SESSION_KEY}"
-
-# Per-issue agent/companion sessions live on a dedicated tmux socket so the
-# nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
-PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 
 AGENT_PROMPT="$PROMPT"
 
@@ -118,10 +122,6 @@ else
     NAME_FLAG=""
 fi
 
-# Mirrors AGENT_SESSION_ENV in start-agent-session.sh: the agent's hook
-# records its session id under these when this launcher creates the session.
-AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
-
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
 
@@ -150,25 +150,22 @@ TMUX_L="tmux -L ${PAPPARDELLE_TMUX_SOCKET}"
 # the same two-layer scheme the AppleScript launchers use.
 # shellcheck disable=SC2016  # expanded by the pane shell, not here
 AGENT_CMD_WORD='$AGENT_CMD$AGENT_FLAGS$AGENT_NAME'
-FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_PROFILE=$(quoted_form "$AGENT_PROFILE"); AGENT_SESSIONS=$(quoted_form "$AGENT_SESSIONS"); AGENT_NAME=$(quoted_form "$NAME_FLAG"); "
+FLAGS_ASSIGN="AGENT_CMD=$(quoted_form "$AGENT_COMMAND"); AGENT_FLAGS=$(quoted_form "$LAUNCH_FLAGS"); AGENT_RESUME=$(quoted_form "$AGENT_RESUME_STR"); AGENT_NAME=$(quoted_form "$NAME_FLAG"); "
 PROMPT_SEG=""
 if [[ -n "$PROMPT_WORDS" ]]; then
     FLAGS_ASSIGN="${FLAGS_ASSIGN}AGENT_PROMPT_WORDS=$(quoted_form "$PROMPT_WORDS"); "
     # shellcheck disable=SC2016  # expanded by the pane shell, not here
     PROMPT_SEG=' $AGENT_PROMPT_WORDS'
 fi
-# shellcheck disable=SC2016  # expanded by the pane shell, not here
-AGENT_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_IS_CLAUDE='"$AGENT_IS_CLAUDE"'" -e "PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS"'
 RESUME_CHAIN=""
 if [[ -n "$AGENT_RESUME_STR" ]]; then
     # shellcheck disable=SC2016  # expanded by the pane shell, not here
     RESUME_CHAIN='$AGENT_RESUME'"${PROMPT_SEG} || { printf '\\033[A\\033[2K'; false; } || ${AGENT_CMD_WORD}"
 fi
 
-AGENT_PREFIX="${FLAGS_ASSIGN}cd $(quoted_form "$WORKTREE") && printf '\\033]0;%s\\007' $(quoted_form "$ISSUE_KEY") && ${TMUX_L} new-session -A -s $(quoted_form "$TMUX_SESSION")${AGENT_ENV} \"${AGENT_CMD_WORD}${RESUME_CHAIN}"
+AGENT_PREFIX="${FLAGS_ASSIGN}cd $(quoted_form "$WORKTREE") && printf '\\033]0;%s\\007' $(quoted_form "$ISSUE_KEY") && ${TMUX_L} new-session -A -s $(quoted_form "$TMUX_SESSION") \"${AGENT_CMD_WORD}${RESUME_CHAIN}"
 AGENT_LINE="${AGENT_PREFIX}${PROMPT_SEG}\""
 
-COMPANION_SESSION="companion-${SESSION_REPO}-${SESSION_KEY}"
 COMPANION_ASSIGN=""
 COMPANION_START="${TMUX_L} new-session -A -s $(quoted_form "$COMPANION_SESSION")"
 if [[ -n "$COMPANION_COMMAND" ]]; then
@@ -186,14 +183,14 @@ fi
 
 # The viewer session sits on the default socket, so its panes can attach to the
 # inner socket without tmux's nesting check rejecting them.
-VIEW_SESSION="pappardelle-view-${SESSION_REPO}-${SESSION_KEY}"
+VIEW_SESSION="pappardelle-view-${TMUX_SESSION#agent-}"
 
 # Kept under $HOME rather than mktemp: `open` returns as soon as the terminal is
 # handed the file, so deleting it here would race the shell that has to read it.
 # One stable name per workspace, overwritten on each open, so it never piles up.
 LAUNCH_DIR="${HOME}/.pappardelle/launch"
 mkdir -p "$LAUNCH_DIR"
-CMD_FILE="${LAUNCH_DIR}/${REPO_NAME}-${SESSION_KEY}.command"
+CMD_FILE="${LAUNCH_DIR}/${TMUX_SESSION#agent-}.command"
 
 {
     printf '%s\n' '#!/bin/bash'

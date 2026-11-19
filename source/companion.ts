@@ -1,3 +1,4 @@
+import type {SpaceIdentity} from './space-identity.ts';
 import {
 	MAIN_PANE,
 	SPLIT_LIST_FORMAT,
@@ -12,7 +13,7 @@ import {
 	createCompanionSplit,
 	defaultInnerTmuxRunner,
 	exactSessionTarget,
-	getSessionNames,
+	storedIdentity,
 	INNER_SOCKET,
 	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
@@ -39,7 +40,6 @@ export interface CompanionPane {
 
 export interface CompanionDeps {
 	runner?: OuterTmuxRunner;
-	repoName?: string;
 }
 
 const PANE_FORMAT = [
@@ -95,9 +95,14 @@ export function parsePaneList(stdout: string): CompanionPane[] {
 export function companionSessionTarget(
 	spaceKey: string,
 	deps: CompanionDeps = {},
-): string {
+): {identity: SpaceIdentity; session: string; target: string} {
 	const runner = deps.runner ?? defaultInnerTmuxRunner;
-	const session = getSessionNames(spaceKey, deps.repoName).companion;
+	const identity = storedIdentity(spaceKey);
+	if (!identity)
+		throw new CompanionError(
+			`No companion session for ${spaceKey}: it has no stored session names. Open the space with Pappardelle to record them.`,
+		);
+	const session = identity.tmux.companionSession;
 	const target = resolveInnerSessionTargetSync(session, runner);
 	if (!target) {
 		throw new CompanionError(
@@ -105,15 +110,29 @@ export function companionSessionTarget(
 		);
 	}
 
-	return target;
+	return {identity, session, target};
 }
 
 /**
- * List the session's panes, first naming the session's original pane `main`
- * if nothing carries that name yet. Sessions made before panes had names, or
- * by idow's bash, start untagged. tmux pane ids only grow and respawn-pane
- * keeps the id, so the lowest id is the pane the session started with.
+ * The companion's `main` pane: the pane named so, else the session's original
+ * pane. Sessions made before panes had names, or by idow's bash, start
+ * untagged. tmux pane ids only grow and respawn-pane keeps the id, so the
+ * lowest id is the pane the session started with.
  */
+export function companionMainPane<
+	Pane extends {paneId: string; name: string | null},
+>(panes: Pane[]): Pane | undefined {
+	const named = panes.find(pane => pane.name === MAIN_PANE);
+	if (named) return named;
+	let original = panes[0];
+	for (const pane of panes) {
+		if (paneNumber(pane.paneId) < paneNumber(original!.paneId)) original = pane;
+	}
+
+	return original;
+}
+
+/** List the session's panes, naming the `main` pane if nothing carries the name yet. */
 export function listCompanionPanes(
 	target: string,
 	runner: OuterTmuxRunner,
@@ -121,29 +140,26 @@ export function listCompanionPanes(
 	const panes = parsePaneList(
 		tmux(runner, ['list-panes', '-s', '-t', target, '-F', PANE_FORMAT]),
 	);
-	if (panes.length === 0 || panes.some(pane => pane.name === MAIN_PANE))
-		return panes;
-	let original = panes[0]!;
-	for (const pane of panes) {
-		if (paneNumber(pane.paneId) < paneNumber(original.paneId)) original = pane;
-	}
-
+	const main = companionMainPane(panes);
+	if (!main || main.name === MAIN_PANE) return panes;
 	tmux(runner, [
 		'set-option',
 		'-p',
 		'-t',
-		original.paneId,
+		main.paneId,
 		'@pappa_pane',
 		MAIN_PANE,
 	]);
-	original.name = MAIN_PANE;
+	main.name = MAIN_PANE;
 	return panes;
 }
 
 function loadSpace(spaceKey: string, deps: CompanionDeps) {
 	const runner = deps.runner ?? defaultInnerTmuxRunner;
-	const session = getSessionNames(spaceKey, deps.repoName).companion;
-	const target = companionSessionTarget(spaceKey, {...deps, runner});
+	const {identity, session, target} = companionSessionTarget(spaceKey, {
+		...deps,
+		runner,
+	});
 	const main = listCompanionPanes(target, runner).find(
 		pane => pane.name === MAIN_PANE,
 	)!;
@@ -151,7 +167,7 @@ function loadSpace(spaceKey: string, deps: CompanionDeps) {
 		tmux(runner, ['list-sessions', '-F', SPLIT_LIST_FORMAT]),
 		session,
 	);
-	return {runner, session, main, splits};
+	return {runner, identity, session, main, splits};
 }
 
 type Space = ReturnType<typeof loadSpace>;
@@ -225,9 +241,9 @@ export function runInCompanion(
 	}
 
 	const created = createCompanionSplit(
-		spaceKey,
+		space.identity,
 		{...options, name: options.pane},
-		{runner: space.runner, repoName: deps.repoName},
+		{runner: space.runner},
 	);
 	if (!created.ok) throw new CompanionError(created.reason);
 	return {created: true};

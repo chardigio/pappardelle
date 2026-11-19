@@ -2,7 +2,7 @@
 
 # open-ghostty-agent.sh - Open a Ghostty tab with tmux, the configured agent, and the companion pane
 #
-# Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt "<prompt>" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --agent-session <name> --companion-session <name> --prompt "<prompt>" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>]
 #
 # The Ghostty counterpart to open-iterm-agent.sh. Instead of a new window it
 # opens a new tab in the window the Pappardelle TUI is running in, split into:
@@ -28,6 +28,8 @@ set -e
 # Parse arguments
 WORKTREE=""
 ISSUE_KEY=""
+TMUX_SESSION=""
+COMPANION_SESSION=""
 REPO_NAME=""
 PROMPT=""
 WINDOW_ID=""
@@ -41,7 +43,6 @@ AGENT_RESUME_ARGS_SET=false
 AGENT_PROMPT_ARGS=""
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
-AGENT_PROFILE="claude"
 PRINT_LAUNCH_FLAGS=false
 PRINT_COMMAND=false
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
@@ -56,6 +57,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --issue-key)
             ISSUE_KEY="$2"
+            shift 2
+            ;;
+        --agent-session)
+            TMUX_SESSION="$2"
+            shift 2
+            ;;
+        --companion-session)
+            COMPANION_SESSION="$2"
             shift 2
             ;;
         --repo-name)
@@ -121,12 +130,8 @@ while [[ $# -gt 0 ]]; do
             AGENT_PROMPT_ARGS="$2"
             shift 2
             ;;
-        --agent-profile)
-            AGENT_PROFILE="$2"
-            shift 2
-            ;;
         --help|-h)
-            echo "Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --prompt \"<prompt>\" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS] [--agent-profile NAME]"
+            echo "Usage: open-ghostty-agent.sh --worktree <path> --issue-key <STA-XXX> --repo-name <name> --agent-session <name> --companion-session <name> --prompt \"<prompt>\" [--window-id <id>] [--companion-command <CMD>] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <ARGS>] [--agent-is-claude true|false] [--agent-launch-flags FLAGS]"
             echo ""
             echo "Debug: --print-launch-flags prints the claude flag string; --print-command"
             echo "prints the two shell lines that would be typed. Neither opens Ghostty."
@@ -156,6 +161,16 @@ if [[ -z "$REPO_NAME" ]]; then
     exit 1
 fi
 
+if [[ -z "$TMUX_SESSION" || -z "$COMPANION_SESSION" ]]; then
+    echo "Error: --agent-session and --companion-session are required" >&2
+    exit 1
+fi
+
+if [[ -z "${PAPPARDELLE_TMUX_SOCKET:-}" ]]; then
+    echo "Error: PAPPARDELLE_TMUX_SOCKET is required: idow exports the space's socket from pappardelle space get" >&2
+    exit 1
+fi
+
 if [[ -z "$AGENT_COMMAND" ]]; then
     AGENT_COMMAND="claude"
     AGENT_IS_CLAUDE="true"
@@ -164,17 +179,6 @@ elif [[ "$AGENT_IS_CLAUDE" != "true" && "$AGENT_IS_CLAUDE" != "false" ]]; then
     echo "Error: --agent-command requires --agent-is-claude true|false" >&2
     exit 1
 fi
-
-# Create the tmux session name based on repo and issue key. The '.' → '_'
-# encoding matches start-agent-session.sh; see the comment there.
-SESSION_KEY="${ISSUE_KEY//_/__}"
-SESSION_KEY="${SESSION_KEY//./_}"
-SESSION_REPO="${REPO_NAME//[.:]/_}"
-TMUX_SESSION="agent-${SESSION_REPO}-${SESSION_KEY}"
-
-# Per-issue agent/companion sessions live on a dedicated tmux socket so the
-# nested viewer pane in Pappardelle can attach without `TMUX=`. See STA-860.
-PAPPARDELLE_TMUX_SOCKET="${PAPPARDELLE_TMUX_SOCKET:-pappardelle_inner}"
 
 # The prompt is passed directly - the caller should include the skill prefix (e.g., /idow)
 # If empty, the agent will start without any prompt (resume mode)
@@ -213,10 +217,6 @@ if [[ "$AGENT_IS_CLAUDE" == "true" ]]; then
 else
     NAME_FLAG=""
 fi
-
-# Mirrors AGENT_SESSION_ENV in start-agent-session.sh: the agent's hook
-# records its session id under these when this launcher creates the session.
-AGENT_SESSIONS="$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
 
 # Resume args carry their own leading space (concatenated onto the command).
 AGENT_RESUME_STR="${AGENT_RESUME_ARGS:+ $AGENT_RESUME_ARGS}"
@@ -267,12 +267,10 @@ on run argv
     set agentCommand to item 12 of argv
     set nameFlag to item 13 of argv
     set resumeArgs to item 14 of argv
-    set agentProfile to item 15 of argv
-    set agentSessions to item 16 of argv
-    set agentIsClaude to item 17 of argv
     -- The prompt, already quoted for the inner shell and wrapped in any
     -- prompt_args template (see PROMPT_WORDS). Empty when the prompt is.
-    set promptWords to item 18 of argv
+    set promptWords to item 15 of argv
+    set companionSession to item 16 of argv
 
     -- Build the `tmux -L <socket>` prefix once. Inner sessions (agent /
     -- companion) live on a dedicated socket so Pappardelle's nested viewer
@@ -298,13 +296,12 @@ on run argv
     -- so only the inner `sh -c` ever parses the values — and the caller
     -- already quoted each flag value for exactly that parse. Empty flags
     -- leave the command word unchanged.
-    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_PROFILE=" & quoted form of agentProfile & "; AGENT_SESSIONS=" & quoted form of agentSessions & "; AGENT_NAME=" & quoted form of nameFlag & "; "
+    set flagsAssign to "AGENT_CMD=" & quoted form of agentCommand & "; AGENT_FLAGS=" & quoted form of launchFlags & "; AGENT_RESUME=" & quoted form of resumeArgs & "; AGENT_NAME=" & quoted form of nameFlag & "; "
     set promptSeg to ""
     if promptWords is not equal to "" then
         set flagsAssign to flagsAssign & "AGENT_PROMPT_WORDS=" & quoted form of promptWords & "; "
         set promptSeg to " $AGENT_PROMPT_WORDS"
     end if
-    set agentEnv to " -e \"PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE\" -e \"PAPPARDELLE_AGENT_IS_CLAUDE=" & agentIsClaude & "\" -e \"PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS\""
     set agentCmd to "$AGENT_CMD$AGENT_FLAGS$AGENT_NAME"
     set resumeChain to ""
     if resumeArgs is not equal to "" then
@@ -314,7 +311,7 @@ on run argv
         end if
         set resumeChain to resumeAttempt & " || { printf '\\033[A\\033[2K'; false; } || " & agentCmd
     end if
-    set agentPrefix to flagsAssign & "cd " & quoted form of worktreePath & " && printf '\\033]0;%s\\007' " & quoted form of issueKey & " && " & tmuxL & " new-session -A -s " & quoted form of tmuxSession & agentEnv & " \"" & agentCmd & resumeChain
+    set agentPrefix to flagsAssign & "cd " & quoted form of worktreePath & " && printf '\\033]0;%s\\007' " & quoted form of issueKey & " && " & tmuxL & " new-session -A -s " & quoted form of tmuxSession & " \"" & agentCmd & resumeChain
     if agentPrompt is equal to "" then
         set agentLine to agentPrefix & "\""
     else
@@ -330,7 +327,6 @@ on run argv
     -- so route it through a shell variable via `quoted form of` rather than
     -- embedding it in a single-quoted string; that way an embedded single quote
     -- (e.g. DESTDIR='/tmp') can't break out.
-    set companionSession to "companion-" & (text ((length of "agent-") + 1) thru -1 of tmuxSession)
     set companionAssign to ""
     set companionStart to tmuxL & " new-session -A -s " & quoted form of companionSession
     if companionCommand is not equal to "" then
@@ -398,7 +394,7 @@ APPLESCRIPT_END
 # Run the AppleScript with arguments. Argument 9 is the print-only switch: when
 # true the script returns the assembled command lines and never touches Ghostty.
 USER_SHELL=$(command -v "${SHELL:-zsh}" || echo /bin/zsh)
-OSA_OUTPUT=$(osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$WINDOW_ID" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$AGENT_PROFILE" "$AGENT_SESSIONS" "$AGENT_IS_CLAUDE" "$PROMPT_WORDS")
+OSA_OUTPUT=$(osascript "$APPLESCRIPT" "$ISSUE_KEY" "$WORKTREE" "$TMUX_SESSION" "$AGENT_PROMPT" "$REPO_NAME" "$LAUNCH_FLAGS" "$PAPPARDELLE_TMUX_SOCKET" "$COMPANION_COMMAND" "$PRINT_COMMAND" "$WINDOW_ID" "$USER_SHELL" "$AGENT_COMMAND" "$NAME_FLAG" "$AGENT_RESUME_STR" "$PROMPT_WORDS" "$COMPANION_SESSION")
 
 if [[ "$PRINT_COMMAND" == true ]]; then
     printf '%s\n' "$OSA_OUTPUT"

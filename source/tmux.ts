@@ -2,7 +2,7 @@
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
 import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {existsSync, readFileSync, statSync, writeFileSync} from 'node:fs';
+import {readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
@@ -191,17 +191,23 @@ import {tmuxFormatLiteral} from './tmux-format.ts';
 import {shellQuote} from './shell-quote.ts';
 import {buildAgentSessionEnvArgs, buildSessionEnvArgs} from './spawn-env.ts';
 import {
-	getRegisteredSpaces,
-	isSpaceRegistered,
 	listKnownRepos,
+	listOpenSpaces,
+	type SpaceRegistryDao,
 } from './space-registry.ts';
+import type {StateDaos} from './state-daos.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
+import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
 import {
-	getAgentSessionsPath,
-	readAgentSession,
-	latestAgentProfile,
-	readSpaceState,
-} from './space-state.ts';
+	legacyAgentSession,
+	sessionPrefix,
+	tmuxSessionRepo,
+	type ProtectedSessions,
+	SESSION_KINDS,
+	type SpaceIdentity,
+	type SpaceIdentityDao,
+	type SpaceSessionNames,
+} from './space-identity.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	calculateIdealListHeightForCount,
@@ -214,10 +220,9 @@ import {
 } from './layout-sizing.ts';
 import {nextSizeOverride, type WindowSize} from './pane-drag.ts';
 import {
-	attachStatusMonitor,
-	removeProgramSnapshots,
 	statusSocket,
 	statusTmuxArgs,
+	type ProgramStatusDao,
 } from './program-status-monitor.ts';
 
 // Re-export sizing constants and functions for external use
@@ -236,6 +241,77 @@ export {
 
 const log = createLogger('tmux');
 
+let stateDaos: StateDaos | undefined;
+
+/**
+ * Give this module the stores its functions read. They are free functions
+ * with long call chains, so the stores are handed over once at startup
+ * instead of through every signature.
+ */
+export function initTmuxState(daos: StateDaos): void {
+	stateDaos = daos;
+}
+
+function registry(): SpaceRegistryDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.registry;
+}
+
+function spaceState(): SpaceStateDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.spaceState;
+}
+
+function agentSessions(): AgentSessionsDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.agentSessions;
+}
+
+function spaceIdentities(): SpaceIdentityDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.spaceIdentities;
+}
+
+function programStatus(): ProgramStatusDao {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	return stateDaos.programStatus;
+}
+
+const reportedUnknown = new Set<string>();
+
+/**
+ * A space's stored identity, or null after logging why it has none. Callers
+ * then fail the way they do when the space's session is missing.
+ */
+export function storedIdentity(issueKey: string): SpaceIdentity | null {
+	const lookup = spaceIdentities().get(issueKey);
+	if (lookup.kind === 'identity') return lookup.identity;
+	if (lookup.kind === 'unknown') {
+		// The rail asks again on every refresh.
+		if (!reportedUnknown.has(issueKey))
+			log.warn(`No stored identity for ${issueKey}`);
+		reportedUnknown.add(issueKey);
+	} else
+		log.warn(
+			`Could not read the stored identity of ${issueKey}`,
+			lookup.error instanceof Error ? lookup.error : undefined,
+		);
+	return null;
+}
+
+function sessionNamesOf(identity: SpaceIdentity): SpaceSessionNames {
+	return {
+		agent: identity.tmux.agentSession,
+		companion: identity.tmux.companionSession,
+	};
+}
+
+/** A space's stored session names, or null when it has none. */
+export function spaceSessionNames(issueKey: string): SpaceSessionNames | null {
+	const identity = storedIdentity(issueKey);
+	return identity && sessionNamesOf(identity);
+}
+
 // Dedicated tmux socket for per-issue claude/companion sessions. The root
 // `pappardelle-{repo}` session and its layout panes stay on the default
 // socket; everything the viewer panes attach to lives here. Routing inner
@@ -251,56 +327,6 @@ export const INNER_SOCKET = 'pappardelle_inner';
  */
 export function innerTmuxArgs(args: readonly string[]): string[] {
 	return statusTmuxArgs([...args]);
-}
-
-// Session naming convention (matches idow)
-// Sessions are repo-qualified: agent-{repoName}-{key}, e.g. agent-pappa-chex-CHEX-313
-
-/**
- * tmux 3.6 and older store `.` and `:` in a session name as `_`, so the repo
- * part of a session name is spelled this way to read back the same on every
- * release.
- */
-export function tmuxSessionRepo(repoName: string): string {
-	return repoName.replaceAll(/[.:]/g, '_');
-}
-
-/**
- * Get the session prefix for a given type and repo name.
- * e.g. getSessionPrefix('agent', 'pappa-chex') → 'agent-pappa-chex-'
- */
-export function getSessionPrefix(
-	type: 'agent' | 'companion',
-	repoName?: string,
-): string {
-	const repo = repoName ?? getRepoName();
-	return `${type}-${tmuxSessionRepo(repo)}-`;
-}
-
-/**
- * Session prefix used for the agent pane before it was renamed to `agent-`.
- * Live sessions carrying this prefix are renamed in place when the TUI starts,
- * before `pappardelle send`, and when idow opens the space (see
- * `migrateLegacyAgentSessions` and start-agent-session.sh). The orphan reapers
- * sweep it alongside the current prefixes.
- */
-export function getLegacyAgentSessionPrefix(repoName?: string): string {
-	const repo = repoName ?? getRepoName();
-	return `claude-${tmuxSessionRepo(repo)}-`;
-}
-
-/**
- * Extract the space key from a repo-qualified session name.
- * e.g. extractIssueKeyFromSession('agent-pappa-chex-CHEX-313', 'pappa-chex') → 'CHEX-313'
- * Returns null if the session doesn't match the expected prefix.
- */
-export function extractIssueKeyFromSession(
-	sessionName: string,
-	repoName?: string,
-): string | null {
-	const prefix = getSessionPrefix('agent', repoName);
-	if (!sessionName.startsWith(prefix)) return null;
-	return fromSessionKey(sessionName.slice(prefix.length));
 }
 
 // Track which space is currently being viewed
@@ -458,36 +484,6 @@ export function innerSessionExists(sessionName: string): boolean {
 	} catch {
 		return false;
 	}
-}
-
-export function toSessionKey(issueKey: string): string {
-	return issueKey.replaceAll('_', '__').replaceAll('.', '_');
-}
-
-export function fromSessionKey(sessionKey: string): string {
-	return sessionKey.replaceAll(/__|_/g, match => (match === '__' ? '_' : '.'));
-}
-
-/**
- * Get session names for a space.
- * Optional repoName parameter for testing; defaults to getRepoName().
- */
-export function getSessionNames(
-	issueKey: string,
-	repoName?: string,
-): {
-	agent: string;
-	companion: string;
-	legacyAgent: string;
-} {
-	const agentPrefix = getSessionPrefix('agent', repoName);
-	const companionPrefix = getSessionPrefix('companion', repoName);
-	const key = toSessionKey(issueKey);
-	return {
-		agent: `${agentPrefix}${key}`,
-		companion: `${companionPrefix}${key}`,
-		legacyAgent: `${getLegacyAgentSessionPrefix(repoName)}${key}`,
-	};
 }
 
 /**
@@ -1273,13 +1269,13 @@ export function cleanupOrphanedOuterSessions(
 	runner: OuterTmuxRunner = defaultOuterTmuxRunner,
 ): number {
 	try {
-		const agentPrefix = getSessionPrefix('agent', repoName);
-		const legacyAgentPrefix = getLegacyAgentSessionPrefix(repoName);
-		const companionPrefix = getSessionPrefix('companion', repoName);
+		const repo = repoName ?? getRepoName();
+		const agentPrefix = sessionPrefix('agent', repo);
+		const legacyAgentPrefix = sessionPrefix('claude', repo);
+		const companionPrefix = sessionPrefix('companion', repo);
 		// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Sweep that
 		// legacy prefix too so an upgrade doesn't strand old git-UI sessions.
-		const repo = repoName ?? getRepoName();
-		const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
+		const legacyCompanionPrefix = sessionPrefix('lazygit', repo);
 
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {
@@ -1406,91 +1402,135 @@ export async function enableInnerSynchronizedOutput(
 const FOCUS_EVENTS_ARGS = ['set-option', '-g', 'focus-events', 'on'];
 
 /**
- * STA-1420 layer 2: reap orphaned `agent-{repo}-*` / `companion-{repo}-*`
- * (and legacy `claude-{repo}-*` / `lazygit-{repo}-*`) sessions on the inner socket whose key is
- * neither in the registry nor the
- * main worktree (`'main'`). Symmetric to `cleanupOrphanedOuterSessions` but
- * for inner-socket leftovers — these accumulate when Pappardelle is hard-quit
+ * This repo's space sessions on the inner socket, each with the session that
+ * owns it: a split's companion, and for a legacy name the session it was
+ * renamed to. Null when tmux did not answer, which is not the same as none.
+ */
+function innerSpaceSessions(
+	repoName: string | undefined,
+	runner: OuterTmuxRunner,
+	knownRepos: string[],
+): Array<{name: string; owner: string}> | null {
+	const repo = repoName ?? getRepoName();
+	const agentPrefix = sessionPrefix('agent', repo);
+	const companionPrefix = sessionPrefix('companion', repo);
+	// Before the agent- and companion- names the panes were claude- and, before
+	// STA-1464, lazygit-. A hard-quit straddling an upgrade leaves those behind.
+	const legacyAgentPrefix = sessionPrefix('claude', repo);
+	const legacyCompanionPrefix = sessionPrefix('lazygit', repo);
+	const longerRepoPrefixes = siblingRepoPrefixes(repo, knownRepos);
+
+	const result = runner(['list-sessions', '-F', '#{session_name}']);
+	if (result.error || result.status !== 0) {
+		return null;
+	}
+
+	const sessions: Array<{name: string; owner: string}> = [];
+	for (const name of result.stdout.trim().split('\n')) {
+		if (longerRepoPrefixes.some(prefix => name.startsWith(prefix))) continue;
+		if (name.startsWith(agentPrefix) || name.startsWith(legacyAgentPrefix)) {
+			sessions.push({name, owner: name});
+		} else if (name.startsWith(companionPrefix)) {
+			sessions.push({name, owner: owningCompanionSession(name)});
+		} else if (name.startsWith(legacyCompanionPrefix)) {
+			sessions.push({
+				name,
+				owner: companionPrefix + name.slice(legacyCompanionPrefix.length),
+			});
+		}
+	}
+
+	return sessions;
+}
+
+/** Every session on the inner socket, or null when tmux did not answer. */
+export function liveInnerSessions(
+	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
+): Set<string> | null {
+	try {
+		const result = runner(['list-sessions', '-F', '#{session_name}']);
+		if (result.error || result.status !== 0) return null;
+		return new Set(result.stdout.trim().split('\n').filter(Boolean));
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * STA-1420 layer 2: reap this repo's sessions on the inner socket that no
+ * protected space owns. They accumulate when Pappardelle is hard-quit
  * (SIGKILL, terminal close, Ctrl-C during a slow `pre_workspace_deinit`)
- * between unregistering and killing. STA-1416 removed the `seedFromTmux`
- * resurrection helper that used to mop these up as a side effect, so without
- * this reaper they'd linger forever on the inner socket.
+ * between unregistering and killing. Symmetric to
+ * `cleanupOrphanedOuterSessions`.
  *
- * Conservative on purpose: only kills sessions whose key is missing from the
- * registry AND isn't `MAIN_WORKTREE_KEY`. The main worktree row in app.tsx
- * uses the same constant, so its sessions (`agent-{repo}-main`,
- * `companion-{repo}-main`) are legitimate but never appear in the registry —
- * the constant keeps the "never reap main" coupling explicit on both sides.
+ * `owned` names the spaces whose sessions have an owner, main's included, and
+ * their stored session names (`protectedSessionNames`). A session is kept
+ * when the session that owns it is one of them; nothing is parsed back into a
+ * key.
  *
  * `runner` is exposed for tests only; production uses the spawnSync default.
  */
 export function cleanupOrphanedInnerSessions(
-	registeredKeys: Set<string>,
+	owned: ProtectedSessions,
 	repoName?: string,
 	runner: OuterTmuxRunner = defaultInnerTmuxRunner,
 	knownRepos: string[] = listKnownRepos(),
 ): number {
 	try {
-		const agentPrefix = getSessionPrefix('agent', repoName);
-		const legacyAgentPrefix = getLegacyAgentSessionPrefix(repoName);
-		const companionPrefix = getSessionPrefix('companion', repoName);
-		// Pre-STA-1464 the companion pane was named `lazygit-{repo}-*`. Reap that
-		// legacy prefix too so a hard-quit straddling an upgrade doesn't strand old
-		// git-UI sessions on the inner socket. Mirrors cleanupOrphanedOuterSessions.
-		const repo = repoName ?? getRepoName();
-		const legacyCompanionPrefix = `lazygit-${tmuxSessionRepo(repo)}-`;
-
-		const longerRepoPrefixes = siblingRepoPrefixes(repo, knownRepos);
-
-		const result = runner(['list-sessions', '-F', '#{session_name}']);
-		if (result.error || result.status !== 0) {
-			return 0;
-		}
-
-		const orphans: Array<{name: string; key: string}> = [];
-		for (const name of result.stdout.trim().split('\n')) {
-			if (longerRepoPrefixes.some(prefix => name.startsWith(prefix))) continue;
-			let key: string | null = null;
-			if (name.startsWith(agentPrefix)) {
-				key = fromSessionKey(name.slice(agentPrefix.length));
-			} else if (name.startsWith(legacyAgentPrefix)) {
-				key = fromSessionKey(name.slice(legacyAgentPrefix.length));
-			} else if (name.startsWith(companionPrefix)) {
-				key = fromSessionKey(
-					owningCompanionSession(name).slice(companionPrefix.length),
-				);
-			} else if (name.startsWith(legacyCompanionPrefix)) {
-				key = fromSessionKey(name.slice(legacyCompanionPrefix.length));
-			} else {
-				continue;
-			}
-			if (key === MAIN_WORKTREE_KEY) continue;
-			if (registeredKeys.has(key)) continue;
-			orphans.push({name, key});
-		}
+		const sessions = innerSpaceSessions(repoName, runner, knownRepos);
+		if (!sessions) return 0;
+		const kept = new Set([
+			...owned.names,
+			...[...owned.names].map(name => legacyAgentSession(name)),
+		]);
+		const orphans = sessions.filter(session => !kept.has(session.owner));
 
 		let killed = 0;
+		const reapedKeys = new Set<string>();
 		const failedKeys = new Set<string>();
-		for (const {name, key} of orphans) {
+		for (const {name} of orphans) {
+			const key = sessionSpace(name, runner);
 			const k = runner(['kill-session', '-t', exactSessionTarget(name)]);
 			if (!k.error && k.status === 0) {
 				killed++;
 				log.info(`Killed orphaned inner-socket session: ${name}`);
-			} else {
+				if (key) reapedKeys.add(key);
+			} else if (key) {
 				failedKeys.add(key);
 			}
 		}
-		for (const key of new Set(orphans.map(orphan => orphan.key)))
-			if (!failedKeys.has(key)) removeProgramSnapshots(repo, key);
+
+		// A stray session of a space that is still open is reaped, but the
+		// status it reports is the space's own.
+		for (const key of reapedKeys)
+			if (!failedKeys.has(key) && !owned.keys.has(key))
+				void programStatus().remove(key);
 		return killed;
 	} catch {
 		return 0;
 	}
 }
 
+/**
+ * The space a session was started for, from the PAPPARDELLE_SPACE its
+ * creator set on it, or null when it has none. An orphan's space may have no
+ * stored identity left to name it.
+ */
+function sessionSpace(name: string, runner: OuterTmuxRunner): string | null {
+	const result = runner([
+		'show-environment',
+		'-t',
+		exactSessionTarget(name),
+		'PAPPARDELLE_SPACE',
+	]);
+	if (result.error || result.status !== 0) return null;
+	const match = /^PAPPARDELLE_SPACE=(.+)$/m.exec(result.stdout);
+	return match?.[1]?.trim() || null;
+}
+
 const simulatorCleanup = new QaSimulatorCleanup(
 	undefined,
-	key => !isSpaceRegistered(key),
+	key => !registry().has(key),
 );
 
 export async function deleteQaSimulator(issueKey: string): Promise<boolean> {
@@ -1502,10 +1542,25 @@ export async function killSpaceSessions(
 	issueKey: string,
 	options?: {
 		run?: AsyncTmuxRunner;
-		repoName?: string;
 	},
 ): Promise<boolean> {
-	const sessions = getSessionNames(issueKey, options?.repoName);
+	const lookup = spaceIdentities().get(issueKey);
+	if (lookup.kind === 'unreadable') {
+		log.warn(
+			`Could not read the stored identity of ${issueKey}`,
+			lookup.error instanceof Error ? lookup.error : undefined,
+		);
+		return false;
+	}
+
+	if (lookup.kind === 'unknown') {
+		// Any sessions it has are owned by no stored space, so the reaper
+		// removes them at the next start.
+		log.warn(`${issueKey} has no stored session names; no sessions to end`);
+		return true;
+	}
+
+	const sessions = sessionNamesOf(lookup.identity);
 	// Keep the agent running until companion teardown succeeds. Reattaching
 	// after a companion failure must not recreate Claude with --continue.
 	const run = options?.run ?? runTmux;
@@ -1518,7 +1573,7 @@ export async function killSpaceSessions(
 	// migrated yet would otherwise survive its own teardown (innerKillSession
 	// returns true for missing sessions, so the agent-name kill "succeeds").
 	const legacyKilled = await innerKillSession(
-		sessions.legacyAgent,
+		legacyAgentSession(sessions.agent),
 		options?.run,
 	);
 	if (currentlyViewingSpace === issueKey) {
@@ -1560,11 +1615,7 @@ function siblingRepoPrefixes(repo: string, knownRepos: string[]): string[] {
 	return knownRepos
 		.map(other => tmuxSessionRepo(other))
 		.filter(other => other.startsWith(own))
-		.flatMap(other =>
-			['agent', 'claude', 'companion', 'lazygit'].map(
-				kind => `${kind}-${other}-`,
-			),
-		);
+		.flatMap(other => SESSION_KINDS.map(kind => `${kind}-${other}-`));
 }
 
 export async function focusPane(
@@ -1619,12 +1670,10 @@ export function migrateLegacyAgentSessions(
 	knownRepos: string[] = listKnownRepos(),
 ): number {
 	try {
-		const agentPrefix = getSessionPrefix('agent', repoName);
-		const legacyPrefix = getLegacyAgentSessionPrefix(repoName);
-		const siblingPrefixes = siblingRepoPrefixes(
-			repoName ?? getRepoName(),
-			knownRepos,
-		);
+		const repo = repoName ?? getRepoName();
+		const agentPrefix = sessionPrefix('agent', repo);
+		const legacyPrefix = sessionPrefix('claude', repo);
+		const siblingPrefixes = siblingRepoPrefixes(repo, knownRepos);
 
 		const result = runner(['list-sessions', '-F', '#{session_name}']);
 		if (result.error || result.status !== 0) {
@@ -1822,7 +1871,6 @@ export async function sendToSpaceAgent(
 	issueKey: string,
 	text: string,
 	options: {
-		repoName?: string;
 		runner?: SendTmuxRunner;
 		lockDir?: string;
 		lockTimeoutMs?: number;
@@ -1831,7 +1879,8 @@ export async function sendToSpaceAgent(
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
-	const session = getSessionNames(issueKey, options.repoName).agent;
+	const session = spaceSessionNames(issueKey)?.agent;
+	if (!session) return 'no-session';
 	const target = await resolveInnerSessionTarget(session, runner);
 	if (!target) return 'no-session';
 	try {
@@ -1866,7 +1915,6 @@ export function sendKeysToSpaceAgent(
 	issueKey: string,
 	keys: readonly string[],
 	options: {
-		repoName?: string;
 		runner?: OuterTmuxRunner;
 		/** Set by `pappardelle answer`, which has already checked the prompt. */
 		answering?: boolean;
@@ -1875,10 +1923,8 @@ export function sendKeysToSpaceAgent(
 	} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
-	const target = resolveInnerSessionTargetSync(
-		getSessionNames(issueKey, options.repoName).agent,
-		runner,
-	);
+	const session = spaceSessionNames(issueKey)?.agent;
+	const target = session && resolveInnerSessionTargetSync(session, runner);
 	if (!target) return 'no-session';
 	// A key such as 1 or Enter answers a prompt, which only `answer` may do
 	// under its policy. Escape declines a Claude prompt, so it stays open to
@@ -1972,7 +2018,7 @@ function readGeometrySync(paneId: string): WindowGeometry | null {
  * counts even when pappardelle starts after a tmux server kill/reboot.
  */
 export function getActiveSpaceCount(): number {
-	return getRegisteredSpaces().length;
+	return listOpenSpaces(registry()).length;
 }
 
 // ============================================================================
@@ -2322,13 +2368,13 @@ function isMissingSessionError(err: unknown): boolean {
 function savedSpaceProfile(issueKey: string): string | undefined {
 	return issueKey === MAIN_WORKTREE_KEY
 		? undefined
-		: readSpaceState(getRepoName(), issueKey)?.profile;
+		: spaceState().read(issueKey)?.profile;
 }
 
 /**
- * The agent profile running in a space: the one whose agent started last,
- * which covers a one-launch picker override, else the one its profile
- * selects. A recorded name the config no longer defines falls back too.
+ * The agent profile running in a space: the one its agent session was last
+ * started with, which covers a one-launch picker override, else the one its
+ * profile selects. A stored name the config no longer defines falls back too.
  */
 export function runningAgentProfile(
 	config: PappardelleConfig,
@@ -2336,10 +2382,10 @@ export function runningAgentProfile(
 	issueTitle?: string,
 ): ResolvedAgentProfile {
 	const profileName = savedSpaceProfile(issueKey);
-	const latest = latestAgentProfile(getRepoName(), issueKey);
+	const launched = spaceState().read(issueKey)?.agentProfile?.name;
 	const name =
-		latest && (latest === 'claude' || config.agent_profiles?.[latest])
-			? latest
+		launched && (launched === 'claude' || config.agent_profiles?.[launched])
+			? launched
 			: resolveAgentProfileName(config, issueTitle, profileName);
 	return getNamedAgentProfile(config, name, issueTitle, profileName);
 }
@@ -2421,7 +2467,12 @@ async function attachViewers(
 	// An interrupted switch may have moved only one pane. Never let the
 	// previous space's cache short-circuit the next request in that case.
 	currentlyViewingSpace = null;
-	const sessions = getSessionNames(issueKey);
+	const sessions = spaceSessionNames(issueKey);
+	if (!sessions) {
+		traceDone?.('failed');
+		return false;
+	}
+
 	let configuredSplits: ResolvedCompanionSplit[] | undefined;
 	// A split that fails to show leaves the agent and companion attached.
 	// `listing` is the session listing the attach asked for along with its own
@@ -2535,7 +2586,7 @@ async function attachViewers(
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
 		configuredSplits = getCompanionSplits(config, issueTitle, profileName);
 		agentProfile = getAgentProfile(config, issueTitle, profileName);
-		sessionId = readAgentSession(getRepoName(), issueKey, agentProfile.name);
+		sessionId = agentSessions().read(issueKey, agentProfile.name);
 	} catch {
 		// Config load failed — use safe defaults.
 	}
@@ -2845,10 +2896,9 @@ async function keepSplitDrags(
 	const measured =
 		snapshot ??
 		parseWindowGeometry(await run(paneGeometryArgs(layout.listPaneId)));
-	const {splits} = await listCompanion(
-		getSessionNames(shownSplitsSpace).companion,
-		run,
-	);
+	const companion = spaceSessionNames(shownSplitsSpace)?.companion;
+	if (!companion) return;
+	const {splits} = await listCompanion(companion, run);
 	await rememberSplitDrags(
 		measured,
 		companionColumnWidth(measured, layout),
@@ -2899,7 +2949,7 @@ async function listCompanion(
  * start is tried again at the next attach. Returns whether it started any.
  */
 async function seedCompanionSplits(
-	issueKey: string,
+	identity: SpaceIdentity,
 	splits: CompanionSplit[],
 	configured: ResolvedCompanionSplit[],
 	run: AsyncTmuxRunner,
@@ -2909,7 +2959,7 @@ async function seedCompanionSplits(
 	let started = false;
 	for (const [index, split] of configured.entries()) {
 		if (splits.some(existing => existing.name === split.name)) continue;
-		const result = createCompanionSplit(issueKey, {
+		const result = createCompanionSplit(identity, {
 			...split,
 			order: order + index,
 		});
@@ -2918,7 +2968,7 @@ async function seedCompanionSplits(
 		} else {
 			failed = true;
 			log.warn(
-				`Failed to start companion split ${split.name} for ${issueKey}: ${result.reason}`,
+				`Failed to start companion split ${split.name} for ${identity.key}: ${result.reason}`,
 			);
 		}
 	}
@@ -2926,7 +2976,7 @@ async function seedCompanionSplits(
 	if (!failed) {
 		await run(
 			innerTmuxArgs(
-				splitOptionArgs(getSessionNames(issueKey).companion, 'seeded', 1),
+				splitOptionArgs(identity.tmux.companionSession, 'seeded', 1),
 			),
 		);
 	}
@@ -2955,7 +3005,9 @@ export async function syncCompanionSplits(
 	} = {},
 ): Promise<SplitSyncOutcome> {
 	const run = options.run ?? runTmux;
-	const companionSession = getSessionNames(issueKey).companion;
+	const identity = storedIdentity(issueKey);
+	if (!identity) return 'no-pane';
+	const {companionSession} = identity.tmux;
 	const listing = parseCompanionListing(
 		options.listing ?? (await listCompanionSessions(run)),
 		companionSession,
@@ -2965,7 +3017,7 @@ export async function syncCompanionSplits(
 		options.seed &&
 		listing.companion &&
 		!listing.companion.seeded &&
-		(await seedCompanionSplits(issueKey, splits, options.seed(), run))
+		(await seedCompanionSplits(identity, splits, options.seed(), run))
 	)
 		({splits} = await listCompanion(companionSession, run));
 
@@ -3619,36 +3671,31 @@ export async function reconcilePaneLayout(
 	return {layout, dimensions: {cols, rows}, stacked};
 }
 
-/**
- * Get the worktree path for an issue key
- */
-export function getWorktreePath(issueKey: string): string | null {
+function existingDirectory(identity: SpaceIdentity): string | null {
 	try {
-		const homeDir = process.env['HOME'] ?? '';
-		const repoName = getRepoName();
-		const worktreePath = `${homeDir}/.worktrees/${repoName}/${issueKey}`;
-
-		return existsSync(worktreePath) && statSync(worktreePath).isDirectory()
-			? worktreePath
+		return statSync(identity.worktreePath).isDirectory()
+			? identity.worktreePath
 			: null;
 	} catch {
 		return null;
 	}
 }
 
+/** A space's stored worktree, or null when it has none or it is gone. */
+export function getWorktreePath(issueKey: string): string | null {
+	const identity = storedIdentity(issueKey);
+	return identity && existingDirectory(identity);
+}
+
+/** `getWorktreePath` off the event loop. */
 export async function getWorktreePathAsync(
 	issueKey: string,
-	repoName: string,
 ): Promise<string | null> {
-	const worktreePath = join(
-		process.env['HOME'] ?? '',
-		'.worktrees',
-		repoName,
-		issueKey,
-	);
+	const identity = storedIdentity(issueKey);
+	if (!identity) return null;
 	try {
-		const stats = await stat(worktreePath);
-		return stats.isDirectory() ? worktreePath : null;
+		const stats = await stat(identity.worktreePath);
+		return stats.isDirectory() ? identity.worktreePath : null;
 	} catch (err) {
 		if (
 			['ENOENT', 'ENOTDIR'].includes((err as NodeJS.ErrnoException).code ?? '')
@@ -3815,8 +3862,7 @@ async function attachStartupMonitor(
 ): Promise<void> {
 	const done = startupTrace.current?.begin('monitor-ready');
 	try {
-		const pane = await attachStatusMonitor(
-			getRepoName(),
+		const pane = await programStatus().attach(
 			issueKey,
 			session,
 			statusSocket(),
@@ -3889,8 +3935,13 @@ export async function ensureAgentSession(
 	launch?: AgentLaunch,
 ): Promise<boolean> {
 	const traceDone = startupTrace.current?.begin('agent-session');
-	const sessions = getSessionNames(issueKey);
-	const sessionName = sessions.agent;
+	const identity = storedIdentity(issueKey);
+	if (!identity) {
+		traceDone?.('failed');
+		return false;
+	}
+
+	const sessionName = identity.tmux.agentSession;
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
@@ -3909,7 +3960,7 @@ export async function ensureAgentSession(
 		}
 	}
 
-	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
+	const worktreePath = explicitWorktreePath ?? existingDirectory(identity);
 	if (!worktreePath) {
 		log.warn(`Cannot create agent session for ${issueKey}: no worktree found`);
 		traceDone?.('failed');
@@ -3954,6 +4005,9 @@ export async function ensureAgentSession(
 	];
 
 	try {
+		await spaceState().write(issueKey, {
+			agentProfile: {name: agentProfile.name, isClaude: agentProfile.isClaude},
+		});
 		await run(
 			innerTmuxArgs([
 				'new-session',
@@ -3963,10 +4017,7 @@ export async function ensureAgentSession(
 				'-c',
 				worktreePath,
 				...spaceSessionEnvArgs(issueKey),
-				...buildAgentSessionEnvArgs(
-					agentProfile,
-					getAgentSessionsPath(getRepoName(), issueKey),
-				),
+				...buildAgentSessionEnvArgs(),
 				...launchArgs,
 				';',
 				'set-option',
@@ -4037,7 +4088,7 @@ export type CreateSplitResult =
  * the main checkout. `order` places it among the splits, and defaults to now.
  */
 export function createCompanionSplit(
-	issueKey: string,
+	identity: SpaceIdentity,
 	split: {
 		name: string;
 		command: string;
@@ -4045,12 +4096,12 @@ export function createCompanionSplit(
 		size?: PaneWidth;
 		order?: number;
 	},
-	options: {runner?: OuterTmuxRunner; repoName?: string} = {},
+	options: {runner?: OuterTmuxRunner} = {},
 ): CreateSplitResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const failure = (args: string[], result: ReturnType<OuterTmuxRunner>) =>
 		`tmux ${args[0]} failed: ${result.stderr?.trim() || result.error?.message || `exit ${result.status}`}`;
-	const main = getSessionNames(issueKey, options.repoName).companion;
+	const main = identity.tmux.companionSession;
 	const pathArgs = [
 		'display-message',
 		'-p',
@@ -4064,11 +4115,11 @@ export function createCompanionSplit(
 	const session = splitSessionName(main, split.name);
 	const createArgs = [
 		...companionSessionArgs(
-			issueKey,
+			identity.key,
 			session,
 			cwd.stdout.trim(),
 			split.command,
-			options.repoName,
+			identity.repo,
 		),
 		';',
 		...splitOptionArgs(session, 'split', split.split),
@@ -4102,7 +4153,13 @@ export async function ensureCompanionSession(
 	run: AsyncTmuxRunner = runTmux,
 ): Promise<boolean> {
 	const traceDone = startupTrace.current?.begin('companion-session');
-	const sessionName = getSessionNames(issueKey).companion;
+	const identity = storedIdentity(issueKey);
+	if (!identity) {
+		traceDone?.('failed');
+		return false;
+	}
+
+	const sessionName = identity.tmux.companionSession;
 
 	// Already exists on the inner socket?
 	if (await innerSessionExistsAsync(sessionName, run)) {
@@ -4110,7 +4167,7 @@ export async function ensureCompanionSession(
 		return true;
 	}
 
-	const worktreePath = explicitWorktreePath ?? getWorktreePath(issueKey);
+	const worktreePath = explicitWorktreePath ?? existingDirectory(identity);
 	if (!worktreePath) {
 		log.warn(
 			`Cannot create companion session for ${issueKey}: no worktree found`,

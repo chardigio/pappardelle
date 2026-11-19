@@ -1,53 +1,50 @@
-import {
-	mkdirSync,
-	readFileSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-	renameSync,
-} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {spawn} from 'node:child_process';
+import {Buffer} from 'node:buffer';
+import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
+import {fileURLToPath} from 'node:url';
 import test, {type ExecutionContext} from 'ava';
-import {until} from '../test/helpers/render.ts';
+import {
+	publishSnapshot,
+	snapshotFile,
+	snapshotOf,
+} from '../test/helpers/program-status.ts';
+import {testState, writeClaudeStatus} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {
 	parseStatusPane,
-	programStatusPath,
+	type ProgramStatusDao,
 	type ProgramStatusSnapshot,
+	type StatusPane,
 } from './program-status-monitor.ts';
-import {mapClaudeStatus, ACTIVE_STATUS_TIMEOUT} from './claude-status.ts';
+import {statusSocketPath} from './state-db.ts';
+import {
+	mapClaudeStatus,
+	ACTIVE_STATUS_TIMEOUT,
+	type ClaudeStatus,
+} from './claude-status.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
 import type {SpaceData} from './types.ts';
-import {ProgramStatusStore} from './program-status.ts';
 
-function setup(t: ExecutionContext) {
-	const dir = mkdtempSync(path.join(tmpdir(), 'workspace-status-'));
-	const oldHook = process.env['PAPPARDELLE_STATUS_DIR'];
-	const oldOsc = process.env['PAPPARDELLE_PROGRAM_STATUS_DIR'];
+function setup(t: ExecutionContext, options: {sqlite?: boolean} = {}) {
 	const oldSocket = process.env['PAPPARDELLE_TMUX_SOCKET'];
-	process.env['PAPPARDELLE_STATUS_DIR'] = path.join(dir, 'hooks');
-	process.env['PAPPARDELLE_PROGRAM_STATUS_DIR'] = path.join(dir, 'osc');
 	process.env['PAPPARDELLE_TMUX_SOCKET'] = 'test-status';
-	mkdirSync(path.join(dir, 'hooks'));
+	const state = testState(t, options);
+	const {claudeStatus, programStatus} = state.daos;
 	t.teardown(() => {
-		for (const [key, value] of [
-			['PAPPARDELLE_STATUS_DIR', oldHook],
-			['PAPPARDELLE_PROGRAM_STATUS_DIR', oldOsc],
-			['PAPPARDELLE_TMUX_SOCKET', oldSocket],
-		]) {
-			if (value === undefined) Reflect.deleteProperty(process.env, key!);
-			else process.env[key!] = value;
-		}
-		rmSync(dir, {recursive: true, force: true});
+		if (oldSocket === undefined)
+			Reflect.deleteProperty(process.env, 'PAPPARDELLE_TMUX_SOCKET');
+		else process.env['PAPPARDELLE_TMUX_SOCKET'] = oldSocket;
 	});
 	let paneOutput = '%1\t12\t0\t1\t12.owner';
 	let queries = 0;
 	const status = new WorkspaceStatuses(
-		'repo',
+		programStatus,
 		key => `claude-repo-${key}`,
+		claudeStatus,
 		async () => {
 			queries++;
 			return ['claude-repo-TASK-1', 'claude-repo-main']
@@ -55,54 +52,50 @@ function setup(t: ExecutionContext) {
 				.join('\n');
 		},
 	);
-	const writeHook = (
-		status: string,
+	const writeHook = async (
+		status: ClaudeStatus,
 		currentTool?: string,
 		lastUpdate = Date.now(),
 		key = 'TASK-1',
-	) => {
-		writeFileSync(
-			path.join(dir, 'hooks', `${key}.json`),
-			JSON.stringify({status, currentTool, lastUpdate}),
-		);
-	};
-	const writeOsc = (
+	) =>
+		writeClaudeStatus(state, {
+			sessionId: 'session',
+			workspaceName: key,
+			status,
+			currentTool,
+			lastUpdate,
+		});
+	const writeOsc = async (
 		info: ProgramStatusInfo,
 		options: {
 			authoritative?: boolean;
 			key?: string;
 			repo?: string;
 			age?: number;
+			/** Change what is published, as a writer other than the monitor could. */
+			tamper?: (snapshot: ProgramStatusSnapshot) => void;
 		} = {},
 	) => {
-		const pane = parseStatusPane(paneOutput, 'test-status')!;
-		const key = options.key ?? 'TASK-1';
-		const repo = options.repo ?? 'repo';
-		const file = programStatusPath(repo, key, pane.generation);
-		mkdirSync(path.dirname(file), {recursive: true});
-		const store = new ProgramStatusStore();
-		if (info.status !== 'unknown') {
-			const {status, ...details} = info;
-			store.apply({state: status, id: '', ...details});
-		}
-		const snapshot: ProgramStatusSnapshot = {
-			version: 1,
-			repo,
-			key,
-			pane,
-			authoritative: options.authoritative ?? true,
-			exited: false,
-			updatedAt: Date.now() - (options.age ?? 0),
-			records: store.records(),
-			info: store.status(),
-		};
-		writeFileSync(`${file}.tmp`, JSON.stringify(snapshot));
-		renameSync(`${file}.tmp`, file);
-		writeFileSync(`${file}.lease`, '');
-		return file;
+		const {status, ...details} = info;
+		const snapshot = snapshotOf(
+			{
+				repo: options.repo ?? 'repo',
+				key: options.key ?? 'TASK-1',
+				pane: parseStatusPane(paneOutput, 'test-status')!,
+			},
+			status === 'unknown' ? [] : [{state: status, id: '', ...details}],
+			{
+				authoritative: options.authoritative ?? true,
+				updatedAt: Date.now() - (options.age ?? 0),
+			},
+		);
+		options.tamper?.(snapshot);
+		return publishSnapshot(state, snapshot);
 	};
 	return {
+		state,
 		status,
+		pane: () => parseStatusPane(paneOutput, 'test-status')!,
 		writeHook,
 		writeOsc,
 		queries: () => queries,
@@ -135,12 +128,12 @@ test.serial(
 	'dead panes remove active records immediately while retaining done and error',
 	async t => {
 		const h = setup(t);
-		h.writeHook('waiting_for_input');
-		h.writeOsc({status: 'working', app: 'fixture'});
+		await h.writeHook('waiting_for_input');
+		await h.writeOsc({status: 'working', app: 'fixture'});
 		h.exitPane();
 		t.like(await h.status.read('TASK-1'), {status: 'unknown', source: 'osc'});
 		for (const status of ['done', 'error'] as const) {
-			h.writeOsc({status, app: 'fixture'});
+			await h.writeOsc({status, app: 'fixture'});
 			t.like(await h.status.read('TASK-1'), {status, source: 'osc'});
 		}
 	},
@@ -150,7 +143,7 @@ test.serial(
 	'persisted status cannot inject invalid fields or contradict its records',
 	async t => {
 		const h = setup(t);
-		h.writeHook('waiting_for_input');
+		await h.writeHook('waiting_for_input');
 		for (const change of [
 			(snapshot: ProgramStatusSnapshot) => {
 				snapshot.info.status = 'blocked';
@@ -162,12 +155,7 @@ test.serial(
 				snapshot.records[0]!.id = 'invalid//id';
 			},
 		]) {
-			const file = h.writeOsc({status: 'working', app: 'fixture'});
-			const snapshot = JSON.parse(
-				readFileSync(file, 'utf8'),
-			) as ProgramStatusSnapshot;
-			change(snapshot);
-			writeFileSync(file, JSON.stringify(snapshot));
+			await h.writeOsc({status: 'working', app: 'fixture'}, {tamper: change});
 			t.like(await h.status.read('TASK-1'), {status: 'idle', source: 'hook'});
 		}
 	},
@@ -177,20 +165,20 @@ test.serial(
 	'native records remain authoritative past ten minutes and through conflicting hook writes and clear',
 	async t => {
 		const h = setup(t);
-		h.writeHook('processing');
+		await h.writeHook('processing');
 		t.is(await readField(h.status, 'TASK-1', 'source'), 'hook');
-		h.writeOsc(
+		await h.writeOsc(
 			{status: 'blocked', kind: 'auth', app: 'codex'},
 			{age: ACTIVE_STATUS_TIMEOUT * 2},
 		);
-		h.writeHook('waiting_for_input');
+		await h.writeHook('waiting_for_input');
 		t.like(await h.status.read('TASK-1'), {
 			status: 'blocked',
 			kind: 'auth',
 			app: 'codex',
 			source: 'osc',
 		});
-		h.writeOsc({status: 'unknown'});
+		await h.writeOsc({status: 'unknown'});
 		t.like(await h.status.read('TASK-1'), {status: 'unknown', source: 'osc'});
 	},
 );
@@ -199,21 +187,21 @@ test.serial(
 	'query alone leaves hooks active and matching hook details do not cross app, record or state',
 	async t => {
 		const h = setup(t);
-		h.writeHook('running_tool', 'Bash');
-		h.writeOsc({status: 'unknown'}, {authoritative: false});
+		await h.writeHook('running_tool', 'Bash');
+		await h.writeOsc({status: 'unknown'}, {authoritative: false});
 		t.like(await h.status.read('TASK-1'), {
 			status: 'working',
 			source: 'hook',
 			tool: 'Bash',
 		});
-		h.writeOsc({status: 'working', app: 'claude-code', id: ''});
+		await h.writeOsc({status: 'working', app: 'claude-code', id: ''});
 		t.is(await readField(h.status, 'TASK-1', 'tool'), 'Bash');
 		for (const info of [
 			{status: 'idle', app: 'claude-code'},
 			{status: 'working', app: 'other'},
 			{status: 'working', app: 'claude-code', id: 'child'},
 		] as ProgramStatusInfo[]) {
-			h.writeOsc(info);
+			await h.writeOsc(info);
 			t.is(await readField(h.status, 'TASK-1', 'tool'), undefined);
 		}
 	},
@@ -223,11 +211,11 @@ test.serial(
 	'new pane identities reject late old snapshots and same keys in other repositories',
 	async t => {
 		const h = setup(t);
-		h.writeHook('waiting_for_input');
-		h.writeOsc({status: 'error'});
+		await h.writeHook('waiting_for_input');
+		await h.writeOsc({status: 'error'});
 		h.replacePane();
 		t.like(await h.status.read('TASK-1'), {status: 'idle', source: 'hook'});
-		h.writeOsc({status: 'blocked'}, {repo: 'other'});
+		await h.writeOsc({status: 'blocked'}, {repo: 'other'});
 		t.is(await readField(h.status, 'TASK-1', 'source'), 'hook');
 	},
 );
@@ -236,8 +224,8 @@ test.serial(
 	'main workspace OSC uses its stable session key while the hook follows its branch',
 	async t => {
 		const h = setup(t);
-		h.writeHook('waiting_for_input', undefined, Date.now(), 'repo-main');
-		h.writeOsc({status: 'working', app: 'claude-code'}, {key: 'main'});
+		await h.writeHook('waiting_for_input', undefined, Date.now(), 'repo-main');
+		await h.writeOsc({status: 'working', app: 'claude-code'}, {key: 'main'});
 		t.like(await h.status.read('repo-main', 'main'), {
 			status: 'working',
 			source: 'osc',
@@ -268,15 +256,15 @@ test.serial(
 		// The first fixture write can otherwise precede filesystem watch registration.
 		await delay(0);
 		const hookPublished = nextPublication();
-		h.writeHook('processing');
+		await h.writeHook('processing');
 		await hookPublished;
 		t.is(batches.at(-1)?.get('TASK-1')?.source, 'hook');
 		const donePublished = nextPublication();
-		h.writeOsc({status: 'done', app: 'claude-code'});
+		await h.writeOsc({status: 'done', app: 'claude-code'});
 		await donePublished;
 		t.is(batches.at(-1)?.get('TASK-1')?.status, 'done');
 		const before = batches.length;
-		h.writeHook('error');
+		await h.writeHook('error');
 		stop();
 		await delay(100);
 		t.is(batches.length, before);
@@ -287,7 +275,7 @@ test.serial(
 	'known native updates avoid discovery while full reads reconcile generations',
 	async t => {
 		const h = setup(t);
-		h.writeOsc({status: 'working', app: 'fixture'});
+		await h.writeOsc({status: 'working', app: 'fixture'});
 		await h.status.read('TASK-1');
 		const latest = new Map<string, ProgramStatusInfo>();
 		const stop = h.status.watch(
@@ -299,18 +287,24 @@ test.serial(
 		t.teardown(stop);
 		await delay(0);
 		const before = h.queries();
-		h.writeOsc({status: 'blocked', app: 'fixture', kind: 'auth'});
-		await until(() => latest.get('TASK-1')?.status === 'blocked');
-		h.writeHook('processing');
+		await h.writeOsc({status: 'blocked', app: 'fixture', kind: 'auth'});
+		await waitUntil(
+			() => latest.get('TASK-1')?.status === 'blocked',
+			'a status update',
+		);
+		await h.writeHook('processing');
 		await delay(100);
 		t.is(h.queries(), before);
 		t.is(latest.get('TASK-1')?.status, 'blocked');
 		const oldGeneration = latest.get('TASK-1')?.generation;
 		h.replacePane();
-		h.writeOsc({status: 'done', app: 'replacement'});
+		await h.writeOsc({status: 'done', app: 'replacement'});
 		await h.status.read('TASK-1');
-		h.writeHook('error');
-		await until(() => latest.get('TASK-1')?.app === 'replacement');
+		await h.writeHook('error');
+		await waitUntil(
+			() => latest.get('TASK-1')?.app === 'replacement',
+			'a status update',
+		);
 		t.not(latest.get('TASK-1')?.generation, oldGeneration);
 		t.true(h.queries() > before);
 	},
@@ -331,21 +325,22 @@ test.serial(
 		await delay(0);
 		for (let burst = 0; burst < 3; burst++) {
 			for (let i = 0; i < 8; i++) {
-				h.writeHook('running_tool', 'Bash', Date.now(), `ours-${i}`);
-				h.writeHook('processing', undefined, Date.now(), `other-${i}`);
+				await h.writeHook('running_tool', 'Bash', Date.now(), `ours-${i}`);
+				await h.writeHook('processing', undefined, Date.now(), `other-${i}`);
 			}
 		}
 		for (let i = 0; i < 8; i++)
-			h.writeHook(
+			await h.writeHook(
 				'waiting_for_approval',
 				'AskUserQuestion',
 				Date.now(),
 				`ours-${i}`,
 			);
-		await until(
+		await waitUntil(
 			() =>
 				latest.size === 8 &&
 				[...latest.values()].every(info => info.status === 'blocked'),
+			'a status update',
 		);
 		for (const [key, info] of latest) {
 			t.true(key.startsWith('ours-'));
@@ -363,7 +358,7 @@ test.serial(
 	'main snapshot events retain their UI alias and revoked leases trigger discovery',
 	async t => {
 		const h = setup(t);
-		const file = h.writeOsc({status: 'working'}, {key: 'main'});
+		const file = await h.writeOsc({status: 'working'}, {key: 'main'});
 		await h.status.read('repo-main', 'main');
 		const latest = new Map<string, ProgramStatusInfo>();
 		const stop = h.status.watch(
@@ -375,20 +370,23 @@ test.serial(
 		t.teardown(stop);
 		await delay(0);
 		const before = h.queries();
-		h.writeOsc({status: 'done'}, {key: 'main'});
-		await until(() => latest.get('repo-main')?.status === 'done');
+		await h.writeOsc({status: 'done'}, {key: 'main'});
+		await waitUntil(
+			() => latest.get('repo-main')?.status === 'done',
+			'a status update',
+		);
 		t.is(h.queries(), before);
 		t.false(latest.has('main'));
 		rmSync(`${file}.lease`);
-		h.writeHook('processing', undefined, Date.now(), 'repo-main');
-		await until(() => h.queries() > before);
+		await h.writeHook('processing', undefined, Date.now(), 'repo-main');
+		await waitUntil(() => h.queries() > before, 'a status update');
 	},
 );
 
 test.serial(
 	'a refresh locates every space with one tmux call and pipes only unmonitored live panes',
 	async t => {
-		setup(t);
+		const {state} = setup(t);
 		const keys = Array.from({length: 11}, (_, i) => `TASK-${i + 1}`);
 		const piped = new Set([...keys.slice(1), 'main']);
 		const calls: string[][] = [];
@@ -404,8 +402,9 @@ test.serial(
 				})
 				.join('\n');
 		const statuses = new WorkspaceStatuses(
-			'repo',
+			state.daos.programStatus,
 			key => `agent-${key}`,
+			state.daos.claudeStatus,
 			async args => {
 				calls.push(args);
 				return args.includes('list-panes') ? listing() : '';
@@ -456,6 +455,134 @@ test.serial(
 	},
 );
 
+// A status read is a question to another process when the daemon holds the
+// status, so a pane can be replaced while one is in progress.
+test('a watched read that a newer attach overtook reads the newer pane, and attaches nothing more', async t => {
+	const first = parseStatusPane('%1\t12\t0\t1\t12.first', 'test-status')!;
+	const second = parseStatusPane('%1\t13\t0\t1\t13.second', 'test-status')!;
+	const attached: StatusPane[] = [];
+	let answerHeldRead: ((snapshot: null) => void) | undefined;
+	let holdNextRead = false;
+	let snapshotChanged: (key: string) => void = () => {};
+	const attach = async () => {
+		const pane = attached.length === 0 ? first : second;
+		attached.push(pane);
+		return pane;
+	};
+	const programStatus: ProgramStatusDao = {
+		attach,
+		monitor: attach,
+		monitored: () => true,
+		async read(key, pane) {
+			if (holdNextRead) {
+				holdNextRead = false;
+				return new Promise(resolve => {
+					answerHeldRead = resolve;
+				});
+			}
+
+			return snapshotOf({repo: 'repo', key, pane}, [
+				{state: 'working', id: ''},
+			]);
+		},
+		async remove() {},
+		watch(listener) {
+			snapshotChanged = listener;
+			return () => {};
+		},
+		async waitForChange() {},
+	};
+	const statuses = new WorkspaceStatuses(programStatus, key => key, {
+		read: async () => ({status: 'unknown'}),
+		watch: () => () => {},
+	});
+	await statuses.read('TASK-1');
+	const delivered: Array<string | undefined> = [];
+	t.teardown(
+		statuses.watch(
+			updates => delivered.push(updates.get('TASK-1')?.generation),
+			() => true,
+		),
+	);
+
+	holdNextRead = true;
+	snapshotChanged('TASK-1');
+	await waitUntil(() => answerHeldRead !== undefined, 'the watched read');
+	await statuses.read('TASK-1');
+	answerHeldRead!(null);
+
+	await waitUntil(() => delivered.length > 0, 'the status update');
+	t.deepEqual(delivered, [second.generation]);
+	t.deepEqual(attached, [first, second]);
+});
+
+const monitorCli = fileURLToPath(
+	new URL('program-status-monitor-cli.ts', import.meta.url),
+);
+
+// A pane's monitor is another process than the rail that shows its status.
+for (const sqlite of [false, true]) {
+	test.serial(
+		`${sqlite ? 'sqlite' : 'json'}: a status published by a pane's monitor reaches a watching rail`,
+		async t => {
+			const h = setup(t, {sqlite});
+			const pane = h.pane();
+			const file = snapshotFile(h.state, {repo: 'repo', key: 'TASK-1', pane});
+			mkdirSync(path.dirname(file), {recursive: true});
+			writeFileSync(`${file}.lease`, '');
+			const monitor = spawn(
+				process.execPath,
+				[
+					monitorCli,
+					'watch',
+					'repo',
+					'TASK-1',
+					'test-status',
+					Buffer.from(JSON.stringify(pane)).toString('base64'),
+					path.dirname(file),
+					'',
+					statusSocketPath(h.state.stateDir),
+				],
+				{
+					stdio: ['pipe', 'ignore', 'inherit'],
+					env: {
+						...process.env,
+						HOME: h.state.stateDir,
+						PAPPARDELLE_SQLITE_STATE: sqlite ? '1' : '0',
+					},
+				},
+			);
+			t.teardown(() => {
+				monitor.kill('SIGKILL');
+			});
+			await h.status.read('TASK-1');
+			const latest = new Map<string, ProgramStatusInfo>();
+			const stop = h.status.watch(
+				updates => {
+					for (const [key, info] of updates) latest.set(key, info);
+				},
+				key => key === 'TASK-1',
+			);
+			t.teardown(stop);
+			await delay(0);
+			monitor.stdin.write(
+				'\u001B]7501;state=blocked:app=fixture:kind=auth\u0007',
+			);
+			await waitUntil(
+				() => latest.get('TASK-1')?.status === 'blocked',
+				'a status update',
+				10_000,
+			);
+			t.like(latest.get('TASK-1'), {
+				source: 'osc',
+				app: 'fixture',
+				kind: 'auth',
+			});
+			rmSync(`${file}.lease`);
+		},
+	);
+}
+
 async function readField(
 	status: WorkspaceStatuses,
 	key: string,
@@ -464,3 +591,23 @@ async function readField(
 	const info = await status.read(key);
 	return info?.[field];
 }
+
+test("a space's session name is looked up once, however often its status is read", async t => {
+	const state = testState(t);
+	let lookups = 0;
+	const statuses = new WorkspaceStatuses(
+		state.daos.programStatus,
+		key => {
+			lookups++;
+			return `agent-repo-${key}`;
+		},
+		state.daos.claudeStatus,
+		async () => '',
+	);
+	for (let read = 0; read < 3; read++) {
+		// eslint-disable-next-line no-await-in-loop -- Reads in turn, as refreshes do.
+		await statuses.read('TASK-1');
+	}
+
+	t.is(lookups, 1);
+});

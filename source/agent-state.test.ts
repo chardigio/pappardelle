@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {idowIdentities} from '../test/helpers/state.ts';
 import test from 'ava';
 import {readAgentState, WAIT_TARGETS} from './agent-state.ts';
 import type {ClaudeStatusInfo} from './claude-status.ts';
@@ -36,7 +37,7 @@ const state = async (
 	hook: Partial<ClaudeStatusInfo> | null = null,
 ) =>
 	readAgentState('STA-1', {
-		repo: 'repo',
+		identities: idowIdentities('repo', () => ['STA-1']),
 		runner: runner(screen),
 		now: () => new Date(2026, 10, 9, 12, 0),
 		async sleep() {},
@@ -46,6 +47,7 @@ const state = async (
 			const info: ClaudeStatusInfo = {status: 'unknown', ...hook};
 			return info;
 		},
+		readSnapshot: async () => null,
 	});
 const stateOf = async (
 	screen: string | null,

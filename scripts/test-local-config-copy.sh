@@ -76,7 +76,6 @@ assert_file_content() {
 setup_repo_with_worktree() {
     TMPDIR_ROOT=$(mktemp -d)
     export MAIN_REPO="$TMPDIR_ROOT/repo"
-    export WORKTREES_ROOT="$TMPDIR_ROOT/worktrees"
 
     # Create a bare repo to act as "origin"
     local bare_repo="$TMPDIR_ROOT/origin.git"
@@ -94,14 +93,15 @@ setup_repo_with_worktree() {
     git push --quiet -u origin master 2>/dev/null
 
     # Create worktree
-    WORKTREE_JSON=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-TEST" --project-key "test" 2>/dev/null)
+    WORKTREE_JSON=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-TEST" --project-key "test" \
+        --worktree "$TMPDIR_ROOT/worktrees/repo/STA-TEST" 2>/dev/null)
     WORKTREE_PATH=$(echo "$WORKTREE_JSON" | jq -r '.worktree_path')
 }
 
 teardown() {
     cd /
     rm -rf "$TMPDIR_ROOT"
-    unset MAIN_REPO WORKTREES_ROOT
+    unset MAIN_REPO
 }
 
 # ==========================================================================
