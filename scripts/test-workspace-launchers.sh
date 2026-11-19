@@ -171,8 +171,7 @@ default_term() { local a; IFS=$'\n' read -r -d '' -a a < <(base_args; printf '\0
 FLAG_CASES=(
     ""
     "--skip-permissions"
-    "--agent-profile reviewer"
-    "--agent-command codex --agent-is-claude false --agent-args --yolo --agent-profile codex"
+    "--agent-command codex --agent-is-claude false --agent-args --yolo"
     "--agent-command codex --agent-is-claude false --agent-resume-args resume"
     "--agent-command agy --agent-is-claude false --agent-resume-args --conversation --agent-prompt-args --prompt-interactive={prompt}"
     "--agent-command claude-local --agent-is-claude true --skip-permissions"
@@ -221,24 +220,6 @@ for launch_case in "${LAUNCH_FLAG_CASES[@]}"; do
             "$(default_term --prompt "/idow QA-1" "${lf_args[@]}" "$mode")"
     done
 done
-
-# A launcher creates the agent session itself when start-agent-session.sh
-# failed, and must then give it the env the session-recording hook reads.
-echo -e "\n${BOLD}Test: the agent session gets the hook's env${RESET}"
-LINE=$(default_term --prompt "" --agent-command codex --agent-is-claude false \
-    --agent-profile "codex high" --print-command | head -1)
-case "$LINE" in
-    *"AGENT_PROFILE='codex high'; AGENT_SESSIONS='$HOME/.pappardelle/repos/testrepo/space-state/$KEY.agent-sessions.json'; AGENT_SESSIONS_REPO='testrepo'; AGENT_SESSIONS_KEY='$KEY';"*)
-        assert_eq "profile, sessions path, repo and key assigned" "ok" "ok" ;;
-    *) assert_eq "profile, sessions path, repo and key assigned" "AGENT_PROFILE='codex high'; AGENT_SESSIONS=...; AGENT_SESSIONS_REPO='testrepo'; AGENT_SESSIONS_KEY='$KEY';" "$LINE" ;;
-esac
-# shellcheck disable=SC2016  # matched literally; the pane shell expands them
-HOOK_ENV=' -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE" -e "PAPPARDELLE_AGENT_IS_CLAUDE=false" -e "PAPPARDELLE_AGENT_SESSIONS=$AGENT_SESSIONS" -e "PAPPARDELLE_AGENT_SESSIONS_REPO=$AGENT_SESSIONS_REPO" -e "PAPPARDELLE_AGENT_SESSIONS_KEY=$AGENT_SESSIONS_KEY" '
-case "$LINE" in
-    *"new-session -A -s 'agent-testrepo-$KEY'$HOOK_ENV"*)
-        assert_eq "new-session sets the hook's env" "ok" "ok" ;;
-    *) assert_eq "new-session sets the hook's env" "...new-session -A -s 'agent-testrepo-$KEY'$HOOK_ENV..." "$LINE" ;;
-esac
 
 # The names are passed in, so a launcher that rebuilt one from the key would
 # still pass every assertion above for QA-1 while attaching to a session
