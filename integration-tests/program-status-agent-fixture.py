@@ -12,12 +12,13 @@ import sys
 mode, root, kind = sys.argv[1:4]
 is_claude = kind == "true"
 
+spec = importlib.util.spec_from_file_location(
+    "agent_session", Path(__file__).parents[1] / "plugins" / "pappardelle" / "hooks" / "agent_session.py"
+)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
 if mode == "hook":
-    spec = importlib.util.spec_from_file_location(
-        "agent_session", Path(__file__).parents[1] / "plugins" / "pappardelle" / "hooks" / "agent_session.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     print(json.dumps(module.record_agent_session(json.load(sys.stdin), is_claude)))
     sys.exit(0)
 
@@ -44,7 +45,7 @@ nested = subprocess.run(
 Path(root, "recording.json").write_text(json.dumps({
     "primary": primary,
     "nested": json.loads(nested.stdout),
-    "sessions": json.loads(Path(os.environ["PAPPARDELLE_AGENT_SESSIONS"]).read_text()),
+    "sessions": json.loads(module.Stores().sessions_file(module.env_space(os.environ)).read_text()),
 }))
 sys.stdout.write("\x1b]7501;state=idle:app=fixture\x07")
 sys.stdout.flush()

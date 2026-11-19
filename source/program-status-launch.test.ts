@@ -43,7 +43,8 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 	const repo = path.join(root, 'repo');
 	const home = path.join(root, 'home');
 	const socket = 'status-launch';
-	const stateDir = path.join(root, 'state');
+	// The agent's hook finds the stores under its home directory.
+	const stateDir = path.join(home, '.pappardelle');
 	const statusSocket = path.join(stateDir, 'status-1.sock');
 	for (const dir of [bin, repo, home, stateDir, path.join(root, 'tmux')])
 		mkdirSync(dir, {mode: 0o700});
@@ -158,6 +159,8 @@ await daos.spaceIdentities.record(newSpaceIdentity({repo: 'repo', key: 'TEST-1',
 if (${JSON.stringify(launcher)} === 'tui') {
   if (!await ensureAgentSession('TEST-1', process.cwd(), false, undefined, profile)) throw new Error('Launch failed');
 } else {
+  // idow records the agent profile before it starts the session.
+  await daos.spaceState.write('TEST-1', {agentProfile: {name: profile.name, isClaude: profile.isClaude}});
   execFileSync('/bin/bash', [${JSON.stringify(path.join(project, 'scripts/start-agent-session.sh'))},
     '--issue-key', 'TEST-1', '--repo-name', 'repo', '--worktree', process.cwd(),
     '--agent-session', 'agent-repo-TEST-1', '--companion-session', 'companion-repo-TEST-1', '--legacy-agent-session', 'claude-repo-TEST-1', '--companion-command', '',
