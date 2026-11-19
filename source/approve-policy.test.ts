@@ -63,6 +63,11 @@ test('a builtin that sets the variable elsewhere means it is not scratch', t => 
 	}
 });
 
+test('a reassignment after the rm that a loop or function runs first is not scratch', t => {
+	t.false(allowed('D=/tmp/q-a\nwhile :\ndo\nrm -rf $D\nD=$HOME\ndone'));
+	t.false(allowed('D=/tmp/q-a; f() { rm -rf $D; }; read D; f'));
+});
+
 test('an rm target that brace expansion turns into another path needs a person', t => {
 	t.false(allowed('rm -rf /tmp/q-x/{..,}/{..,}/home'));
 	t.false(allowed('rm -rf /tmp/q-x/{.,.}{.,}/home'));

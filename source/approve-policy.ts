@@ -66,8 +66,15 @@ function isScratchValue(
 	return !match[2] && (freshDir || isScratchPath(value, policy));
 }
 
-/** Variables set to a fresh temp dir or a path under scratch in `before`. */
-function scratchVariables(before: string, policy: ApprovalPolicy): Set<string> {
+/**
+ * Variables set to a fresh temp dir or a path under scratch in `before`, the
+ * text ahead of the rm, and nowhere else in `command`.
+ */
+function scratchVariables(
+	command: string,
+	before: string,
+	policy: ApprovalPolicy,
+): Set<string> {
 	const scratch = new Set<string>();
 	const elsewhere = new Set<string>();
 	for (const statement of before.matchAll(ASSIGNMENT_STATEMENT)) {
@@ -77,13 +84,14 @@ function scratchVariables(before: string, policy: ApprovalPolicy): Set<string> {
 	}
 
 	// Through export, declare, local and the like, an assignment that isn't a
-	// statement of its own still changes the variable.
-	for (const match of before.matchAll(ANY_ASSIGNMENT)) {
+	// statement of its own still changes the variable. The whole command is
+	// read, since a loop or function can run a later assignment before the rm.
+	for (const match of command.matchAll(ANY_ASSIGNMENT)) {
 		if (!isScratchValue(match, policy)) elsewhere.add(match[1]!);
 	}
 
 	for (const pattern of SET_BY_BUILTIN) {
-		for (const match of before.matchAll(pattern)) {
+		for (const match of command.matchAll(pattern)) {
 			for (const name of match[1]!.match(/(?<![-\w])[A-Za-z_]\w*/g) ?? [])
 				elsewhere.add(name);
 		}
@@ -125,19 +133,23 @@ function isolatedTmux(words: string[]): boolean {
 function checkRm(
 	words: string[],
 	prefixed: Set<string>,
-	before: string,
+	scratch: Set<string>,
 	policy: ApprovalPolicy,
 ): ApprovalVerdict {
-	const scratch = scratchVariables(before, policy);
-	// `D=/tmp/q-x rm -rf $D` sets D for rm only; the shell has already
-	// expanded $D from the outer environment.
-	for (const name of prefixed) scratch.delete(name);
 	for (const word of words.slice(1)) {
 		if (word.startsWith('-')) continue;
 		const target = unquote(word);
 		const variable = /^\$\{?([A-Za-z_]\w*)\}?(\/.*)?$/.exec(target);
 		if (variable) {
-			if (scratch.has(variable[1]!) && !mayClimb(variable[2] ?? '')) continue;
+			// `D=/tmp/q-x rm -rf $D` sets D for rm only; the shell has already
+			// expanded $D from the outer environment.
+			const name = variable[1]!;
+			if (
+				scratch.has(name) &&
+				!prefixed.has(name) &&
+				!mayClimb(variable[2] ?? '')
+			)
+				continue;
 			return {
 				allow: false,
 				reason: `rm of ${target}, not set to QA scratch here`,
@@ -180,7 +192,12 @@ export function checkApproval(
 
 		const runsRm = words[0] === 'rm' || words[0]?.endsWith('/rm');
 		if (runsRm) {
-			const verdict = checkRm(words, prefixed, before, policy);
+			const verdict = checkRm(
+				words,
+				prefixed,
+				scratchVariables(command, before, policy),
+				policy,
+			);
 			if (!verdict.allow) return verdict;
 		} else if (/\brm\b/.test(segment)) {
 			// Through xargs, sudo, sh -c and the like, the targets aren't readable here.
