@@ -19,6 +19,8 @@ test.serial(
 			return performance.now() - started;
 		};
 
+		// Before any write: macOS can report a write after a later wait began.
+		t.true((await waited(200)) >= 190);
 		t.true(
 			(await waited(3000, async () =>
 				writeClaudeStatus(state, {
@@ -44,6 +46,5 @@ test.serial(
 				),
 			)) < 2000,
 		);
-		t.true((await waited(200)) >= 190);
 	},
 );
