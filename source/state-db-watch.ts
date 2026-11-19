@@ -93,13 +93,12 @@ function startWatch(dbPath: string): Watch {
 		else trailing = setTimeout(check, wait);
 	};
 
-	const bell = path.basename(stateBellPath(dbPath));
 	mkdirSync(path.dirname(dbPath), {recursive: true});
 	let watcher: FSWatcher | undefined;
 	try {
-		watcher = watch(path.dirname(dbPath), (_event, filename) => {
-			if (filename === bell) rung();
-		});
+		// Any change next to the database, not only the bell's: macOS does not
+		// always report the bell's name, and the check is one cheap read.
+		watcher = watch(path.dirname(dbPath), rung);
 	} catch {
 		// Without a watch the poll below is the only signal.
 	}
