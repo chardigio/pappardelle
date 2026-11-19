@@ -37,6 +37,15 @@ test('rm anywhere else needs a person', t => {
 	t.false(allowed('D="$(mktemp -d; echo $HOME)"; rm -rf $D'));
 });
 
+test('only a variable the shell has set to scratch before the rm counts', t => {
+	t.true(allowed('D=/tmp/q-a; rm -rf $D'));
+	t.true(allowed('cd /tmp && D=$(mktemp -d) E=/tmp/q-b && rm -rf $D $E'));
+	t.false(allowed('rm -rf "$D"; D=$(mktemp -d)'));
+	t.false(allowed('echo D=/tmp/q-x; rm -rf $D'));
+	t.false(allowed('D=/tmp/q-x echo hi; rm -rf $D'));
+	t.false(allowed('D=/tmp/q-x; D+=/../../home; rm -rf $D'));
+});
+
 test('an rm target that brace expansion turns into another path needs a person', t => {
 	t.false(allowed('rm -rf /tmp/q-x/{..,}/{..,}/home'));
 	t.false(allowed('rm -rf /tmp/q-x/{.,.}{.,}/home'));

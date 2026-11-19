@@ -36,7 +36,7 @@ const PUBLISHING: Array<[RegExp, string]> = [
 // wrappers; anything else reaches the user's sessions.
 const ISOLATED_TMUX = /-S\s+["']?\/tmp\/q-|\bq(?:kill|tmux|env)\b/;
 
-const SEGMENT_SEPARATOR = /;|&&|\|\||\||\n/;
+const SEGMENT_SEPARATOR = /(;|&&|\|\||\||\n)/;
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 const WORD = /"[^"]*"|'[^']*'|\S+/g;
 
@@ -44,28 +44,29 @@ function unquote(word: string): string {
 	return word.replace(/^(["'])(.*)\1$/, '$2');
 }
 
-/** Variables the command sets to a fresh temp dir or a path under scratch. */
-function scratchVariables(
-	command: string,
-	policy: ApprovalPolicy,
-): Set<string> {
+// A statement made only of assignments, so the shell keeps them. `+=`
+// appends to whatever the variable held, so it's never scratch.
+const ASSIGNMENT_STATEMENT =
+	/(?:^|[;&|\n])\s*((?:[A-Za-z_]\w*\+?=(?:"[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)\s*)+)(?=[;&|\n]|$)/g;
+
+/** Variables set to a fresh temp dir or a path under scratch in `before`. */
+function scratchVariables(before: string, policy: ApprovalPolicy): Set<string> {
 	const scratch = new Set<string>();
 	const elsewhere = new Set<string>();
-	for (const match of command.matchAll(
-		/\b([A-Za-z_]\w*)=("[^"]*"|'[^']*'|\$\([^)]*\)|\S+)/g,
-	)) {
-		const value = unquote(match[2]!);
-		// Only the bare directory mktemp just made: nothing run beside it in
-		// the subshell, and no path after it.
-		const after = command[match.index + match[0].length];
-		const freshDir =
-			/^\$\(\s*mktemp(?:\s+[^\s;&|$`()]+)*\s*\)$/.test(value) &&
-			(after === undefined || /[\s;&|]/.test(after));
-		const safe = freshDir || isScratchPath(value, policy);
-		(safe ? scratch : elsewhere).add(match[1]!);
+	for (const statement of before.matchAll(ASSIGNMENT_STATEMENT)) {
+		for (const match of statement[1]!.matchAll(
+			/([A-Za-z_]\w*)(\+?)=("[^"]*"|'[^']*'|\$\([^)]*\)|[^\s;&|]+)/g,
+		)) {
+			const value = unquote(match[3]!);
+			// Only the bare directory mktemp just made: nothing run beside it in
+			// the subshell.
+			const freshDir = /^\$\(\s*mktemp(?:\s+[^\s;&|$`()]+)*\s*\)$/.test(value);
+			const safe = !match[2] && (freshDir || isScratchPath(value, policy));
+			(safe ? scratch : elsewhere).add(match[1]!);
+		}
 	}
 
-	// One assignment anywhere else, say a later D=$HOME, and it isn't scratch.
+	// One assignment anywhere else, say D=$HOME on one branch, and it isn't scratch.
 	for (const name of elsewhere) scratch.delete(name);
 	return scratch;
 }
@@ -84,10 +85,10 @@ function isScratchPath(target: string, policy: ApprovalPolicy): boolean {
 function checkRm(
 	words: string[],
 	prefixed: Set<string>,
-	command: string,
+	before: string,
 	policy: ApprovalPolicy,
 ): ApprovalVerdict {
-	const scratch = scratchVariables(command, policy);
+	const scratch = scratchVariables(before, policy);
 	// `D=/tmp/q-x rm -rf $D` sets D for rm only; the shell has already
 	// expanded $D from the outer environment.
 	for (const name of prefixed) scratch.delete(name);
@@ -119,7 +120,10 @@ export function checkApproval(
 		if (pattern.test(command)) return {allow: false, reason: what};
 	}
 
-	for (const segment of command.split(SEGMENT_SEPARATOR)) {
+	const parts = command.split(SEGMENT_SEPARATOR);
+	let before = '';
+	for (let index = 0; index < parts.length; index += 2) {
+		const segment = parts[index]!;
 		const kill = /\bkill-(?:server|session|pane)\b/.exec(segment);
 		if (kill && !ISOLATED_TMUX.test(segment)) {
 			return {allow: false, reason: `${kill[0]} outside an isolated socket`};
@@ -131,12 +135,14 @@ export function checkApproval(
 			prefixed.add(words.shift()!.split('=')[0]!);
 		const runsRm = words[0] === 'rm' || words[0]?.endsWith('/rm');
 		if (runsRm) {
-			const verdict = checkRm(words, prefixed, command, policy);
+			const verdict = checkRm(words, prefixed, before, policy);
 			if (!verdict.allow) return verdict;
 		} else if (/\brm\b/.test(segment)) {
 			// Through xargs, sudo, sh -c and the like, the targets aren't readable here.
 			return {allow: false, reason: 'rm run through another command'};
 		}
+
+		before += segment + (parts[index + 1] ?? '');
 	}
 
 	return {allow: true};
