@@ -28,7 +28,7 @@ function setup(overrides: Partial<WorkspaceRefreshDeps> = {}) {
 	const publications: SpaceData[][] = [];
 	const deps: WorkspaceRefreshDeps = {
 		readRegistry: async () => ['STA-1', 'STA-2'],
-		readStatus: async () => ({status: 'idle'}),
+		statusReader: () => async () => ({status: 'idle'}),
 		readWorktreePath: async key => `/worktrees/${key}`,
 		readMainWorktree: async () => ({path: '/repo', branch: 'master'}),
 		readDirty: async () => false,
@@ -172,7 +172,7 @@ test('newer workspace and main hooks survive an older disk read, then polling re
 	const h = setup();
 	await h.settle();
 	const stale = deferred<ProgramStatusInfo>();
-	h.deps.readStatus = async () => stale.promise;
+	h.deps.statusReader = () => async () => stale.promise;
 	const pending = h.refresh.refresh();
 	await nextTurn();
 	h.refresh.applyStatusUpdates(
@@ -188,7 +188,7 @@ test('newer workspace and main hooks survive an older disk read, then polling re
 	t.is(h.spaces[2]!.programStatus?.status, 'working');
 	t.is(h.spaces[0]!.programStatus?.status, 'working');
 	t.is(h.spaces[1]!.programStatus?.status, 'idle');
-	h.deps.readStatus = async () => ({status: 'unknown'});
+	h.deps.statusReader = () => async () => ({status: 'unknown'});
 	await h.settle();
 	t.is(h.spaces[2]!.programStatus?.status, 'unknown');
 	t.is(h.spaces[2]!.programStatus?.tool, undefined);
@@ -198,7 +198,7 @@ test('a space reads and takes hook updates under its repo-qualified key', async 
 	const reads = new Map<string, string>();
 	const h = setup({
 		readRegistry: async () => ['STA-1'],
-		async readStatus(key, sessionKey) {
+		statusReader: () => async (key, sessionKey) => {
 			reads.set(key, sessionKey);
 			return {status: 'idle'};
 		},
@@ -268,7 +268,7 @@ test('bounds per-workspace I/O and serializes slow tracker and main requests', a
 	let mainReads = 0;
 	const h = setup({
 		readRegistry: async () => Array.from({length: 100}, (_, i) => `STA-${i}`),
-		async readStatus(key) {
+		statusReader: () => async key => {
 			if (key === 'repo-master') return {status: 'unknown'};
 			active++;
 			peak = Math.max(peak, active);
@@ -317,7 +317,7 @@ test('metadata failures retain prior rows and a valid empty registry removes onl
 	h.deps.readRegistry = async () => ['STA-1', 'STA-2'];
 	h.deps.readMainWorktree = async () => ({path: '/repo', branch: 'master'});
 	h.deps.readDirty = async () => null;
-	h.deps.readStatus = async () => null;
+	h.deps.statusReader = () => async () => null;
 	h.deps.readWorktreePath = fail;
 	h.deps.readEmoji = fail;
 	await h.settle();

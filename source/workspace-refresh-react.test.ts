@@ -41,7 +41,7 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	});
 	const refresh = new WorkspaceRefresh({
 		readRegistry: async () => keys,
-		readStatus: async () => ({status: 'idle'}),
+		statusReader: () => async () => ({status: 'idle'}),
 		readWorktreePath: async key => `/worktrees/${key}`,
 		readMainWorktree: async () => ({path: '/repo', branch: 'main'}),
 		readDirty: async () => dirty,
