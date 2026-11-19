@@ -199,14 +199,22 @@ profiles:
 		.find(name => name.startsWith('agent-'));
 	assert.ok(agent);
 	assert.equal(
-		tmux(
-			inner,
-			'show-environment',
-			'-t',
-			`=${agent}`,
-			'PAPPARDELLE_AGENT_PROFILE',
-		).trim(),
-		'PAPPARDELLE_AGENT_PROFILE=codex-rail',
+		(
+			JSON.parse(
+				readFileSync(
+					path.join(
+						home,
+						'.pappardelle',
+						'repos',
+						path.basename(repo),
+						'space-state',
+						'main.json',
+					),
+					'utf8',
+				),
+			) as {agentProfile?: {name: string}}
+		).agentProfile?.name,
+		'codex-rail',
 	);
 	await prompt(
 		'Reply with only the two parts CODEX_RAIL_ and VERIFIED joined together without spaces. Do not use tools.',

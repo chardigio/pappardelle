@@ -27,7 +27,7 @@ import {testState} from '../test/helpers/state.ts';
 const root = () => fs.mkdtempSync(path.join(os.tmpdir(), 'config-migration-'));
 
 /** A repo where no space has saved a profile or recorded a session. */
-const noSpaces = {read: () => null};
+const noSpaces = {read: () => null, async write() {}};
 const noSessions = {keys: () => [], async renameProfile() {}};
 
 function writeConfig(dir: string, file: string, config: unknown) {
@@ -526,7 +526,10 @@ test('a space whose profile moves to a new agent profile keeps its session id', 
 		if (profile) {
 			fs.writeFileSync(
 				path.join(stateDir, `${key}.json`),
-				JSON.stringify({profile}),
+				JSON.stringify({
+					profile,
+					agentProfile: {name: 'claude', isClaude: true},
+				}),
 			);
 		}
 
@@ -562,6 +565,11 @@ test('a space whose profile moves to a new agent profile keeps its session id', 
 	t.deepEqual(Object.keys(beta()), ['claude']);
 	t.deepEqual(Object.keys(unknown()), ['claude']);
 	t.deepEqual(Object.keys(main()), ['claude']);
+	t.deepEqual(state.daos.spaceState.read('A-1')?.agentProfile, {
+		name: 'alpha-claude',
+		isClaude: true,
+	});
+	t.is(state.daos.spaceState.read('B-1')?.agentProfile?.name, 'claude');
 });
 
 test('confirming keeps edits made while the dialog was open', async t => {

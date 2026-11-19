@@ -109,10 +109,7 @@ try {
 		harness.root,
 		'-e',
 		`HISTFILE=${path.join(harness.root, 'shell-history')}`,
-		...buildAgentSessionEnvArgs(
-			{name: 'pi', isClaude: false},
-			path.join(harness.root, 'agent-sessions.json'),
-		),
+		...buildAgentSessionEnvArgs(),
 		'/bin/bash',
 		'-l',
 	]);
