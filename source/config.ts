@@ -170,6 +170,13 @@ export interface AgentProfileConfig {
 	 * belongs to the agent. Built in per agent (`$` for codex), else `/`.
 	 */
 	skill_prefix?: string;
+	/**
+	 * Environment variables set on the agent session when it is created, so
+	 * they reach the launch and the resume attempt alike. Merged per variable
+	 * across config layers. Space-only variables belong on the profiles spaces
+	 * select, not the top-level `agent_profile` the sous-chef launches with.
+	 */
+	env?: Record<string, string>;
 }
 
 export interface HooksConfig {
@@ -1427,6 +1434,7 @@ export function validateConfig(
 					errors.push(`agent_profiles.${name}.is_claude: must be a boolean`);
 				}
 				errors.push(
+					...validateAgentProfileEnv(name, agentProfile['env']),
 					...validateAgentLaunchTemplates(
 						name,
 						agentProfile as Partial<AgentProfileConfig>,
@@ -1754,6 +1762,31 @@ const AGENT_PROFILE_STRING_FIELDS = [
 	'prompt_args',
 	'skill_prefix',
 ] as const;
+
+const ENV_NAME_PATTERN = /^[A-Za-z_]\w*$/;
+
+/** Mirrored by the env checks in resolve-agent-config.sh, which idow runs. */
+function validateAgentProfileEnv(name: string, env: unknown): string[] {
+	if (env === undefined) return [];
+	if (typeof env !== 'object' || env === null || Array.isArray(env)) {
+		return [
+			`agent_profiles.${name}.env: must be a map of variable names to strings`,
+		];
+	}
+
+	return Object.entries(env).flatMap(([key, value]) => {
+		const prefix = `agent_profiles.${name}.env.${key}`;
+		if (!ENV_NAME_PATTERN.test(key)) {
+			return [`${prefix}: must be an environment variable name`];
+		}
+
+		if (key.startsWith('PAPPARDELLE_')) {
+			return [`${prefix}: PAPPARDELLE_ variables are set by pappardelle`];
+		}
+
+		return typeof value === 'string' ? [] : [`${prefix}: must be a string`];
+	});
+}
 
 /**
  * A template must carry its placeholder, or the configured value would be
@@ -3240,6 +3273,7 @@ export interface ResolvedAgentProfile {
 	skillPrefix: string;
 	/** How the agent takes the companion rules at launch; see agentRulesFlags. */
 	rulesArgs: string[];
+	env: Record<string, string>;
 }
 
 /**
@@ -3270,6 +3304,7 @@ function resolveAgentProfile(
 		extraArgs: [],
 		skillPrefix: definition.skill_prefix ?? builtin.skill_prefix ?? '/',
 		rulesArgs: builtin.rules_args ?? [],
+		env: definition.env ?? {},
 	};
 }
 

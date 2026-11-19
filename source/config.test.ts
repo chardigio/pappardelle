@@ -5601,6 +5601,59 @@ test('validateConfig rejects agent profile fields spanning lines', t => {
 	);
 });
 
+test('validateConfig rejects agent profile env that is not a map of strings', t => {
+	const error = t.throws(
+		() =>
+			validateConfig(
+				agentProfilesConfig({
+					agent_profiles: {
+						list: {command: 'claude', env: ['FOO=1']},
+						typed: {
+							command: 'claude',
+							env: {
+								'1BAD': 'x',
+								'A-B': 'x',
+								PAPPARDELLE_SPACE: 'x',
+								NUMBER: 1,
+							},
+						},
+					},
+				}),
+			),
+		{instanceOf: ConfigValidationError},
+	);
+	const message = error?.message ?? '';
+	t.true(message.includes('agent_profiles.list.env: must be a map'));
+	t.true(
+		message.includes(
+			'agent_profiles.typed.env.1BAD: must be an environment variable name',
+		),
+	);
+	t.true(
+		message.includes(
+			'agent_profiles.typed.env.A-B: must be an environment variable name',
+		),
+	);
+	t.true(
+		message.includes(
+			'agent_profiles.typed.env.PAPPARDELLE_SPACE: PAPPARDELLE_ variables are set by pappardelle',
+		),
+	);
+	t.true(message.includes('agent_profiles.typed.env.NUMBER: must be a string'));
+});
+
+test('validateConfig accepts agent profile env of strings', t => {
+	t.notThrows(() =>
+		validateConfig(
+			agentProfilesConfig({
+				agent_profiles: {
+					opus: {command: 'claude', env: {CODE_MODE: '1', _X2: ''}},
+				},
+			}),
+		),
+	);
+});
+
 test('validateConfig accepts the trailing newline of a YAML block scalar', t => {
 	t.notThrows(() =>
 		validateConfig(
@@ -5877,6 +5930,7 @@ test('getAgentProfile defaults to the built-in claude agent profile', t => {
 		extraArgs: [],
 		skillPrefix: '/',
 		rulesArgs: [],
+		env: {},
 	});
 });
 

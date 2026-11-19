@@ -1712,3 +1712,38 @@ profiles:
 		cleanup();
 	}
 });
+
+test('loadConfigFromPaths merges agent profile env per variable across layers', t => {
+	const {dir, cleanup} = setupTempDir({
+		'home/.pappardelle.yml': `version: 1
+profiles: {}
+agent_profile: opus
+agent_profiles:
+  opus:
+    command: claude
+    env:
+      CODE_MODE: '1'
+      SHARED: home
+`,
+		'project/.pappardelle.yml': `version: 1
+agent_profiles:
+  opus:
+    env:
+      SHARED: repo
+      EXTRA: 'a b'
+`,
+	});
+	try {
+		const config = loadConfigFromPaths({
+			homeConfigDir: path.join(dir, 'home'),
+			projectDir: path.join(dir, 'project'),
+		});
+		t.deepEqual(getAgentProfile(config).env, {
+			CODE_MODE: '1',
+			SHARED: 'repo',
+			EXTRA: 'a b',
+		});
+	} finally {
+		cleanup();
+	}
+});

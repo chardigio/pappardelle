@@ -56,7 +56,8 @@ export function buildSessionEnvArgs(
 }
 
 /**
- * The `-e` flags only the agent session gets, for the hook that records the
+ * The `-e` flags only the agent session gets: the agent profile's env, and,
+ * for the hook that records the
  * agent's session id (plugins/pappardelle/hooks/agent_session.py): which agent profile the pane
  * runs, so a later relaunch with a different one ignores the id; whether it is
  * a claude agent profile, so the hook of an agent of the other kind started in
@@ -66,10 +67,14 @@ export function buildSessionEnvArgs(
  * the pane monitor captures its reports without changing the terminal transport.
  */
 export function buildAgentSessionEnvArgs(
-	agentProfile: {name: string; isClaude: boolean},
+	agentProfile: {name: string; isClaude: boolean; env?: Record<string, string>},
 	agentSessionsPath: string,
 ): string[] {
 	return [
+		...Object.entries(agentProfile.env ?? {}).flatMap(([name, value]) => [
+			'-e',
+			`${name}=${value}`,
+		]),
 		'-e',
 		'PI_PROGRAM_STATUS=1',
 		'-e',

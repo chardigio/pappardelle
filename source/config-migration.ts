@@ -520,7 +520,12 @@ function launches(config: PappardelleConfig): Record<string, string> {
 			).replace(/^\//, '');
 			return [
 				profileName ?? '',
-				JSON.stringify({flags, resume: agent.resumeArgs, init}),
+				JSON.stringify({
+					flags,
+					resume: agent.resumeArgs,
+					init,
+					env: Object.entries(agent.env).sort(([a], [b]) => a.localeCompare(b)),
+				}),
 			];
 		}),
 	);

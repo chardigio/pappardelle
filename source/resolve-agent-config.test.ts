@@ -1,6 +1,6 @@
 import test from 'ava';
 import {agentRulesFlags} from './companion-rules.ts';
-import {execFileSync, execSync} from 'node:child_process';
+import {execFileSync, execSync, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -75,6 +75,7 @@ function runResolver(
 	agent_skill_prefix: string;
 	agent_is_claude: string;
 	agent_launch_flags: string;
+	agent_env: string;
 	agent_rules_flags: string;
 	workspace_aware: string;
 	model: string;
@@ -1282,3 +1283,178 @@ for (const promptArgs of ['-i', '', '-i {prompt} {prompt}']) {
 		);
 	});
 }
+
+maybeMacro(
+	'agent_env is the agent profile env, merged per variable across layers',
+	t => {
+		const {configPath, localConfigPath, homeConfigPath, cleanup} =
+			setupConfigFiles(
+				`version: 1
+agent_profiles:
+  opus:
+    env:
+      SHARED: repo
+      EXTRA: 'a b'
+`,
+				undefined,
+				`version: 1
+agent_profile: opus
+agent_profiles:
+  opus:
+    command: claude
+    env:
+      CODE_MODE: '1'
+      SHARED: home
+`,
+			);
+		try {
+			const result = runResolver(configPath, localConfigPath, homeConfigPath);
+			t.deepEqual(JSON.parse(result.agent_env), {
+				CODE_MODE: '1',
+				SHARED: 'repo',
+				EXTRA: 'a b',
+			});
+		} finally {
+			cleanup();
+		}
+	},
+);
+
+maybeMacro('agent_env is an empty map for an agent profile without env', t => {
+	const {configPath, localConfigPath, cleanup} =
+		setupConfigFiles('version: 1\n');
+	try {
+		t.deepEqual(
+			JSON.parse(runResolver(configPath, localConfigPath).agent_env),
+			{},
+		);
+	} finally {
+		cleanup();
+	}
+});
+
+maybeMacro('agent profile env is validated like validateConfig does', t => {
+	const {configPath, cleanup} = setupConfigFiles(
+		`version: 1
+agent_profile: opus
+agent_profiles:
+  opus:
+    command: claude
+    env:
+      1BAD: x
+      PAPPARDELLE_SPACE: x
+      NUMBER: 1
+`,
+	);
+	try {
+		const stderr = runResolverExpectingError(configPath);
+		t.true(
+			stderr.includes(
+				'agent_profiles.opus.env.1BAD: must be an environment variable name',
+			),
+			stderr,
+		);
+		t.true(
+			stderr.includes(
+				'agent_profiles.opus.env.PAPPARDELLE_SPACE: PAPPARDELLE_ variables are set by pappardelle',
+			),
+			stderr,
+		);
+		t.true(
+			stderr.includes('agent_profiles.opus.env.NUMBER: must be a string'),
+			stderr,
+		);
+		t.false(stderr.includes('agent_profiles.opus.env: must be a string'));
+	} finally {
+		cleanup();
+	}
+});
+
+maybeMacro('an agent profile env that is not a map is an error', t => {
+	const {configPath, cleanup} = setupConfigFiles(
+		`version: 1
+agent_profile: opus
+agent_profiles:
+  opus:
+    command: claude
+    env: [FOO=1]
+`,
+	);
+	try {
+		const stderr = runResolverExpectingError(configPath);
+		t.true(stderr.includes('agent_profiles.opus.env: must be a map'), stderr);
+	} finally {
+		cleanup();
+	}
+});
+
+// YAML spec: keys a map sets itself win over the ones a merge key brings in,
+// wherever the merge key sits. The TUI's parser follows the spec.
+const MERGE_KEY_AFTER_EXPLICIT = `version: 1
+profiles: {}
+agent_profile: opus
+agent_profiles:
+  base: {command: claude, env: &common {SHARED: s, OVER: base}}
+  opus:
+    command: claude
+    env:
+      OVER: mine
+      <<: *common
+`;
+
+for (const [label, local] of [
+	['a single layer', undefined],
+	['merged layers', 'version: 1\n'],
+] as const) {
+	maybeMacro(
+		`a merge key after explicit keys resolves per the YAML spec in ${label}`,
+		t => {
+			const {configPath, localConfigPath, cleanup} = setupConfigFiles(
+				MERGE_KEY_AFTER_EXPLICIT,
+				local,
+			);
+			try {
+				const expected = {SHARED: 's', OVER: 'mine'};
+				t.deepEqual(
+					getAgentProfile(
+						loadConfigFromPaths({projectDir: path.dirname(configPath)}),
+					).env,
+					expected,
+				);
+				t.deepEqual(
+					JSON.parse(runResolver(configPath, localConfigPath).agent_env),
+					expected,
+				);
+			} finally {
+				cleanup();
+			}
+		},
+	);
+}
+
+maybeMacro(
+	'a merge key in the selected profile resolves without a yq warning',
+	t => {
+		const {configPath, cleanup} = setupConfigFiles(
+			`version: 1
+x: &pw {display_name: W, initialization_command: new, claude: {initialization_command: /old}}
+profiles:
+  v:
+    claude: {model: opus}
+    <<: *pw
+`,
+		);
+		try {
+			const result = spawnSync(
+				'bash',
+				[SCRIPT_PATH, '--config', configPath, '--profile', 'v'],
+				{encoding: 'utf8'},
+			);
+			t.is(result.status, 0, result.stderr);
+			t.false(result.stderr.includes('WARN'), result.stderr);
+			t.is(JSON.parse(result.stdout).profile_init_cmd, 'new');
+		} finally {
+			cleanup();
+		}
+	},
+);

@@ -831,3 +831,16 @@ test('a trailing -i is found in a file that sets only model_args', t => {
 		undefined,
 	);
 });
+
+test("a rewrite that would drop an agent profile's env from a higher layer is unsupported", t => {
+	const paths = setup(
+		null,
+		{
+			version: 1,
+			profiles: {ws: {display_name: 'W', claude: {model: 'opus'}}},
+		},
+		{agent_profiles: {claude: {command: 'claude', env: {CODE_MODE: '1'}}}},
+	);
+
+	t.like(planConfigMigrations(paths), {kind: 'unsupported'});
+});

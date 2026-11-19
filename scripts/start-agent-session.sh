@@ -2,7 +2,7 @@
 
 # start-agent-session.sh - Ensure agent and companion tmux sessions exist for an issue
 #
-# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--no-prompt] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <TEMPLATE>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>]
+# Usage: start-agent-session.sh --issue-key <KEY> --repo-name <NAME> --worktree <PATH> [--init-cmd <CMD>] [--no-prompt] [--companion-command <CMD>] [--no-agent] [--skip-permissions] [--agent-command <CMD>] [--agent-args <ARGS>] [--agent-resume-args <ARGS>] [--agent-prompt-args <TEMPLATE>] [--agent-is-claude <true|false>] [--agent-launch-flags <FLAGS>] [--agent-profile <NAME>] [--agent-env <NAME=VALUE>]...
 #
 # Creates detached tmux sessions (repo-qualified):
 #   agent-<REPO>-<KEY>      — runs the configured agent (default: Claude Code)
@@ -13,6 +13,8 @@
 # duplicated, preserving its running conversation.
 # --companion-command: command for the companion pane (default "GIT_OPTIONAL_LOCKS=0 gitui").
 #                      An empty string leaves a plain shell. Resolved per-profile by idow.
+# --agent-env: NAME=VALUE set in the agent session's environment, from the agent
+#              profile's env. Repeat for each variable.
 # --no-agent: create sessions but don't launch the agent/companion command (for testing)
 # --no-prompt: launch the agent without a prompt (idow's resume mode), so a
 #              fresh launch after a failed or skipped resume starts idle.
@@ -71,6 +73,7 @@ AGENT_PROMPT_ARGS=""
 NO_PROMPT=false
 AGENT_IS_CLAUDE=""
 PROFILE_LAUNCH_FLAGS=""
+PROFILE_ENV=()
 AGENT_PROFILE="claude"
 # Default mirrors DEFAULT_COMPANION_COMMAND in pappardelle/source/config.ts.
 # An empty value (passed explicitly via --companion-command "") leaves a plain
@@ -138,6 +141,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --agent-is-claude)
             AGENT_IS_CLAUDE="$2"
+            shift 2
+            ;;
+        --agent-env)
+            PROFILE_ENV+=(-e "$2")
             shift 2
             ;;
         *)
@@ -218,6 +225,7 @@ AGENT_SESSION_ENV=(
     -e "PAPPARDELLE_AGENT_PROFILE=$AGENT_PROFILE"
     -e "PAPPARDELLE_AGENT_IS_CLAUDE=$AGENT_IS_CLAUDE"
     -e "PAPPARDELLE_AGENT_SESSIONS=$HOME/.pappardelle/repos/$REPO_NAME/space-state/$ISSUE_KEY.agent-sessions.json"
+    "${PROFILE_ENV[@]}"
 )
 
 # Pre-trust the worktree directory for Claude Code (skipped for other agents:
