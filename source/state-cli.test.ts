@@ -46,6 +46,19 @@ test('an unknown verb fails without starting anything else', t => {
 	t.deepEqual(fs.readdirSync(home), []);
 });
 
+// idow reads 1 from `space get` as "no such space" and goes on with defaults.
+test('a verb that fails exits 3, never the not-found 1', t => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
+	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const notADir = path.join(home, 'file');
+	fs.writeFileSync(notADir, '');
+	const result = pappardelleState(
+		['migrate', path.join(notADir, 'state.db')],
+		home,
+	);
+	t.is(result.status, 3, `stderr: ${result.stderr}`);
+});
+
 test('prepare-space stores an issue title that starts with a dash', t => {
 	const home = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
