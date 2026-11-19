@@ -374,15 +374,15 @@ def record_agent_session(
     if not isinstance(session_id, str) or not session_id:
         return False
 
-    # UserPromptSubmit fires on every prompt; the process walk only runs when
-    # the entry would change. A relaunch resuming the same id still records its
-    # new pid.
     pane_space = env_space(env)
     if pane_space is None and (is_claude_hook or is_agy):
         # Only codex's daemon runs hooks away from the agent's own env, so
         # another agent outside a space's sessions isn't a pappardelle agent.
         return False
     stores = Stores()
+    # UserPromptSubmit fires on every prompt; the process walk only runs when
+    # the entry would change. A relaunch resuming the same id still records its
+    # new pid.
     if pane_space is not None:
         launched = stores.launched_agent(pane_space)
         recorded = read_sessions(stores.sessions_file(pane_space)) if launched else None
