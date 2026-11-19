@@ -131,6 +131,11 @@ export function checkApproval(
 	command: string,
 	policy: ApprovalPolicy,
 ): ApprovalVerdict {
+	// An empty box or a layout the screen parser doesn't know reads as no
+	// command, and the model check has nothing to judge either.
+	if (command.trim() === '')
+		return {allow: false, reason: 'no command to read'};
+
 	for (const [pattern, what] of PUBLISHING) {
 		if (pattern.test(command)) return {allow: false, reason: what};
 	}

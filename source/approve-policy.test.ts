@@ -92,6 +92,11 @@ test('kill-server counts as isolated only when the wrapper or socket is what run
 	t.false(allowed('tmux -S /tmp/q-a/../../run/tmux-1000/default kill-server'));
 });
 
+test('a prompt whose command reads as empty needs a person', t => {
+	t.false(allowed(''));
+	t.false(allowed(' \n '));
+});
+
 test('a refusal says why', t => {
 	t.deepEqual(checkApproval('git push', policy), {
 		allow: false,
