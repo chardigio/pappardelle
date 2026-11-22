@@ -4006,10 +4006,19 @@ export async function ensureAgentSession(
 		),
 	];
 
-	try {
-		await spaceState().write(issueKey, {
+	// Without it the agent's hook records no session ids, which costs less
+	// than not starting the agent.
+	await spaceState()
+		.write(issueKey, {
 			agentProfile: {name: agentProfile.name, isClaude: agentProfile.isClaude},
+		})
+		.catch((error: unknown) => {
+			log.warn(
+				`Could not record the agent profile of ${issueKey}`,
+				error instanceof Error ? error : undefined,
+			);
 		});
+	try {
 		await run(
 			innerTmuxArgs([
 				'new-session',

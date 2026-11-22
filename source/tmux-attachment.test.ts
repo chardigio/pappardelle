@@ -1130,6 +1130,37 @@ test.serial(
 );
 
 test.serial(
+	'a new agent session starts when its agent profile cannot be stored',
+	async t => {
+		const {spaceState} = derived.daos;
+		const {write} = spaceState;
+		spaceState.write = async () => {
+			throw new Error('database is locked');
+		};
+		t.teardown(() => {
+			spaceState.write = write;
+		});
+		const calls: string[][] = [];
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			if (args.includes('has-session')) throw new Error('no session');
+			return '';
+		};
+		t.true(
+			await ensureAgentSession('TEST-NEW', '/tmp', false, run, {
+				name: 'codex',
+				command: 'codex',
+				args: '',
+				isClaude: false,
+				model: '',
+				effort: '',
+			}),
+		);
+		t.true(calls.some(args => args.includes('new-session')));
+	},
+);
+
+test.serial(
 	"a new agent session carries its agent profile's env, one -e per variable",
 	async t => {
 		const calls: string[][] = [];
