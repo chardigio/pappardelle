@@ -881,3 +881,16 @@ test.serial(
 		t.regex(projectResult.stderr, /experimental\.sqliteState/);
 	},
 );
+
+test.serial(
+	'CLI commands still run when an unrelated config section is invalid',
+	async t => {
+		const f = fixture(t);
+		fs.writeFileSync(
+			path.join(f.repo, '.pappardelle.local.yml'),
+			'profiles:\n  broken:\n    agent_profile: nonexistent-agent\n',
+		);
+		const result = await f.run(['highlight', 'STE-7']);
+		t.is(result.code, 0, result.stderr);
+	},
+);

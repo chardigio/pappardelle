@@ -901,6 +901,18 @@ export function parseConfigLayer(
 		: null;
 }
 
+function misplacedSqliteStateErrors(
+	layers: Array<{label: string; layer: Record<string, unknown> | null}>,
+): string[] {
+	return layers
+		.slice(1)
+		.filter(({layer}) => sqliteStateOf(layer) !== undefined)
+		.map(
+			({label}) =>
+				`${label}: experimental.sqliteState can only be set in ${HOME_CONFIG_LABEL}, because every repo shares one state database`,
+		);
+}
+
 /**
  * Merge and validate parsed layers (lowest priority first, as
  * configLayerFiles lists them). The layers are modified in place.
@@ -921,13 +933,7 @@ export function buildConfigFromLayers(
 		throw new ConfigValidationError(conflictErrors);
 	}
 
-	const misplacedFlags = layers
-		.slice(1)
-		.filter(({layer}) => sqliteStateOf(layer) !== undefined)
-		.map(
-			({label}) =>
-				`${label}: experimental.sqliteState can only be set in ${HOME_CONFIG_LABEL}, because every repo shares one state database`,
-		);
+	const misplacedFlags = misplacedSqliteStateErrors(layers);
 	if (misplacedFlags.length > 0) {
 		throw new ConfigValidationError(misplacedFlags);
 	}
@@ -1273,6 +1279,20 @@ function readConfigLayers(
 			return {label, layer: null};
 		}
 	});
+}
+
+/**
+ * Reject `experimental.sqliteState` in project or local config without
+ * validating unrelated config sections, so CLI commands and the TUI still run
+ * while another section is being edited.
+ */
+export function validateHomeOnlySqliteState(
+	opts: ConfigPaths = defaultConfigPaths(),
+): void {
+	const errors = misplacedSqliteStateErrors(readConfigLayers(opts));
+	if (errors.length > 0) {
+		throw new ConfigValidationError(errors);
+	}
 }
 
 /**

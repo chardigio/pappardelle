@@ -42,6 +42,7 @@ import {
 	readBeadsIssuePrefix,
 	getTeamPrefix,
 	getProfileTeamPrefix,
+	validateHomeOnlySqliteState,
 	ConfigNotFoundError,
 	ConfigValidationError,
 } from './config.ts';
@@ -257,8 +258,20 @@ if (isRestart && cli.flags.hard) {
 
 // Check for .pappardelle.yml config file
 function checkConfig(): void {
+	let repoRoot: string;
 	try {
-		const repoRoot = getRepoRoot();
+		repoRoot = getRepoRoot();
+	} catch {
+		console.error(
+			'\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m',
+		);
+		console.error(
+			'\x1b[33mPlease navigate to a git repository and try again.\x1b[0m',
+		);
+		process.exit(1);
+	}
+
+	try {
 		if (!configExists()) {
 			console.error(
 				'\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m',
@@ -277,7 +290,7 @@ function checkConfig(): void {
 			process.exit(1);
 		}
 
-		loadConfig();
+		validateHomeOnlySqliteState();
 	} catch (error) {
 		if (error instanceof ConfigNotFoundError) {
 			console.error(
@@ -300,13 +313,7 @@ function checkConfig(): void {
 			console.error('Please fix the configuration and try again.');
 			process.exit(1);
 		} else {
-			// Not in a git repository
-			console.error(
-				'\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m',
-			);
-			console.error(
-				'\x1b[33mPlease navigate to a git repository and try again.\x1b[0m',
-			);
+			console.error(error instanceof Error ? error.message : String(error));
 			process.exit(1);
 		}
 	}
