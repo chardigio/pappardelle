@@ -104,6 +104,29 @@ test('running it again adds no duplicate Codex tables or agy rules', t => {
 	t.is(f.files.get(AGY), agy);
 });
 
+test('a Codex table the user spelled another way is not added again', t => {
+	const mine =
+		'[ mcp_servers.pappardelle.tools.companion_run ]\napproval_mode = "prompt"\n' +
+		'[mcp_servers."pappardelle".tools."space_send"]\napproval_mode = "prompt"\n';
+	const f = fixture({files: {[CODEX]: mine}});
+	installMcpServer(f.deps);
+	const config = f.files.get(CODEX)!;
+	t.false(config.includes('[mcp_servers.pappardelle.tools.companion_run]'));
+	t.false(config.includes('[mcp_servers.pappardelle.tools.space_send]'));
+	t.true(config.includes('[mcp_servers.pappardelle.tools.space_screen]'));
+});
+
+test('Codex config that does not parse is left alone', t => {
+	const f = fixture({files: {[CODEX]: '[nope'}});
+	installMcpServer(f.deps);
+	t.is(f.files.get(CODEX), '[nope');
+	t.true(
+		f.printed.some(
+			line => line.includes('Could not parse') && line.includes(CODEX),
+		),
+	);
+});
+
 test('agy allows each auto-approved tool and keeps existing settings and rules', t => {
 	const f = fixture({
 		files: {

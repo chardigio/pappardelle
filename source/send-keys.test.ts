@@ -1,10 +1,16 @@
 import test from 'ava';
 import {sendKeysToSpaceAgent, type OuterTmuxRunner} from './tmux.ts';
 
-function recorder(sessions: string[], failOn?: string, screen = '') {
+function recorder(
+	sessions: string[],
+	failOn?: string,
+	screen = '',
+	captureStatus = 0,
+) {
 	const calls: string[][] = [];
 	const runner: OuterTmuxRunner = args => {
-		if (args[0] === 'capture-pane') return {status: 0, stdout: screen};
+		if (args[0] === 'capture-pane')
+			return {status: captureStatus, stdout: screen};
 		calls.push([...args]);
 		if (args[0] === 'list-sessions')
 			return {status: 0, stdout: sessions.join('\n') + '\n'};
@@ -83,4 +89,13 @@ test('--keys never touches a Codex dialog, where Escape can quit Codex', t => {
 		sendKeysToSpaceAgent('STA-1', ['Escape'], {repoName: 'repo', runner}),
 		'prompt',
 	);
+});
+
+test('--keys presses nothing when it cannot read the screen for a prompt', t => {
+	const {runner, calls} = recorder(['agent-repo-STA-1'], undefined, '', 1);
+	t.is(
+		sendKeysToSpaceAgent('STA-1', ['1'], {repoName: 'repo', runner}),
+		'failed',
+	);
+	t.false(calls.some(args => args[0] === 'send-keys'));
 });

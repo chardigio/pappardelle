@@ -1805,9 +1805,10 @@ async function sendBlocker(
 	runner: SendTmuxRunner,
 	target: string,
 	force: boolean,
-): Promise<'draft' | 'prompt' | null> {
+): Promise<'draft' | 'prompt' | 'failed' | null> {
 	const r = await runner(['capture-pane', '-p', '-e', '-J', '-t', target]);
-	if (r.error || r.status !== 0) return null;
+	// Unread, the screen may hold a prompt the keys would answer.
+	if (r.error || r.status !== 0) return 'failed';
 	const screen = parseAgentScreen(r.stdout, new Date());
 	if (screen.permission || screen.question || screen.codexDialog)
 		return 'prompt';
@@ -1885,6 +1886,7 @@ export function sendKeysToSpaceAgent(
 	// anyone, but on a Codex dialog such as folder trust it quits Codex.
 	if (!options.answering) {
 		const screen = runner(['capture-pane', '-p', '-e', '-J', '-t', target]);
+		if (screen.error || screen.status !== 0) return 'failed';
 		const parsed = parseAgentScreen(screen.stdout ?? '', new Date());
 		if (parsed.codexDialog) return 'prompt';
 		const answers = keys.some(key => key !== 'Escape');

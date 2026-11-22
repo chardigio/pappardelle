@@ -28,10 +28,22 @@ export type McpInstallDeps = {
 function approveInCodex(deps: McpInstallDeps): void {
 	const file = path.join(deps.codexHome, 'config.toml');
 	let config = deps.readFile(file) ?? '';
+	let parsed: {mcp_servers?: Record<string, {tools?: Record<string, unknown>}>};
+	try {
+		parsed = Bun.TOML.parse(config) as typeof parsed;
+	} catch {
+		deps.print(
+			`Could not parse ${file}; approve ${SERVER}'s companion and supervision tools there by hand.`,
+		);
+		return;
+	}
+
+	// Read through a parser, since TOML spells one table many ways and a
+	// second header for it makes Codex reject the file.
+	const approved = parsed.mcp_servers?.[SERVER]?.tools ?? {};
 	for (const tool of AUTO_APPROVED_TOOLS) {
-		const table = `[mcp_servers.${SERVER}.tools.${tool}]`;
-		if (!config.includes(table))
-			config += `\n${table}\napproval_mode = "approve"\n`;
+		if (!(tool in approved))
+			config += `\n[mcp_servers.${SERVER}.tools.${tool}]\napproval_mode = "approve"\n`;
 	}
 
 	deps.writeFile(file, config);
