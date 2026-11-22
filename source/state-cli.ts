@@ -9,6 +9,12 @@ import {
 	newSpaceIdentity,
 	spaceWorktreePath,
 } from './space-identity.ts';
+import {
+	checkAgentProfile,
+	getDefaultHomeConfigDir,
+	loadConfigFromPaths,
+	unknownAgentProfileMessage,
+} from './config.ts';
 import {createStateDaos} from './state-daos.ts';
 import {openStateDb} from './state-db.ts';
 
@@ -166,6 +172,37 @@ const verbs: Record<string, Verb> = {
 			args.filter((_, index) => !repoArgs.has(index)),
 			defaultSpaceCommandDeps({repo, resolveKey: key => key}),
 		);
+	},
+
+	/**
+	 * Whether idow's --agent-profile names an agent profile, read from the
+	 * config layers idow reads: `--project-root <dir>` is the checkout idow
+	 * runs for and `--main-root <dir>` the main checkout it falls back to.
+	 */
+	'check-agent-profile'(args) {
+		const {values, positionals} = parseArgs({
+			args,
+			allowPositionals: true,
+			options: {
+				'project-root': {type: 'string'},
+				'main-root': {type: 'string'},
+			},
+		});
+		const [name] = positionals;
+		const {'project-root': projectDir, 'main-root': mainRoot} = values;
+		if (!projectDir || !mainRoot || !name || positionals.length !== 1)
+			return usage(
+				'check-agent-profile needs --project-root <dir>, --main-root <dir> and one agent profile name',
+			);
+		const config = loadConfigFromPaths({
+			homeConfigDir: getDefaultHomeConfigDir(),
+			projectDir,
+			fallbackProjectDir: () => mainRoot,
+		});
+		const check = checkAgentProfile(config, name);
+		if (check.kind === 'known') return 0;
+		console.error(unknownAgentProfileMessage(name, check.names));
+		return 1;
 	},
 
 	/** Create or upgrade the database at a path, for the hooks' tests. */

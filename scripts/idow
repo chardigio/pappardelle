@@ -523,9 +523,7 @@ if [[ "$1" == "--agent-profile" ]]; then
 
     # Checked here rather than left to resolve-agent-config.sh, which only runs
     # after the issue fetch and worktree setup.
-    if [[ "$FORCED_AGENT_PROFILE" != "claude" \
-          && "$(AGENT_PROFILE="$FORCED_AGENT_PROFILE" yq -r '.agent_profiles // {} | has(strenv(AGENT_PROFILE))' "$CONFIG_PATH")" != "true" ]]; then
-        echo -e "${YELLOW}Error: agent profile \"$FORCED_AGENT_PROFILE\" not found in agent_profiles${NC}" >&2
+    if ! pappardelle_state check-agent-profile --project-root "$REPO_ROOT" --main-root "$MAIN_REPO_ROOT" "$FORCED_AGENT_PROFILE"; then
         exit 1
     fi
 fi

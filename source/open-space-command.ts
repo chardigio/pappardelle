@@ -5,6 +5,8 @@ import {pipeline} from 'node:stream/promises';
 import {
 	buildNewSessionArgs,
 	extractIssueKeyFromIdowOutput,
+	idowSkippedAgentOverride,
+	IDOW_SKIPPED_AGENT_OVERRIDE,
 } from './session-routing.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 
@@ -14,6 +16,8 @@ export interface OpenSpaceCommandOptions {
 	issueKey: string | null;
 	resume?: boolean;
 	profileName?: string;
+	/** Launches the space's agent on this agent profile, for this launch only. */
+	agentProfileName?: string;
 	cwd: string;
 	env: NodeJS.ProcessEnv;
 	/** Resolves false when the space's agent didn't start after `since`. */
@@ -38,6 +42,8 @@ export async function runOpenSpaceCommand(
 ): Promise<number> {
 	const since = Date.now();
 	let stdout = '';
+	// idow's marker is read below, not shown to whoever reads its output.
+	let partialLine = '';
 	let code: number | null;
 	let signal: NodeJS.Signals | null;
 	let child: ChildProcess | undefined;
@@ -67,6 +73,7 @@ export async function runOpenSpaceCommand(
 				...(options.resume ? ['--resume'] : []),
 				...buildNewSessionArgs(options.prompt, {
 					profileName: options.profileName,
+					agentProfileName: options.agentProfileName,
 					inputIsIssueKey: false,
 				}),
 			],
@@ -87,7 +94,21 @@ export async function runOpenSpaceCommand(
 					decodeStrings: false,
 					write(chunk: string, _encoding, callback) {
 						stdout += chunk;
-						process.stdout.write(chunk, callback);
+						const lines = (partialLine + chunk).split('\n');
+						partialLine = lines.pop()!;
+						process.stdout.write(
+							lines
+								.filter(line => line !== IDOW_SKIPPED_AGENT_OVERRIDE)
+								.map(line => `${line}\n`)
+								.join(''),
+							callback,
+						);
+					},
+					final(callback) {
+						process.stdout.write(
+							partialLine === IDOW_SKIPPED_AGENT_OVERRIDE ? '' : partialLine,
+							callback,
+						);
 					},
 				}),
 			),
@@ -144,6 +165,13 @@ export async function runOpenSpaceCommand(
 			`Workspace setup completed, but could not register ${issueKey}: ${error instanceof Error ? error.message : String(error)}\n`,
 		);
 		return 1;
+	}
+
+	if (options.agentProfileName && idowSkippedAgentOverride(stdout)) {
+		await writeOutput(
+			process.stderr,
+			`${issueKey}: agent already running, ${options.agentProfileName} not applied\n`,
+		);
 	}
 
 	if (options.waitForAgent && !(await options.waitForAgent(issueKey, since))) {

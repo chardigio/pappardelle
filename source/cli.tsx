@@ -37,6 +37,8 @@ import {
 	getMainRepoRoot,
 	getRepoName,
 	loadConfig,
+	checkAgentProfile,
+	unknownAgentProfileMessage,
 	loadProviderConfigs,
 	getBeadsPrefixes,
 	readBeadsIssuePrefix,
@@ -160,6 +162,18 @@ if (process.argv[2] === 'space') {
 	);
 }
 
+// Dispatched before meow for the same reasons as `space`.
+if (process.argv[2] === 'agent-profile') {
+	const {runAgentProfileCommand, defaultAgentProfileCommandDeps} =
+		await import('./agent-profile-command.ts');
+	await exitAfterFlush(
+		runAgentProfileCommand(
+			process.argv.slice(3),
+			defaultAgentProfileCommandDeps(),
+		),
+	);
+}
+
 // Dispatched before meow, which would read the wrapped command's flags
 // (including --help) as Pappardelle's own.
 if (process.argv[2] === 'companion') {
@@ -211,6 +225,18 @@ if (
 	(!cli.flags.profile.trim() || cli.input.length === 0)
 ) {
 	console.error('Usage: pappardelle --profile <name> <prompt or issue-key>');
+	process.exit(1);
+}
+
+if (cli.flags.agentProfile?.trim() === '') {
+	console.error('--agent-profile needs an agent profile name');
+	process.exit(1);
+}
+
+if (cli.flags.agentProfile !== undefined && cli.input.length === 0) {
+	console.error(
+		'Usage: pappardelle --agent-profile <name> <prompt or issue-key>',
+	);
 	process.exit(1);
 }
 
@@ -516,10 +542,28 @@ if (cli.input.length > 0) {
 
 	// Normalize issue identifiers (supports bare numbers like '400')
 	let config;
+	let configError: unknown;
 	try {
 		config = loadConfig();
-	} catch {
+	} catch (error) {
 		config = null;
+		configError = error;
+	}
+
+	const {agentProfile} = cli.flags;
+	if (agentProfile !== undefined) {
+		if (!config) {
+			console.error(
+				`Could not read the config to check agent profile "${agentProfile}": ${configError instanceof Error ? configError.message : String(configError)}`,
+			);
+			process.exit(1);
+		}
+
+		const check = checkAgentProfile(config, agentProfile);
+		if (check.kind === 'unknown') {
+			console.error(unknownAgentProfileMessage(agentProfile, check.names));
+			process.exit(1);
+		}
 	}
 
 	let teamPrefix = config ? getTeamPrefix(config) : 'STA';
@@ -555,6 +599,7 @@ if (cli.input.length > 0) {
 		prompt: finalPrompt,
 		issueKey: normalizedIssueKey,
 		profileName: cli.flags.profile,
+		agentProfileName: agentProfile,
 		resume: cli.flags.resume ?? worktreeOnDisk(normalizedIssueKey),
 		cwd: getRepoRoot(),
 		env: buildSpawnEnv(getRepoRoot(), {

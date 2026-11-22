@@ -59,6 +59,48 @@ test('a verb that fails exits 3, never the not-found 1', t => {
 	t.is(result.status, 3, `stderr: ${result.stderr}`);
 });
 
+test('check-agent-profile reads the layers idow reads, from the roots it is given', t => {
+	const home = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
+	);
+	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const project = path.join(home, 'linked');
+	const main = path.join(home, 'main');
+	fs.mkdirSync(project);
+	fs.mkdirSync(main);
+	fs.writeFileSync(
+		path.join(project, '.pappardelle.yml'),
+		'version: 1\nissue_tracker:\n  provider: beads\nprofiles:\n  dev:\n    display_name: Dev\n',
+	);
+	// Only the main checkout has the untracked local config.
+	fs.writeFileSync(
+		path.join(main, '.pappardelle.local.yml'),
+		'agent_profiles:\n  codex:\n    command: codex\n',
+	);
+	const check = (name: string) =>
+		pappardelleState(
+			[
+				'check-agent-profile',
+				'--project-root',
+				project,
+				'--main-root',
+				main,
+				name,
+			],
+			home,
+		);
+
+	const known = check('codex');
+	t.is(known.status, 0, `stderr: ${known.stderr}`);
+	t.is(check('claude').status, 0);
+	const unknown = check('codx');
+	t.is(unknown.status, 1);
+	t.is(
+		unknown.stderr.trim(),
+		'Unknown agent profile "codx". Agent profiles: claude, codex',
+	);
+});
+
 test('prepare-space stores an issue title that starts with a dash', t => {
 	const home = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),

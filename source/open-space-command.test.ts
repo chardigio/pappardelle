@@ -428,6 +428,89 @@ test.serial(
 );
 
 test.serial(
+	'CLI forwards an agent profile to idow after the profile, where idow reads it',
+	async t => {
+		const f = fixture(t);
+		fs.appendFileSync(
+			path.join(f.repo, '.pappardelle.yml'),
+			'agent_profiles:\n  codex:\n    command: codex\n',
+		);
+		f.worktreeOnly('STE-20');
+		const result = await f.run([
+			'--agent-profile',
+			'codex',
+			'--profile',
+			'test',
+			'STE-20',
+		]);
+		t.is(result.code, 0, result.stderr);
+		t.deepEqual(f.readRecord().args, [
+			'--resume',
+			'--profile',
+			'test',
+			'--agent-profile',
+			'codex',
+			'STE-20',
+		]);
+		t.deepEqual(f.readRegistry(), ['STE-20']);
+	},
+);
+
+test.serial(
+	'CLI rejects an unknown agent profile with the valid names before running idow',
+	async t => {
+		const f = fixture(t);
+		fs.appendFileSync(
+			path.join(f.repo, '.pappardelle.yml'),
+			'agent_profiles:\n  codex:\n    command: codex\n',
+		);
+		const result = await f.run(['--agent-profile', 'codx', 'STE-20']);
+		t.is(result.code, 1);
+		t.regex(
+			result.stderr,
+			/Unknown agent profile "codx"\. Agent profiles: claude, codex/,
+		);
+		t.false(fs.existsSync(f.record));
+		t.false(fs.existsSync(f.registry));
+	},
+);
+
+test.serial(
+	'CLI rejects an agent profile with no workspace input instead of starting the TUI',
+	async t => {
+		const f = fixture(t);
+		for (const [args, message] of [
+			[['--agent-profile', 'claude'], /Usage: pappardelle --agent-profile/],
+			[
+				['--agent-profile=', 'STE-20'],
+				/--agent-profile needs an agent profile name/,
+			],
+		] as const) {
+			const result = await f.run([...args, '--no-layout']);
+			t.is(result.code, 1);
+			t.regex(result.stderr, message);
+			t.false(fs.existsSync(f.record));
+		}
+	},
+);
+
+test.serial(
+	'CLI warns, and still succeeds, when idow leaves a running agent on its old profile',
+	async t => {
+		const f = fixture(t);
+		const result = await f.run(['--agent-profile', 'claude', 'STE-20'], {
+			IDOW_TEST_OUTPUT:
+				'PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped\nWorkspace STE-20 is ready!\n',
+		});
+		t.is(result.code, 0, result.stderr);
+		t.regex(result.stderr, /STE-20: agent already running, claude not applied/);
+		t.false(result.stdout.includes('PAPPARDELLE_AGENT_PROFILE_OVERRIDE'));
+		t.regex(result.stdout, /Workspace STE-20 is ready!/);
+		t.deepEqual(f.readRegistry(), ['STE-20']);
+	},
+);
+
+test.serial(
 	'CLI uses the forced profile team prefix when normalizing a bare issue number',
 	async t => {
 		const f = fixture(t);

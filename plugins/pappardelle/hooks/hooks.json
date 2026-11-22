@@ -30,7 +30,7 @@
 				]
 			},
 			{
-				"matcher": "mcp__plugin_pappardelle_pappardelle__(companion_.*|space_(get|send|screen|state|question_tabs|wait|watch|answer|queue|schedule|schedules|unschedule)|tui_(panes|focus_log))",
+				"matcher": "mcp__plugin_pappardelle_pappardelle__(agent_profiles_list|companion_.*|space_(get|send|screen|state|question_tabs|wait|watch|answer|queue|schedule|schedules|unschedule)|tui_(panes|focus_log))",
 				"hooks": [
 					{
 						"type": "command",

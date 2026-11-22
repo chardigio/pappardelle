@@ -3487,12 +3487,36 @@ export function listAgentProfiles(
 	config: PappardelleConfig,
 	sources: Record<string, string[]>,
 ): Array<{name: string; source: string}> {
-	const names = Object.keys(config.agent_profiles ?? {});
-	if (!names.includes('claude')) names.unshift('claude');
-	return names.map(name => ({
+	return agentProfileNames(config).map(name => ({
 		name,
 		source: sources[name]?.join(' + ') ?? 'built-in',
 	}));
+}
+
+/** Every agent profile a session can launch with, the built-in claude first. */
+export function agentProfileNames(config: PappardelleConfig): string[] {
+	const names = Object.keys(config.agent_profiles ?? {});
+	if (!names.includes('claude')) names.unshift('claude');
+	return names;
+}
+
+export type AgentProfileCheck =
+	| {kind: 'known'}
+	| {kind: 'unknown'; names: string[]};
+
+export function checkAgentProfile(
+	config: PappardelleConfig,
+	name: string,
+): AgentProfileCheck {
+	const names = agentProfileNames(config);
+	return names.includes(name) ? {kind: 'known'} : {kind: 'unknown', names};
+}
+
+export function unknownAgentProfileMessage(
+	name: string,
+	names: string[],
+): string {
+	return `Unknown agent profile "${name}". Agent profiles: ${names.join(', ')}`;
 }
 
 /**
