@@ -30,12 +30,12 @@ export function runAgentProfileCommand(
 	argv: string[],
 	deps: AgentProfileCommandDeps,
 ): number {
-	const [verb, ...args] = argv;
-	if (verb === '--help' || verb === '-h' || args.includes('--help')) {
+	if (argv.some(arg => arg === '--help' || arg === '-h')) {
 		deps.out(AGENT_PROFILE_HELP);
 		return 0;
 	}
 
+	const [verb, ...args] = argv;
 	if (verb !== 'list') return usage(deps);
 	let json: boolean;
 	try {

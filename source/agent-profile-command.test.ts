@@ -62,6 +62,19 @@ test('an unknown verb or flag is a usage error, not a listing', t => {
 	}
 });
 
+test('-h and --help print the help, before or after the verb', t => {
+	for (const argv of [['-h'], ['--help'], ['list', '-h'], ['list', '--help']]) {
+		const d = deps(() => config);
+		t.is(
+			runAgentProfileCommand(argv, d.commandDeps),
+			0,
+			`argv: ${argv.join(' ')}`,
+		);
+		t.regex(d.out.join('\n'), /agent-profile list/);
+		t.deepEqual(d.err, []);
+	}
+});
+
 test('an unreadable config exits 3 with the reason', t => {
 	const d = deps(() => {
 		throw new Error('Not in a git repository');
