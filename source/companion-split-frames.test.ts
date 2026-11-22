@@ -15,6 +15,7 @@ import {
 	measureCompanionColumnWidth,
 	rebuildLayout,
 	reconcilePaneLayout,
+	setConfiguredPaneWidthsForTests,
 	syncCompanionSplits,
 	takePendingSplitSync,
 } from './tmux.ts';
@@ -117,6 +118,10 @@ tmuxTest(
 	'splits show in framed panes of their own, move between spaces and keep a dragged size',
 	async t => {
 		setRegistryPath(`${dir}/registry.json`);
+		// The repo that holds this test can set companion_width in its own
+		// .pappardelle.yml (the monorepo sets 20). A pane that narrow cuts the
+		// split titles, so the test uses the built-in widths.
+		setConfiguredPaneWidthsForTests({});
 		await run([
 			'-f',
 			'/dev/null',

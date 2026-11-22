@@ -285,8 +285,8 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         agent_env: ($def_resolved.env // {} | tojson),
         workspace_aware: (.workspace_aware_agents == true),
         # Mirrors agentRulesFlags() in source/companion-rules.ts.
-        agent_rules_flags: if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
-            | $builtin_agent.rules_args // [] | map(split("{rules}") | join($rules) | quote_value) | join(" ")) end,
+        agent_rules_flags: (if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
+            | $builtin_agent.rules_args // [] | map(split("{rules}") | join($rules) | quote_value) | join(" ")) end),
         agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end),
         agent_type_errors: ($type_errors | join("\n")),
         agent_launch_errors: $launch_errors
