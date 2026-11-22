@@ -12,6 +12,7 @@ import {
 	type SpaceIdentityList,
 	type SpaceIdentityLookup,
 } from './space-identity.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {JsonMirror, StateDb} from './state-db.ts';
 
 type IdentityRow = {
