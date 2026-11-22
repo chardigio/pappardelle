@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
+import {stripHostPappardelleEnv} from '../test/helpers/env.ts';
 import {killProcessesNaming} from '../test/helpers/processes.ts';
 
 const project = path.resolve(import.meta.dirname, '..');
@@ -48,7 +49,7 @@ test.serial(
 			JSON.stringify({checkedAt: Date.now(), latestVersion: 'v0.0.0'}),
 		);
 		const env = {
-			...process.env,
+			...stripHostPappardelleEnv(),
 			HOME: home,
 			PATH: bin,
 			SHELL: '/bin/sh',
@@ -56,10 +57,6 @@ test.serial(
 		};
 		delete env.TMUX;
 		delete env.TMUX_PANE;
-		delete env.PAPPARDELLE_MAIN_REPO_ROOT;
-		delete env.PAPPARDELLE_PROJECT_ROOT;
-		delete env.PAPPARDELLE_REPO;
-		delete env.PAPPARDELLE_SPACE;
 		const socket = path.join(root, 'socket');
 		const runTmux = (...args: string[]) =>
 			execFileSync(tmux, ['-S', socket, ...args], {

@@ -3,6 +3,7 @@ import {mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {stripHostPappardelleEnv} from '../test/helpers/env.ts';
 
 /**
  * Run a check that mounts the real App in a process of its own under a
@@ -12,13 +13,7 @@ import {fileURLToPath} from 'node:url';
  */
 export function runUnderThrowawayHome(check: URL): void {
 	const home = mkdtempSync(path.join(tmpdir(), 'pappa-app-home-'));
-	const env: NodeJS.ProcessEnv = {...process.env, HOME: home};
-	// Strip host space/repo overrides so the check loads its own temp repo's
-	// config instead of the caller's repo against an empty throwaway HOME.
-	delete env['PAPPARDELLE_MAIN_REPO_ROOT'];
-	delete env['PAPPARDELLE_PROJECT_ROOT'];
-	delete env['PAPPARDELLE_REPO'];
-	delete env['PAPPARDELLE_SPACE'];
+	const env: NodeJS.ProcessEnv = {...stripHostPappardelleEnv(), HOME: home};
 	try {
 		const {status} = spawnSync(
 			process.execPath,

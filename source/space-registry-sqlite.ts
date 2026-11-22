@@ -26,7 +26,6 @@ import {
 	type WatchlistReserveOptions,
 	type WatchlistSlots,
 } from './space-registry.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {SpaceIdentity} from './space-identity.ts';
 import type {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
 import {
@@ -358,7 +357,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		}
 
 		for (const key of keys) this.setOpen(key);
-		this.identities.fillMissing([MAIN_WORKTREE_KEY, ...keys]);
+		this.identities.fillMissing(keys);
 	}
 
 	private replaceReservations(

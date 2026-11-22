@@ -1,6 +1,8 @@
 // Space identities as rows. A row outlives its space, so a key opened again
 // keeps its names, and a closed space can still be named.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import {
 	defaultIdentity,
 	identityAt,
@@ -114,19 +116,8 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 			`INSERT OR IGNORE INTO space_identities (repo, ${COLUMNS})
 			VALUES (?, ?, ?, ?, ?, ?)`,
 		);
-		for (const key of keys) {
-			let identity: SpaceIdentity;
-			try {
-				identity = defaultIdentity(this.defaults, key);
-			} catch (error) {
-				// Importing open-spaces.json outside a git checkout cannot resolve
-				// main's root; leave main unseeded until a checkout runs.
-				if (key === MAIN_WORKTREE_KEY) continue;
-				throw error;
-			}
-
-			insert.run(...this.values(identity));
-		}
+		for (const key of keys)
+			insert.run(...this.values(defaultIdentity(this.defaults, key)));
 	}
 
 	private synced(): StateDb {
@@ -134,7 +125,48 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 		// A registry file that cannot be imported now leaves the rows as they
 		// are, and those are still the identities that were recorded.
 		state.sync(this.registryMirror());
+		this.ensureMain(state);
 		return state;
+	}
+
+	/**
+	 * Seed main's identity on first read after enabling sqliteState, when this
+	 * checkout belongs to the repo and has Pappardelle config or open spaces.
+	 */
+	private ensureMain(state: StateDb): void {
+		const existing = state.db
+			.query<
+				{found: number},
+				[string, string]
+			>('SELECT 1 AS found FROM space_identities WHERE repo = ? AND key = ?')
+			.get(this.defaults.repo, MAIN_WORKTREE_KEY);
+		if (existing) return;
+
+		let mainRoot: string;
+		try {
+			mainRoot = this.defaults.mainRoot();
+		} catch {
+			return;
+		}
+
+		if (path.basename(mainRoot) !== this.defaults.repo) return;
+		const hasConfig = fs.existsSync(path.join(mainRoot, '.pappardelle.yml'));
+		if (!hasConfig) {
+			const hasSpaces = state.db
+				.query<
+					{found: number},
+					[string]
+				>('SELECT 1 AS found FROM spaces WHERE repo = ? LIMIT 1')
+				.get(this.defaults.repo);
+			if (!hasSpaces) return;
+		}
+
+		state.db
+			.query(
+				`INSERT OR IGNORE INTO space_identities (repo, ${COLUMNS})
+				VALUES (?, ?, ?, ?, ?, ?)`,
+			)
+			.run(...this.values(defaultIdentity(this.defaults, MAIN_WORKTREE_KEY)));
 	}
 
 	private rows(): SpaceIdentity[] {

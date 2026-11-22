@@ -865,12 +865,19 @@ test.serial(
 	'CLI commands reject experimental.sqliteState in project or local config',
 	async t => {
 		const f = fixture(t);
-		fs.writeFileSync(
-			path.join(f.repo, '.pappardelle.local.yml'),
-			'experimental:\n  sqliteState: true\n',
+		const localPath = path.join(f.repo, '.pappardelle.local.yml');
+		fs.writeFileSync(localPath, 'experimental:\n  sqliteState: true\n');
+		const localResult = await f.run(['highlight', 'STE-7']);
+		t.is(localResult.code, 1);
+		t.regex(localResult.stderr, /experimental\.sqliteState/);
+
+		fs.unlinkSync(localPath);
+		fs.appendFileSync(
+			path.join(f.repo, '.pappardelle.yml'),
+			'\nexperimental:\n  sqliteState: true\n',
 		);
-		const result = await f.run(['highlight', 'STE-7']);
-		t.is(result.code, 1);
-		t.regex(result.stderr, /experimental\.sqliteState/);
+		const projectResult = await f.run(['highlight', 'STE-7']);
+		t.is(projectResult.code, 1);
+		t.regex(projectResult.stderr, /experimental\.sqliteState/);
 	},
 );

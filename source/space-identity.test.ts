@@ -204,6 +204,73 @@ contractTest(
 	},
 );
 
+contractTest(
+	'a repo with .pappardelle.yml resolves main even before any spaces are opened',
+	(t, state) => {
+		const f = contractFixture(t, state);
+		fs.writeFileSync(path.join(f.mainRoot, '.pappardelle.yml'), 'version: 1\n');
+		t.deepEqual(f.state.daos.spaceIdentities.get('main'), {
+			kind: 'identity',
+			identity: f.identity('main'),
+		});
+		t.deepEqual(
+			f.state.daos.spaceIdentities.atPath(path.join(f.mainRoot, 'src')),
+			{kind: 'identity', identity: f.identity('main')},
+		);
+	},
+);
+
+test('importing another repo from an unrelated checkout does not seed main with the wrong path', t => {
+	const home = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-identity-cross-')),
+	);
+	t.teardown(() => {
+		fs.rmSync(home, {recursive: true, force: true});
+	});
+	const otherRepo = path.join(home, 'workspace', 'other-repo');
+	fs.mkdirSync(otherRepo, {recursive: true});
+	fs.writeFileSync(path.join(otherRepo, '.pappardelle.yml'), 'version: 1\n');
+	const state = testState(t, {
+		repo: 'target-repo',
+		sqlite: true,
+		home,
+		env: {PAPPARDELLE_TMUX_SOCKET: SOCKET},
+		mainRoot: () => otherRepo,
+	});
+	fs.writeFileSync(state.registryFile, JSON.stringify(['STA-1']));
+	t.deepEqual(state.daos.spaceIdentities.get('main'), {kind: 'unknown'});
+});
+
+test('importing open-spaces outside a git checkout still seeds main on a later read inside it', t => {
+	const home = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-identity-retry-')),
+	);
+	t.teardown(() => {
+		fs.rmSync(home, {recursive: true, force: true});
+	});
+	const mainRoot = path.join(home, 'workspace', 'repo');
+	fs.mkdirSync(mainRoot, {recursive: true});
+	let inCheckout = false;
+	const state = testState(t, {
+		repo: 'repo',
+		sqlite: true,
+		home,
+		env: {PAPPARDELLE_TMUX_SOCKET: SOCKET},
+		mainRoot() {
+			if (!inCheckout) throw new Error('Not in a git repository');
+			return mainRoot;
+		},
+	});
+	fs.writeFileSync(state.registryFile, JSON.stringify(['STA-1']));
+	t.deepEqual(state.daos.spaceIdentities.get('main'), {kind: 'unknown'});
+	inCheckout = true;
+	const lookup = state.daos.spaceIdentities.get('main');
+	t.is(lookup.kind, 'identity');
+	if (lookup.kind === 'identity') {
+		t.is(lookup.identity.worktreePath, mainRoot);
+	}
+});
+
 test('two keys cannot share an agent session', async t => {
 	const f = fixture(t, true);
 	await f.open('a.b');
