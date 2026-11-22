@@ -1517,3 +1517,22 @@ post_workspace_init:
 		}
 	},
 );
+
+// macOS ships jq 1.7, which rejects a bare `if` as an object value
+// (`key: if ... end`). jq 1.8 accepts it, so a newer jq on the dev machine or in
+// CI hides the break, and every workspace fails to start on a stock Mac.
+test('jq object values in the scripts never start with a bare if', t => {
+	const scriptsDir = path.dirname(SCRIPT_PATH);
+	const offenders: string[] = [];
+	for (const name of fs.readdirSync(scriptsDir)) {
+		const file = path.join(scriptsDir, name);
+		if (!fs.statSync(file).isFile()) continue;
+		const lines = fs.readFileSync(file, 'utf8').split('\n');
+		for (const [i, line] of lines.entries()) {
+			if (/^\s*[A-Za-z_]\w*:\s+if\s/.test(line)) {
+				offenders.push(`${name}:${i + 1}: ${line.trim()}`);
+			}
+		}
+	}
+	t.deepEqual(offenders, []);
+});
