@@ -41,6 +41,11 @@ export interface SpaceIdentityDao {
 	 * may still run under those names.
 	 */
 	record(identity: SpaceIdentity): Promise<void>;
+	/**
+	 * Point main at the checkout and socket a TUI starts with. Unlike a space,
+	 * main's checkout can be moved or cloned again.
+	 */
+	moveMain(identity: SpaceIdentity): Promise<void>;
 }
 
 /**
@@ -233,6 +238,8 @@ export class JsonSpaceIdentityDao implements SpaceIdentityDao {
 	}
 
 	async record(): Promise<void> {}
+
+	async moveMain(): Promise<void> {}
 }
 
 /**
@@ -335,16 +342,15 @@ export function protectedSessionNames(
  * Record the main space's identity. Main has no idow run of its own: it is
  * recorded by every run that opens a space, and by the TUI when it starts.
  */
-export async function recordMainIdentity(
-	identities: Pick<SpaceIdentityDao, 'record'>,
-	main: {repo: string; mainRoot: string; env: NodeJS.ProcessEnv},
-): Promise<void> {
-	await identities.record(
-		newSpaceIdentity({
-			repo: main.repo,
-			key: MAIN_WORKTREE_KEY,
-			worktreePath: main.mainRoot,
-			socket: statusSocket(main.env),
-		}),
-	);
+export function mainIdentity(main: {
+	repo: string;
+	mainRoot: string;
+	env: NodeJS.ProcessEnv;
+}): SpaceIdentity {
+	return newSpaceIdentity({
+		repo: main.repo,
+		key: MAIN_WORKTREE_KEY,
+		worktreePath: main.mainRoot,
+		socket: statusSocket(main.env),
+	});
 }

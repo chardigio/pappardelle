@@ -10,7 +10,6 @@ import {
 	type SpaceIdentityList,
 	type SpaceIdentityLookup,
 } from './space-identity.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {JsonMirror, StateDb} from './state-db.ts';
 
 type IdentityRow = {
@@ -80,11 +79,19 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 		return identity ? {kind: 'identity', identity} : {kind: 'unknown'};
 	}
 
-	/**
-	 * A space keeps the names it was created with. Main's checkout can be moved
-	 * or cloned again, so its path and socket follow the latest start.
-	 */
 	async record(identity: SpaceIdentity): Promise<void> {
+		await this.openDb().writeRows(() => {
+			this.openDb()
+				.db.query(
+					`INSERT INTO space_identities (repo, ${COLUMNS})
+					VALUES (?, ?, ?, ?, ?, ?)
+					ON CONFLICT (repo, key) DO NOTHING`,
+				)
+				.run(...this.values(identity));
+		});
+	}
+
+	async moveMain(identity: SpaceIdentity): Promise<void> {
 		await this.openDb().writeRows(() => {
 			this.openDb()
 				.db.query(
@@ -92,10 +99,9 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 					VALUES (?, ?, ?, ?, ?, ?)
 					ON CONFLICT (repo, key) DO UPDATE SET
 						worktree_path = excluded.worktree_path,
-						tmux_socket = excluded.tmux_socket
-					WHERE key = ?`,
+						tmux_socket = excluded.tmux_socket`,
 				)
-				.run(...this.values(identity), MAIN_WORKTREE_KEY);
+				.run(...this.values(identity));
 		});
 	}
 

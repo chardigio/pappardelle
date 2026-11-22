@@ -257,7 +257,7 @@ test('a space keeps the names it was first given', async t => {
 	});
 });
 
-test('main follows its checkout when the repo is moved', async t => {
+test('main follows its checkout when a TUI starts there, not when a space is opened', async t => {
 	const f = fixture(t, true);
 	const first = await f.open('main');
 	const moved = {
@@ -266,6 +266,11 @@ test('main follows its checkout when the repo is moved', async t => {
 		tmux: {...first.tmux, socket: 'another-socket'},
 	};
 	await f.state.daos.spaceIdentities.record(moved);
+	t.deepEqual(f.state.daos.spaceIdentities.get('main'), {
+		kind: 'identity',
+		identity: first,
+	});
+	await f.state.daos.spaceIdentities.moveMain(moved);
 	t.deepEqual(f.state.daos.spaceIdentities.get('main'), {
 		kind: 'identity',
 		identity: moved,

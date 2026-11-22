@@ -5,8 +5,8 @@ import {homedir} from 'node:os';
 import {parseArgs} from 'node:util';
 import {statusSocket} from './program-status-monitor.ts';
 import {
+	mainIdentity,
 	newSpaceIdentity,
-	recordMainIdentity,
 	spaceWorktreePath,
 } from './space-identity.ts';
 import {createStateDaos} from './state-daos.ts';
@@ -62,11 +62,11 @@ const verbs: Record<string, Verb> = {
 				socket: statusSocket(process.env),
 			}),
 		);
-		await recordMainIdentity(daos.spaceIdentities, {
-			repo,
-			mainRoot,
-			env: process.env,
-		});
+		// Only a TUI start moves main: this idow may run under another socket
+		// or from another clone of the repo.
+		await daos.spaceIdentities.record(
+			mainIdentity({repo, mainRoot, env: process.env}),
+		);
 
 		if (values.register) {
 			const owner = Number(values.owner);
