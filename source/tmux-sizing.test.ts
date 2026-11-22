@@ -215,20 +215,20 @@ test('layout constants', t => {
 // List Height Calculations
 // ============================================================================
 
-// Sessions plus the status row and the rail's frame, up to
+// Sessions plus the rail's frame, up to
 // MAX_LIST_HEIGHT.
 for (const [sessions, height] of [
-	[0, 4],
-	[1, 4],
-	[2, 5],
-	[3, 6],
-	[4, 7],
-	[5, 8],
-	[6, 9],
-	[7, 10],
-	[8, 11],
-	[9, 12],
-	[10, 13],
+	[0, 3],
+	[1, 3],
+	[2, 4],
+	[3, 5],
+	[4, 6],
+	[5, 7],
+	[6, 8],
+	[7, 9],
+	[8, 10],
+	[9, 11],
+	[10, 12],
 	[15, 14],
 	[100, 14],
 ] as const) {
@@ -239,9 +239,9 @@ for (const [sessions, height] of [
 
 // A two-line row takes two terminal rows, so the same sessions need more.
 for (const [sessions, height] of [
-	[1, 5],
-	[3, 9],
-	[5, 13],
+	[1, 4],
+	[3, 8],
+	[5, 12],
 	[13, 14],
 ] as const) {
 	test(`list height for ${sessions} two-line sessions = ${height}`, t => {
@@ -250,15 +250,25 @@ for (const [sessions, height] of [
 }
 
 test('a stacked layout fits two-line rows for every session', t => {
-	t.is(calculateLayoutForSize(80, 52, 3, {}, 2).listHeight, 9);
+	t.is(calculateLayoutForSize(80, 52, 3, {}, 2).listHeight, 8);
 });
 
 test('a stacked rail on a short screen shows three one-line spaces or one two-line space', t => {
-	// 3 rows for the status line and frame.
-	t.is(calculateLayoutForSize(61, 28, 10, {}, 1).listHeight, 3 + 3);
-	// The ratio cap, floor(27 * 0.25), leaves room for more than one two-line row.
+	// The ratio cap, floor(27 * 0.25), leaves room for more than three one-line
+	// rows or one two-line row.
+	t.is(calculateLayoutForSize(61, 28, 10, {}, 1).listHeight, 6);
 	t.is(calculateLayoutForSize(61, 28, 10, {}, 2).listHeight, 6);
-	t.is(calculateLayoutForSize(61, 12, 10, {}, 2).listHeight, 2 + 3);
+	// 2 rows for the frame.
+	t.is(calculateLayoutForSize(61, 12, 10, {}, 2).listHeight, 2 + 2);
+});
+
+test('a phone with the keyboard up (76x24) still shows three spaces below the pinned main row, with no blank status row', t => {
+	// STA-3146: production passes one pinned row for main. A build without the
+	// floor gave the rail 5 rows here, so only one space showed.
+	// The frame takes 2 rows; the idle status row takes none.
+	const layout = calculateLayoutForSize(76, 24, 26, {}, 1, 1);
+	t.is(layout.listHeight, 1 + 3 + 2);
+	t.is(layout.agentHeight, 23 - 6);
 });
 
 // ============================================================================
@@ -306,7 +316,7 @@ test('width 200 → horizontal', t => {
 // ============================================================================
 
 test('vertical 40x15, 1 session', t => {
-	// 1 space shown at least: listHeight = 1 + 3 for the status and frame = 4, agentHeight = (15-1) - 4 = 10
+	// 1 space shown at least: listHeight = 1 + 2 for the frame = 3, agentHeight = (15-1) - 3 = 11
 	const layout = calculateLayoutForSize(40, 15, 1);
 	t.is(layout.direction, 'vertical');
 
@@ -317,8 +327,8 @@ test('vertical 40x15, 1 session', t => {
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 ────────────────────────────────────────
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -335,7 +345,7 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 });
 
 test('vertical 40x20, 2 sessions', t => {
-	// 2 spaces shown at least: listHeight = 2 + 3 for the status and frame = 5, agentHeight = (20-1) - 5 = 14
+	// 2 spaces shown at least: listHeight = 2 + 2 for the frame = 4, agentHeight = (20-1) - 4 = 15
 	const layout = calculateLayoutForSize(40, 20, 2);
 	t.is(layout.direction, 'vertical');
 
@@ -347,8 +357,8 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 ────────────────────────────────────────
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -369,7 +379,7 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 });
 
 test('vertical 60x20, 3 sessions', t => {
-	// 3 spaces shown at least: listHeight = 3 + 3 for the status and frame = 6, agentHeight = (20-1) - 6 = 13
+	// 3 spaces shown at least: listHeight = 3 + 2 for the frame = 5, agentHeight = (20-1) - 5 = 14
 	const layout = calculateLayoutForSize(60, 20, 3);
 	t.is(layout.direction, 'vertical');
 
@@ -377,7 +387,6 @@ test('vertical 60x20, 3 sessions', t => {
 		t,
 		layout,
 		`
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -397,13 +406,14 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 `,
 		'60x20 vertical, 3 sessions',
 	);
 });
 
 test('vertical 80x24, 3 sessions', t => {
-	// 3 spaces shown at least: listHeight = 3 + 3 for the status and frame = 6, agentHeight = (24-1) - 6 = 17
+	// 3 spaces shown at least: listHeight = 3 + 2 for the frame = 5, agentHeight = (24-1) - 5 = 18
 	const layout = calculateLayoutForSize(80, 24, 3);
 	t.is(layout.direction, 'vertical');
 
@@ -416,8 +426,8 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 ────────────────────────────────────────────────────────────────────────────────
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -441,7 +451,7 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 });
 
 test('vertical 80x24, 5 sessions', t => {
-	// 3 spaces shown at least: listHeight = 3 + 3 for the status and frame = 6, agentHeight = (24-1) - 6 = 17
+	// 3 spaces shown at least: listHeight = 3 + 2 for the frame = 5, agentHeight = (24-1) - 5 = 18
 	const layout = calculateLayoutForSize(80, 24, 5);
 	t.is(layout.direction, 'vertical');
 
@@ -454,8 +464,8 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 ────────────────────────────────────────────────────────────────────────────────
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -479,7 +489,7 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 });
 
 test('vertical 80x24, 10 sessions (ratio-capped)', t => {
-	// 3 spaces shown at least: listHeight = 3 + 3 for the status and frame = 6, agentHeight = (24-1) - 6 = 17
+	// 3 spaces shown at least: listHeight = 3 + 2 for the frame = 5, agentHeight = (24-1) - 5 = 18
 	const layout = calculateLayoutForSize(80, 24, 10);
 	t.is(layout.direction, 'vertical');
 
@@ -487,7 +497,6 @@ test('vertical 80x24, 10 sessions (ratio-capped)', t => {
 		t,
 		layout,
 		`
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -511,13 +520,14 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 `,
 		'80x24 vertical, 10 sessions',
 	);
 });
 
-test('vertical 80x28, 10 sessions (phone: three one-line spaces, Claude gets the rest)', t => {
-	// 3 spaces shown at least: listHeight = 3 + 3 for the status and frame = 6, agentHeight = (28-1) - 6 = 21
+test('vertical 80x28, 10 sessions (phone: the ratio cap shows four one-line spaces, Claude gets the rest)', t => {
+	// The ratio cap, floor(27 * 0.25) = 6, shows 4 spaces: listHeight = 4 + 2 for the frame = 6, agentHeight = (28-1) - 6 = 21
 	const layout = calculateLayoutForSize(80, 28, 10);
 	t.is(layout.direction, 'vertical');
 
@@ -559,7 +569,7 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 });
 
 test('vertical 80x40, 5 sessions (tall terminal)', t => {
-	// listHeight = 5 + 3 for the status and frame = 8, agentHeight = (40-1) - 8 = 31
+	// listHeight = 5 + 2 for the frame = 7, agentHeight = (40-1) - 7 = 32
 	const layout = calculateLayoutForSize(80, 40, 5);
 	t.is(layout.direction, 'vertical');
 
@@ -567,7 +577,6 @@ test('vertical 80x40, 5 sessions (tall terminal)', t => {
 		t,
 		layout,
 		`
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -607,13 +616,14 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 `,
 		'80x40 vertical, 5 sessions',
 	);
 });
 
 test('vertical 50x12, 0 sessions (minimal)', t => {
-	// 1 space shown at least: listHeight = 1 + 3 for the status and frame = 4, agentHeight = (12-1) - 4 = 7
+	// 1 space shown at least: listHeight = 1 + 2 for the frame = 3, agentHeight = (12-1) - 3 = 8
 	const layout = calculateLayoutForSize(50, 12, 0);
 	t.is(layout.direction, 'vertical');
 
@@ -624,8 +634,8 @@ test('vertical 50x12, 0 sessions (minimal)', t => {
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 ──────────────────────────────────────────────────
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -871,7 +881,7 @@ test('MacBook Pro 14" half-width: 80x45, 5 sessions', t => {
 	const layout = calculateLayoutForSize(80, 45, 5);
 	t.is(layout.direction, 'vertical');
 
-	// listHeight=9, agentHeight=35
+	// listHeight=7, agentHeight=37
 	assertViewport(
 		t,
 		layout,
@@ -883,8 +893,8 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 ──────────────────────────────────────────────────────────────────────────────
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -954,7 +964,7 @@ test('Phone SSH terminal: 40x20, 2 sessions', t => {
 	const layout = calculateLayoutForSize(40, 20, 2);
 	t.is(layout.direction, 'vertical');
 
-	// 2 spaces shown at least: listHeight = 2 + 3 for the status and frame = 5, agentHeight = (20-1) - 5 = 14
+	// 2 spaces shown at least: listHeight = 2 + 2 for the frame = 4, agentHeight = (20-1) - 4 = 15
 	assertViewport(
 		t,
 		layout,
@@ -963,8 +973,8 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
 ────────────────────────────────────────
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
@@ -1062,17 +1072,17 @@ test('vertical: session count changes list height', t => {
 	const few = calculateLayoutForSize(80, 30, 2);
 	const many = calculateLayoutForSize(80, 30, 10);
 
-	t.is(few.listHeight, 5); // 2+3
-	t.is(many.listHeight, 7); // 10+3 capped by ratio floor(29*0.25)=7
+	t.is(few.listHeight, 4); // 2+2
+	t.is(many.listHeight, 7); // 10+2 capped by ratio floor(29*0.25)=7
 
-	t.is(few.agentHeight, 24); // 29-5
+	t.is(few.agentHeight, 25); // 29-4
 	t.is(many.agentHeight, 22); // 29-7
 });
 
 test('a stacked rail keeps its minimum spaces below the pinned agent row', t => {
-	// Frame and status (3) + the sous-chef on one line + the minimum spaces.
-	t.is(calculateLayoutForSize(60, 12, 35, {}, 1, 1).listHeight, 3 + 1 + 3);
-	t.is(calculateLayoutForSize(60, 12, 35, {}, 2, 1).listHeight, 3 + 1 + 2);
+	// Frame (2) + the sous-chef on one line + the minimum spaces.
+	t.is(calculateLayoutForSize(60, 12, 35, {}, 1, 1).listHeight, 2 + 1 + 3);
+	t.is(calculateLayoutForSize(60, 12, 35, {}, 2, 1).listHeight, 2 + 1 + 2);
 	// Every space fits: no spare row for a second line the agent row never draws.
-	t.is(calculateLayoutForSize(60, 60, 1, {}, 2, 1).listHeight, 3 + 1 + 2);
+	t.is(calculateLayoutForSize(60, 60, 1, {}, 2, 1).listHeight, 2 + 1 + 2);
 });

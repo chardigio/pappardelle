@@ -749,6 +749,32 @@ test('the merged rail has one frame and one status or search row', t => {
 	);
 });
 
+test('the stacked rail gives its status row to the list when the row has nothing to show', t => {
+	// STA-3146: the workspace name and the count sit in the frame's border, so
+	// an idle status row was a blank row.
+	t.is(
+		railListRows({merged: true, paneRows: 7, bannerHeight: 0, statusRows: 0}),
+		5,
+	);
+	const rows = Array.from({length: 10}, () => ({height: 1, isSpace: true}));
+	const layout = {
+		merged: true,
+		rows,
+		cursorRow: 0,
+		paneRows: 6,
+		bannerHeight: 0,
+		agentRows: 0,
+		linesPerItem: 1 as const,
+	};
+	const idle = railWindow({...layout, statusShown: false});
+	t.false(idle.statusFits);
+	t.is(idle.listRows, 4);
+	// A message or the search row takes the row back.
+	const busy = railWindow(layout);
+	t.true(busy.statusFits);
+	t.is(busy.listRows, 3);
+});
+
 // ============================================================================
 // calculateRowWindow (grouped rail: one-line headers, 1- or 2-line spaces)
 // ============================================================================

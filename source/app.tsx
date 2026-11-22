@@ -2689,6 +2689,7 @@ export default function App({
 		bannerHeight,
 		agentRows: agentRowCount,
 		linesPerItem,
+		statusShown: !stackedLayout || isSearching || headerMessage !== '',
 	});
 	const visibleRows = split.spaces.slice(
 		scrollOffset,
@@ -2927,7 +2928,7 @@ export default function App({
 				isActive={isRailFocused}
 			>
 				{banner}
-				{statusRow}
+				{statusFits && statusRow}
 				{body}
 			</PaneFrame>
 		);

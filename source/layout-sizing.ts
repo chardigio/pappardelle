@@ -5,7 +5,7 @@
  * making them easy to unit test.
  */
 
-import {BOX_FRAME_ROWS, STATUS_ROWS} from './list-view-sizing.ts';
+import {BOX_FRAME_ROWS} from './list-view-sizing.ts';
 
 // ============================================================================
 // Layout Constants
@@ -24,9 +24,10 @@ export const MAX_COMPANION_WIDTH = 86; // 85 is the supposed breakpoint, but rou
 /** Height constraints for vertical layout (in rows) */
 export const MAX_LIST_HEIGHT = 14;
 export const DEFAULT_MIN_LIST_HEIGHT = 8;
-// The stacked rail is one box: its frame and its status row. The workspace name
-// sits in the frame's border.
-const STACKED_CHROME_ROWS = BOX_FRAME_ROWS + STATUS_ROWS;
+// The stacked rail is one box: its frame. The workspace name and the count sit
+// in the frame's border, so the status row shows only for a message or a
+// search, and then takes a list row for that time (STA-3146).
+const STACKED_CHROME_ROWS = BOX_FRAME_ROWS;
 
 /** Max fraction of usable height the list pane can take in vertical layout */
 export const MAX_LIST_HEIGHT_RATIO = 0.25;
@@ -153,7 +154,7 @@ function sessionRows(sessionCount: number, pinnedRows: number): number {
  *   the layout
  * @returns Ideal height in rows for the list pane
  *
- * The pane holds the status row, the agent rows and every session, all
+ * The pane holds the agent rows and every session, all
  * inside the rail's frame, then is clamped between min(ideal,
  * DEFAULT_MIN_LIST_HEIGHT) and MAX_LIST_HEIGHT.
  *

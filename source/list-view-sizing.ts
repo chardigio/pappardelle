@@ -57,10 +57,18 @@ export function railListRows(
 				statusRows: number;
 				agentRows: number;
 		  }
-		| {merged: true; paneRows: number; bannerHeight: number},
+		| {
+				merged: true;
+				paneRows: number;
+				bannerHeight: number;
+				statusRows?: number;
+		  },
 ): number {
 	return layout.merged
-		? layout.paneRows - BOX_FRAME_ROWS - layout.bannerHeight - STATUS_ROWS
+		? layout.paneRows -
+				BOX_FRAME_ROWS -
+				layout.bannerHeight -
+				(layout.statusRows ?? STATUS_ROWS)
 		: layout.paneRows -
 				2 * BOX_FRAME_ROWS -
 				layout.bannerHeight -
@@ -83,6 +91,12 @@ export function railWindow(layout: {
 	bannerHeight: number;
 	agentRows: number;
 	linesPerItem: LinesPerItem;
+	/**
+	 * Merged only: whether the status or search row has something to show.
+	 * The stacked rail drops an idle status row, because its frame already
+	 * carries the workspace name and the count (STA-3146).
+	 */
+	statusShown?: boolean;
 }): {
 	statusFits: boolean;
 	listRows: number;
@@ -108,11 +122,18 @@ export function railWindow(layout: {
 			}),
 		);
 
-	if (layout.merged)
+	if (layout.merged) {
+		const statusShown = layout.statusShown ?? true;
 		return windowFor(
-			true,
-			railListRows({merged: true, paneRows, bannerHeight}),
+			statusShown,
+			railListRows({
+				merged: true,
+				paneRows,
+				bannerHeight,
+				statusRows: statusShown ? STATUS_ROWS : 0,
+			}),
 		);
+	}
 	if (!statusLineFits(paneRows, bannerHeight, agentRows, layout.linesPerItem))
 		return splitWindow(false);
 	const kept = splitWindow(true);
