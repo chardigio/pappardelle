@@ -522,7 +522,7 @@ if [[ "$1" == "--agent-profile" ]]; then
     shift 2
 
     # Checked here rather than left to resolve-agent-config.sh, which only runs
-    # after the issue fetch and worktree setup. The binary prints the valid names.
+    # after the issue fetch and worktree setup.
     if ! pappardelle_state check-agent-profile --project-root "$REPO_ROOT" --main-root "$MAIN_REPO_ROOT" "$FORCED_AGENT_PROFILE"; then
         exit 1
     fi

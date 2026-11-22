@@ -73,7 +73,7 @@ export function runAgentProfileCommand(
 export function defaultAgentProfileCommandDeps(): AgentProfileCommandDeps {
 	return {
 		loadConfig,
-		loadSources: () => loadAgentProfileSources(),
+		loadSources: loadAgentProfileSources,
 		out: text => console.log(text),
 		err: text => console.error(text),
 	};
