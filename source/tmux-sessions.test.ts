@@ -1,80 +1,42 @@
 import {mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {sessionNamesFor, sessionPrefix} from './space-identity.ts';
 import test from 'ava';
-import {
-	getSessionNames,
-	extractIssueKeyFromSession,
-	getSessionPrefix,
-	pretrustDirectoryForClaude,
-	buildAgentResumeCommand,
-} from './tmux.ts';
+import {pretrustDirectoryForClaude, buildAgentResumeCommand} from './tmux.ts';
 import {
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	type ResolvedAgentProfile,
 } from './config.ts';
 
-// getSessionPrefix: returns repo-qualified prefix
-test('getSessionPrefix includes repo name for agent', t => {
-	const prefix = getSessionPrefix('agent', 'pappa-chex');
+// sessionPrefix: returns repo-qualified prefix
+test('sessionPrefix includes repo name for agent', t => {
+	const prefix = sessionPrefix('agent', 'pappa-chex');
 	t.is(prefix, 'agent-pappa-chex-');
 });
 
-test('getSessionPrefix includes repo name for companion', t => {
-	const prefix = getSessionPrefix('companion', 'pappa-chex');
+test('sessionPrefix includes repo name for companion', t => {
+	const prefix = sessionPrefix('companion', 'pappa-chex');
 	t.is(prefix, 'companion-pappa-chex-');
 });
 
 // getSessionNames: repo-qualified session names
 test('getSessionNames qualifies issue key with repo name', t => {
-	const names = getSessionNames('CHEX-313', 'pappa-chex');
+	const names = sessionNamesFor('CHEX-313', 'pappa-chex');
 	t.is(names.agent, 'agent-pappa-chex-CHEX-313');
 	t.is(names.companion, 'companion-pappa-chex-CHEX-313');
 });
 
 test('getSessionNames qualifies main branch with repo name', t => {
-	const names = getSessionNames('main', 'pappa-chex');
+	const names = sessionNamesFor('main', 'pappa-chex');
 	t.is(names.agent, 'agent-pappa-chex-main');
 	t.is(names.companion, 'companion-pappa-chex-main');
 });
 
 test('getSessionNames works with different repo names', t => {
-	const names = getSessionNames('STA-100', 'stardust-labs');
+	const names = sessionNamesFor('STA-100', 'stardust-labs');
 	t.is(names.agent, 'agent-stardust-labs-STA-100');
 	t.is(names.companion, 'companion-stardust-labs-STA-100');
-});
-
-// extractIssueKeyFromSession: strips repo-qualified prefix
-test('extractIssueKeyFromSession strips repo prefix from agent session', t => {
-	t.is(
-		extractIssueKeyFromSession('agent-pappa-chex-CHEX-313', 'pappa-chex'),
-		'CHEX-313',
-	);
-});
-
-test('extractIssueKeyFromSession strips repo prefix from main session', t => {
-	t.is(
-		extractIssueKeyFromSession('agent-pappa-chex-main', 'pappa-chex'),
-		'main',
-	);
-});
-
-test('extractIssueKeyFromSession returns null for non-matching session', t => {
-	t.is(
-		extractIssueKeyFromSession('agent-other-repo-STA-100', 'pappa-chex'),
-		null,
-	);
-});
-
-test('extractIssueKeyFromSession returns null for bare agent prefix', t => {
-	t.is(extractIssueKeyFromSession('agent-CHEX-313', 'pappa-chex'), null);
-});
-
-test('extractIssueKeyFromSession returns null for legacy claude prefix', t => {
-	t.is(
-		extractIssueKeyFromSession('claude-pappa-chex-CHEX-313', 'pappa-chex'),
-		null,
-	);
 });
 
 // pretrustDirectoryForClaude: workspace trust management
@@ -272,38 +234,33 @@ test('getSessionNames encodes the dot in a beads child ID', t => {
 	// tmux rewrites '.' to '_' in session names, so a raw name could never be
 	// found again by has-session, and a space that always looks absent gets
 	// respawned forever.
-	const names = getSessionNames('bd-a3f8e9.1', 'pappa');
+	const names = sessionNamesFor('bd-a3f8e9.1', 'pappa');
 	t.is(names.agent, 'agent-pappa-bd-a3f8e9_1');
 	t.is(names.companion, 'companion-pappa-bd-a3f8e9_1');
-});
-
-test('extractIssueKeyFromSession decodes a beads child ID', t => {
-	t.is(
-		extractIssueKeyFromSession('agent-pappa-bd-a3f8e9_1', 'pappa'),
-		'bd-a3f8e9.1',
-	);
 });
 
 test('session-name encoding survives an underscore in the key', t => {
 	// A beads prefix defaults to the repo directory name, so my_service-a1b2 is
 	// an ordinary ID. Decoding every '_' to '.' would hand back my.service-a1b2.
-	const {agent} = getSessionNames('my_service-a1b2', 'pappa');
+	const {agent} = sessionNamesFor('my_service-a1b2', 'pappa');
 	t.is(agent, 'agent-pappa-my__service-a1b2');
-	t.is(extractIssueKeyFromSession(agent, 'pappa'), 'my_service-a1b2');
 });
 
-test('session-name encoding round-trips every tracker key shape', t => {
-	for (const key of [
+test('every tracker key shape gets a session name of its own', t => {
+	// Two spaces sharing a name would share their sessions, and the identity
+	// store refuses the second.
+	const keys = [
 		'STA-123',
 		'bd-a1b2',
 		'bd-a3f8e9.1',
+		'bd-a3f8e9_1',
 		'bd-a3f8e9.1.2',
 		'my_service-a1b2',
+		'my.service-a1b2',
 		'my_service-a3f8e9.1',
-	]) {
-		const {agent} = getSessionNames(key, 'pappa');
-		t.is(extractIssueKeyFromSession(agent, 'pappa'), key);
-	}
+	];
+	const names = new Set(keys.map(key => sessionNamesFor(key, 'pappa').agent));
+	t.is(names.size, keys.length);
 });
 
 // buildAgentResumeCommand: non-claude agents

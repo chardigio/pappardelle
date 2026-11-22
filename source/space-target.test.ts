@@ -1,8 +1,8 @@
 import test from 'ava';
 import {
+	callerSpace,
 	NoTargetSpaceError,
 	resolveTargetSpace,
-	spaceFromWorktreePath,
 } from './space-target.ts';
 
 const resolve = (raw: string) => `resolved:${raw}`;
@@ -33,21 +33,42 @@ test('with neither, the caller is told it is not in a workspace', t => {
 	}
 });
 
-test('a directory in a worktree belongs to that space', t => {
-	const worktrees = '/home/u/.worktrees/repo';
-	t.is(spaceFromWorktreePath(`${worktrees}/STA-1`, '/home/u', 'repo'), 'STA-1');
-	t.is(
-		spaceFromWorktreePath(`${worktrees}/STA-1/packages/app`, '/home/u', 'repo'),
-		'STA-1',
+const checkout = {repoName: 'repo', mainRoot: '/w/repo'};
+
+/** Identities in which every path is in `key`'s worktree. */
+const allIn = (key: string) => () => ({
+	atPath: () => ({
+		kind: 'identity' as const,
+		identity: {
+			repo: 'repo',
+			key,
+			worktreePath: '/w',
+			tmux: {socket: 's', agentSession: 'a', companionSession: 'c'},
+		},
+	}),
+});
+
+test('PAPPARDELLE_SPACE names the space wherever the caller runs', t => {
+	t.deepEqual(
+		callerSpace({
+			env: {PAPPARDELLE_SPACE: 'STA-9'},
+			cwd: '/w',
+			checkout: {kind: 'checkout', checkout},
+			identities: allIn('STA-1'),
+		}),
+		{kind: 'env', key: 'STA-9'},
 	);
 });
 
-test('a directory outside the repo worktrees belongs to no space', t => {
-	for (const directory of [
-		'/home/u/.worktrees/repo',
-		'/home/u/.worktrees/repo-other/STA-1',
-		'/home/u/workspace/repo',
-	]) {
-		t.is(spaceFromWorktreePath(directory, '/home/u', 'repo'), undefined);
-	}
+test('outside a git checkout only PAPPARDELLE_SPACE names a space', t => {
+	const options = {
+		cwd: '/w',
+		checkout: {kind: 'not-in-a-repo'} as const,
+		identities: allIn('STA-1'),
+	};
+	t.deepEqual(callerSpace({...options, env: {}}), {kind: 'none'});
+	t.deepEqual(callerSpace({...options, env: {PAPPARDELLE_SPACE: 'STA-1'}}), {
+		kind: 'env',
+		key: 'STA-1',
+	});
 });

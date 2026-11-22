@@ -1,8 +1,17 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'ava';
+import {testState} from '../test/helpers/state.ts';
 import {
 	createIssueTracker,
 	createVcsHost,
+	recordIssueTitles,
 	resetProviders,
+	setIssueTitles,
+	setStateColors,
+	setWorkspaceDiscovery,
+	type IssueTrackerConfig,
+	type TrackerIssue,
 } from './providers/index.ts';
 import {claimIssue} from './tracker.ts';
 
@@ -192,6 +201,104 @@ test.serial('createIssueTracker allows same config on subsequent calls', t => {
 	const b = createIssueTracker({provider: 'linear'});
 	t.is(a, b);
 });
+
+// The rail follows a branch recorded by link-pr only through the discovery
+// that startup hands over, whichever host the config then selects.
+for (const provider of ['github', 'gitlab'] as const) {
+	test.serial(
+		`the ${provider} host finds workspace repositories with the discovery set at startup`,
+		async t => {
+			const asked: string[] = [];
+			setWorkspaceDiscovery(async directory => {
+				asked.push(directory);
+				return [];
+			});
+			await createVcsHost({provider}).getBulkRailStatus(
+				['KEY-1'],
+				new Map([['KEY-1', '/workspace']]),
+			);
+			t.deepEqual(asked, ['/workspace']);
+		},
+	);
+}
+
+// A tracker knows the color of a state no open issue is in only from the
+// colors kept between runs, which startup hands over the same way.
+for (const config of [
+	{provider: 'linear'},
+	{provider: 'jira', base_url: 'https://example.com'},
+	{provider: 'beads'},
+] satisfies IssueTrackerConfig[]) {
+	test.serial(
+		`the ${config.provider} tracker loads the state colors set at startup`,
+		t => {
+			setStateColors({
+				load: () => ({'Stored State': '#123456'}),
+				async set() {},
+			});
+			t.is(
+				createIssueTracker(config).getWorkflowStateColor('Stored State'),
+				'#123456',
+			);
+		},
+	);
+}
+
+// ============================================================================
+// Issue titles
+// ============================================================================
+
+const issue = (title: string): TrackerIssue => ({
+	identifier: 'STA-1',
+	title,
+	state: {name: 'Todo', type: 'unstarted', color: '#000000'},
+});
+
+// The rail reads every space's issue on each refresh, so an unchanged title
+// must not rewrite the space's state.
+test.serial(
+	'a title read from the tracker is stored when it changed, and a failed read stores nothing',
+	async t => {
+		let now = 0;
+		const {spaceState} = testState(t, {clock: () => new Date(now)}).daos;
+		setIssueTitles(spaceState);
+
+		await recordIssueTitles([
+			['STA-1', issue('First')],
+			['STA-2', null],
+		]);
+		const first = spaceState.read('STA-1');
+		t.is(first?.issueTitle, 'First');
+		t.is(spaceState.read('STA-2'), null);
+
+		now = 1000;
+		await recordIssueTitles([['STA-1', issue('First')]]);
+		await recordIssueTitles([['STA-1', null]]);
+		t.deepEqual(spaceState.read('STA-1'), first);
+
+		await recordIssueTitles([['STA-1', issue('Renamed')]]);
+		t.like(spaceState.read('STA-1'), {
+			issueTitle: 'Renamed',
+			updatedAt: new Date(1000).toISOString(),
+		});
+	},
+);
+
+test.serial(
+	'a title is not written over a state file that cannot be read',
+	async t => {
+		const {spaceState} = testState(t, {sqlite: false}).daos;
+		setIssueTitles(spaceState);
+		const file = spaceState.file('STA-1');
+		fs.mkdirSync(path.dirname(file), {recursive: true});
+		const halfWritten = '{"profile": "dev", "prLinks": [';
+		fs.writeFileSync(file, halfWritten);
+
+		await recordIssueTitles([['STA-1', issue('First')]]);
+
+		t.is(fs.readFileSync(file, 'utf8'), halfWritten);
+	},
+);
 
 // ============================================================================
 // resetProviders

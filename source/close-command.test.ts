@@ -5,6 +5,16 @@ import {
 	runCloseTeardown,
 } from './close-command.ts';
 import type {TrackerIssue} from './providers/types.ts';
+import {
+	killSpaceSessions,
+	spaceSessionNames,
+	type AsyncTmuxRunner,
+} from './tmux.ts';
+import {
+	recordIdentities,
+	testState,
+	testTmuxState,
+} from '../test/helpers/state.ts';
 
 const ISSUE: TrackerIssue = {
 	identifier: 'STA-1',
@@ -12,10 +22,31 @@ const ISSUE: TrackerIssue = {
 	state: {name: 'Done', type: 'completed', color: '#fff'},
 };
 
+function fakeRegistry(
+	open: string[],
+	events: string[] = [],
+): CloseCommandDeps['registry'] {
+	return {
+		keepsLifecycle: false,
+		phase: key =>
+			open.includes(key) ? {kind: 'phase', phase: 'open'} : {kind: 'unknown'},
+		async settle() {},
+		async markClosing(key) {
+			events.push(`closing ${key}`);
+		},
+		async reopen(key) {
+			events.push(`reopen ${key}`);
+		},
+		async remove(key) {
+			events.push(`unregister ${key}`);
+		},
+	};
+}
+
 function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 	const events: string[] = [];
 	const deps: CloseCommandDeps = {
-		registeredSpaces: () => ['STA-1', 'STA-2'],
+		registry: fakeRegistry(['STA-1', 'STA-2'], events),
 		async getIssue() {
 			return ISSUE;
 		},
@@ -30,9 +61,6 @@ function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 			events.push(`kill ${key}`);
 			return true;
 		},
-		async removeSpace(key) {
-			events.push(`unregister ${key}`);
-		},
 		async cleanup(key) {
 			events.push(`cleanup ${key}`);
 			return true;
@@ -40,9 +68,9 @@ function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 		sessionNames: key => ({
 			agent: `agent-repo-${key}`,
 			companion: `companion-repo-${key}`,
-			legacyAgent: `claude-repo-${key}`,
 		}),
 		currentInnerSession: () => null,
+		liveSessions: () => new Set(),
 		mainRepoRoot: '/repo',
 		spawnTeardown(key, cwd) {
 			events.push(`spawn ${key} ${cwd}`);
@@ -70,6 +98,7 @@ test('--yes runs hooks, then kills before unregistering', async t => {
 		'print Running pre_workspace_deinit hooks...',
 		'hooks STA-1 /wt/STA-1 STA-1',
 		'print Ending sessions...',
+		'closing STA-1',
 		'kill STA-1',
 		'unregister STA-1',
 		'cleanup STA-1',
@@ -79,7 +108,7 @@ test('--yes runs hooks, then kills before unregistering', async t => {
 test('an unregistered key or main closes nothing', async t => {
 	for (const key of ['STA-9', 'main']) {
 		const {deps, events} = fakeDeps({
-			registeredSpaces: () => ['STA-1', 'main'],
+			registry: fakeRegistry(['STA-1', 'main']),
 		});
 		t.is(await runCloseCommand({key, yes: true}, deps), 1);
 		t.deepEqual(events, [`print No open space ${key}`]);
@@ -188,19 +217,26 @@ test('teardown-only skips the prompt and hooks and logs failures', async t => {
 	});
 	t.is(await runCloseTeardown('STA-1', deps), 1);
 	t.deepEqual(events, [
+		'closing STA-1',
 		'kill STA-1',
+		'reopen STA-1',
 		'log Failed to end the tmux sessions for STA-1',
 	]);
 
 	const ok = fakeDeps();
 	t.is(await runCloseTeardown('STA-1', ok.deps), 0);
-	t.deepEqual(ok.events, ['kill STA-1', 'unregister STA-1', 'cleanup STA-1']);
+	t.deepEqual(ok.events, [
+		'closing STA-1',
+		'kill STA-1',
+		'unregister STA-1',
+		'cleanup STA-1',
+	]);
 });
 
 test('teardown-only refuses main and keys that are not open', async t => {
 	for (const key of ['main', 'STA-9']) {
 		const {deps, events} = fakeDeps({
-			registeredSpaces: () => ['STA-1', 'main'],
+			registry: fakeRegistry(['STA-1', 'main']),
 		});
 		t.is(await runCloseTeardown(key, deps), 1);
 		t.deepEqual(events, [`log No open space ${key}`]);
@@ -226,3 +262,170 @@ test('close waits for simulator cleanup before it returns', async t => {
 		t.is(events.at(-1), 'cleanup done STA-1');
 	}
 });
+
+const closes = [
+	async (deps: CloseCommandDeps) =>
+		runCloseCommand({key: 'STA-1', yes: true}, deps),
+	async (deps: CloseCommandDeps) => runCloseTeardown('STA-1', deps),
+];
+
+function busyRegistry(
+	failing: 'markClosing' | 'remove',
+	keepsLifecycle: boolean,
+	events: string[],
+): CloseCommandDeps['registry'] {
+	return {
+		...fakeRegistry(['STA-1'], events),
+		keepsLifecycle,
+		async [failing]() {
+			throw new Error('database is locked');
+		},
+	};
+}
+
+// idow opens it when setup finishes, which would undo the close.
+test('a space still being set up is not closed', async t => {
+	for (const close of closes) {
+		const events: string[] = [];
+		const {deps} = fakeDeps({
+			registry: {
+				...fakeRegistry([], events),
+				phase: () => ({kind: 'phase', phase: 'starting'}),
+			},
+		});
+		t.is(await close(deps), 1);
+		t.false(events.some(event => /^(closing|kill|unregister) /.test(event)));
+	}
+});
+
+// No pid is this high, so the owner reads as dead.
+const DEAD_PID = 2_147_483_646;
+
+test('a space whose setup died is closed when its sessions run, and is gone when they do not', async t => {
+	for (const running of [true, false]) {
+		const state = testState(t, {sqlite: true});
+		await recordIdentities(state, ['STA-1']);
+		await state.daos.registry.reserveStart('STA-1', DEAD_PID);
+		const {deps, events} = fakeDeps({
+			registry: state.daos.registry,
+			sessionNames: () => null,
+			liveSessions: () => new Set(running ? [`agent-${state.repo}-STA-1`] : []),
+		});
+		t.is(
+			await runCloseCommand({key: 'STA-1', yes: true}, deps),
+			running ? 0 : 1,
+		);
+		t.is(events.includes('kill STA-1'), running);
+		t.deepEqual(state.daos.registry.phase('STA-1'), {kind: 'unknown'});
+	}
+});
+
+test('a space still being set up by a live idow is not closed', async t => {
+	const state = testState(t, {sqlite: true});
+	await recordIdentities(state, ['STA-1']);
+	await state.daos.registry.reserveStart('STA-1', process.ppid);
+	const {deps, events} = fakeDeps({
+		registry: state.daos.registry,
+		liveSessions: () => new Set([`agent-${state.repo}-STA-1`]),
+	});
+	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 1);
+	t.false(events.includes('kill STA-1'));
+});
+
+test('a close that a lifecycle registry cannot record ends no sessions and says why', async t => {
+	for (const close of closes) {
+		const {deps, events} = fakeDeps();
+		deps.registry = busyRegistry('markClosing', true, events);
+		t.is(await close(deps), 1);
+		t.false(events.some(event => event.startsWith('kill')));
+		t.regex(
+			events.at(-1)!,
+			/^(print|log) Could not start closing STA-1: database is locked\. Its sessions were not ended and it is still open$/,
+		);
+	}
+});
+
+test('a space a lifecycle registry cannot remove is reported as closed but still registered', async t => {
+	for (const close of closes) {
+		const {deps, events} = fakeDeps();
+		deps.registry = busyRegistry('remove', true, events);
+		t.is(await close(deps), 1);
+		t.true(events.includes('kill STA-1'));
+		t.regex(
+			events.at(-1)!,
+			/^(print|log) Ended the sessions of STA-1, but could not remove it from the registry: database is locked\. Run close again to finish$/,
+		);
+	}
+});
+
+test('a registry without a lifecycle still fails a close with the error it threw', async t => {
+	for (const failing of ['markClosing', 'remove'] as const) {
+		for (const close of closes) {
+			const {deps, events} = fakeDeps();
+			deps.registry = busyRegistry(failing, false, events);
+			await t.throwsAsync(close(deps), {message: 'database is locked'});
+			t.false(events.some(event => event.includes('database is locked')));
+		}
+	}
+});
+
+// tmux.ts reads one set of stores for the whole process.
+test.serial(
+	'close kills the sessions stored for the space, and knows its own session by them',
+	async t => {
+		const state = testTmuxState(t, {sqlite: true});
+		await state.daos.spaceIdentities.record({
+			repo: state.repo,
+			key: 'STA-1',
+			worktreePath: '/wt/STA-1',
+			tmux: {
+				socket: 'pappardelle_inner',
+				agentSession: 'agent-hand-named',
+				companionSession: 'companion-hand-named',
+			},
+		});
+		const killed: string[] = [];
+		const run: AsyncTmuxRunner = async args => {
+			if (args.includes('kill-session')) killed.push(args.at(-1)!);
+			return '';
+		};
+
+		const {deps} = fakeDeps({
+			killSpaceSessions: async key => killSpaceSessions(key, {run}),
+			sessionNames: spaceSessionNames,
+		});
+		t.is(await runCloseTeardown('STA-1', deps), 0);
+		t.deepEqual(killed, [
+			'=companion-hand-named:',
+			'=agent-hand-named:',
+			'=claude-hand-named:',
+		]);
+
+		const inside = fakeDeps({
+			sessionNames: spaceSessionNames,
+			currentInnerSession: () => 'agent-hand-named',
+		});
+		t.is(await runCloseCommand({key: 'STA-1', yes: true}, inside.deps), 0);
+		t.true(inside.events.includes('spawn STA-1 /repo'));
+	},
+);
+
+// tmux.ts reads one set of stores for the whole process.
+test.serial(
+	'a space with no stored names closes with no sessions to end',
+	async t => {
+		testTmuxState(t, {sqlite: true});
+		const calls: string[][] = [];
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			return '';
+		};
+
+		const {deps, events} = fakeDeps({
+			killSpaceSessions: async key => killSpaceSessions(key, {run}),
+		});
+		t.is(await runCloseTeardown('STA-1', deps), 0);
+		t.deepEqual(calls, []);
+		t.true(events.includes('unregister STA-1'));
+	},
+);

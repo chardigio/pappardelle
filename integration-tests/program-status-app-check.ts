@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {homedir} from 'node:os';
-import {rmSync, writeFileSync} from 'node:fs';
+import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
@@ -11,14 +11,15 @@ import {
 	getResolvedWatchlists,
 	loadConfig,
 } from '../source/config.ts';
-import {setRegistryPath, resetRegistryPath} from '../source/space-registry.ts';
+import {getRegistryPathForRepo} from '../source/space-registry.ts';
+import {createStateDaos} from '../source/state-daos.ts';
 import {
 	createIssueTracker,
 	createVcsHost,
 	resetProviders,
 } from '../source/providers/index.ts';
-import {getSessionNames} from '../source/tmux.ts';
-import {attachStatusMonitor} from '../source/program-status-monitor.ts';
+import {sessionNamesFor} from '../source/space-identity.ts';
+import {initTmuxState} from '../source/tmux.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 import type {TrackerIssue} from '../source/providers/types.ts';
 
@@ -40,9 +41,18 @@ try {
 		0,
 		'Full app verification requires no automatic watchlists',
 	);
-	const registry = path.join(harness.root, 'open-spaces.json');
+	// The registry as a process without the database left it, read in
+	// whichever mode this run is in.
+	const stateDir = path.join(harness.root, 'state');
+	const registry = getRegistryPathForRepo(repo, stateDir);
+	mkdirSync(path.dirname(registry), {recursive: true});
 	writeFileSync(registry, JSON.stringify([key]));
-	setRegistryPath(registry);
+	const daos = createStateDaos({
+		repo,
+		stateDir,
+		sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+	});
+	initTmuxState(daos);
 	const issue: TrackerIssue = {
 		identifier: key,
 		title: 'Terminal status fixture',
@@ -60,7 +70,7 @@ try {
 		);
 	const vcs = createVcsHost();
 	vcs.getBulkRailStatus = async () => new Map();
-	const session = getSessionNames(key, repo).agent;
+	const session = sessionNamesFor(key, repo).agent;
 	await harness.tmux([
 		'new-session',
 		'-d',
@@ -71,10 +81,11 @@ try {
 		'/bin/bash',
 		'-l',
 	]);
-	await attachStatusMonitor(repo, key, session);
+	await daos.programStatus.attach(key, session);
 	await harness.fixture(session);
 	view = await render(
 		React.createElement(App, {
+			daos,
 			paneLayout: null,
 			commitSha: 'fixture',
 			installedVersion: null,
@@ -112,7 +123,6 @@ try {
 	throw error;
 } finally {
 	view?.unmount();
-	resetRegistryPath();
 	resetProviders();
 	process.chdir(originalDirectory);
 	await harness.cleanup(repo, key);

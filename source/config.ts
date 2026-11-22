@@ -403,6 +403,12 @@ export interface PappardelleConfig {
 	 */
 	workspace_aware_agents?: boolean;
 	/**
+	 * Opt-in features that are not yet the default. Read from the home config
+	 * only: the state database is shared by every repo, so a per-repo value
+	 * would split writers between it and the files.
+	 */
+	experimental?: {sqliteState?: boolean};
+	/**
 	 * Optional per-status color overrides for the ticket rail, keyed by issue
 	 * status name (case-insensitive, surrounding space ignored). A listed status
 	 * is painted with this color instead of the color the tracker reports, which
@@ -798,6 +804,8 @@ export function loadConfigFromPaths(opts: ConfigPaths): PappardelleConfig {
 	return buildConfigFromLayers(layers);
 }
 
+const HOME_CONFIG_LABEL = '~/.pappardelle/.pappardelle.yml';
+
 /** The three config files, lowest priority first; `path` is unset for a missing file. */
 export function configLayerFiles({
 	homeConfigDir,
@@ -824,7 +832,7 @@ export function configLayerFiles({
 		: undefined;
 	return [
 		{
-			label: '~/.pappardelle/.pappardelle.yml',
+			label: HOME_CONFIG_LABEL,
 			path: homePath && fs.existsSync(homePath) ? homePath : undefined,
 		},
 		{label: '.pappardelle.yml', path: resolveProjectFile('.pappardelle.yml')},
@@ -833,6 +841,39 @@ export function configLayerFiles({
 			path: resolveProjectFile('.pappardelle.local.yml'),
 		},
 	];
+}
+
+function sqliteStateOf(layer: Record<string, unknown> | null): unknown {
+	const experimental = layer?.['experimental'];
+	return experimental && typeof experimental === 'object'
+		? (experimental as Record<string, unknown>)['sqliteState']
+		: undefined;
+}
+
+/**
+ * Whether the home config turns on experimental.sqliteState. Only that file
+ * is read, so a project config that fails validation cannot change where
+ * state is kept.
+ */
+export function readHomeSqliteState(
+	homeConfigDir = getDefaultHomeConfigDir(),
+): boolean {
+	const file = path.join(homeConfigDir, '.pappardelle.yml');
+	try {
+		const content = fs.readFileSync(file, 'utf8');
+		return sqliteStateOf(parseConfigLayer(HOME_CONFIG_LABEL, content)) === true;
+	} catch (error) {
+		// A home config that cannot be read would otherwise move all state
+		// back to the files without a word.
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+			logger.warn(
+				`Could not read experimental.sqliteState from ${file}, so state is kept in files`,
+				error instanceof Error ? error : undefined,
+			);
+		}
+
+		return false;
+	}
 }
 
 /** Parse one config file's text; null when it holds no mapping. */
@@ -860,6 +901,18 @@ export function parseConfigLayer(
 		: null;
 }
 
+function misplacedSqliteStateErrors(
+	layers: Array<{label: string; layer: Record<string, unknown> | null}>,
+): string[] {
+	return layers
+		.slice(1)
+		.filter(({layer}) => sqliteStateOf(layer) !== undefined)
+		.map(
+			({label}) =>
+				`${label}: experimental.sqliteState can only be set in ${HOME_CONFIG_LABEL}, because every repo shares one state database`,
+		);
+}
+
 /**
  * Merge and validate parsed layers (lowest priority first, as
  * configLayerFiles lists them). The layers are modified in place.
@@ -878,6 +931,11 @@ export function buildConfigFromLayers(
 	);
 	if (conflictErrors.length > 0) {
 		throw new ConfigValidationError(conflictErrors);
+	}
+
+	const misplacedFlags = misplacedSqliteStateErrors(layers);
+	if (misplacedFlags.length > 0) {
+		throw new ConfigValidationError(misplacedFlags);
 	}
 
 	const agentProfiles = mergedAgentProfiles(layers.map(({layer}) => layer));
@@ -1224,6 +1282,20 @@ function readConfigLayers(
 }
 
 /**
+ * Reject `experimental.sqliteState` in project or local config without
+ * validating unrelated config sections, so CLI commands and the TUI still run
+ * while another section is being edited.
+ */
+export function validateHomeOnlySqliteState(
+	opts: ConfigPaths = defaultConfigPaths(),
+): void {
+	const errors = misplacedSqliteStateErrors(readConfigLayers(opts));
+	if (errors.length > 0) {
+		throw new ConfigValidationError(errors);
+	}
+}
+
+/**
  * Load just the provider configs (issue_tracker, vcs_host) from the merged
  * home -> project -> local layers, without validating the rest of the config
  * so providers can be initialized even when unrelated sections (e.g.
@@ -1501,6 +1573,23 @@ export function validateConfig(
 		typeof cfg['workspace_aware_agents'] !== 'boolean'
 	) {
 		errors.push('workspace_aware_agents: must be a boolean');
+	}
+
+	const {experimental} = cfg;
+	if (experimental !== undefined) {
+		if (
+			typeof experimental !== 'object' ||
+			experimental === null ||
+			Array.isArray(experimental)
+		) {
+			errors.push('experimental: must be an object');
+		} else if (
+			(experimental as Record<string, unknown>)['sqliteState'] !== undefined &&
+			typeof (experimental as Record<string, unknown>)['sqliteState'] !==
+				'boolean'
+		) {
+			errors.push('experimental.sqliteState: must be a boolean');
+		}
 	}
 
 	// Check list_view (optional; an absent layout defers to the tracker default)

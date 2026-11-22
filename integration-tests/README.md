@@ -16,6 +16,8 @@ bun integration-tests/verify-program-status-cleanup.ts
 
 The transport test exercises both launch paths on an isolated tmux socket, including read-only capability-query handling, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real `App` under OpenTUI, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and AVA component tests. It runs under a throwaway HOME, so your global `~/.pappardelle` config does not apply, and requires no automatic watchlists in the project and local configuration.
 
+Run them again with `PAPPARDELLE_SQLITE_STATE=1` to check the same behavior with state in SQLite and status sent through the status daemon. The harness keeps that database and the daemon's socket under its own temporary root, and fails a run that leaves a hook status file or a snapshot file.
+
 The lifecycle check covers pinned agent panes across window/split selection, event updates without tmux discovery, transient liveness failures, and lease revocation during an in-flight publication. The cleanup check drives actual CLI close, detached teardown, and orphan reaping, verifying that snapshots and leases are removed only for successfully closed workspaces. Both use isolated tmux servers and temporary status directories.
 
 `source/program-status-launch.test.ts` adds ten account-free checks through the production TUI and shell launchers. Real hook processes verify primary-session recording and nested-agent rejection for Claude and Codex profiles. Restricted pane PATHs verify agent startup, initial status capture, input, and shell return without Python, plus monitoring with the selected Node executable when PATH has no Node or a stale Node. With Python installed, both launchers also verify Pi's forced reporting environment and normal SIGPIPE behavior in shell pipelines. Build first; these checks run with the normal AVA suite when tmux is installed.
@@ -27,6 +29,14 @@ bun integration-tests/verify-rail-boxes.ts
 ```
 
 Mounts the real `App` with fixture issues and checks the rail's two boxes: the workspace name in the top border with the status row above the agents, the space count or range in the rail box's border (left out with no spaces), agent rows staying put while the list scrolls, and search merging both boxes into one flat list. Runs under a throwaway HOME like the app check.
+
+## Unreadable state database
+
+```bash
+bun integration-tests/verify-unreadable-state-app.ts
+```
+
+Mounts the real `App` with `experimental.sqliteState` stores over a `state.db` that is not a database, under a throwaway HOME and an isolated tmux socket. The rail has to draw, list no space it cannot read, report the failed read, and list the space once the file is replaced, without a restart.
 
 ## Popups
 
@@ -71,7 +81,7 @@ OpenCode's verifier checks native root and child reports, a real model reply, co
 
 Each scenario has a timeout. Claude uses hooks, while Pi, Codex, OpenCode, and agy use native reports; auth/error/child records and hard limits also use the synthetic fixture. [STE-37 acceptance results](STE-37-verification.md) record the observed native behavior and remaining capability-negotiation constraints.
 
-Status directory overrides are `PAPPARDELLE_STATUS_DIR` for hooks and `PAPPARDELLE_PROGRAM_STATUS_DIR` for native snapshots. `PAPPARDELLE_TMUX_SOCKET` selects the isolated server. `PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR` enables bounded, parsed-event traces for verification; screen output is never saved by the monitor. `PAPPARDELLE_CLAUDE_CONFIG_PATH` isolates launch-time trust writes in synthetic tests.
+Status directory overrides are `PAPPARDELLE_STATUS_DIR` for hooks and `PAPPARDELLE_PROGRAM_STATUS_DIR` for native snapshots. `PAPPARDELLE_STATUS_SOCKET` moves the status daemon's socket. `PAPPARDELLE_TMUX_SOCKET` selects the isolated server. `PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR` enables bounded, parsed-event traces for verification; screen output is never saved by the monitor. `PAPPARDELLE_CLAUDE_CONFIG_PATH` isolates launch-time trust writes in synthetic tests.
 
 ## Prerequisites
 

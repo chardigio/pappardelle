@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
+import {stripHostPappardelleEnv} from '../test/helpers/env.ts';
+import {killProcessesNaming} from '../test/helpers/processes.ts';
 
 const project = path.resolve(import.meta.dirname, '..');
 
@@ -47,7 +49,7 @@ test.serial(
 			JSON.stringify({checkedAt: Date.now(), latestVersion: 'v0.0.0'}),
 		);
 		const env = {
-			...process.env,
+			...stripHostPappardelleEnv(),
 			HOME: home,
 			PATH: bin,
 			SHELL: '/bin/sh',
@@ -64,6 +66,9 @@ test.serial(
 			});
 		t.teardown(() => {
 			spawnSync(tmux, ['-S', socket, 'kill-server'], {env, stdio: 'ignore'});
+			// With experimental.sqliteState on, the TUI started a status daemon
+			// that outlives it.
+			killProcessesNaming(path.join(home, '.pappardelle', 'status-1.sock'));
 			fs.rmSync(root, {
 				recursive: true,
 				force: true,
@@ -97,6 +102,8 @@ test.serial(
 				's',
 				malformedPane,
 				root,
+				'',
+				path.join(root, 'status-1.sock'),
 			],
 			{env, cwd: repo, encoding: 'utf8'},
 		);

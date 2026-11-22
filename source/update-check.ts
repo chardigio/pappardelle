@@ -142,10 +142,20 @@ export function resolveDisplayVersion(
 	return {version: null, isDev: false};
 }
 
-export function readCachedCheck(cachePath: string): CacheEntry | null {
+/** The last answer from the releases API, on this machine. */
+export interface UpdateCheckDao {
+	read(): CacheEntry | null;
+	/** Never rejects: a cache that cannot be written costs one more lookup. */
+	write(entry: CacheEntry): Promise<void>;
+}
+
+export function updateCheckPath(stateDir: string): string {
+	return path.join(stateDir, 'update-check.json');
+}
+
+export function parseCachedCheck(content: string): CacheEntry | null {
 	try {
-		const raw = readFileSync(cachePath, 'utf8');
-		const parsed = JSON.parse(raw) as Partial<CacheEntry>;
+		const parsed = JSON.parse(content) as Partial<CacheEntry>;
 		if (
 			typeof parsed.checkedAt === 'number' &&
 			typeof parsed.latestVersion === 'string'
@@ -158,14 +168,30 @@ export function readCachedCheck(cachePath: string): CacheEntry | null {
 	}
 }
 
-export function writeCachedCheck(cachePath: string, entry: CacheEntry): void {
-	try {
-		mkdirSync(path.dirname(cachePath), {recursive: true});
-		writeFileSync(cachePath, JSON.stringify(entry, null, 2));
-	} catch (err) {
-		log.warn(
-			`Failed to write update-check cache: ${err instanceof Error ? err.message : String(err)}`,
-		);
+export function renderCachedCheck(entry: CacheEntry): string {
+	return JSON.stringify(entry, null, 2);
+}
+
+export class JsonUpdateCheckDao implements UpdateCheckDao {
+	constructor(readonly file: string) {}
+
+	read(): CacheEntry | null {
+		try {
+			return parseCachedCheck(readFileSync(this.file, 'utf8'));
+		} catch {
+			return null;
+		}
+	}
+
+	async write(entry: CacheEntry): Promise<void> {
+		try {
+			mkdirSync(path.dirname(this.file), {recursive: true});
+			writeFileSync(this.file, renderCachedCheck(entry));
+		} catch (err) {
+			log.warn(
+				`Failed to write update-check cache: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
 	}
 }
 
@@ -226,7 +252,7 @@ async function fetchLatestVersion(): Promise<string | null> {
 
 export type CheckForUpdateOptions = {
 	projectDir: string;
-	cachePath?: string;
+	cache: UpdateCheckDao;
 	now?: number;
 	// Injectable for tests. Defaults to `fetchLatestVersion`, which hits
 	// api.github.com. Passing a stub here lets tests exercise the
@@ -263,20 +289,18 @@ export async function checkForUpdate(
 		return null;
 	}
 
-	const cachePath =
-		opts.cachePath ?? path.join(homedir(), '.pappardelle', 'update-check.json');
 	const now = opts.now ?? Date.now();
 
 	const fetchLatest = opts.fetchLatest ?? fetchLatestVersion;
 
 	let latestVersion: string | null = null;
-	const cached = readCachedCheck(cachePath);
+	const cached = opts.cache.read();
 	if (cached && now - cached.checkedAt < CACHE_TTL_MS) {
 		latestVersion = cached.latestVersion;
 	} else {
 		latestVersion = await fetchLatest();
 		if (latestVersion) {
-			writeCachedCheck(cachePath, {checkedAt: now, latestVersion});
+			await opts.cache.write({checkedAt: now, latestVersion});
 		}
 	}
 

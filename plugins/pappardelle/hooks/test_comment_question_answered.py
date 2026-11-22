@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from conftest import record_space
 
 _module_path = Path(__file__).parent / "comment-question-answered.py"
 _spec = importlib.util.spec_from_file_location("comment_question_answered", _module_path)
@@ -30,6 +31,11 @@ post_comment = mod.post_comment
 
 
 class TestGetIssueKey:
+    @pytest.fixture(autouse=True)
+    def _flag_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without the database the key is read from the worktree's path."""
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+
     def test_extracts_from_worktree_path(self):
         with patch("os.getcwd", return_value="/Users/x/.worktrees/repo/STA-123/src"):
             assert get_issue_key() == "STA-123"
@@ -42,6 +48,26 @@ class TestGetIssueKey:
         """Should return None when os.getcwd() raises (deleted worktree)."""
         with patch("os.getcwd", side_effect=FileNotFoundError):
             assert get_issue_key() is None
+
+
+class TestGetIssueKeyFromTheStore:
+    def test_the_key_is_the_stored_space_holding_the_cwd(self, state_db: Path, tmp_path: Path):
+        worktree = tmp_path / "checkouts" / "login"
+        (worktree / "src").mkdir(parents=True)
+        record_space(state_db, "repo", "STA-5", str(worktree))
+        record_space(state_db, "repo", "main", str(tmp_path / "main"))
+        (tmp_path / "main").mkdir()
+
+        def no_process(*args, **kwargs):
+            raise AssertionError("no git or bd: the store names the space")
+
+        with patch("subprocess.run", side_effect=no_process):
+            with patch("os.getcwd", return_value=str(worktree / "src")):
+                assert get_issue_key() == "STA-5"
+            with patch("os.getcwd", return_value=str(tmp_path / "main")):
+                assert get_issue_key() is None
+            with patch("os.getcwd", return_value=str(tmp_path)):
+                assert get_issue_key() is None
 
 
 class TestGetTrackerProvider:

@@ -3,6 +3,7 @@ import {setImmediate as nextTurn} from 'node:timers/promises';
 import {mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {sessionNamesFor} from './space-identity.ts';
 import test, {type ExecutionContext} from 'ava';
 import {LatestTask} from './latest-task.ts';
 import {
@@ -11,7 +12,7 @@ import {
 	getCurrentlyViewingSpace,
 	ensureAgentSession,
 	ensureCompanionSession,
-	getSessionNames,
+	initTmuxState,
 	killSpaceSessions,
 	registerAwaitingFrame,
 	type AsyncTmuxRunner,
@@ -21,15 +22,34 @@ import {
 	frameReadyChannel,
 	frameStartedChannel,
 } from './pane-frame-options.ts';
+import {getRepoName} from './config.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 import {shellQuote} from './shell-quote.ts';
 import {DEFAULT_RESOLVED_AGENT_PROFILE} from './config.ts';
-import {attachStatusMonitor} from './program-status-monitor.ts';
 import {
 	StartupTrace,
 	startupTrace,
 	type StartupRecord,
 } from './startup-trace.ts';
+import {
+	testState,
+	testTmuxState,
+	type TestState,
+} from '../test/helpers/state.ts';
+
+// A new agent session's launch is recorded in the stores.
+const stateTeardowns: Array<() => void> = [];
+let derived: TestState;
+test.before(() => {
+	// Without the database a space's sessions get the names idow gives them.
+	derived = testTmuxState(
+		{teardown: fn => stateTeardowns.push(fn)},
+		{repo: getRepoName(), sqlite: false},
+	);
+});
+test.after.always(() => {
+	for (const teardown of stateTeardowns) teardown();
+});
 
 // attachToSpace reads the .pappardelle.yml of the repository it runs in. The
 // monorepo's config sets `companion_command: ""`, which starts no companion
@@ -58,8 +78,7 @@ test.serial(
 		t.teardown(() => {
 			startupTrace.current = previous;
 		});
-		await attachStatusMonitor(
-			'fixture',
+		await testState(t).daos.programStatus.attach(
 			'background',
 			'agent-background',
 			'fixture',
@@ -660,6 +679,62 @@ test.serial(
 );
 
 test.serial(
+	'a switch and a session start use the names stored for the space',
+	async t => {
+		const stored = testState(t, {repo: getRepoName(), sqlite: true});
+		for (const key of ['TEST-A', 'TEST-HAND']) {
+			// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
+			await stored.daos.spaceIdentities.record({
+				repo: getRepoName(),
+				key,
+				worktreePath: '/tmp',
+				tmux: {
+					socket: 'pappardelle_inner',
+					agentSession: `hand-named-agent-${key}`,
+					companionSession: `hand-named-companion-${key}`,
+				},
+			});
+		}
+
+		initTmuxState(stored.daos);
+		t.teardown(() => {
+			initTmuxState(derived.daos);
+		});
+		const fake = fakeTmux();
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		});
+		fake.calls.length = 0;
+		t.true(
+			await attachToSpace('%1', '%2', 'TEST-HAND', '%0', undefined, undefined, {
+				run: fake.run,
+			}),
+		);
+		t.deepEqual(
+			splitBatch(fake.calls[0]!.slice(2))
+				.filter(command => command[0] === 'switch-client')
+				.map(command => command[4]),
+			['=hand-named-agent-TEST-HAND:', '=hand-named-companion-TEST-HAND:'],
+		);
+
+		const started: string[][] = [];
+		const run: AsyncTmuxRunner = async args => {
+			started.push(args);
+			if (args.includes('has-session')) throw new Error('no session');
+			return '';
+		};
+		t.true(await ensureCompanionSession('TEST-HAND', '/tmp', '', run));
+		t.true(await ensureAgentSession('TEST-HAND', '/tmp', false, run));
+		t.deepEqual(
+			started
+				.filter(args => args.includes('new-session'))
+				.map(args => args[args.indexOf('-s') + 1]),
+			['hand-named-companion-TEST-HAND', 'hand-named-agent-TEST-HAND'],
+		);
+	},
+);
+
+test.serial(
 	"a warm switch finds the space's splits in its own request's listing",
 	async t => {
 		const fake = fakeTmux();
@@ -796,7 +871,7 @@ test.serial(
 	'a missing companion session says the companion, not the agent, is not running',
 	async t => {
 		const fake = fakeTmux();
-		const {companion} = getSessionNames('TEST-C');
+		const {companion} = sessionNamesFor('TEST-C', getRepoName());
 		const run: AsyncTmuxRunner = async args => {
 			if (
 				(args.includes('has-session') || args.includes('new-session')) &&
@@ -1021,16 +1096,13 @@ test.serial(
 		);
 		t.true(calls[1]!.includes('PAPPARDELLE_SPACE=TEST-NEW'));
 		t.true(calls[1]!.includes('custom-ui'));
-		// An agent started by hand in the companion isn't the space's agent.
-		t.false(
-			calls[1]!.some(arg => arg.startsWith('PAPPARDELLE_AGENT_PROFILE=')),
-		);
 	},
 );
 
-// The agent's hook records its session id under these (plugins/pappardelle/hooks/agent_session.py).
+// The agent's hook records its session id under the stored agent profile
+// (plugins/pappardelle/hooks/agent_session.py), never one the session carries.
 test.serial(
-	'a new agent session tells the hook its agent profile, its kind and the agent-sessions file',
+	'a new agent session stores the agent profile it was started with',
 	async t => {
 		const calls: string[][] = [];
 		const run: AsyncTmuxRunner = async args => {
@@ -1048,16 +1120,43 @@ test.serial(
 				effort: '',
 			}),
 		);
+		t.deepEqual(derived.daos.spaceState.read('TEST-NEW')?.agentProfile, {
+			name: 'codex',
+			isClaude: false,
+		});
 		const created = calls.find(args => args.includes('new-session'))!;
-		t.true(created.includes('PAPPARDELLE_AGENT_PROFILE=codex'));
-		t.true(created.includes('PAPPARDELLE_AGENT_IS_CLAUDE=false'));
+		t.false(created.some(arg => arg.startsWith('PAPPARDELLE_AGENT_')));
+	},
+);
+
+test.serial(
+	'a new agent session starts when its agent profile cannot be stored',
+	async t => {
+		const {spaceState} = derived.daos;
+		const {write} = spaceState;
+		spaceState.write = async () => {
+			throw new Error('database is locked');
+		};
+		t.teardown(() => {
+			spaceState.write = write;
+		});
+		const calls: string[][] = [];
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			if (args.includes('has-session')) throw new Error('no session');
+			return '';
+		};
 		t.true(
-			created.some(
-				arg =>
-					arg.startsWith('PAPPARDELLE_AGENT_SESSIONS=') &&
-					arg.endsWith('/space-state/TEST-NEW.agent-sessions.json'),
-			),
+			await ensureAgentSession('TEST-NEW', '/tmp', false, run, {
+				name: 'codex',
+				command: 'codex',
+				args: '',
+				isClaude: false,
+				model: '',
+				effort: '',
+			}),
 		);
+		t.true(calls.some(args => args.includes('new-session')));
 	},
 );
 
@@ -1106,7 +1205,11 @@ test.serial(
 		t.true(await attach('TEST-WARM'));
 		const handed = calls.find(args => args.includes(FRAME_COMMAND_OPTION))!;
 		const program = handed[handed.indexOf(FRAME_COMMAND_OPTION) + 1]!;
-		t.true(program.includes(`=${getSessionNames('TEST-WARM').agent}:`));
+		t.true(
+			program.includes(
+				`=${sessionNamesFor('TEST-WARM', getRepoName()).agent}:`,
+			),
+		);
 		t.true(program.includes('agent · TEST-WARM'));
 		t.deepEqual(handed.slice(-3), ['wait-for', '-S', frameReadyChannel('%7')]);
 		t.false(calls.some(args => args.includes('respawn-pane')));

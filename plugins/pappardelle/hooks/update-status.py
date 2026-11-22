@@ -45,6 +45,29 @@ if _agent_session_spec and _agent_session_spec.loader:
 else:
     raise ImportError("Could not load agent_session")
 
+_state_db_module_path = Path(__file__).parent / "state_db.py"
+_state_db_spec = importlib.util.spec_from_file_location("state_db", _state_db_module_path)
+if _state_db_spec and _state_db_spec.loader:
+    _state_db_mod = importlib.util.module_from_spec(_state_db_spec)
+    _state_db_spec.loader.exec_module(_state_db_mod)
+    status_socket_path = _state_db_mod.status_socket_path
+    state_db_path = _state_db_mod.state_db_path
+    space_at_path = _state_db_mod.space_at_path
+else:
+    raise ImportError("Could not load state_db")
+
+
+def send_status(path: str, state: dict[str, Any]) -> bool:
+    """Send one hook event to the status daemon. True when it was sent."""
+    # A hook pays for the socket code only while experimental.sqliteState is on.
+    spec = importlib.util.spec_from_file_location("status_socket", Path(__file__).parent / "status_socket.py")
+    if not (spec and spec.loader):
+        raise ImportError("Could not load status_socket")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.send_status(path, state)
+
+
 # Debug mode - logs all hook events to a file
 # Set PAPPARDELLE_DEBUG=1 environment variable to enable logging
 DEBUG = os.environ.get("PAPPARDELLE_DEBUG", "0") == "1"
@@ -70,11 +93,16 @@ def _qualify(repo_name: str, name: str) -> str:
     return f"{repo_name}-{name}".replace("/", "-")
 
 
-def get_workspace_name(cwd: Optional[str] = None) -> str:
+def get_workspace_name(cwd: Optional[str] = None) -> Optional[str]:
     """The status file name: the space key, or the main checkout's branch,
     qualified by repo. Two repos can have spaces with the same key, and all of
     them write to one status directory. Mirrors hookStatusKey() in
-    source/claude-status.ts."""
+    source/claude-status.ts.
+
+    With experimental.sqliteState on, the space is the stored one whose
+    worktree holds cwd, and main reports under its key like any space. None
+    when no stored space holds cwd: nothing reads a status from outside one.
+    """
     # The session's repo, set by start-agent-session.sh and the TUI. It is the
     # name the TUI reads under, which the cwd-derived name can differ from.
     repo = os.environ.get("PAPPARDELLE_REPO", "").strip()
@@ -84,11 +112,17 @@ def get_workspace_name(cwd: Optional[str] = None) -> str:
     space = os.environ.get("PAPPARDELLE_SPACE", "").strip()
     if space:
         return _qualify(repo, space) if repo else space
+    db_path = state_db_path()
     if cwd is None:
         try:
             cwd = os.getcwd()
         except OSError:
-            return "unknown"
+            # A deleted worktree. With the database a status needs a stored
+            # space to go under, and this directory is in none.
+            return None if db_path is not None else "unknown"
+    if db_path is not None:
+        row = space_at_path(db_path, cwd)
+        return _qualify(row.repo, row.key) if row else None
     # Expected path: ~/.worktrees/stardust-labs/STA-123/...
     issue_key = find_issue_key(cwd)
     if issue_key:
@@ -150,10 +184,9 @@ def update_status(
     cwd: Optional[str] = None,
 ) -> None:
     workspace = get_workspace_name(cwd)
-    status_dir = get_status_dir()
-    status_dir.mkdir(parents=True, exist_ok=True)
-
-    status_file = status_dir / f"{workspace}.json"
+    if workspace is None:
+        return
+    status_file = get_status_dir() / f"{workspace}.json"
 
     state: dict[str, Any] = {
         "sessionId": session_id or os.environ.get("CLAUDE_SESSION_ID", "unknown"),
@@ -169,12 +202,23 @@ def update_status(
     if cwd:
         state["cwd"] = cwd
 
+    socket_path = status_socket_path()
+    if socket_path is None:
+        write_status_file(status_file, state)
+    elif send_status(socket_path, state):
+        # A file from before the flag was turned on. Left in place, it is
+        # what this space would show once the flag is turned off again.
+        status_file.unlink(missing_ok=True)
+
+
+def write_status_file(status_file: Path, state: dict[str, Any]) -> None:
+    status_file.parent.mkdir(parents=True, exist_ok=True)
     # Atomic write: write to a sibling temp file then rename. POSIX rename is
     # atomic, so a concurrent reader always sees either the previous complete
     # file or the new complete file — never a truncated one. If the write
     # raises (disk full, permission denied) before the rename, clean up the
     # orphan so the status dir doesn't accumulate junk across crashes.
-    tmp_file = status_dir / f"{workspace}.json.tmp.{os.getpid()}"
+    tmp_file = status_file.parent / f"{status_file.name}.tmp.{os.getpid()}"
     try:
         with open(tmp_file, "w") as f:
             json.dump(state, f, indent=2)

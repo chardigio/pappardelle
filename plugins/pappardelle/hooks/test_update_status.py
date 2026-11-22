@@ -9,12 +9,16 @@ Run with: uv run pytest plugins/pappardelle/hooks/test_update_status.py -v
 # Import the module under test (has hyphen in filename, so use importlib)
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Optional
 from unittest.mock import patch
 
 import pytest
+from conftest import SQLITE_RUN, StatusSocket, record_space
 
 _module_path = Path(__file__).parent / "update-status.py"
 _spec = importlib.util.spec_from_file_location("update_status", _module_path)
@@ -28,7 +32,30 @@ get_workspace_name = update_status_module.get_workspace_name
 update_status = update_status_module.update_status
 get_status_dir = update_status_module.get_status_dir
 
+SPACE_999 = "/Users/charlie/.worktrees/stardust-labs/STA-999"
+# With the flag on a status is named by the stored space, always repo-qualified.
+STATUS_999 = "stardust-labs-STA-999" if SQLITE_RUN else "STA-999"
 
+
+def _status_file(status_dir: Path, status_key: str) -> Optional[dict[str, Any]]:
+    file = status_dir / f"{status_key}.json"
+    return json.loads(file.read_text()) if file.exists() else None
+
+
+@pytest.fixture
+def flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The space comes from the cwd's path, as it does without the database."""
+    monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+
+
+@pytest.fixture
+def space_999(request: pytest.FixtureRequest) -> None:
+    """STA-999 as idow records it, where the run keeps state in the database."""
+    if SQLITE_RUN:
+        record_space(request.getfixturevalue("state_db"), "stardust-labs", "STA-999", SPACE_999)
+
+
+@pytest.mark.usefixtures("flag_off")
 class TestGetWorkspaceName:
     """Tests for workspace name extraction from cwd."""
 
@@ -157,7 +184,7 @@ class TestGetWorkspaceName:
             assert get_workspace_name() == "main"
 
     def test_main_worktree_status_writes_to_repo_qualified_file(self, tmp_path):
-        """When in main worktree, status file should use repo-qualified name (e.g., stardust-labs-master.json)."""
+        """When in main worktree, status should use the repo-qualified name (e.g., stardust-labs-master)."""
         from io import StringIO
 
         import update_status as us
@@ -191,19 +218,16 @@ class TestGetWorkspaceName:
             finally:
                 sys.argv = original_argv
 
-        # Should write to stardust-labs-master.json (repo-qualified), NOT master.json
-        status_file = tmp_path / "stardust-labs-master.json"
-        assert status_file.exists(), "Status should be written to stardust-labs-master.json for main worktree"
-        result = json.loads(status_file.read_text())
+        # Should report under stardust-labs-master (repo-qualified), NOT master
+        result = _status_file(tmp_path, "stardust-labs-master")
+        assert result is not None, "Status should be reported under stardust-labs-master for main worktree"
         assert result["workspaceName"] == "stardust-labs-master"
         assert result["status"] == "waiting_for_input"
 
-        # Should NOT write to bare branch name
-        bare_file = tmp_path / "master.json"
-        assert not bare_file.exists(), "Should NOT write to bare master.json (would collide across repos)"
+        # Should NOT report under the bare branch name
+        assert _status_file(tmp_path, "master") is None, "Should NOT report under master (would collide across repos)"
 
-        unknown_file = tmp_path / "unknown.json"
-        assert not unknown_file.exists(), "Should NOT write to unknown.json when branch is detected"
+        assert _status_file(tmp_path, "unknown") is None, "Should NOT report under unknown when branch is detected"
 
     def test_recovers_beads_key_from_a_worktree_with_no_config_of_its_own(self, tmp_path):
         """A beads worktree resolves its key through the main checkout's config.
@@ -249,12 +273,17 @@ class TestGetWorkspaceName:
         assert seen == ["/Users/charlie/cs/myproj", "/Users/charlie/cs/myproj"]
 
 
+@pytest.mark.usefixtures("space_999")
 class TestStatusDetermination:
     """Tests for determining status from hook events.
 
     Follows Claude Island's event-forward model where every event updates state
     uniformly without tool-specific special-casing.
     """
+
+    @pytest.fixture(autouse=True)
+    def _read_status(self, read_status):
+        self.read_status = read_status
 
     def _create_hook_input(
         self,
@@ -277,7 +306,7 @@ class TestStatusDetermination:
         return data
 
     def _run_hook_with_input(self, input_data: dict, temp_dir: Path) -> Optional[dict]:
-        """Run the hook logic and return the written status file contents."""
+        """Run the hook logic and return the status it reported."""
         from io import StringIO
 
         import update_status as us
@@ -303,11 +332,7 @@ class TestStatusDetermination:
             finally:
                 sys.argv = original_argv
 
-        # Read the status file
-        status_file = temp_dir / "STA-999.json"
-        if status_file.exists():
-            return json.loads(status_file.read_text())
-        return None
+        return self.read_status(temp_dir, STATUS_999)
 
     # =========================================================================
     # Processing / Tool Use Tests
@@ -519,10 +544,11 @@ class TestStatusDetermination:
         assert result is None
 
 
+@pytest.mark.usefixtures("space_999")
 class TestCommandLineArgs:
     """Tests for command line argument handling."""
 
-    def test_explicit_status_arg_overrides_hook_event(self, tmp_path):
+    def test_explicit_status_arg_overrides_hook_event(self, tmp_path, read_status):
         """Command line status arg should be used directly."""
         from io import StringIO
 
@@ -546,12 +572,11 @@ class TestCommandLineArgs:
             finally:
                 sys.argv = original_argv
 
-        status_file = tmp_path / "STA-999.json"
-        result = json.loads(status_file.read_text())
+        result = read_status(tmp_path, STATUS_999)
         assert result["status"] == "waiting_for_input"
 
-    def test_tool_arg_is_stored(self, tmp_path):
-        """--tool argument should be stored in status file."""
+    def test_tool_arg_is_stored(self, tmp_path, read_status):
+        """--tool argument should be stored in the status."""
         from io import StringIO
 
         import update_status as us
@@ -574,8 +599,7 @@ class TestCommandLineArgs:
             finally:
                 sys.argv = original_argv
 
-        status_file = tmp_path / "STA-999.json"
-        result = json.loads(status_file.read_text())
+        result = read_status(tmp_path, STATUS_999)
         assert result["status"] == "running_tool"
         assert result.get("currentTool") == "Bash"
 
@@ -589,6 +613,11 @@ class TestAtomicWrite:
     sibling ``*.tmp.<pid>`` file and ``os.replace``s it onto the target, so the
     target's directory entry always points at a complete file.
     """
+
+    @pytest.fixture(autouse=True)
+    def _status_files(self, monkeypatch):
+        # The hook writes a status file only while the flag is off.
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
 
     def test_rewrite_swaps_inode_via_atomic_rename(self, tmp_path):
         """Two sequential writes must land on distinct inodes.
@@ -681,6 +710,7 @@ def _no_space_env(monkeypatch):
     monkeypatch.delenv("PAPPARDELLE_REPO", raising=False)
 
 
+@pytest.mark.usefixtures("flag_off")
 class TestSpaceEnvironment:
     def test_space_env_wins_over_worktree_path(self, monkeypatch):
         monkeypatch.setenv("PAPPARDELLE_SPACE", "STA-42")
@@ -733,11 +763,13 @@ class TestRepoEnvironment:
         monkeypatch.setenv("PAPPARDELLE_REPO", "repo-b")
         assert get_workspace_name() == "repo-b-QA-2"
 
+    @pytest.mark.usefixtures("flag_off")
     def test_repo_qualifies_an_issue_key_from_the_worktree_path(self, monkeypatch):
         monkeypatch.setenv("PAPPARDELLE_REPO", "repo-a")
         with patch("os.getcwd", return_value="/Users/x/.worktrees/repo-a/STA-7"):
             assert get_workspace_name() == "repo-a-STA-7"
 
+    @pytest.mark.usefixtures("flag_off")
     def test_repo_qualifies_the_main_branch_over_the_toplevel_name(self, monkeypatch):
         """The TUI names the repo after the main checkout's git dir, which the
         session env carries; the toplevel basename can differ."""
@@ -756,12 +788,261 @@ class TestRepoEnvironment:
         ):
             assert get_workspace_name() == "repo-a-main"
 
-    def test_two_repos_with_the_same_space_key_write_separate_files(self, monkeypatch, tmp_path):
+    def test_two_repos_with_the_same_space_key_report_separately(self, monkeypatch, tmp_path, read_status):
         monkeypatch.setenv("PAPPARDELLE_STATUS_DIR", str(tmp_path))
         monkeypatch.setenv("PAPPARDELLE_SPACE", "QA-2")
         monkeypatch.setenv("PAPPARDELLE_REPO", "repo-a")
         update_status_module.update_status("processing")
         monkeypatch.setenv("PAPPARDELLE_REPO", "repo-b")
         update_status_module.update_status("waiting_for_approval")
-        assert json.loads((tmp_path / "repo-a-QA-2.json").read_text())["status"] == "processing"
-        assert json.loads((tmp_path / "repo-b-QA-2.json").read_text())["status"] == "waiting_for_approval"
+        assert read_status(tmp_path, "repo-a-QA-2")["status"] == "processing"
+        assert read_status(tmp_path, "repo-b-QA-2")["status"] == "waiting_for_approval"
+
+
+# ============================================================================
+# experimental.sqliteState: the space is the stored one holding the cwd
+# ============================================================================
+
+
+class TestStoredSpace:
+    @pytest.fixture(autouse=True)
+    def _no_process(self):
+        """The store names the space, so no git or bd runs for it."""
+
+        def refuse(*args, **kwargs):
+            raise AssertionError(f"no process may run: {args}")
+
+        with patch("subprocess.run", side_effect=refuse):
+            yield
+
+    @pytest.fixture
+    def worktree(self, tmp_path: Path, state_db: Path) -> Path:
+        worktree = tmp_path / "checkouts" / "login"
+        (worktree / "src").mkdir(parents=True)
+        record_space(state_db, "repo", "STA-5", str(worktree))
+        return worktree
+
+    def test_a_worktree_subdirectory_reports_under_the_stored_space(self, worktree: Path, status_socket):
+        update_status("processing", cwd=str(worktree / "src"))
+        assert [message["state"]["workspaceName"] for message in status_socket.messages()] == ["repo-STA-5"]
+
+    def test_a_symlinked_cwd_reports_under_the_space_it_leads_to(
+        self, worktree: Path, tmp_path: Path, status_socket
+    ):
+        link = tmp_path / "link"
+        link.symlink_to(worktree / "src")
+        update_status("processing", cwd=str(link))
+        assert [message["state"]["workspaceName"] for message in status_socket.messages()] == ["repo-STA-5"]
+
+    def test_main_reports_under_its_key_whatever_the_branch(self, tmp_path: Path, state_db: Path, status_socket):
+        main = tmp_path / "main"
+        (main / "src").mkdir(parents=True)
+        record_space(state_db, "repo", "main", str(main))
+        update_status("processing", cwd=str(main / "src"))
+        assert [message["state"]["workspaceName"] for message in status_socket.messages()] == ["repo-main"]
+
+    def test_a_checkout_nested_in_main_is_not_main(self, tmp_path: Path, state_db: Path, status_socket):
+        main = tmp_path / "main"
+        nested = main / ".claude" / "worktrees" / "agent-x"
+        (nested / "src").mkdir(parents=True)
+        (nested / ".git").write_text("gitdir: elsewhere\n")
+        record_space(state_db, "repo", "main", str(main))
+        update_status("processing", cwd=str(nested / "src"))
+        assert status_socket.messages() == []
+
+    def test_a_closed_space_holds_no_caller(self, tmp_path: Path, state_db: Path, status_socket):
+        import sqlite3
+
+        worktree = tmp_path / "closed"
+        worktree.mkdir()
+        record_space(state_db, "repo", "STA-6", str(worktree))
+        connection = sqlite3.connect(state_db)
+        connection.execute("DELETE FROM spaces WHERE key = 'STA-6'")
+        connection.commit()
+        connection.close()
+        update_status("processing", cwd=str(worktree))
+        assert status_socket.messages() == []
+
+    def test_a_deleted_cwd_reports_nothing(self, worktree: Path, status_socket):
+        with patch("os.getcwd", side_effect=FileNotFoundError):
+            update_status("processing")
+        assert status_socket.messages() == []
+
+    def test_a_cwd_in_no_stored_space_reports_nothing(
+        self, worktree: Path, tmp_path: Path, status_socket, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("PAPPARDELLE_STATUS_DIR", str(tmp_path / "status"))
+        update_status("processing", cwd=str(tmp_path))
+        assert status_socket.messages() == []
+        assert not (tmp_path / "status").exists()
+
+
+# ============================================================================
+# experimental.sqliteState: status goes to the status daemon, not to a file
+# ============================================================================
+
+
+def _run_hook(event: dict[str, Any], env: dict[str, str]) -> subprocess.CompletedProcess:
+    """The hook as Claude runs it, and whether it loaded the modules that only
+    the flag-on paths need."""
+    return subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import runpy, sys\n"
+            "try:\n"
+            f"    runpy.run_path({str(_module_path)!r}, run_name='__main__')\n"
+            "except SystemExit as stop:\n"
+            "    code = stop.code\n"
+            "print(code, 'sqlite3' in sys.modules, 'socket' in sys.modules)",
+        ],
+        input=json.dumps(event),
+        # Nothing of the session these tests run in: its variables name
+        # the developer's own state files.
+        env={"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], **env},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+class TestStatusDaemon:
+    CWD = "/Users/charlie/.worktrees/stardust-labs/STA-9200"
+
+    @pytest.fixture
+    def status_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        status_dir = tmp_path / "status"
+        monkeypatch.setenv("PAPPARDELLE_STATUS_DIR", str(status_dir))
+        return status_dir
+
+    @pytest.fixture
+    def flag_on(self, state_db: Path) -> None:
+        record_space(state_db, "stardust-labs", "STA-9200", self.CWD)
+
+    def test_flag_on_sends_one_line_and_writes_no_file(self, flag_on: None, status_socket, status_dir: Path):
+        update_status("running_tool", "Bash", "sess-1", "PreToolUse", self.CWD)
+
+        (message,) = status_socket.messages()
+        last_update = message["state"]["lastUpdate"]
+        assert isinstance(last_update, int)
+        assert message == {
+            "type": "hook",
+            "state": {
+                "sessionId": "sess-1",
+                "workspaceName": "stardust-labs-STA-9200",
+                "status": "running_tool",
+                "lastUpdate": last_update,
+                "currentTool": "Bash",
+                "event": "PreToolUse",
+                "cwd": self.CWD,
+            },
+        }
+        assert not status_dir.exists()
+
+    def test_flag_on_a_later_event_leaves_out_what_it_does_not_report(
+        self, flag_on: None, status_socket, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("PAPPARDELLE_REPO", "repo")
+        monkeypatch.setenv("PAPPARDELLE_SPACE", "QA-1")
+        update_status("running_tool", "Bash", "sess-1", "PreToolUse", self.CWD)
+        update_status("waiting_for_input", session_id="sess-1")
+
+        later = status_socket.messages()[1]["state"]
+        assert later == {
+            "sessionId": "sess-1",
+            "workspaceName": "repo-QA-1",
+            "status": "waiting_for_input",
+            "lastUpdate": later["lastUpdate"],
+        }
+
+    def test_flag_on_a_sent_status_removes_the_file_from_before_the_flag(
+        self, status_socket, status_dir: Path, state_db: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        record_space(state_db, "stardust-labs", "STA-9200", self.CWD)
+        monkeypatch.setenv("PAPPARDELLE_REPO", "stardust-labs")
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+        update_status("processing", cwd=self.CWD)
+        update_status("processing", cwd="/Users/charlie/.worktrees/stardust-labs/STA-9201")
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "1")
+
+        update_status("waiting_for_input", cwd=self.CWD)
+
+        assert [message["state"]["status"] for message in status_socket.messages()] == ["waiting_for_input"]
+        assert sorted(file.name for file in status_dir.iterdir()) == ["stardust-labs-STA-9201.json"]
+
+    def test_flag_on_with_nothing_listening_the_event_is_dropped_and_the_file_stays(
+        self, status_socket, status_dir: Path, tmp_path: Path, state_db: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        record_space(state_db, "stardust-labs", "STA-9200", self.CWD)
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+        update_status("processing", cwd=self.CWD)
+        before = (status_dir / "STA-9200.json").read_text()
+        status_socket.close()
+        home = tmp_path / "home"
+        home.mkdir()
+
+        result = _run_hook(
+            {"hook_event_name": "Stop", "session_id": "sess-1", "cwd": self.CWD},
+            {
+                "HOME": str(home),
+                "PAPPARDELLE_STATUS_DIR": str(status_dir),
+                "PAPPARDELLE_SQLITE_STATE": "1",
+                "PAPPARDELLE_STATE_DB": str(state_db),
+                "PAPPARDELLE_STATUS_SOCKET": str(status_socket.path),
+            },
+        )
+
+        assert result.stdout.split()[0] == "0"
+        assert result.stderr == ""
+        assert (status_dir / "STA-9200.json").read_text() == before
+        assert [file.name for file in status_dir.iterdir()] == ["STA-9200.json"]
+        # Not logged either: no daemon runs whenever Pappardelle is closed.
+        assert list(home.iterdir()) == []
+
+    def test_flag_on_with_nothing_listening_and_no_file_nothing_is_written(
+        self, flag_on: None, status_dir: Path, short_tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("PAPPARDELLE_STATUS_SOCKET", str(short_tmp_path / "status-1.sock"))
+
+        update_status("processing", cwd=self.CWD)
+
+        assert not status_dir.exists()
+        assert list(short_tmp_path.iterdir()) == []
+
+    def test_the_socket_is_beside_a_database_that_was_moved(
+        self, short_tmp_path: Path, status_dir: Path, migrated_db: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        beside_the_database = StatusSocket(short_tmp_path / "status-1.sock")
+        moved = short_tmp_path / "state.db"
+        shutil.copy(migrated_db, moved)
+        record_space(moved, "stardust-labs", "STA-9200", self.CWD)
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "1")
+        monkeypatch.setenv("PAPPARDELLE_STATE_DB", str(moved))
+        try:
+            update_status("processing", cwd=self.CWD)
+
+            assert [message["state"]["workspaceName"] for message in beside_the_database.messages()] == [
+                "stardust-labs-STA-9200"
+            ]
+        finally:
+            beside_the_database.close()
+
+    def test_flag_off_writes_the_file_and_sends_nothing(
+        self, status_socket, status_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
+        update_status("processing", cwd=self.CWD)
+
+        assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "processing"
+        assert status_socket.messages() == []
+
+    def test_flag_off_loads_neither_sqlite_nor_socket(self, status_dir: Path):
+        """The hook runs on every agent event. With the flag off it must cost
+        what it did before the database and the daemon existed."""
+        result = _run_hook(
+            {"hook_event_name": "Stop", "session_id": "sess-1", "cwd": self.CWD},
+            {"PAPPARDELLE_STATUS_DIR": str(status_dir), "PAPPARDELLE_SQLITE_STATE": "0"},
+        )
+
+        assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "waiting_for_input"
+        assert result.stdout.split() == ["0", "False", "False"]

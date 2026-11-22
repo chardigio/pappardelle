@@ -14,7 +14,7 @@ import {spawnQuietCommand} from './quiet-command.ts';
 import {once} from 'node:events';
 import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
-import {WorkspaceRefresh, compareSpaceNames} from './workspace-refresh.ts';
+import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {scriptsDir, cliFilePath} from './runtime.ts';
 import fs from 'node:fs';
@@ -35,11 +35,7 @@ import {
 	installedLaunchCommand,
 	restartOwnTui,
 } from './tui-sessions.ts';
-import {
-	DEFAULT_REPO_STATE_ROOT,
-	clearDeadRestartLock,
-	writeTuiMarker,
-} from './tui-marker.ts';
+import {DEFAULT_REPO_STATE_ROOT, clearDeadRestartLock} from './tui-marker.ts';
 import {
 	resolveUpdateKeyAction,
 	buildUpdateConfirmContent,
@@ -83,9 +79,7 @@ import {
 } from './watchlist.ts';
 import {createIssueTracker, createVcsHost} from './providers/index.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
-import {readableHookStatusKey} from './claude-status.ts';
-import {getSessionNames} from './tmux.ts';
-import {removeProgramSnapshots} from './program-status-monitor.ts';
+import {spaceSessionNames} from './tmux.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {openIssueForKey} from './open-issue.ts';
@@ -171,6 +165,7 @@ import {
 	type ConfigMigration,
 } from './config-migration.ts';
 import {runCloseHooks, shouldAttach} from './close-space.ts';
+import {spaceStatusKey} from './claude-status.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 import {AttachmentGate} from './attachment-gate.ts';
@@ -195,10 +190,12 @@ import {
 	defaultOuterTmuxRunner,
 	defaultServerTmuxRunner,
 	killSpaceSessions,
+	liveInnerSessions,
 	deleteQaSimulator,
 	displayMessageInPaneAsync,
 	reconcilePaneLayout,
 	runningAgentProfile,
+	storeLaunchedAgentProfiles,
 	installSousChefKey,
 	measureCompanionColumnWidth,
 	setSpaceCompanionWidth,
@@ -208,47 +205,30 @@ import {
 	closeCompanionSplitPanes,
 	companionSplitPaneIds,
 } from './tmux.ts';
-import {
-	getCompanionWidth,
-	setCompanionWidth,
-	watchLayoutRequests,
-	writeLayoutAck,
-} from './companion-width.ts';
+import type {LayoutAck} from './companion-width.ts';
 import {isWorktreeDirty} from './git-status.ts';
 import {railWindow, spaceCountLabel} from './list-view-sizing.ts';
-import {MAIN_WORKTREE_KEY, tearDownSpace} from './space-utils.ts';
+import {
+	compareSpaceNames,
+	MAIN_WORKTREE_KEY,
+	tearDownSpace,
+} from './space-utils.ts';
 import {
 	filterSpaces,
 	highlightedIndex,
 	searchKeyStep,
 	type RailSearch,
 } from './rail-search.ts';
+import {listOpenSpaces} from './space-registry.ts';
+import type {StateDaos} from './state-daos.ts';
 import {
-	getRegisteredSpaces,
-	getRegisteredSpacesAsync,
-	addSpace,
-	removeSpace,
-	tryReserveWatchlistSlots,
-	releaseWatchlistReservation,
-} from './space-registry.ts';
-import {
-	readSpaceState,
-	writeSpaceState,
+	type RailStatusPatch,
 	findLatestSessionJsonl,
 	extractRecapFromJsonl,
-	getSpaceStateDir,
 } from './space-state.ts';
 import {useRailStatusPolling} from './use-rail-status-polling.ts';
-import {
-	resolveSpaceEmojiAsync,
-	resolveSpaceProfileName,
-} from './space-emoji.ts';
-import {
-	watchHighlightTarget,
-	clearHighlightTarget,
-	findSpaceIndexByIssueKey,
-	highlightWriteCommand,
-} from './highlight.ts';
+import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
+import {findSpaceIndexByIssueKey} from './highlight.ts';
 import {skillRoots, skillSnapshot} from './skill-completion.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
@@ -295,9 +275,10 @@ export function quitTui(
 
 // Props passed from cli.tsx with pane layout info
 interface AppProps {
+	daos: StateDaos;
 	/** Reads started before the renderer loaded, for the first list drawn. */
 	initialWorkspaces?: {
-		registry: ReturnType<typeof getRegisteredSpacesAsync>;
+		registry: Promise<string[] | null>;
 		mainWorktree: ReturnType<typeof getMainWorktreeInfo>;
 	};
 	firstRailPaint?: Promise<void>;
@@ -312,6 +293,7 @@ interface AppProps {
 }
 
 export default function App({
+	daos,
 	initialWorkspaces,
 	firstRailPaint,
 	onFirstRailPaint,
@@ -321,6 +303,17 @@ export default function App({
 	isDevBuild,
 	updateCheckPromise,
 }: AppProps) {
+	const {
+		registry,
+		claudeStatus,
+		spaceState,
+		highlight,
+		agentSessions,
+		companionWidths,
+		companionRequests,
+		programStatus,
+		tuiMarker,
+	} = daos;
 	const renderer = useRenderer();
 	const {stdout} = process;
 
@@ -339,9 +332,9 @@ export default function App({
 				createIssueTracker().name,
 				config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
 			);
-			return key ? readSpaceState(repoName, key)?.profile : undefined;
+			return key ? spaceState.read(key)?.profile : undefined;
 		},
-		[repoName],
+		[spaceState],
 	);
 
 	const {
@@ -362,10 +355,11 @@ export default function App({
 	const workspaceStatuses = useMemo(
 		() =>
 			new WorkspaceStatuses(
-				repoName,
-				key => getSessionNames(key, repoName).agent,
+				programStatus,
+				key => spaceSessionNames(key)?.agent ?? null,
+				claudeStatus,
 			),
-		[repoName],
+		[programStatus, claudeStatus],
 	);
 	statusKeysRef.current = useMemo(
 		() => new Set(spaces.map(space => space.statusKey ?? space.name)),
@@ -634,22 +628,22 @@ export default function App({
 	useEffect(() => {
 		const paneId = process.env['TMUX_PANE'];
 		if (!initialPaneLayout || !paneId || !backgroundReady) return;
-		try {
-			clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
-			writeTuiMarker(DEFAULT_REPO_STATE_ROOT, repoName, {
+		clearDeadRestartLock(DEFAULT_REPO_STATE_ROOT, repoName);
+		void tuiMarker
+			.write({
 				pid: process.pid,
 				cliPath: cliFilePath(),
 				sha: commitSha,
 				paneId,
 				startedAt: Date.now(),
+			})
+			.catch((error: unknown) => {
+				log.warn(
+					'Failed to write the TUI ready marker',
+					error instanceof Error ? error : undefined,
+				);
 			});
-		} catch (error) {
-			log.warn(
-				'Failed to write the TUI ready marker',
-				error instanceof Error ? error : undefined,
-			);
-		}
-	}, [initialPaneLayout, repoName, commitSha, backgroundReady]);
+	}, [initialPaneLayout, repoName, commitSha, backgroundReady, tuiMarker]);
 
 	// Track if panes have been initialized
 	const panesInitialized = useRef(false);
@@ -707,18 +701,32 @@ export default function App({
 		earlyWorkspaces.current = undefined;
 		const refresh = new WorkspaceRefresh({
 			detailReady: firstRailPaint,
-			readRegistry: firstFrom(early?.registry, getRegisteredSpacesAsync),
+			readRegistry: firstFrom(early?.registry, async () => {
+				await registry
+					.settle({
+						closing: closeTasks.current,
+						liveSessions: () => liveInnerSessions(),
+					})
+					.catch((error: unknown) => {
+						log.warn(
+							'Could not settle unfinished spaces',
+							error instanceof Error ? error : undefined,
+						);
+					});
+				return registry.openSpacesAsync();
+			}),
 			statusReader: () => workspaceStatuses.reader(),
-			readWorktreePath: async key => getWorktreePathAsync(key, repoName),
+			readWorktreePath: async key => getWorktreePathAsync(key),
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
-			statusKey: name => readableHookStatusKey(repoName, name),
+			statusKey: async (key, mainBranch) =>
+				spaceStatusKey(claudeStatus, repoName, key, async () => mainBranch),
 			getCachedIssue: getIssueCached,
 			fetchIssues: getIssues,
 			async readEmoji(issueKey, cachedIssue) {
-				return resolveSpaceEmojiAsync({
+				return resolveSpaceEmoji({
 					config: configMemo,
-					repoName,
+					spaceState,
 					issueKey,
 					cachedIssue,
 				});
@@ -763,14 +771,19 @@ export default function App({
 	// Watch for cross-terminal highlight requests (pappardelle highlight STA-XXX)
 	const focusSpaceAgentRef = useRef((_issueKey: string) => {});
 	useEffect(() => {
-		const unwatch = watchHighlightTarget(repoName, ({issueKey, focus}) => {
-			clearHighlightTarget(repoName);
+		const unwatch = highlight.watch(({issueKey, focus}) => {
+			highlight.clear().catch((error: unknown) => {
+				log.warn(
+					'Could not clear the highlight request',
+					error instanceof Error ? error : undefined,
+				);
+			});
 			if (focus) focusSpaceAgentRef.current(issueKey);
 			else selectSpace(issueKey);
 		});
 
 		return unwatch;
-	}, [repoName, selectSpace]);
+	}, [highlight, selectSpace]);
 
 	// Subscribe to error count for header badge
 	useEffect(() => {
@@ -809,12 +822,12 @@ export default function App({
 		void installSousChefKey(
 			listPaneId,
 			getSousChefKey(configMemo),
-			highlightWriteCommand(repoName, {
+			highlight.shellRequest({
 				issueKey: MAIN_WORKTREE_KEY,
 				focus: true,
 			}),
 		);
-	}, [listPaneId, configMemo, repoName]);
+	}, [listPaneId, configMemo, highlight]);
 
 	// Not undone on unmount: quitting unmounts App, and a signal arriving during
 	// that teardown must still find a listener.
@@ -999,7 +1012,7 @@ export default function App({
 	const appliedSpaceWidth = useRef<string | null>(null);
 	useEffect(() => {
 		if (!selectedSpaceName) return;
-		const width = getCompanionWidth(repoName, selectedSpaceName);
+		const width = companionWidths.get(selectedSpaceName);
 		const signature = width === null ? null : `${selectedSpaceName}=${width}`;
 		setSpaceCompanionWidth(
 			width === null ? null : {key: selectedSpaceName, width},
@@ -1011,39 +1024,39 @@ export default function App({
 				dialogOpenRef.current,
 				dialogRequest.current.revision,
 			);
-	}, [repoName, selectedSpaceName, layoutTasks]);
+	}, [companionWidths, selectedSpaceName, layoutTasks]);
 
 	useEffect(() => {
 		setSpaceCompanionDragHandler((key, columns) => {
 			if (key === selectedSpaceNameRef.current)
 				appliedSpaceWidth.current = `${key}=${columns}`;
-			setCompanionWidth(repoName, key, columns).catch((error: unknown) =>
-				log.warn(
-					`Failed to store the companion width for ${key}`,
-					error instanceof Error ? error : undefined,
-				),
-			);
+			companionWidths
+				.set(key, columns)
+				.catch((error: unknown) =>
+					log.warn(
+						`Failed to store the companion width for ${key}`,
+						error instanceof Error ? error : undefined,
+					),
+				);
 		});
 		return () => setSpaceCompanionDragHandler(null);
-	}, [repoName]);
+	}, [companionWidths]);
 
 	// Requests from `pappardelle companion width`. The CLI has already stored
 	// the width; this applies it when the space is showing and says whether
 	// the pane really took it.
 	useEffect(() => {
 		const handled = new Set<string>();
-		const ack = (ackValue: Parameters<typeof writeLayoutAck>[1]) => {
-			try {
-				writeLayoutAck(repoName, ackValue);
-			} catch (error) {
+		const ack = (ackValue: LayoutAck) => {
+			companionRequests.answer(ackValue).catch((error: unknown) => {
 				log.warn(
 					'Failed to answer a companion width request',
 					error instanceof Error ? error : undefined,
 				);
-			}
+			});
 		};
 
-		return watchLayoutRequests(repoName, request => {
+		return companionRequests.watch(request => {
 			if (handled.has(request.id)) return;
 			handled.add(request.id);
 			if (request.space !== selectedSpaceNameRef.current) {
@@ -1075,7 +1088,7 @@ export default function App({
 
 			// Set even when nothing can show it yet, so the next layout of this
 			// space (a wider window, a closed dialog) uses the new width.
-			const width = getCompanionWidth(repoName, request.space);
+			const width = companionWidths.get(request.space);
 			setSpaceCompanionWidth(
 				width === null ? null : {key: request.space, width},
 			);
@@ -1115,7 +1128,7 @@ export default function App({
 				);
 			})();
 		});
-	}, [repoName, layoutTasks, attachmentTask]);
+	}, [companionWidths, companionRequests, layoutTasks, attachmentTask]);
 
 	useEffect(() => {
 		if (
@@ -1130,7 +1143,7 @@ export default function App({
 			.run(async signal => {
 				queued?.();
 				if (closingSpacesRef.current.has(selectedSpaceName)) return;
-				const registered = await getRegisteredSpacesAsync().catch(() => null);
+				const registered = await registry.openSpacesAsync().catch(() => null);
 				if (signal.aborted) return;
 				if (
 					!shouldAttach(
@@ -1252,7 +1265,7 @@ export default function App({
 		void openPR(space.name, {
 			provider: createVcsHost(),
 			// link-pr appends, so the last link is the one recorded most recently.
-			linked: readSpaceState(repoName, space.name)?.prLinks?.at(-1),
+			linked: spaceState.read(space.name)?.prLinks?.at(-1),
 			isLatest: () => openPRRequest.current === request,
 			ownsHeader: () => headerGeneration.current === generation,
 			async openUrl(url) {
@@ -1298,7 +1311,7 @@ export default function App({
 
 		const profileName = resolveSpaceProfileName({
 			config: configMemo,
-			repoName,
+			spaceState,
 			issueKey: space.name,
 			cachedIssue: space.trackerIssue ?? space.linearIssue ?? null,
 		});
@@ -1641,10 +1654,11 @@ export default function App({
 		});
 	};
 
-	const handleConfigMigration = (approved: ConfigMigration[]) => {
-		const outcome = confirmConfigMigrations(
+	const handleConfigMigration = async (approved: ConfigMigration[]) => {
+		const outcome = await confirmConfigMigrations(
 			approved,
-			getSpaceStateDir(repoName),
+			agentSessions,
+			spaceState,
 		);
 		switch (outcome.kind) {
 			case 'rewritten': {
@@ -1665,6 +1679,18 @@ export default function App({
 		}
 	};
 
+	useEffect(() => {
+		if (!configMemo) return;
+		storeLaunchedAgentProfiles(configMemo, agentSessions, spaceState).catch(
+			(error: unknown) => {
+				log.warn(
+					'Could not store the agent profiles of running agents',
+					error instanceof Error ? error : undefined,
+				);
+			},
+		);
+	}, [configMemo, agentSessions, spaceState]);
+
 	// Offered once per launch; declining leaves the config and its warnings as
 	// they are until the next start.
 	useEffect(() => {
@@ -1679,8 +1705,8 @@ export default function App({
 			},
 			{
 				closeBeforeConfirm: true,
-				onConfirm() {
-					handleConfigMigration(migrations);
+				async onConfirm() {
+					await handleConfigMigration(migrations);
 				},
 			},
 			() => {
@@ -1931,7 +1957,10 @@ export default function App({
 						}),
 						{
 							cwd: getRepoRoot(),
-							env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
+							env: buildSpawnEnv(getRepoRoot(), {
+								mainRepoRoot: getMainRepoRoot(),
+								registerSpace: registry.keepsLifecycle,
+							}),
 						},
 					);
 					if (result.code !== 0) {
@@ -1945,7 +1974,7 @@ export default function App({
 					const spaceKey =
 						pending.name || extractIssueKeyFromIdowOutput(result.stdout);
 					if (spaceKey && !pending.name) claimIssueInBackground(spaceKey);
-					if (spaceKey) await addSpace(spaceKey);
+					if (spaceKey) await registry.add(spaceKey);
 					if (
 						pending.agentProfileName &&
 						idowSkippedAgentOverride(result.stdout)
@@ -1964,14 +1993,14 @@ export default function App({
 					if (!pending.watchlistSource) return;
 					// A stale reservation only delays the next watchlist spawn; it must
 					// not report a workspace that did start as failed.
-					await releaseWatchlistReservation(pending.name).catch(
-						(err: unknown) => {
+					await registry
+						.releaseWatchlistReservation(pending.name)
+						.catch((err: unknown) => {
 							log.warn(
 								`Failed to release watchlist reservation for ${pending.name}`,
 								err instanceof Error ? err : undefined,
 							);
-						},
-					);
+						});
 				})
 				.catch((err: unknown) => {
 					setPendingSession(current => (current === pending ? null : current));
@@ -2006,7 +2035,7 @@ export default function App({
 				// Fetch the registered space set once per poll cycle; the
 				// per-issue spawn guard (watchlistSpawnedRef) handles dedup both
 				// across watchlists and across cycles.
-				const currentSpaceNames = getRegisteredSpaces();
+				const currentSpaceNames = listOpenSpaces(registry);
 
 				for (const {profileName, watchlist} of watchlists) {
 					const {
@@ -2064,7 +2093,7 @@ export default function App({
 						// Capacity is checked under the shared registry lock.
 						const sorted = sortIssuesByCreatedAt(unclaimed);
 						const {reserved, occupied, claimedElsewhere} =
-							await tryReserveWatchlistSlots(
+							await registry.tryReserveWatchlistSlots(
 								sourceId,
 								sorted.map(issue => issue.identifier),
 								max,
@@ -2072,7 +2101,9 @@ export default function App({
 							);
 						if (pollAbort.signal.aborted) {
 							await Promise.all(
-								reserved.map(async key => releaseWatchlistReservation(key)),
+								reserved.map(async key =>
+									registry.releaseWatchlistReservation(key),
+								),
 							);
 							return;
 						}
@@ -2182,14 +2213,16 @@ export default function App({
 					// so the user can retry — otherwise it advertises "closed" while
 					// the inner-socket session is still alive, and post-STA-1416 there
 					// is no `seedFromTmux` reaper to recover from that mismatch.
-					const tornDown = await tearDownSpace(space.name, {
+					const result = await tearDownSpace(space.name, {
+						markClosing: async key => registry.markClosing(key),
+						reopen: async key => registry.reopen(key),
 						killSpaceSessions,
 						async removeSpace(key) {
-							await removeSpace(key);
+							await registry.remove(key);
 							void workspaceRefresh.current?.refreshListOnly();
 						},
 						async cleanup(key) {
-							removeProgramSnapshots(repoName, key);
+							await programStatus.remove(key);
 							return deleteQaSimulator(key);
 						},
 						onKillFailure: key =>
@@ -2198,12 +2231,39 @@ export default function App({
 								5000,
 							),
 					});
-					if (!tornDown) {
-						// Kill failed — the space stays open, so stop guarding it or its
+					if (result.outcome === 'mark-failed') {
+						setHeaderWithTimeout(
+							`Could not start closing ${space.name}. Try again`,
+							5000,
+						);
+					}
+
+					if (
+						result.outcome === 'kill-failed' ||
+						result.outcome === 'mark-failed'
+					) {
+						// The space stays open, so stop guarding it or its
 						// legitimate reattach would be blocked forever.
 						closingSpacesRef.current.delete(space.name);
 						setAttachmentRevision(revision => revision + 1);
 						return false;
+					}
+
+					if (result.outcome === 'unregister-failed') {
+						// A registry with no record of the close still lists the
+						// space, so the failure is handled as it always was.
+						if (!registry.keepsLifecycle) throw result.error;
+						// The sessions are gone and the space is recorded as
+						// closing, which nothing reattaches to. The next refresh
+						// removes it.
+						log.error(
+							`Closed ${space.name}, but could not remove it from the registry`,
+							result.error instanceof Error ? result.error : undefined,
+						);
+						setHeaderWithTimeout(
+							`Closed ${space.name}; removing it from the registry will be retried`,
+							5000,
+						);
 					}
 
 					const layout = paneLayoutRef.current;
@@ -2245,6 +2305,7 @@ export default function App({
 			setSpaces,
 			repoName,
 			selectedSpaceNow,
+			registry,
 		],
 	);
 
@@ -2372,21 +2433,26 @@ export default function App({
 			// Persist each space's state (rail-status + recap) so sous-chef
 			// and other consumers can read cached data without re-fetching.
 			// Transcript reads yield to input; unchanged files reuse cached recaps.
-			const repoName = getRepoName();
+			const entries: Array<{key: string; patch: RailStatusPatch}> = [];
 			for (const [name, rail] of lookup) {
 				const worktreePath = getWorktreePath(name);
 				const jsonl = worktreePath
 					? await findLatestSessionJsonl(worktreePath)
 					: null;
 				const recap = jsonl ? await extractRecapFromJsonl(jsonl) : null;
-				writeSpaceState(repoName, name, {
-					pipeline: rail.pipeline,
-					unresolvedCommentCount: rail.unresolvedCommentCount,
-					prNumber: rail.prNumber,
-					hasConflict: rail.hasConflict ?? false,
-					...(recap ? {recap} : {}),
+				entries.push({
+					key: name,
+					patch: {
+						pipeline: rail.pipeline,
+						unresolvedCommentCount: rail.unresolvedCommentCount,
+						prNumber: rail.prNumber,
+						hasConflict: rail.hasConflict ?? false,
+						...(recap ? {recap} : {}),
+					},
 				});
 			}
+
+			await spaceState.writeMany(entries);
 		} catch (err) {
 			log.warn(
 				'Rail status poll failed',
@@ -2413,7 +2479,10 @@ export default function App({
 			{
 				detached: true,
 				cwd: getRepoRoot(),
-				env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
+				env: buildSpawnEnv(getRepoRoot(), {
+					mainRepoRoot: getMainRepoRoot(),
+					registerSpace: registry.keepsLifecycle,
+				}),
 			},
 		);
 
@@ -2862,7 +2931,7 @@ export default function App({
 				<ConfirmDialog
 					{...buildConfigMigrationConfirmContent(configMigrations)}
 					onConfirm={() => {
-						handleConfigMigration(configMigrations);
+						void handleConfigMigration(configMigrations);
 						setConfigMigrations(null);
 					}}
 					onCancel={() => setConfigMigrations(null)}

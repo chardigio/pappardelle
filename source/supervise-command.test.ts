@@ -11,6 +11,7 @@ import {
 import type {ApprovalVerdict} from './approve-policy.ts';
 import type {SuperviseEntry} from './supervise-log.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
+import {idowIdentities, testState} from '../test/helpers/state.ts';
 
 const fixtures = path.join(
 	import.meta.dirname,
@@ -43,10 +44,7 @@ function harness(
 	screens: string[],
 	{ignoresKeys = false} = {},
 ) {
-	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'supervise-'));
-	t.teardown(() => {
-		fs.rmSync(root, {recursive: true, force: true});
-	});
+	const {schedules} = testState(t).daos;
 	const pressed: string[][] = [];
 	const classified: string[] = [];
 	let classifierVerdict: ApprovalVerdict = {
@@ -82,8 +80,11 @@ function harness(
 
 	const deps: SuperviseDeps = {
 		repo: () => 'repo',
+		identities: idowIdentities('repo', () => ['STA-1']),
 		resolveKey: raw => raw,
 		hookKey: async key => key,
+		readHook: async () => ({status: 'unknown'}),
+		readSnapshot: async () => null,
 		runner,
 		serverRunner: () => ({status: 1, stdout: ''}),
 		now: () => new Date(clock),
@@ -107,7 +108,7 @@ function harness(
 			return classifierVerdict;
 		},
 		policy: {scratchRoots: ['/tmp/q-']},
-		store: () => ({root, repo: 'repo'}),
+		store: () => schedules,
 		timers: () => ({create() {}, remove() {}}),
 		caller: 'STA-9',
 		readStdin: () => undefined,

@@ -4,6 +4,13 @@ import {promisify} from 'node:util';
 
 const execAsync = promisify(exec);
 
+/** The branch checked out in a working tree. git exits 1 when HEAD is detached. */
+export async function readCurrentBranch(
+	git: (args: string[]) => Promise<string>,
+): Promise<string> {
+	return git(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+}
+
 /**
  * Check if a worktree has uncommitted changes (staged or unstaged).
  * Returns null on failure so refreshes can retain the last known status.

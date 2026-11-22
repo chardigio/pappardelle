@@ -1,11 +1,9 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import path from 'node:path';
-import fs from 'node:fs';
-import {randomUUID} from 'node:crypto';
-import {getSpaceStatePath, readSpaceState} from './space-state.ts';
+import type {StateDaos} from './state-daos.ts';
 import {readRemoteUrls, remoteProjects} from './git-remotes.ts';
-import {touchPrLinkStamp} from './pr-link-stamp.ts';
+import {readCurrentBranch} from './git-status.ts';
 
 const exec = promisify(execFile);
 export type LinkExecutor = (
@@ -28,10 +26,8 @@ export async function workspaceIdentity(directory: string, run = execute) {
 		['rev-parse', '--path-format=absolute', '--git-common-dir'],
 		directory,
 	);
-	const branch = await run(
-		'git',
-		['symbolic-ref', '--quiet', '--short', 'HEAD'],
-		directory,
+	const branch = await readCurrentBranch(async args =>
+		run('git', args, directory),
 	);
 	return {repoName: path.basename(path.dirname(common)), issueKey: branch};
 }
@@ -39,10 +35,17 @@ export async function workspaceIdentity(directory: string, run = execute) {
 export async function linkPr(
 	urlString: string,
 	directory: string,
-	workspace = directory,
-	options: {run?: LinkExecutor; baseDir?: string; gitlabHost?: string} = {},
+	workspace: string,
+	options: {
+		/** The stores of the repo the workspace belongs to. */
+		daosFor: (
+			repoName: string,
+		) => Pick<StateDaos, 'spaceState' | 'prLinkStamp'>;
+		run?: LinkExecutor;
+		gitlabHost?: string;
+	},
 ) {
-	const {run = execute, baseDir} = options;
+	const {run = execute} = options;
 	const relative = path.relative(
 		path.resolve(workspace),
 		path.resolve(directory),
@@ -130,13 +133,10 @@ export async function linkPr(
 		throw new Error(
 			`Run link-pr from the source repository (${url.host}/${project})`,
 		);
-	const localBranch = await run(
-		'git',
-		['symbolic-ref', '--quiet', '--short', 'HEAD'],
-		directory,
+	const localBranch = await readCurrentBranch(async args =>
+		run('git', args, directory),
 	);
 	const {repoName, issueKey} = await workspaceIdentity(workspace, run);
-	const state = readSpaceState(repoName, issueKey, baseDir) ?? {};
 	const link = {
 		host,
 		project,
@@ -145,26 +145,8 @@ export async function linkPr(
 		url: urlString,
 		number: Number(id),
 	};
-	state.prLinks = [
-		...(state.prLinks ?? []).filter(
-			item =>
-				!(
-					item.host === link.host &&
-					item.project === project &&
-					item.localBranch === localBranch
-				),
-		),
-		link,
-	];
-	const file = getSpaceStatePath(repoName, issueKey, baseDir);
-	fs.mkdirSync(path.dirname(file), {recursive: true});
-	const temporary = `${file}.${randomUUID()}.tmp`;
-	try {
-		fs.writeFileSync(temporary, JSON.stringify(state, null, 2) + '\n');
-		fs.renameSync(temporary, file);
-	} finally {
-		fs.rmSync(temporary, {force: true});
-	}
-	touchPrLinkStamp(baseDir);
-	return {file, link};
+	const {spaceState, prLinkStamp} = options.daosFor(repoName);
+	await spaceState.addPrLink(issueKey, link);
+	await prLinkStamp.touch();
+	return {file: spaceState.file(issueKey), link};
 }

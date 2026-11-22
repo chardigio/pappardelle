@@ -5,28 +5,23 @@ import {spawnSync} from 'node:child_process';
 import {homedir, tmpdir, userInfo} from 'node:os';
 import path from 'node:path';
 import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
-import {
-	getHookStatusDir,
-	hookStatusKey,
-	readableHookStatusKey,
-} from './claude-status.ts';
+import {spaceStatusKey} from './claude-status.ts';
 import {getMainRepoRoot, getRepoName} from './config.ts';
-import {waitForDirChange} from './file-watch.ts';
-import {programStatusDir} from './program-status-monitor.ts';
 import {selfLaunchArgs} from './runtime.ts';
-import {defaultScheduleStore, rearmMissingTimers} from './schedule.ts';
+import {rearmMissingTimers, type ScheduleDao} from './schedule.ts';
 import {
 	launchdBackend,
 	systemdBackend,
 	type TimerBackend,
 	type TimerContext,
 } from './schedule-timers.ts';
+import type {StateDaos} from './state-daos.ts';
 import {defaultReadStdin, type SuperviseDeps} from './supervise-command.ts';
 import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {createLogger} from './logger.ts';
 import {
 	getMainWorktreeInfo,
-	getSessionNames,
+	spaceSessionNames,
 	resolveInnerSessionTargetSync,
 	sendKeysToSpaceAgent,
 	type SendToSpaceAgentResult,
@@ -34,18 +29,21 @@ import {
 	supervisedInnerTmuxRunner,
 	supervisedServerTmuxRunner,
 } from './tmux.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 const log = createLogger('supervise');
 
 // Timer services start with a bare environment; these decide which tmux
-// server and status files `pappardelle` reaches when one fires.
+// server, status files, state database and status daemon `pappardelle`
+// reaches when one fires.
 const PASSED_TO_TIMERS = [
 	'PATH',
 	'TMUX_TMPDIR',
 	'PAPPARDELLE_TMUX_SOCKET',
 	'PAPPARDELLE_STATUS_DIR',
 	'PAPPARDELLE_PROGRAM_STATUS_DIR',
+	'PAPPARDELLE_SQLITE_STATE',
+	'PAPPARDELLE_STATE_DB',
+	'PAPPARDELLE_STATUS_SOCKET',
 ];
 
 function timerBackend(): TimerBackend {
@@ -77,10 +75,10 @@ function timerBackend(): TimerBackend {
 }
 
 function agentCwd(key: string): string | null {
-	const target = resolveInnerSessionTargetSync(
-		getSessionNames(key).agent,
-		supervisedInnerTmuxRunner,
-	);
+	const session = spaceSessionNames(key)?.agent;
+	const target =
+		session &&
+		resolveInnerSessionTargetSync(session, supervisedInnerTmuxRunner);
 	if (!target) return null;
 	const result = supervisedInnerTmuxRunner([
 		'display-message',
@@ -104,10 +102,14 @@ function scratchRoots(): string[] {
 }
 
 /** Run as the TUI starts, so wake-ups lost to a reboot come back. */
-export function rearmSchedules(): void {
+export async function rearmSchedules(schedules: ScheduleDao): Promise<void> {
 	try {
-		const store = defaultScheduleStore(getRepoName());
-		for (const job of rearmMissingTimers(store, timerBackend(), new Date())) {
+		const rearmed = await rearmMissingTimers(
+			schedules,
+			timerBackend(),
+			new Date(),
+		);
+		for (const job of rearmed) {
 			recordSupervision(
 				getRepoName(),
 				'tui',
@@ -129,16 +131,27 @@ const keyOutcome = (result: SendToSpaceAgentResult) =>
 
 export function defaultSuperviseDeps(
 	resolveKey: (raw: string) => string,
+	{
+		claudeStatus,
+		schedules,
+		programStatus,
+		spaceIdentities,
+	}: Pick<
+		StateDaos,
+		'claudeStatus' | 'schedules' | 'programStatus' | 'spaceIdentities'
+	>,
 ): SuperviseDeps {
 	return {
 		repo: getRepoName,
+		identities: spaceIdentities,
 		resolveKey,
-		async hookKey(key) {
-			if (key !== MAIN_WORKTREE_KEY)
-				return readableHookStatusKey(getRepoName(), key);
-			const main = await getMainWorktreeInfo();
-			return hookStatusKey(getRepoName(), main?.branch ?? MAIN_WORKTREE_KEY);
-		},
+		hookKey: async key =>
+			spaceStatusKey(claudeStatus, getRepoName(), key, async () => {
+				const main = await getMainWorktreeInfo();
+				return main?.branch;
+			}),
+		readHook: async hookKey => claudeStatus.read(hookKey),
+		readSnapshot: async (key, pane) => programStatus.read(key, pane),
 		runner: supervisedInnerTmuxRunner,
 		serverRunner: supervisedServerTmuxRunner,
 		now: () => new Date(),
@@ -148,10 +161,10 @@ export function defaultSuperviseDeps(
 			});
 		},
 		async waitForStatusChange(ms) {
-			await waitForDirChange(
-				[getHookStatusDir(), programStatusDir(getRepoName())],
-				ms,
-			);
+			await Promise.race([
+				claudeStatus.waitForChange(ms),
+				programStatus.waitForChange(ms),
+			]);
 		},
 		async send(key, text) {
 			return sendToSpaceAgent(key, text);
@@ -178,7 +191,7 @@ export function defaultSuperviseDeps(
 			);
 		},
 		policy: {scratchRoots: scratchRoots()},
-		store: () => defaultScheduleStore(getRepoName()),
+		store: () => schedules,
 		timers: timerBackend,
 		caller: callerFromEnv(process.env),
 		readStdin: defaultReadStdin,

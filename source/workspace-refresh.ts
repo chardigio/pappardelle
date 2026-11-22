@@ -2,7 +2,7 @@ import type {ProgramStatusInfo} from './program-status.ts';
 import {isDeepStrictEqual} from 'node:util';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import {applyStatusUpdates, type StatusReader} from './workspace-status.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
+import {compareSpaceNames, MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {pLimit} from './providers/concurrency.ts';
 import type {SpaceData, TrackerIssue} from './types.ts';
 
@@ -42,8 +42,8 @@ export interface WorkspaceRefreshDeps {
 	readWorktreePath: (key: string) => Promise<string | null>;
 	readMainWorktree: () => Promise<MainWorktree | null>;
 	readDirty: (path: string) => Promise<boolean | null>;
-	/** Hook status key of a space key, or of the main checkout's branch. */
-	statusKey: (name: string) => string;
+	/** Hook status key of a space; the main space's is read with its branch. */
+	statusKey: (key: string, mainBranch?: string) => Promise<string>;
 	getCachedIssue: (key: string) => TrackerIssue | null;
 	fetchIssues: (keys: string[]) => Promise<unknown>;
 	readEmoji: (
@@ -70,24 +70,6 @@ function reuseArray(previous: SpaceData[], next: SpaceData[]): SpaceData[] {
 		next.every((space, index) => space === previous[index])
 		? previous
 		: next;
-}
-
-/**
- * Rail order: newest first by issue number, whatever the team prefix (ABC-50
- * above STA-12). Beads hash keys have no order of their own, but must keep one
- * place across refreshes.
- */
-export function compareSpaceNames(a: string, b: string): number {
-	const numberA = issueNumber(a);
-	const numberB = issueNumber(b);
-	if (numberA !== undefined && numberB !== undefined && numberA !== numberB)
-		return numberB - numberA;
-	return b.localeCompare(a, 'en', {numeric: true});
-}
-
-function issueNumber(name: string): number | undefined {
-	const match = /-(\d+)$/.exec(name);
-	return match ? Number(match[1]) : undefined;
 }
 
 /** Polling repairs missed hook events without replacing newer hook or rail state. */
@@ -179,6 +161,14 @@ export class WorkspaceRefresh {
 			.filter(name => name !== MAIN_WORKTREE_KEY)
 			.sort(compareSpaceNames);
 		const orderedNames = this.names;
+		const statusKeys = new Map(
+			await Promise.all(
+				orderedNames.map(
+					async name => [name, await this.deps.statusKey(name)] as const,
+				),
+			),
+		);
+		if (this.stopped || generation !== this.listGeneration) return;
 		this.publish(previous => {
 			if (generation !== this.listGeneration) return previous;
 			const byName = new Map(previous.map(space => [space.name, space]));
@@ -190,7 +180,7 @@ export class WorkspaceRefresh {
 						? existing
 						: {
 								name,
-								statusKey: this.deps.statusKey(name),
+								statusKey: statusKeys.get(name),
 								worktreePath: null,
 								programStatus: {status: 'unknown'},
 								linearIssue: this.deps.getCachedIssue(name) ?? undefined,
@@ -212,7 +202,7 @@ export class WorkspaceRefresh {
 			orderedNames.map(key => async () => {
 				if (this.stopped || generation !== this.listGeneration)
 					return undefined;
-				const statusKey = this.deps.statusKey(key);
+				const statusKey = statusKeys.get(key)!;
 				const version = this.statusVersions.get(statusKey) ?? 0;
 				const [status, worktreePath] = await Promise.allSettled([
 					this.readStatus(statusKey, key),
@@ -321,7 +311,8 @@ export class WorkspaceRefresh {
 		);
 		const info = await this.deps.readMainWorktree();
 		if (!info || this.stopped) return;
-		const statusKey = this.deps.statusKey(info.branch);
+		const statusKey = await this.deps.statusKey(MAIN_WORKTREE_KEY, info.branch);
+		if (this.stopped) return;
 		this.publish(previous => {
 			const current = previous.find(space => space.isMainWorktree);
 			const base: SpaceData = current ?? {

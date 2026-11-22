@@ -5,7 +5,6 @@ import {createLogger} from '../logger.ts';
 import {classifyPipeline, type CheckContext} from '../rail-status.ts';
 import {sanitizeSubprocessError} from '../sanitize-error.ts';
 import type {PRInfo, PRLink, RailStatus, VcsHostProvider} from './types.ts';
-import {readPrLinkStamp} from '../pr-link-stamp.ts';
 import {aggregateRailStatus} from './aggregate-rail-status.ts';
 import {
 	discoverWorkspaceRepositories,
@@ -165,7 +164,7 @@ export class GitHubProvider implements VcsHostProvider {
 		this.discover = discover;
 		this.executor = executor ?? defaultGhExecutor;
 		this.now = clock.now ?? Date.now;
-		this.linkedAt = clock.linkedAt ?? readPrLinkStamp;
+		this.linkedAt = clock.linkedAt ?? (() => 0);
 		if (initialRepoSlug !== undefined) this.repoSlug = initialRepoSlug;
 	}
 

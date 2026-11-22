@@ -5,13 +5,15 @@ import {execFile, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
+import {sessionNamesFor} from './space-identity.ts';
 import test from 'ava';
 import {LatestTask} from './latest-task.ts';
-import {setRegistryPath, resetRegistryPath} from './space-registry.ts';
+import {testTmuxState} from '../test/helpers/state.ts';
+import {getRepoName} from './config.ts';
 import {
 	companionSplitPaneIds,
 	createCompanionSplit,
-	getSessionNames,
+	storedIdentity,
 	measureCompanionColumnWidth,
 	rebuildLayout,
 	reconcilePaneLayout,
@@ -94,10 +96,13 @@ async function startSpace(
 	key: string,
 	splits: Array<{name: string; split: 'right' | 'down'; size?: `${number}%`}>,
 ) {
-	const {companion} = getSessionNames(key);
+	const {companion} = sessionNamesFor(key, getRepoName());
 	await innerTmux('new-session', '-d', '-s', companion, '-c', dir, 'sleep 600');
 	for (const split of splits) {
-		const created = createCompanionSplit(key, {...split, command: 'sleep 600'});
+		const created = createCompanionSplit(storedIdentity(key)!, {
+			...split,
+			command: 'sleep 600',
+		});
 		if (!created.ok) throw new Error(created.reason);
 		// Creation order is by the millisecond.
 		await delay(5);
@@ -110,14 +115,14 @@ const option = async (session: string, name: string) =>
 test.after.always(() => {
 	for (const socket of [outer, inner])
 		spawnSync('tmux', ['-S', socket, 'kill-server'], {env});
-	resetRegistryPath();
 	fs.rmSync(dir, {recursive: true, force: true});
 });
 
 tmuxTest(
 	'splits show in framed panes of their own, move between spaces and keep a dragged size',
 	async t => {
-		setRegistryPath(`${dir}/registry.json`);
+		// Without the database a space's sessions get the names idow gives them.
+		testTmuxState(t, {repo: getRepoName(), sqlite: false});
 		// The repo that holds this test can set companion_width in its own
 		// .pappardelle.yml (the monorepo sets 20). A pane that narrow cuts the
 		// split titles, so the test uses the built-in widths.
@@ -164,7 +169,7 @@ tmuxTest(
 		]);
 		await startSpace(c, []);
 		const session = (key: string, name: string) =>
-			`${getSessionNames(key).companion}~${name}`;
+			`${sessionNamesFor(key, getRepoName()).companion}~${name}`;
 
 		t.is(await syncCompanionSplits(layout, a, {run}), 'applied');
 		const splitPanes = companionSplitPaneIds();
@@ -312,7 +317,7 @@ tmuxTest(
 
 		// An open dialog zooms the rail; splitting would unzoom it.
 		t.true(
-			createCompanionSplit(a, {
+			createCompanionSplit(storedIdentity(a)!, {
 				name: 'dev',
 				split: 'down',
 				command: 'sleep 600',

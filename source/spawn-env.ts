@@ -8,16 +8,22 @@ import {MAIN_WORKTREE_KEY} from './space-utils.ts';
  * PAPPARDELLE_MAIN_REPO_ROOT so nothing downstream re-derives it — idow hands
  * it on to the workspace's tmux sessions, where the Claude Code hooks read it
  * instead of resolving the main checkout on every tool use.
+ *
+ * `registerSpace` is whether the caller's registry records a space while it
+ * is being set up (`SpaceRegistryDao.keepsLifecycle`). Where it does, idow
+ * records the space before it starts any session.
  */
 export function buildSpawnEnv(
 	repoRoot: string,
-	mainRepoRoot?: string,
+	options: {mainRepoRoot?: string; registerSpace: boolean},
 ): NodeJS.ProcessEnv {
+	const {mainRepoRoot, registerSpace} = options;
 	return {
 		...process.env,
 		PAPPARDELLE_BUN: bunForChildren(),
 		PAPPARDELLE_EXECUTABLE: isStandalone ? process.execPath : undefined,
 		PAPPARDELLE_PROJECT_ROOT: repoRoot,
+		PAPPARDELLE_REGISTER_SPACE: registerSpace ? '1' : undefined,
 		...(mainRepoRoot ? {PAPPARDELLE_MAIN_REPO_ROOT: mainRepoRoot} : {}),
 	};
 }
@@ -34,9 +40,10 @@ export function buildSpawnEnv(
  * PAPPARDELLE_REPO qualifies the hook's status file name, since spaces of two
  * repos can share a key and all repos write to one status directory.
  *
- * The main space gets no PAPPARDELLE_SPACE. Its checkout can change branch
- * while the session lives on, and the rail keys its dot by the branch, so a
- * fixed value would go stale. The hook's cwd logic already follows the branch.
+ * The main space gets no PAPPARDELLE_SPACE. Without the database the rail
+ * keys its dot by the branch, which changes while the session lives on, and
+ * the hook's cwd logic follows it. With the database the hook finds main from
+ * its stored worktree.
  */
 export function buildSessionEnvArgs(
 	spaceKey: string,
@@ -56,23 +63,18 @@ export function buildSessionEnvArgs(
 }
 
 /**
- * The `-e` flags only the agent session gets. The agent profile's env comes
- * first, so pappardelle's own variables win a name clash (tmux keeps the last).
- * Then, for the hook that records the agent's session id
- * (plugins/pappardelle/hooks/agent_session.py): which agent profile the pane
- * runs, so a later relaunch with a different one ignores the id; whether it is
- * a claude agent profile, so the hook of an agent of the other kind started in
- * the pane isn't recorded; and the file to write the id to. Kept off the
- * companion session, where an agent started by hand isn't the space's agent.
- * Reporting overrides bypass the terminal probe that tmux cannot answer;
- * the pane monitor captures its reports without changing the terminal transport.
+ * The `-e` flags only the agent session gets, mirroring AGENT_SESSION_ENV in
+ * start-agent-session.sh. The agent profile's env comes first, so
+ * pappardelle's own variables win a name clash (tmux keeps the last). Pi and
+ * agy report their status to the pane monitor only when asked, since tmux
+ * cannot answer the terminal probe they would otherwise send; the monitor
+ * captures the reports without changing the terminal transport.
  */
 export function buildAgentSessionEnvArgs(
-	agentProfile: {name: string; isClaude: boolean; env?: Record<string, string>},
-	agentSessionsPath: string,
+	profileEnv: Record<string, string> = {},
 ): string[] {
 	return [
-		...Object.entries(agentProfile.env ?? {}).flatMap(([name, value]) => [
+		...Object.entries(profileEnv).flatMap(([name, value]) => [
 			'-e',
 			`${name}=${value}`,
 		]),
@@ -80,11 +82,5 @@ export function buildAgentSessionEnvArgs(
 		'PI_PROGRAM_STATUS=1',
 		'-e',
 		'AGY_CLI_OSC7501=on',
-		'-e',
-		`PAPPARDELLE_AGENT_PROFILE=${agentProfile.name}`,
-		'-e',
-		`PAPPARDELLE_AGENT_IS_CLAUDE=${agentProfile.isClaude}`,
-		'-e',
-		`PAPPARDELLE_AGENT_SESSIONS=${agentSessionsPath}`,
 	];
 }

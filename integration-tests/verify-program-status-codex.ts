@@ -11,10 +11,7 @@ import {
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {
-	attachStatusMonitor,
-	shellQuoteStatus,
-} from '../source/program-status-monitor.ts';
+import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 
 assert.ok(
@@ -133,7 +130,7 @@ try {
 		'/bin/bash',
 		'-l',
 	]);
-	await attachStatusMonitor(repo, key, session);
+	await harness.programStatus(repo).attach(key, session);
 	statuses = await harness.mount(repo, key, session);
 	console.log(`Fixture ${harness.root}; ${version}`);
 	await launch();
@@ -141,7 +138,7 @@ try {
 		'Reply with exactly: native Codex status verified. Do not use tools.',
 		'simple turn',
 	);
-	harness.writeHook(key, 'error');
+	await harness.writeHook(key, 'error');
 	await delay(250);
 	await expectCompletion(
 		'native Codex status overrides conflicting Claude hook',

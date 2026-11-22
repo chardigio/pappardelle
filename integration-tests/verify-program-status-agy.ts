@@ -3,10 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {existsSync, readFileSync, readdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {
-	attachStatusMonitor,
-	shellQuoteStatus,
-} from '../source/program-status-monitor.ts';
+import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import {buildAgentSessionEnvArgs} from '../source/spawn-env.ts';
 import {StatusHarness, until} from './program-status-harness.ts';
 
@@ -60,17 +57,14 @@ try {
 		harness.root,
 		'-e',
 		`HISTFILE=${path.join(harness.root, 'shell-history')}`,
-		...buildAgentSessionEnvArgs(
-			{name: 'agy', isClaude: false},
-			path.join(harness.root, 'agent-sessions.json'),
-		),
+		...buildAgentSessionEnvArgs(),
 		'/bin/bash',
 		'--noprofile',
 		'--rcfile',
 		shellStartup,
 		'-i',
 	]);
-	await attachStatusMonitor(repo, key, session);
+	await harness.programStatus(repo).attach(key, session);
 	const statuses = await harness.mount(repo, key, session);
 	const args = [agent, '--effort', 'low', '--mode', 'plan'];
 	console.log(`Fixture ${harness.root}; ${agent} ${version}`);
@@ -133,7 +127,7 @@ try {
 		'●',
 		120000,
 	);
-	harness.writeHook(key, 'error');
+	await harness.writeHook(key, 'error');
 	await delay(250);
 	await harness.expect(
 		'done',

@@ -4,10 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {existsSync, readFileSync, readdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {
-	attachStatusMonitor,
-	shellQuoteStatus,
-} from '../source/program-status-monitor.ts';
+import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
 
 assert.ok(
@@ -142,11 +139,8 @@ async function turn(text: string, label: string) {
 async function leave() {
 	await prompt('/exit');
 	await until(
-		() =>
-			JSON.parse(
-				readFileSync(path.join(harness.root, 'hooks', `${key}.json`), 'utf8'),
-			) as {event?: string},
-		state => state.event === 'SessionEnd',
+		async () => harness.claudeStatus.readState(key),
+		stored => stored.kind === 'state' && stored.state.event === 'SessionEnd',
 		'SessionEnd hook records shell return',
 	);
 	await harness.expect(
@@ -178,7 +172,7 @@ try {
 		'/bin/bash',
 		'-l',
 	]);
-	await attachStatusMonitor(repo, key, session);
+	await harness.programStatus(repo).attach(key, session);
 	await harness.mount(repo, key, session);
 	await launch();
 	await turn(

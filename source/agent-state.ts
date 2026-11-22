@@ -3,10 +3,7 @@
 // screen adds what the agent is blocked on and the states only the screen
 // shows: a Codex usage limit and a draft in its composer.
 
-import {
-	getClaudeStatusInfoAsync,
-	type ClaudeStatusInfo,
-} from './claude-status.ts';
+import type {ClaudeStatusInfo} from './claude-status.ts';
 import {
 	parseAgentScreen,
 	type AgentScreen,
@@ -17,7 +14,6 @@ import {
 } from './agent-screen.ts';
 import {
 	parseStatusPane,
-	readProgramSnapshot,
 	STATUS_PANE_FORMAT,
 	STATUS_PANE_OPTION,
 	statusSocket,
@@ -27,12 +23,10 @@ import {
 import type {ProgramStatusInfo} from './program-status.ts';
 import {
 	exactSessionTarget,
-	fromSessionKey,
-	getSessionNames,
-	getSessionPrefix,
 	resolveInnerSessionTargetSync,
 	type OuterTmuxRunner,
 } from './tmux.ts';
+import type {SpaceIdentityDao} from './space-identity.ts';
 import {mergeProgramStatus} from './workspace-status.ts';
 
 export const AGENT_STATES = [
@@ -106,18 +100,17 @@ export function classifyAgent(
 }
 
 export type AgentStateDeps = {
-	repo: string;
+	identities: Pick<SpaceIdentityDao, 'get'>;
 	runner: OuterTmuxRunner;
 	now: () => Date;
 	sleep: (ms: number) => Promise<void>;
 	/** The hook file's key: the space key, or `{repo}-{branch}` for main. */
 	hookKey: string;
-	readHook?: (key: string) => Promise<ClaudeStatusInfo | null>;
-	readSnapshot?: (
-		repo: string,
+	readHook: (key: string) => Promise<ClaudeStatusInfo | null>;
+	readSnapshot: (
 		key: string,
 		pane: StatusPane,
-	) => ProgramStatusSnapshot | null;
+	) => Promise<ProgramStatusSnapshot | null>;
 };
 
 const SCREEN_TAIL_LINES = 40;
@@ -128,6 +121,32 @@ function tmuxOut(runner: OuterTmuxRunner, args: string[]): string | null {
 }
 
 /**
+ * A `list-panes` format for picking a session's status pane with
+ * `statusPaneOf`: whether the pane is the session's current one, the pane
+ * the session pinned, and the pane's status fields.
+ */
+export const AGENT_PANE_FORMAT = `#{window_active}#{pane_active}\t#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`;
+
+/**
+ * The pane the TUI's status monitor pinned, else the session's current pane,
+ * from one session's `AGENT_PANE_FORMAT` lines.
+ */
+export function statusPaneOf(
+	lines: string[],
+	socket: string,
+): StatusPane | null {
+	const rows = lines.map(line => {
+		const [active = '', pinned = '', ...pane] = line.split('\t');
+		return {current: active === '11', pinned, pane: pane.join('\t')};
+	});
+	const pinned = rows.find(row => row.pinned)?.pinned;
+	const row = pinned
+		? rows.find(each => each.pane.startsWith(`${pinned}\t`))
+		: rows.find(each => each.current);
+	return row ? parseStatusPane(row.pane, socket) : null;
+}
+
+/**
  * The pane the TUI's status monitor pinned, read without attaching one: that
  * stays the TUI's job, and attaching from here would race it.
  */
@@ -135,31 +154,50 @@ function pinnedStatusPane(
 	session: string,
 	runner: OuterTmuxRunner,
 ): StatusPane | null {
-	const target = exactSessionTarget(session);
-	const pinned = tmuxOut(runner, [
-		'show-option',
-		'-qv',
+	const listing = tmuxOut(runner, [
+		'list-panes',
+		'-s',
 		'-t',
-		target,
-		STATUS_PANE_OPTION,
-	])?.trim();
-	const pane = tmuxOut(runner, [
-		'display-message',
-		'-p',
-		'-t',
-		pinned || target,
-		STATUS_PANE_FORMAT,
+		exactSessionTarget(session),
+		'-F',
+		AGENT_PANE_FORMAT,
 	]);
-	return pane ? parseStatusPane(pane, statusSocket()) : null;
+	return listing
+		? statusPaneOf(listing.split('\n').filter(Boolean), statusSocket())
+		: null;
 }
 
-/** The keys of every space in `repo` with an agent session. */
-export function listAgentKeys(repo: string, runner: OuterTmuxRunner): string[] {
-	const prefix = getSessionPrefix('agent', repo);
-	return (tmuxOut(runner, ['list-sessions', '-F', '#{session_name}']) ?? '')
-		.split('\n')
-		.filter(name => name.startsWith(prefix))
-		.map(name => fromSessionKey(name.slice(prefix.length)));
+/**
+ * A space's status as the rail shows it: the hook's record merged with what
+ * the agent reported on its pane, when the pane is known.
+ */
+export async function readAgentStatus(
+	key: string,
+	pane: StatusPane | null,
+	deps: Pick<AgentStateDeps, 'hookKey' | 'readHook' | 'readSnapshot'>,
+): Promise<ProgramStatusInfo | null> {
+	return mergeProgramStatus(
+		await deps.readHook(deps.hookKey),
+		pane ? await deps.readSnapshot(key, pane) : null,
+		pane,
+	);
+}
+
+/** The keys of every space whose stored agent session is live. */
+export function listAgentKeys(
+	identities: Pick<SpaceIdentityDao, 'list'>,
+	runner: OuterTmuxRunner,
+): string[] {
+	const listed = identities.list();
+	if (listed.kind === 'unreadable') return [];
+	const live = new Set(
+		(tmuxOut(runner, ['list-sessions', '-F', '#{session_name}']) ?? '').split(
+			'\n',
+		),
+	);
+	return listed.identities
+		.filter(identity => live.has(identity.tmux.agentSession))
+		.map(identity => identity.key);
 }
 
 // A window nobody is viewing keeps the size of whatever last showed it: a
@@ -215,15 +253,21 @@ async function growUnviewedWindow(
 	if (!resized.error && resized.status === 0) await deps.sleep(REDRAW_MS);
 }
 
+function agentSessionOf(
+	key: string,
+	deps: Pick<AgentStateDeps, 'identities'>,
+): string | null {
+	const lookup = deps.identities.get(key);
+	return lookup.kind === 'identity' ? lookup.identity.tmux.agentSession : null;
+}
+
 export async function captureAgentScreen(
 	key: string,
 	lines: number,
-	deps: Pick<AgentStateDeps, 'repo' | 'runner' | 'sleep'>,
+	deps: Pick<AgentStateDeps, 'identities' | 'runner' | 'sleep'>,
 ): Promise<string | null> {
-	const target = resolveInnerSessionTargetSync(
-		getSessionNames(key, deps.repo).agent,
-		deps.runner,
-	);
+	const session = agentSessionOf(key, deps);
+	const target = session && resolveInnerSessionTargetSync(session, deps.runner);
 	if (!target) return null;
 	await growUnviewedWindow(target, deps);
 	return tmuxOut(deps.runner, [
@@ -242,18 +286,13 @@ export async function readAgentState(
 	key: string,
 	deps: AgentStateDeps,
 ): Promise<AgentStateReport> {
-	const {repo, runner} = deps;
+	const {runner} = deps;
 	const capture = await captureAgentScreen(key, SCREEN_TAIL_LINES, deps);
 	const screen =
 		capture === null ? null : parseAgentScreen(capture, deps.now());
-	const pane = screen
-		? pinnedStatusPane(getSessionNames(key, repo).agent, runner)
-		: null;
-	const status = mergeProgramStatus(
-		await (deps.readHook ?? getClaudeStatusInfoAsync)(deps.hookKey),
-		pane ? (deps.readSnapshot ?? readProgramSnapshot)(repo, key, pane) : null,
-		pane,
-	);
+	const session = agentSessionOf(key, deps);
+	const pane = screen && session ? pinnedStatusPane(session, runner) : null;
+	const status = await readAgentStatus(key, pane, deps);
 	return {
 		key,
 		state: classifyAgent(status, screen),

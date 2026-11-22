@@ -13,7 +13,8 @@ import {
 	type RestartTiming,
 	restartTuis,
 } from './tui-sessions.ts';
-import {DEFAULT_REPO_STATE_ROOT} from './tui-marker.ts';
+import {stateDaosByRepo} from './state-daos.ts';
+import {DEFAULT_REPO_STATE_ROOT, type TuiMarkerDao} from './tui-marker.ts';
 import {resolveDisplayVersion, runUpdateScript} from './update-check.ts';
 
 // `pappardelle update`: the CLI twin of pressing U in the TUI. U runs the
@@ -26,6 +27,7 @@ export type UpdateCommandDeps = {
 	runInstaller: () => number;
 	tmux: OuterTmuxRunner;
 	repoStateRoot: string;
+	tuiMarker: (repo: string) => Pick<TuiMarkerDao, 'read'>;
 	// Read after the install, which is what creates or re-pins the shim.
 	launchCommand: () => string;
 	timing?: Partial<RestartTiming>;
@@ -86,11 +88,13 @@ export function defaultUpdateCommandDeps(
 	pappardelleDir: string,
 ): UpdateCommandDeps {
 	const {version, isDev} = resolveDisplayVersion(pappardelleDir);
+	const daosFor = stateDaosByRepo();
 	return {
 		installedVersion: version && isDev ? `${version}-dev` : version,
 		runInstaller: () => runUpdateScript({waitOnFailure: false}),
 		tmux: defaultServerTmuxRunner,
 		repoStateRoot: DEFAULT_REPO_STATE_ROOT,
+		tuiMarker: repo => daosFor(repo).tuiMarker,
 		launchCommand: () =>
 			installedLaunchCommand({
 				execPath: process.execPath,

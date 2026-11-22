@@ -22,7 +22,10 @@ esac
 	);
 	const moduleUrl = new URL('tmux.ts', import.meta.url).href;
 	const script = `
-import {attachToSpace} from ${JSON.stringify(moduleUrl)};
+import {attachToSpace, initTmuxState} from ${JSON.stringify(moduleUrl)};
+import {getRepoName} from ${JSON.stringify(new URL('config.ts', import.meta.url).href)};
+import {createStateDaos} from ${JSON.stringify(new URL('state-daos.ts', import.meta.url).href)};
+initTmuxState(createStateDaos({repo: getRepoName(), stateDir: ${JSON.stringify(path.join(dir, 'state'))}, sqlite: false}));
 let ticks = 0;
 const timer = setInterval(() => ticks++, 10);
 const success = await attachToSpace('%1', '%2', 'TEST-SLOW', '%0');

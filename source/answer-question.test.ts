@@ -1,3 +1,4 @@
+import {idowIdentities} from '../test/helpers/state.ts';
 import test from 'ava';
 import {runSuperviseCommand, type SuperviseDeps} from './supervise-command.ts';
 import type {SuperviseEntry} from './supervise-log.ts';
@@ -111,8 +112,11 @@ function harness(dialog: Dialog) {
 
 	const deps: SuperviseDeps = {
 		repo: () => 'repo',
+		identities: idowIdentities('repo', () => ['STA-1']),
 		resolveKey: raw => raw,
-		hookKey: async key => `no-such-hook-${key}`,
+		hookKey: async key => key,
+		readHook: async () => ({status: 'unknown'}),
+		readSnapshot: async () => null,
 		runner,
 		serverRunner: () => ({status: 1, stdout: ''}),
 		now: () => new Date(2026, 10, 9, 12, 0),

@@ -986,7 +986,7 @@ profiles:
         - Bash,Read,Write,Edit,Glob,Grep,Agent,Skill,Monitor
 ```
 
-When the TUI creates a space's session again (after a crash, or after the agent exits), it uses the profile that `idow` saved for the space in `~/.pappardelle/repos/<repo>/space-state/<KEY>.json`. Only a space with no saved profile (or a saved name that no profile has now) falls back to the issue title's keywords. So still give a restricted profile a keyword that its issue titles always contain, and put it above any profile that shares a keyword with it, because file order wins a tie. The same order applies to `agent_profile` and `companion_command`.
+When the TUI creates a space's session again (after a crash, or after the agent exits), it uses the profile that `idow` saved for the space in `~/.pappardelle/repos/<repo>/space-state/<KEY>.json` (or in the database, with [`experimental.sqliteState`](#experimental-sqlite-state) on). `pappardelle space get KEY --field profile` prints it. Only a space with no saved profile (or a saved name that no profile has now) falls back to the issue title's keywords. So still give a restricted profile a keyword that its issue titles always contain, and put it above any profile that shares a keyword with it, because file order wins a tie. The same order applies to `agent_profile` and `companion_command`.
 
 Omitting `model`, `effort` and `extra_args` everywhere leaves the launch command byte-identical to a config that predates them; nothing is passed to the CLI unless you ask for it.
 
@@ -1141,6 +1141,50 @@ sous_chef?: boolean;
 - The launch applies when the TUI next starts the main checkout's agent session. To apply it now, end that session (`/exit`, then `exit` in the shell left behind) and select the main row again
 - Put your own instructions for the sous-chef in `SOUS-CHEF.md` at the main checkout's root, such as which spaces to prioritize, what it may approve without asking, or how to report. `/sous-chef` reads it first and follows it over its own routine, and the MCP instructions point the sous-chef at it so it still applies after the conversation is compacted. Commit it to share it, or leave it untracked to keep it to yourself
 - A main checkout running Codex or another non-Claude agent gets the instructions and the rail label, but no rename or `/sous-chef` prompt
+
+## Experimental: SQLite State
+
+`experimental.sqliteState` keeps Pappardelle's state in one SQLite database, `~/.pappardelle/state.db`, shared by every repo. Off by default.
+
+```yaml
+experimental:
+  sqliteState: true # default: false
+```
+
+```typescript
+experimental?: {sqliteState?: boolean};
+```
+
+- Set it in `~/.pappardelle/.pappardelle.yml` only. The database is shared by every repo, so config validation rejects the key in a project or local config
+- **On:** state is read from the database, and every write also updates the JSON file it replaces. Turning the flag off again loses none of it. Claude hook status and program status are the exception: they are stored nowhere and go through the [status daemon](#status-daemon)
+- **Off:** the database is never opened, no status daemon is started, and state is read from and written to the files
+- What the database holds: the open spaces and watchlist reservations, each space's identity, its saved profile, issue title, rail status, recap and PR links, issue meta, highlight requests, state colors, agent sessions, companion widths and layout requests, scheduled wake-ups and queued messages, the TUI marker and the update check
+- A space's identity is its worktree path, tmux socket and agent and companion session names, stored by `idow` when it creates the space and by the TUI for the main space when it starts. Everything that runs afterwards (the TUI, the CLI commands, the reaper, `supervise` and the hooks) looks them up rather than building them from the issue key. An identity is kept after its space closes, so a key opened again keeps its names. A space opened while the flag was off is given the identity `idow` would give it the next time the open spaces are read with the flag on. With the flag off, every space has the identity `idow` gives it
+- The startup reaper keeps a session when its name, or the name its split or legacy session belongs to, is stored for a space that is open, starting or closing, or for main. It reaps nothing when such a space has no stored identity
+- With the flag on, a hook outside a pane names its space from the stored worktree that holds its directory: no git and no tracker config. The main space reports its status under `<repo>-main` instead of its branch, and the rail and `supervise` read it there. A hook whose directory is in no stored space reports no status
+- A file changed while the flag was off is imported the next time it is read with the flag on
+- The issue title is stored each time Pappardelle reads the issue from the tracker, and when `idow` opens the space. In the space's state file it is the `issueTitle` field
+- `pappardelle space get` reads a space's stored values the same way in both modes. Scripts and hooks should use it rather than reading the database or the JSON files
+- Restart the TUI after changing the flag. A TUI that is already running keeps the mode it started with, and shows no status changes until it is restarted
+- Running agents need no restart. They follow within 5 seconds of that start: the hooks and each agent pane's status monitor read the flag from `~/.pappardelle/state-flag.json`, which Pappardelle rewrites when it starts
+- The hooks need a Python whose SQLite is 3.37 or newer to write to the database. With an older one they write files only, and each file is imported the next time it is read. Hook status does not use SQLite and is not affected
+- A database that cannot be opened or read does not stop the TUI. The rail keeps running without the spaces and other state it could not read, reports the failed reads in its error list, and reads the database again once it can, with no restart
+- Locks (`restart.lock`, `send-locks/`), the lease files in `program-status/`, `supervise.jsonl`, logs and config stay files in both modes
+- `PAPPARDELLE_SQLITE_STATE=1` or `0` overrides the config for one process and its children, `PAPPARDELLE_STATE_DB` moves the database, and `PAPPARDELLE_STATUS_SOCKET` moves the status daemon's socket. All three exist for tests
+
+### Status daemon
+
+With the flag on, the hooks and the agent panes' status monitors send Claude hook status and program status to the status daemon. It is one process per user, for every repo. It keeps the statuses in memory and pushes each change to the rail.
+
+- It listens on `~/.pappardelle/status-1.sock`, beside the database
+- It writes no state to disk. Its warnings and errors go to the log files
+- The TUI and the status monitors start it when none is running. Hooks and CLI commands never start it
+- It exits 10 seconds after its last connection closes. Each status monitor keeps a connection open, so it runs for as long as a TUI or a monitored agent pane exists
+- A restarted daemon gets program status back within a second, because each status monitor sends its latest snapshot again. It gets hook status back from any process that was connected to it, such as a running TUI, which sends what it knew. With no such process, it has no hook status for an agent until that agent's next hook event
+- A hook event fired while no daemon runs is dropped
+- A status sent while the daemon cannot be reached is dropped too. An agent that asks for approval in the moment a daemon is being replaced can show its earlier status until its next hook event, or until the 10 minute timeout of an active status
+- After the flag is turned off, program status is written to files again within 5 seconds, and hook status is shown from each agent's next hook event
+- An agent session whose status monitor was started by a Pappardelle without the status daemon keeps writing snapshot files. Its status is still read, but reaches the rail on the 10 second refresh until that session restarts
 
 ## Issue Status Colors
 

@@ -6,12 +6,13 @@ import {
 	startupSessionEnvArgs,
 } from './startup-trace.ts';
 import {execSync, spawnSync} from 'node:child_process';
-import {readFileSync} from 'node:fs';
+import {existsSync, readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
 import path from 'node:path';
 import {
 	cleanupOrphanedInnerSessions,
+	liveInnerSessions,
 	sharedSessionListingRunner,
 	cleanupOrphanedOuterSessions,
 	migrateLegacyAgentSessions,
@@ -24,8 +25,8 @@ import {
 	sessionExists,
 	setupPappardellLayout,
 	enableTmuxControlClients,
-	getSessionNames,
 	getWorktreePath,
+	spaceSessionNames,
 	getMainWorktreeInfo,
 	INNER_SOCKET,
 } from './tmux.ts';
@@ -41,6 +42,7 @@ import {
 	readBeadsIssuePrefix,
 	getTeamPrefix,
 	getProfileTeamPrefix,
+	validateHomeOnlySqliteState,
 	ConfigNotFoundError,
 	ConfigValidationError,
 } from './config.ts';
@@ -57,13 +59,9 @@ import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
-import {
-	getRegisteredSpaces,
-	getRegisteredSpacesAsync,
-} from './space-registry.ts';
-import {writeHighlightTarget} from './highlight.ts';
 import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
 import {linkPr} from './link-pr.ts';
+import {createStateDaos, type StateDaos} from './state-daos.ts';
 import {
 	defaultCloseCommandDeps,
 	runCloseCommand,
@@ -74,14 +72,14 @@ import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {isSuperviseVerb} from './supervise-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {waitForAgentStart} from './agent-start.ts';
-import {hookStatusFile, hookStatusKey} from './claude-status.ts';
+import {hookStatusKey} from './claude-status.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {
 	readTmuxVersion,
 	tmuxTooOldMessage,
 	tmuxVersionTooOld,
 } from './tmux-version.ts';
-import {DEFAULT_REPO_STATE_ROOT, isTuiDead} from './tui-marker.ts';
+import {isTuiDead} from './tui-marker.ts';
 import {SEND_LOCK_TIMEOUT_MS} from './send-lock.ts';
 import {defaultUpdateCommandDeps, runUpdateCommand} from './update-command.ts';
 import {
@@ -89,8 +87,12 @@ import {
 	hardRestart,
 	restartRepo,
 } from './restart-command.ts';
+import {
+	protectedSessionNames,
+	mainIdentity,
+	spaceWorktreePath,
+} from './space-identity.ts';
 import {resolveTargetSpace} from './space-target.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {exitAfterFlush} from './exit-after-flush.ts';
 
 const SCRIPTS_DIR = scriptsDir;
@@ -145,23 +147,42 @@ function resolveCliSpaceKey(rawKey: string): string {
 	);
 }
 
+// Dispatched before meow so that `--field x` and `--field=x` both parse, and
+// so that a mistyped verb exits instead of being read as a prompt.
+if (process.argv[2] === 'space') {
+	const {runSpaceCommand, defaultSpaceCommandDeps} =
+		await import('./space-command.ts');
+	await exitAfterFlush(
+		await runSpaceCommand(
+			process.argv.slice(3),
+			defaultSpaceCommandDeps({resolveKey: resolveCliSpaceKey}),
+		),
+	);
+}
+
 // Dispatched before meow, which would read the wrapped command's flags
 // (including --help) as Pappardelle's own.
 if (process.argv[2] === 'companion') {
 	const companionArgv = process.argv.slice(3);
 	const {runCompanionCommand} = await import('./companion-command.ts');
+	let companionDaos: StateDaos | undefined;
+	const bootstrap = () => {
+		companionDaos ??= bootstrapRepo().daos;
+		return companionDaos;
+	};
+
 	await exitAfterFlush(
 		await runCompanionCommand(companionArgv, {
 			resolveSpace(flag) {
 				checkConfig();
-				bootstrapRepo();
+				bootstrap();
 				return resolveTargetSpace({
 					flag,
 					env: process.env,
 					resolve: resolveCliSpaceKey,
 				});
 			},
-			repoName: getRepoName,
+			daos: bootstrap,
 		}),
 	);
 }
@@ -170,7 +191,7 @@ if (process.argv[2] === 'companion') {
 // (--keys, --message) would otherwise be read as Pappardelle's own.
 if (isSuperviseVerb(process.argv[2])) {
 	checkConfig();
-	bootstrapRepo();
+	const {daos} = bootstrapRepo();
 	const [{runSuperviseCommand}, {defaultSuperviseDeps}] = await Promise.all([
 		import('./supervise-command.ts'),
 		import('./supervise-runtime.ts'),
@@ -178,7 +199,7 @@ if (isSuperviseVerb(process.argv[2])) {
 	await exitAfterFlush(
 		await runSuperviseCommand(
 			process.argv.slice(2),
-			defaultSuperviseDeps(resolveCliSpaceKey),
+			defaultSuperviseDeps(resolveCliSpaceKey, daos),
 		),
 	);
 }
@@ -217,9 +238,9 @@ if (cli.input.length === 1 && cli.input[0] === 'update') {
 // is already resolved, and the worktree it was asked from may be gone.
 if (cli.input[0] === 'close' && cli.flags.teardownOnly) {
 	if (cli.input.length !== 2) process.exit(1);
-	bootstrapRepo();
+	const {daos} = bootstrapRepo();
 	process.exit(
-		await runCloseTeardown(cli.input[1]!, defaultCloseCommandDeps()),
+		await runCloseTeardown(cli.input[1]!, defaultCloseCommandDeps(daos)),
 	);
 }
 
@@ -237,8 +258,20 @@ if (isRestart && cli.flags.hard) {
 
 // Check for .pappardelle.yml config file
 function checkConfig(): void {
+	let repoRoot: string;
 	try {
-		const repoRoot = getRepoRoot();
+		repoRoot = getRepoRoot();
+	} catch {
+		console.error(
+			'\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m',
+		);
+		console.error(
+			'\x1b[33mPlease navigate to a git repository and try again.\x1b[0m',
+		);
+		process.exit(1);
+	}
+
+	try {
 		if (!configExists()) {
 			console.error(
 				'\x1b[31mError: No .pappardelle.yml found at repository root.\x1b[0m',
@@ -256,6 +289,8 @@ function checkConfig(): void {
 			);
 			process.exit(1);
 		}
+
+		validateHomeOnlySqliteState();
 	} catch (error) {
 		if (error instanceof ConfigNotFoundError) {
 			console.error(
@@ -278,13 +313,7 @@ function checkConfig(): void {
 			console.error('Please fix the configuration and try again.');
 			process.exit(1);
 		} else {
-			// Not in a git repository
-			console.error(
-				'\x1b[31mError: pappardelle must be run from within a git repository.\x1b[0m',
-			);
-			console.error(
-				'\x1b[33mPlease navigate to a git repository and try again.\x1b[0m',
-			);
+			console.error(error instanceof Error ? error.message : String(error));
 			process.exit(1);
 		}
 	}
@@ -300,7 +329,10 @@ if (cli.input[0] === 'link-pr') {
 			cli.input[1]!,
 			process.cwd(),
 			cli.flags.workspace ? path.resolve(cli.flags.workspace) : getRepoRoot(),
-			{gitlabHost: loadProviderConfigs().vcs_host?.host},
+			{
+				daosFor: repo => createStateDaos({repo}),
+				gitlabHost: loadProviderConfigs().vcs_host?.host,
+			},
 		);
 		console.log(
 			`Linked ${result.link.url} (${result.link.remoteBranch}) in ${result.file}`,
@@ -321,14 +353,14 @@ checkConfig();
 configurationDone?.();
 
 const bootstrapDone = startupTrace.current?.begin('repo-bootstrap');
-const {repoName} = bootstrapRepo();
+const {repoName, daos} = bootstrapRepo();
 bootstrapDone?.();
 
 if (isRestart) {
 	process.exit(await restartRepo(repoName, defaultRestartCommandDeps()));
 }
 
-// Handle `pappardelle highlight STA-XXX` — write target file and exit
+// Handle `pappardelle highlight STA-XXX`: record the request and exit
 if (cli.input[0] === 'highlight') {
 	const issueKey = cli.input[1];
 	if (!issueKey) {
@@ -336,7 +368,7 @@ if (cli.input[0] === 'highlight') {
 		process.exit(1);
 	}
 
-	writeHighlightTarget(repoName, {
+	await daos.highlight.request({
 		issueKey,
 		focus: cli.flags.focus === true,
 	});
@@ -400,9 +432,11 @@ if (cli.input[0] === 'send') {
 	}
 
 	if (result === 'no-session') {
-		const session = getSessionNames(issueKey).agent;
+		const session = spaceSessionNames(issueKey)?.agent;
 		console.error(
-			`No active session for ${issueKey} (${session} on ${INNER_SOCKET})`,
+			session
+				? `No active session for ${issueKey} (${session} on ${INNER_SOCKET})`
+				: `No active session for ${issueKey}: it has no stored session names`,
 		);
 		process.exit(1);
 	}
@@ -433,7 +467,7 @@ if (cli.input[0] === 'close') {
 	process.exit(
 		await runCloseCommand(
 			{key: issueKey, yes: cli.flags.yes ?? false},
-			defaultCloseCommandDeps(),
+			defaultCloseCommandDeps(daos),
 		),
 	);
 }
@@ -443,6 +477,11 @@ if (cli.input[0] === 'spaces') {
 	await exitAfterFlush(
 		await runSpacesCommand({
 			repoName,
+			registry: daos.registry,
+			spaceIdentities: daos.spaceIdentities,
+			claudeStatus: daos.claudeStatus,
+			spaceState: daos.spaceState,
+			issueMeta: daos.issueMeta,
 			home: homedir(),
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),
@@ -462,10 +501,7 @@ if (cli.input[0] === 'read') {
 	await exitAfterFlush(
 		await runReadCommand({
 			issueKey,
-			worktree:
-				issueKey === MAIN_WORKTREE_KEY
-					? getMainRepoRoot()
-					: getWorktreePath(issueKey),
+			worktree: getWorktreePath(issueKey),
 			turns: cli.flags.turns,
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),
@@ -501,29 +537,45 @@ if (cli.input.length > 0) {
 
 	console.log(`Starting new session with: "${finalPrompt}"`);
 
+	// A space reopened by key resumes its conversation. Its worktree may have
+	// no stored identity: it closed before identities were stored.
+	const worktreeOnDisk = (key: string | null) => {
+		if (!key) return false;
+		const found = spaceWorktreePath(
+			daos.spaceIdentities,
+			homedir(),
+			getRepoName(),
+			key,
+		);
+		return found.kind === 'path' && existsSync(found.path);
+	};
+
 	const status = await runOpenSpaceCommand({
 		command: path.join(SCRIPTS_DIR, 'idow'),
 		prompt: finalPrompt,
 		issueKey: normalizedIssueKey,
 		profileName: cli.flags.profile,
-		resume:
-			cli.flags.resume ??
-			Boolean(normalizedIssueKey && getWorktreePath(normalizedIssueKey)),
+		resume: cli.flags.resume ?? worktreeOnDisk(normalizedIssueKey),
 		cwd: getRepoRoot(),
-		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
+		env: buildSpawnEnv(getRepoRoot(), {
+			mainRepoRoot: getMainRepoRoot(),
+			registerSpace: daos.registry.keepsLifecycle,
+		}),
+		registry: daos.registry,
 		waitForAgent: cli.flags.wait
-			? async (issueKey, since) =>
-					waitForAgentStart({
-						statusFile: hookStatusFile(hookStatusKey(getRepoName(), issueKey)),
-						worktree: path.join(
-							homedir(),
-							'.worktrees',
-							getRepoName(),
-							issueKey,
-						),
-						since,
-						timeoutMs: 60_000,
-					})
+			? async (issueKey, since) => {
+					const worktree = getWorktreePath(issueKey);
+					return (
+						worktree !== null &&
+						waitForAgentStart({
+							claudeStatus: daos.claudeStatus,
+							statusKey: hookStatusKey(getRepoName(), issueKey),
+							worktree,
+							since,
+							timeoutMs: 60_000,
+						})
+					);
+				}
 			: undefined,
 	});
 
@@ -557,10 +609,7 @@ if (!isInTmux() && cli.flags.layout) {
 	const repoName = getRepoName();
 	const sessionName = outerSessionName(repoName);
 
-	if (
-		sessionExists(sessionName) &&
-		isTuiDead(DEFAULT_REPO_STATE_ROOT, repoName)
-	) {
+	if (sessionExists(sessionName) && isTuiDead(daos.tuiMarker)) {
 		spawnSync('tmux', ['kill-session', '-t', exactSessionTarget(sessionName)]);
 	}
 
@@ -599,7 +648,7 @@ if (!isInTmux() && cli.flags.layout) {
 // Set up tmux layout if in tmux and not disabled
 let paneLayout: PaneLayout | null = null;
 
-function maintainSessions() {
+async function maintainSessions() {
 	// On startup, kill any leftover claude-{repo}-* / companion-{repo}-* sessions
 	// on the default socket from a pre-STA-860 run. tmux can't migrate sessions
 	// between servers, so we drop them; idow / Pappardelle recreates them on
@@ -630,11 +679,55 @@ function maintainSessions() {
 	// above; without it, dead `agent-pappa-STA-*` sessions linger forever now
 	// that STA-1416 removed seedFromTmux.
 	const reapingDone = startupTrace.current?.begin('inner-reaping');
-	const innerReaped = cleanupOrphanedInnerSessions(
-		new Set(getRegisteredSpaces()),
-		undefined,
-		innerTmux,
-	);
+	// The reap below keeps only the sessions of spaces with an identity.
+	await daos.spaceIdentities
+		.moveMain(
+			mainIdentity({
+				repo: repoName,
+				mainRoot: getMainRepoRoot(),
+				env: process.env,
+			}),
+		)
+		.catch((error: unknown) => {
+			createLogger('cli').warn(
+				"Could not record the main space's identity",
+				error instanceof Error ? error : undefined,
+			);
+		});
+	// A space left half-opened or half-closed by a process that died is
+	// settled by whether its sessions exist, before deciding what to reap.
+	await daos.registry
+		.settle({
+			closing: new Set(),
+			liveSessions: () => liveInnerSessions(innerTmux),
+		})
+		.catch((error: unknown) => {
+			createLogger('cli').warn(
+				'Could not settle unfinished spaces at startup',
+				error instanceof Error ? error : undefined,
+			);
+		});
+	const owned = protectedSessionNames(daos.registry, daos.spaceIdentities);
+	if (owned.kind === 'unreadable') {
+		// An unreadable registry is not an empty one: reaping against it
+		// would kill every session of every open space.
+		reapingDone?.();
+		createLogger('cli').warn(
+			'Skipped the inner-socket reap: the spaces or their names could not be read',
+			owned.error instanceof Error ? owned.error : undefined,
+		);
+		return;
+	}
+
+	if (owned.kind === 'missing') {
+		reapingDone?.();
+		createLogger('cli').warn(
+			`Skipped the inner-socket reap: no stored session names for ${owned.keys.join(', ')}`,
+		);
+		return;
+	}
+
+	const innerReaped = cleanupOrphanedInnerSessions(owned, undefined, innerTmux);
 	reapingDone?.();
 	if (innerReaped > 0) {
 		console.error(
@@ -650,18 +743,21 @@ const firstRailPaint = new Promise<void>(resolve => {
 // Read while tmux and the renderer are set up, for the first list the rail
 // draws.
 function startWorkspaceReads() {
-	const registry = getRegisteredSpacesAsync();
+	const registry = daos.registry.openSpacesAsync();
 	// App reports a failed read when it takes this over.
 	registry.catch(() => null);
 	return {registry, mainWorktree: getMainWorktreeInfo()};
 }
 
+// From here this process renders the TUI. The CLI verbs above exit first.
+daos.deferCheckpoints();
+daos.allowStatusDaemonStart();
 const initialWorkspaces = startWorkspaceReads();
 
 // tmux splits the panes while the renderer's modules load below.
 let layoutSetup: ReturnType<typeof setupPappardellLayout> | undefined;
 if (isInTmux() && cli.flags.layout) {
-	maintainSessions();
+	await maintainSessions();
 	enableTmuxControlClients();
 	layoutSetup = setupPappardellLayout();
 }
@@ -745,17 +841,21 @@ function finishStartup() {
 	finishFirstRailPaint();
 	metadata = readDisplayMetadata();
 	rerender(app());
-	void safeCheckForUpdate({projectDir: pappardelleDir}).then(finishUpdate);
+	void safeCheckForUpdate({
+		projectDir: pappardelleDir,
+		cache: daos.updateCheck,
+	}).then(finishUpdate);
 	// Wake-ups lost to a reboot can wait; loading this while the first
 	// workspace attaches would hold that up.
 	setTimeout(() => {
-		void import('./supervise-runtime.ts').then(({rearmSchedules}) => {
-			rearmSchedules();
+		void import('./supervise-runtime.ts').then(async ({rearmSchedules}) => {
+			await rearmSchedules(daos.schedules);
 		});
 	}, REARM_SCHEDULES_DELAY_MS);
 }
 const app = () => (
 	<App
+		daos={daos}
 		paneLayout={paneLayout}
 		{...metadata}
 		updateCheckPromise={updateCheckPromise}
