@@ -480,11 +480,26 @@ class TestStatusDetermination:
     def test_subagent_stop_sets_waiting_for_input(self, tmp_path):
         """SubagentStop should set 'waiting_for_input' (parent back to waiting)."""
         input_data = self._create_hook_input(hook_event="SubagentStop")
+        input_data["agent_type"] = "general-purpose"
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is not None
         assert result["status"] == "waiting_for_input"
+
+    def test_helper_subagent_stop_keeps_the_permission_record(self, tmp_path):
+        """Claude's own helper agents stop with no agent_type while a prompt is up."""
+        prompt = self._create_hook_input(hook_event="PermissionRequest", tool_name="Write")
+        prompt["tool_input"] = {"file_path": "/x/a.ts"}
+        self._run_hook_with_input(prompt, tmp_path)
+        helper = self._create_hook_input(hook_event="SubagentStop")
+        helper["agent_type"] = ""
+
+        result = self._run_hook_with_input(helper, tmp_path)
+
+        assert result is not None
+        assert result["status"] == "waiting_for_approval"
+        assert result["filePath"] == "/x/a.ts"
 
     # =========================================================================
     # Compaction Tests
@@ -550,6 +565,26 @@ class TestStatusDetermination:
 
         assert result is not None
         assert result.get("cwd") == "/Users/charlie/.worktrees/stardust-labs/STA-999"
+
+    def test_permission_request_records_the_file_it_is_for(self, tmp_path):
+        """An Edit, Write or Read prompt records the file, for the supervisor to place."""
+        input_data = self._create_hook_input(hook_event="PermissionRequest", tool_name="Edit")
+        input_data["tool_input"] = {"file_path": "/Users/charlie/.worktrees/stardust-labs/STA-999/a.ts"}
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert result.get("filePath") == "/Users/charlie/.worktrees/stardust-labs/STA-999/a.ts"
+
+    def test_only_a_permission_request_records_a_file(self, tmp_path):
+        """A file from an earlier tool call never stands in for the prompt's."""
+        input_data = self._create_hook_input(hook_event="PreToolUse", tool_name="Edit")
+        input_data["tool_input"] = {"file_path": "/tmp/a.ts"}
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert "filePath" not in result
 
     # =========================================================================
     # Edge Cases

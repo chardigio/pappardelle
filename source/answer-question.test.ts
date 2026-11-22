@@ -133,9 +133,24 @@ function harness(dialog: Dialog) {
 			dialog.type(text);
 			return 'sent';
 		},
-		classify: async () => ({allow: true}),
-		policy: {scratchRoots: ['/tmp/q-']},
+		readHookState: async () => ({kind: 'none'}),
+		classify: async () => ({kind: 'approve'}),
+		policy: () => ({
+			worktree: null,
+			roots: [],
+			reserved: [],
+			shared: [],
+			home: '/home/u',
+			defaultBranch: null,
+			realpath: target => target,
+		}),
 		store: () => ({root: '/nonexistent', repo: 'repo'}),
+		holds: () => ({
+			save: async () => undefined,
+			load: () => null,
+			list: () => [],
+		}),
+		newHoldId: () => 'h1',
 		timers: () => ({create() {}, remove() {}}),
 		caller: 'STA-9',
 		readStdin: () => undefined,

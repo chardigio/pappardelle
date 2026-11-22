@@ -2,9 +2,13 @@
 // timers and environment. Read once here, so the verbs stay testable.
 
 import {spawnSync} from 'node:child_process';
+import {realpathSync} from 'node:fs';
 import {homedir, tmpdir, userInfo} from 'node:os';
 import path from 'node:path';
 import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
+import type {ApprovalPolicy} from './approve-policy.ts';
+import {newHoldId} from './holds.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {spaceStatusKey} from './claude-status.ts';
 import {getMainRepoRoot, getRepoName} from './config.ts';
 import {selfLaunchArgs} from './runtime.ts';
@@ -21,6 +25,7 @@ import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {createLogger} from './logger.ts';
 import {
 	getMainWorktreeInfo,
+	getWorktreePath,
 	spaceSessionNames,
 	resolveInnerSessionTargetSync,
 	sendKeysToSpaceAgent,
@@ -90,15 +95,46 @@ function agentCwd(key: string): string | null {
 	return result.status === 0 ? result.stdout.trim() || null : null;
 }
 
-function scratchRoots(): string[] {
+const unique = (paths: string[]) => [...new Set(paths)];
+
+function tempRoots(): string[] {
+	return unique(['/tmp/', '/private/tmp/', `${tmpdir()}/`]);
+}
+
+function defaultBranch(worktree: string): string | null {
+	const result = spawnSync(
+		'git',
+		['-C', worktree, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+		{encoding: 'utf8'},
+	);
+	return result.status === 0
+		? result.stdout.trim().replace(/^origin\//, '') || null
+		: null;
+}
+
+/** What is inside a space on this machine. */
+function approvalPolicy(key: string): ApprovalPolicy {
+	const worktree = key === MAIN_WORKTREE_KEY ? null : getWorktreePath(key);
 	const claude = `claude-${userInfo().uid}`;
-	return [
-		'/tmp/q-',
-		'/private/tmp/q-',
-		`/tmp/${claude}/`,
-		`/private/tmp/${claude}/`,
-		`${path.join(tmpdir(), claude)}/`,
-	];
+	const tmuxTmpdir = process.env['TMUX_TMPDIR'];
+	return {
+		worktree,
+		roots: tempRoots(),
+		reserved: unique([
+			'/tmp/tmux-',
+			'/private/tmp/tmux-',
+			path.join(tmpdir(), 'tmux-'),
+			...(tmuxTmpdir ? [path.join(tmuxTmpdir, 'tmux-')] : []),
+		]),
+		shared: unique([
+			`/tmp/${claude}`,
+			`/private/tmp/${claude}`,
+			path.join(tmpdir(), claude),
+		]),
+		home: homedir(),
+		defaultBranch: worktree ? defaultBranch(worktree) : null,
+		realpath: target => realpathSync(target),
+	};
 }
 
 /** Run as the TUI starts, so wake-ups lost to a reboot come back. */
@@ -134,11 +170,12 @@ export function defaultSuperviseDeps(
 	{
 		claudeStatus,
 		schedules,
+		holds,
 		programStatus,
 		spaceIdentities,
 	}: Pick<
 		StateDaos,
-		'claudeStatus' | 'schedules' | 'programStatus' | 'spaceIdentities'
+		'claudeStatus' | 'schedules' | 'holds' | 'programStatus' | 'spaceIdentities'
 	>,
 ): SuperviseDeps {
 	return {
@@ -151,6 +188,7 @@ export function defaultSuperviseDeps(
 				return main?.branch;
 			}),
 		readHook: async hookKey => claudeStatus.read(hookKey),
+		readHookState: async hookKey => claudeStatus.readState(hookKey),
 		readSnapshot: async (key, pane) => programStatus.read(key, pane),
 		runner: supervisedInnerTmuxRunner,
 		serverRunner: supervisedServerTmuxRunner,
@@ -166,8 +204,8 @@ export function defaultSuperviseDeps(
 				programStatus.waitForChange(ms),
 			]);
 		},
-		async send(key, text) {
-			return sendToSpaceAgent(key, text);
+		async send(key, text, options) {
+			return sendToSpaceAgent(key, text, {force: options?.force});
 		},
 		sendKeys(key, keys) {
 			const result = sendKeysToSpaceAgent(key, keys, {
@@ -184,14 +222,21 @@ export function defaultSuperviseDeps(
 			});
 			return keyOutcome(result);
 		},
-		async classify(key, command) {
+		async classify(key, request) {
 			return classifyCommand(
-				{command, cwd: agentCwd(key), scratchRoots: scratchRoots()},
+				{
+					...request,
+					worktree: key === MAIN_WORKTREE_KEY ? null : getWorktreePath(key),
+					cwd: request.cwd ?? agentCwd(key),
+					tempRoots: tempRoots(),
+				},
 				defaultClassifierRun,
 			);
 		},
-		policy: {scratchRoots: scratchRoots()},
+		policy: approvalPolicy,
 		store: () => schedules,
+		holds: () => holds,
+		newHoldId,
 		timers: timerBackend,
 		caller: callerFromEnv(process.env),
 		readStdin: defaultReadStdin,

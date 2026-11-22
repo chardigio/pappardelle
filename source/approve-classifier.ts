@@ -1,17 +1,30 @@
-// The second gate on approving another space's command: a command that clears
-// the hard refusals in approve-policy.ts is judged by a small model, so the
-// policy can stay open-ended without a hand-kept list of safe programs. Any
-// failure to get a clear yes leaves the prompt for a person.
+// The second gate on approving another space's prompt: a command that clears
+// the hard stops in approve-policy.ts, and any tool call the rules don't
+// place, is judged by a small model, so the policy stays open-ended without a
+// hand-kept list of safe programs. It approves by default and says no only to
+// what leaves the space. A check that fails to run says so, rather than no,
+// so the prompt waits for another try instead of being declined.
 
 import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import type {ApprovalVerdict} from './approve-policy.ts';
 
+export type ClassifierVerdict =
+	| ApprovalVerdict
+	| {kind: 'unavailable'; reason: string};
+
 export type ClassifyRequest = {
+	/** The prompt's header, such as `Bash command` or `Tool use`. */
+	tool: string;
+	/** What the agent says the call is for. */
+	description: string;
+	/** The command, or the tool call's arguments as the prompt shows them. */
 	command: string;
-	/** Where the agent runs the command: its worktree. */
+	/** The space's worktree; null for the main checkout. */
+	worktree: string | null;
+	/** Where the agent runs the command. */
 	cwd: string | null;
-	scratchRoots: readonly string[];
+	tempRoots: readonly string[];
 };
 
 export type ClassifierRun = (
@@ -22,15 +35,16 @@ export type ClassifierRun = (
 
 const TIMEOUT_MS = 30_000;
 
-const RUBRIC = `You decide whether a shell command that an AI coding agent wants to run may be approved without asking a person.
+const RUBRIC = `You decide whether a tool call that an AI coding agent wants to make may be approved without asking a person. The agent works in its own space: its worktree, the temp directories listed, and local git. Approve unless the call does one of these:
+- Sends secrets, credentials or private files off the machine
+- Deletes or overwrites anything outside the worktree or the temp directories
+- Writes to another worktree, the main checkout, or an agent's permission settings
+- Changes system configuration, services, users or permissions
+- Deploys, or reads or writes production data or a remote database, migrations included
+- Pushes to main, master or the default branch
+- Changes its own or another agent's permissions, approvals or prompts
 
-Approve only when all of these hold:
-- It publishes nothing: no pushes, releases, deploys, package publishes, posts, messages or changes to remote services
-- It deletes or overwrites nothing outside the agent's working directory or the temp scratch directories listed
-- It sends no secrets, credentials or private files off the machine
-- It doesn't download code and run it, or change system configuration, services, users or permissions
-
-Builds, tests, linters, reads, searches, git commands that stay local, and edits inside the working directory are fine. When you can't tell what the command does, don't approve it. Give a one-sentence reason.`;
+Pushes to other branches, creating, commenting on and merging pull requests, builds, tests, installs, reads, searches, local git and edits inside the worktree are all fine. Give a one-sentence reason.`;
 
 const SCHEMA = JSON.stringify({
 	type: 'object',
@@ -62,20 +76,23 @@ export function classifierArgs(): string[] {
 
 export function classifierInput(request: ClassifyRequest): string {
 	return [
+		`Tool: ${request.tool || 'unknown'}`,
+		...(request.description ? [`Purpose: ${request.description}`] : []),
+		`Worktree: ${request.worktree ?? 'none (the main checkout)'}`,
 		`Working directory: ${request.cwd ?? 'unknown'}`,
-		`Temp scratch directories: ${request.scratchRoots.join(', ')}`,
-		'Command:',
+		`Temp directories: ${request.tempRoots.join(', ')}`,
+		'Call:',
 		request.command,
 	].join('\n');
 }
 
-export function parseClassifierOutput(stdout: string): ApprovalVerdict {
+export function parseClassifierOutput(stdout: string): ClassifierVerdict {
 	let verdict: unknown;
 	try {
 		verdict = (JSON.parse(stdout) as {structured_output?: unknown})
 			.structured_output;
 	} catch {
-		return {allow: false, reason: 'the approval check gave no answer'};
+		return {kind: 'unavailable', reason: 'the approval check gave no answer'};
 	}
 
 	const {approve, reason} = (verdict ?? {}) as {
@@ -83,34 +100,40 @@ export function parseClassifierOutput(stdout: string): ApprovalVerdict {
 		reason?: unknown;
 	};
 	const why = typeof reason === 'string' ? reason : '';
-	if (approve === true) return {allow: true, reason: why};
-	return {
-		allow: false,
-		reason: why
-			? `the approval check said no: ${why}`
-			: 'the approval check gave no answer',
-	};
+	if (approve === true) return {kind: 'approve', reason: why};
+	if (approve === false && why)
+		return {kind: 'hold', reason: `the approval check said no: ${why}`};
+	return {kind: 'unavailable', reason: 'the approval check gave no answer'};
 }
 
-export async function classifyCommand(
+async function classifyOnce(
 	request: ClassifyRequest,
 	run: ClassifierRun,
-): Promise<ApprovalVerdict> {
+): Promise<ClassifierVerdict> {
 	let result;
 	try {
 		result = await run(classifierArgs(), classifierInput(request), TIMEOUT_MS);
 	} catch (error) {
 		return {
-			allow: false,
+			kind: 'unavailable',
 			reason: `the approval check didn't run: ${(error as Error).message}`,
 		};
 	}
 
 	if (result.status !== 0) {
-		return {allow: false, reason: 'the approval check failed'};
+		return {kind: 'unavailable', reason: 'the approval check failed'};
 	}
 
 	return parseClassifierOutput(result.stdout);
+}
+
+/** One retry, since a check that failed to run says nothing about the call. */
+export async function classifyCommand(
+	request: ClassifyRequest,
+	run: ClassifierRun,
+): Promise<ClassifierVerdict> {
+	const first = await classifyOnce(request, run);
+	return first.kind === 'unavailable' ? classifyOnce(request, run) : first;
 }
 
 /** Runs `claude` away from any space, so its hooks can't report as one. */

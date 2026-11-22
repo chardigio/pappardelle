@@ -76,8 +76,10 @@ const tmuxKeys = z
  * companion_type and companion_press_keys can run any shell line in a pane,
  * so this gives an agent Bash's power without a Bash prompt; the companion
  * workflow was judged worth that. space_answer stays safe unprompted because
- * it approves only what passes both gates (approve-policy.ts, then
- * approve-classifier.ts), and has no override.
+ * it approves only what stays inside the space (approve-policy.ts, then
+ * approve-classifier.ts), holds the rest for the chef, and has no override.
+ * space_hold_resolve is left out: approving a hold is the chef's decision, so
+ * outside bypass mode its prompt is where the chef makes it.
  */
 export const AUTO_APPROVED_TOOLS = [
 	'companion_run',
@@ -96,6 +98,7 @@ export const AUTO_APPROVED_TOOLS = [
 	'space_wait',
 	'space_watch',
 	'space_answer',
+	'space_holds',
 	'space_queue',
 	'space_schedule',
 	'space_schedules',
@@ -459,7 +462,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_answer',
 		description:
-			"Answer a permission prompt or question in a space's agent: an option number, several options on a multi-select question (ticked, then confirmed with Submit or Next), typed text into a question's free-text row, or keys. Each step is checked on screen, and an answer the agent didn't take fails rather than reporting success. A multi-question dialog takes one call per question, then option 1 on its review step to submit. Approving a Bash command once goes through only when it clears hard refusals (push, PR changes, --force, reset --hard, rm outside QA scratch, kill-server outside an isolated socket) and a model check finds it publishes nothing, deletes nothing outside the worktree or scratch, and sends no secrets. Anything else, edits, and every \"Yes, and don't ask again\" fail with the command and the reason for the user to decide. Ask the user then; don't work around it",
+			"Answer a permission prompt or question in a space's agent: an option number, several options on a multi-select question (ticked, then confirmed with Submit or Next), typed text into a question's free-text row, or keys. Each step is checked on screen, and an answer the agent didn't take fails rather than reporting success. A multi-question dialog takes one call per question, then option 1 on its review step to submit. Approving once goes through when the call stays inside the space: its worktree, the temp directories, isolated tmux sockets and local git. File edits, writes and reads are judged by their path; commands and other tools also pass a model check that holds anything sending secrets off the machine or reaching outside the space. Hard stops (deploys, cloud CLIs, publishes, sudo, deletes outside the space, pushes to main, agent config) and a no from the check are held: the prompt is declined, the agent is told to carry on, and the hold waits in space_holds for the user. Say each hold in one line. Choosing \"Yes, and don't ask again\" is an error; choose the plain Yes",
 		inputSchema: {
 			key,
 			option: z
@@ -503,6 +506,34 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				...(keys ?? []).flatMap(name => ['--keys', name]),
 			],
 		}),
+	}),
+	defineTool({
+		name: 'space_holds',
+		description:
+			'List the prompts space_answer held for the user: id, space, the call, and why. all includes ones already approved, dismissed or used',
+		readOnly: true,
+		inputSchema: {
+			key: key.optional(),
+			all: z.boolean().optional().describe('Include resolved holds'),
+		},
+		toCli: ({key, all}) => ({
+			args: [
+				'holds',
+				...(key ? [key] : []),
+				...(all ? ['--all'] : []),
+				'--json',
+			],
+		}),
+	}),
+	defineTool({
+		name: 'space_hold_resolve',
+		description:
+			"Approve or dismiss a hold, only on the user's word. Approving lets the agent's retry of that exact prompt through once; tell the agent to retry it. A space can't approve its own hold",
+		inputSchema: {
+			id: z.string().describe('The hold id space_holds shows'),
+			resolution: z.enum(['approve', 'dismiss']),
+		},
+		toCli: ({id, resolution}) => ({args: ['holds', resolution, id]}),
 	}),
 	defineTool({
 		name: 'space_queue',

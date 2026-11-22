@@ -25,6 +25,8 @@ export interface ClaudeSessionState {
 	currentTool?: string;
 	event?: string;
 	cwd?: string;
+	/** The file an Edit, Write or Read permission prompt is for. */
+	filePath?: string;
 }
 export const STABLE_STATUSES = new Set<ClaudeStatus>([
 	'waiting_for_input',
@@ -133,14 +135,16 @@ function sessionState(
 		currentTool: string | undefined;
 		event: string | undefined;
 		cwd: string | undefined;
+		filePath: string | undefined;
 	},
 ): ClaudeSessionState {
-	const {currentTool, event, cwd} = reported;
+	const {currentTool, event, cwd, filePath} = reported;
 	return {
 		...required,
 		...(currentTool === undefined ? {} : {currentTool}),
 		...(event === undefined ? {} : {event}),
 		...(cwd === undefined ? {} : {cwd}),
+		...(filePath === undefined ? {} : {filePath}),
 	};
 }
 
@@ -158,6 +162,7 @@ export function sessionStateOf(value: unknown): ClaudeSessionState | undefined {
 		currentTool,
 		event,
 		cwd,
+		filePath,
 	} = record ?? {};
 	if (
 		typeof sessionId !== 'string' ||
@@ -166,12 +171,13 @@ export function sessionStateOf(value: unknown): ClaudeSessionState | undefined {
 		typeof lastUpdate !== 'number' ||
 		!isOptionalString(currentTool) ||
 		!isOptionalString(event) ||
-		!isOptionalString(cwd)
+		!isOptionalString(cwd) ||
+		!isOptionalString(filePath)
 	)
 		return undefined;
 	return sessionState(
 		{sessionId, workspaceName, status: status as ClaudeStatus, lastUpdate},
-		{currentTool, event, cwd},
+		{currentTool, event, cwd, filePath},
 	);
 }
 

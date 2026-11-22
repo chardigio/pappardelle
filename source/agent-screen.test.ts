@@ -1,9 +1,10 @@
+import path from 'node:path';
 import test from 'ava';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
 import {parseAgentScreen, parseResetTime} from './agent-screen.ts';
 
 // Captured from real Claude Code (2.1.319, 2.1.327, 2.1.330, 2.1.331) and Codex
-// (0.166) sessions.
+// (0.166, 0.170) sessions.
 const NOW = new Date(2026, 10, 9, 12, 0);
 const screen = (name: string, now = NOW) =>
 	parseAgentScreen(agentScreenFixture(name), now);
@@ -416,4 +417,81 @@ test("the limit notice's words printed by an agent aren't a usage limit", t => {
 		NOW,
 	);
 	t.is(usageLimit, null);
+});
+
+test('a Codex command prompt gives its command, and option 1 approves it once with its own key', t => {
+	for (const name of [
+		'codex-permission-command',
+		'codex-permission-command-narrow',
+	]) {
+		const {permission, composer} = screen(name);
+		t.like(
+			permission,
+			{
+				tool: 'Bash command',
+				command: 'rm -rf node_modules',
+				description:
+					'Do you approve running `rm -rf node_modules` outside the sandbox?',
+				choose: 'shortcut',
+				cutOff: false,
+			},
+			`${name}`,
+		);
+		t.deepEqual(
+			permission?.options.map(option => [
+				option.number,
+				option.kind,
+				option.shortcut,
+			]),
+			[
+				[1, 'approve_once', 'y'],
+				[2, 'approve_always', 'p'],
+				[3, 'deny', 'esc'],
+			],
+			`${name}`,
+		);
+		t.true(permission?.options[0]?.selected, `${name}`);
+		// Its highlighted option starts with the same mark as the input line.
+		t.is(composer, null, `${name}`);
+	}
+});
+
+test('a Codex patch prompt lists every file it would change', t => {
+	const {permission} = screen('codex-permission-patch');
+	t.is(permission?.tool, 'Codex edits');
+	t.deepEqual(
+		permission?.files?.map(file => path.basename(file)),
+		['README.md', 'greet.js'],
+	);
+	t.is(permission?.options[0]?.kind, 'approve_once');
+});
+
+test('a Codex prompt whose command is off the screen reads as no command', t => {
+	const text = agentScreenFixture('codex-permission-command').replace(
+		/ {2}\$ .*\n/,
+		'\n',
+	);
+	t.is(parseAgentScreen(text, NOW).permission?.command, '');
+});
+
+test('Write and Read prompts name their file where the path rule can check it', t => {
+	t.like(screen('claude-permission-write').permission, {
+		tool: 'Create file',
+		description: 'farewell.js',
+		question: 'Do you want to create farewell.js?',
+		choose: 'digit',
+	});
+	t.like(screen('claude-permission-read').permission, {
+		tool: 'Read file',
+		question: 'Do you want to proceed?',
+	});
+	t.regex(
+		screen('claude-permission-read').permission!.command,
+		/^Read\(\/tmp\/.+\/outside\.txt\)$/,
+	);
+	// A long Write loses its header, but its question still names the file.
+	t.like(screen('claude-permission-write-long').permission, {
+		cutOff: true,
+		question: 'Do you want to create numbers.js?',
+	});
 });

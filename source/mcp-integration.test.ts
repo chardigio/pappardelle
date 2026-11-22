@@ -10,6 +10,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import test, {type ExecutionContext} from 'ava';
+import {waitUntil} from '../test/helpers/wait.ts';
 
 const tmuxTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
@@ -354,7 +355,7 @@ tmuxTest(
 );
 
 tmuxTest(
-	'space_state reads a real prompt, space_answer approves cleanup and refuses a push, space_wait sees it finish',
+	'space_state reads a real prompt, space_answer approves cleanup and holds a push, space_wait sees it finish',
 	async t => {
 		const f = fixture(t);
 		const tmuxEnv = f.env;
@@ -432,10 +433,6 @@ tmuxTest(
 		t.is(state.state, 'permission');
 		t.is(state.permission.command, 'rm -rf /tmp/q-abc');
 
-		const refused = await call('space_answer', {key: 'STE-3', option: 1});
-		t.true(refused.isError);
-		t.regex(text(refused), /git push origin main/);
-
 		const approved = await call('space_answer', {key: 'STE-2', option: 1});
 		t.falsy(approved.isError, text(approved));
 		const waited = JSON.parse(
@@ -450,7 +447,7 @@ tmuxTest(
 		t.like(waited, {state: 'idle', timedOut: false});
 		t.is(fs.readFileSync(cleanup, 'utf8').trim(), '1');
 		t.false(fs.existsSync(push));
-		t.regex(fs.readFileSync(asked, 'utf8'), /Command:\nrm -rf \/tmp\/q-abc/);
+		t.regex(fs.readFileSync(asked, 'utf8'), /Call:\nrm -rf \/tmp\/q-abc/);
 
 		const sentIntoPrompt = await call('space_send', {
 			key: 'STE-3',
@@ -459,6 +456,22 @@ tmuxTest(
 		});
 		t.true(sentIntoPrompt.isError);
 		t.false(fs.existsSync(push));
+
+		// A push to main is held: declined with No, and kept for the chef.
+		// This space has no worktree on disk, so any push from it holds.
+		const held = await call('space_answer', {key: 'STE-3', option: 1});
+		t.falsy(held.isError, text(held));
+		t.regex(text(held), /^Held h\w+: a push .+\ngit push origin main/);
+		await waitUntil(
+			() => fs.existsSync(push),
+			'the push prompt to be declined',
+		);
+		t.is(fs.readFileSync(push, 'utf8').trim(), '2');
+		const holds = JSON.parse(text(await call('space_holds', {}))) as Array<{
+			key: string;
+			state: string;
+		}>;
+		t.like(holds[0], {key: 'STE-3', state: 'open'});
 
 		const log = fs
 			.readFileSync(
@@ -476,19 +489,20 @@ tmuxTest(
 			.map(line => JSON.parse(line) as Record<string, string>);
 		t.like(log[0], {
 			caller: 'STE-9',
-			key: 'STE-3',
-			verdict: 'refused: git push',
-		});
-		t.like(log[1], {
-			caller: 'STE-9',
 			key: 'STE-2',
 			verdict: 'allowed: local cleanup',
 		});
-		t.like(log[2], {
+		t.like(log[1], {
 			caller: 'STE-9',
 			action: 'send',
 			key: 'STE-3',
 			detail: 'prompt',
+		});
+		t.like(log[2], {
+			caller: 'STE-9',
+			action: 'hold',
+			key: 'STE-3',
+			command: 'git push origin main',
 		});
 	},
 );

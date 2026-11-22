@@ -17,6 +17,8 @@ export type PromptOption = {
 	checked?: boolean;
 	/** On a question: the text under the option's label. */
 	description?: string;
+	/** On a Codex prompt: the key that picks it, wherever the highlight is. */
+	shortcut?: string;
 };
 
 export type PermissionPrompt = {
@@ -30,6 +32,13 @@ export type PermissionPrompt = {
 	command: string;
 	question: string;
 	options: PromptOption[];
+	/**
+	 * How an option is chosen: Claude takes its digit, Codex the key shown at
+	 * the end of its label. A digit on Codex only moves the highlight.
+	 */
+	choose: 'digit' | 'shortcut';
+	/** The files a Codex patch would change, as absolute paths. */
+	files?: string[];
 	/**
 	 * The prompt is taller than the agent's screen and its top is cut off:
 	 * `tool`, `subagent` and `description` are unknown and `command` holds
@@ -120,7 +129,7 @@ const CHECKBOX = /^\[([ ✔])\]\s*/;
 const BARE_TIME_GRACE_MS = 6 * 60 * 60 * 1000;
 
 function optionKind(label: string): OptionKind {
-	if (label === 'Yes') return 'approve_once';
+	if (label === 'Yes' || label === 'Yes, proceed') return 'approve_once';
 	// "Yes, and don't ask again …" and "Yes, and switch to auto mode" widen
 	// what the agent may do from then on, beyond the one command shown.
 	if (/^Yes\b/.test(label)) return 'approve_always';
@@ -175,7 +184,97 @@ function lastIndex(
 	return -1;
 }
 
+const CODEX_APPROVAL =
+	/^\s*Would you like to (run the following command|make the following edits)\?\s*$/;
+const CODEX_APPROVAL_FOOTER = /^\s*Press enter to confirm or esc to cancel/;
+// Codex ends each option with the key that picks it: `(y)`, `(esc)`.
+const CODEX_SHORTCUT = /\s*\((\w+)\)$/;
+
+/**
+ * Codex's approval prompt: a bold question, the command after `$` or the
+ * files after `Destination:`, and options chosen by their own keys. A command
+ * that can't be found reads as empty, which no policy approves.
+ */
+function parseCodexApproval(lines: string[]): PermissionPrompt | null {
+	const footerAt = lastIndex(lines, line => CODEX_APPROVAL_FOOTER.test(line));
+	if (footerAt === -1) return null;
+	const questionAt = lastIndex(lines.slice(0, footerAt), line =>
+		CODEX_APPROVAL.test(line),
+	);
+	if (questionAt === -1) return null;
+	const body = lines.slice(questionAt + 1, footerAt);
+	const firstOption = body.findIndex(line => /^\s*(?:›\s*)?1\.\s/.test(line));
+	if (firstOption === -1) return null;
+	const details = body.slice(0, firstOption);
+	const options: PromptOption[] = [];
+	for (const line of body.slice(firstOption)) {
+		const match = /^\s*(›\s*)?(\d+)\.\s+(.+?)\s*$/.exec(line);
+		if (match) {
+			const shortcut = CODEX_SHORTCUT.exec(match[3]!)?.[1];
+			const label = match[3]!.replace(CODEX_SHORTCUT, '');
+			options.push({
+				number: Number(match[2]),
+				label,
+				kind: optionKind(label),
+				selected: Boolean(match[1]),
+				...(shortcut ? {shortcut} : {}),
+			});
+		} else if (line.trim() && options.length > 0) {
+			// A label wraps onto the lines under it in a narrow pane, its key last.
+			const last = options.at(-1)!;
+			const joined = `${last.label} ${line.trim()}`;
+			const shortcut = CODEX_SHORTCUT.exec(joined)?.[1];
+			last.label = joined.replace(CODEX_SHORTCUT, '');
+			last.kind = optionKind(last.label);
+			if (shortcut) last.shortcut = shortcut;
+		}
+	}
+
+	// Each field runs on to the next blank line, wrapped in a narrow pane.
+	const field = (name: string) =>
+		details.flatMap((line, index) => {
+			if (!line.trimStart().startsWith(`${name}:`)) return [];
+			const end = details.findIndex(
+				(next, at) => at > index && (!next.trim() || /^\s*\w+:/.test(next)),
+			);
+			return [
+				details
+					.slice(index, end === -1 ? undefined : end)
+					.map(part => part.trim())
+					.join(' ')
+					.slice(name.length + 1)
+					.trim(),
+			];
+		});
+	const isCommand = CODEX_APPROVAL.exec(lines[questionAt]!)![1]!.startsWith(
+		'run',
+	);
+	const commandAt = details.findIndex(line => /^\s*\$ /.test(line));
+	const command: string[] = [];
+	if (isCommand && commandAt !== -1) {
+		for (const line of details.slice(commandAt)) {
+			if (!line.trim()) break;
+			command.push(line.replace(/^\s*(?:\$ )?/, '').trimEnd());
+		}
+	}
+
+	const files = isCommand ? undefined : field('Destination');
+	return {
+		tool: isCommand ? 'Bash command' : 'Codex edits',
+		subagent: null,
+		description: (isCommand ? field('Reason') : field('Description')).join(' '),
+		command: isCommand ? command.join('\n') : (files ?? []).join('\n'),
+		question: lines[questionAt]!.trim(),
+		options,
+		choose: 'shortcut',
+		...(files ? {files} : {}),
+		cutOff: false,
+	};
+}
+
 function parsePermission(lines: string[]): PermissionPrompt | null {
+	const codex = parseCodexApproval(lines);
+	if (codex) return codex;
 	const questionAt = lastIndex(lines, line => PROMPT_QUESTION.test(line));
 	if (questionAt === -1) return null;
 	const options = readOptions(lines, questionAt + 1, {joinWrapped: true});
@@ -220,6 +319,7 @@ function parsePermission(lines: string[]): PermissionPrompt | null {
 			),
 			question: lines[questionAt]!.trim(),
 			options,
+			choose: 'digit',
 			cutOff: true,
 		};
 	}
@@ -238,6 +338,7 @@ function parsePermission(lines: string[]): PermissionPrompt | null {
 			: text(body.slice(headerAt + 1)),
 		question: lines[questionAt]!.trim(),
 		options,
+		choose: 'digit',
 		cutOff: false,
 	};
 }
@@ -468,7 +569,12 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 	const raw = capture.replace(/\n+$/, '').split('\n');
 	const lines = raw.map(line => stripVTControlCharacters(line));
 	const codexDialog = parseCodexDialog(raw, lines);
-	const composer = codexDialog ? null : parseComposer(raw, lines);
+	const permission = parsePermission(lines);
+	// Codex's highlighted option starts with the same `›` as its input line.
+	const composer =
+		codexDialog || permission?.choose === 'shortcut'
+			? null
+			: parseComposer(raw, lines);
 	// Claude Code shows a suggested next prompt as the placeholder. In plain
 	// text it reads as typed, so a supervisor would take it for a draft.
 	const input = composer === '' ? composerLine(lines) : null;
@@ -481,7 +587,7 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 		spinner: lines.some(
 			line => CLAUDE_SPINNER.test(line) || CODEX_SPINNER.test(line),
 		),
-		permission: parsePermission(lines),
+		permission,
 		question: parseQuestion(lines),
 		usageLimit: parseUsageLimit(lines, now),
 		composer,

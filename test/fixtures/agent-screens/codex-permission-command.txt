@@ -1,0 +1,50 @@
+[2m╭───────────────────────────────────────────────────────────────╮
+│ [0;1m[38;2;99;168;248m✨ Update available![0m [1m0.170.0 -> 0.171.0[0;2m                       │
+│ [0mSee [4m[38;2;99;168;248m]8;;https://github.com/openai/codex\https://github.com/openai/codex[0m]8;;\ for installation options.[2m │[0m                                                                        
+[2m│                                                               │
+│ [0mSee full release notes:[2m                                       │
+│ [0;4m[38;2;99;168;248m]8;;https://github.com/openai/codex/releases/latest\https://github.com/openai/codex/releases/latest[0;2m]8;;\               │
+╰───────────────────────────────────────────────────────────────╯
+[0m 
+ 
+  [38;2;99;168;248m>_ [1m[39mOpenAI Codex[0;2m (v0.170.0)
+[0m     [2m/tmp/claude-1000/-home-sddamico--worktrees-pappardelle-pappardelle-l4cy/3faba3cb-b7e7-44c2-b91f-6d5aef97dce5/scratchpad/capture/repo
+[0m 
+[38;2;238;238;238m[48;2;68;68;68m 
+[1;2m› [0m[38;2;238;238;238m[48;2;68;68;68mRun exactly this shell command: rm -rf node_modules . Request approval to run it outside the sandbox; do nothing else.
+ 
+[39m[49m 
+[2m• [0mI’ll request approval for the exact command.                                                       
+                                                                                                              
+[38;5;1m✗ [39mYou [1mcanceled[0m the request to run [2mrm -rf node_modules .[0m                                                         
+                                                                                                                 
+[1m•[0m [1mExited (status 1)[0m [38;2;137;180;250mrm[38;2;147;153;178m -[38;2;235;160;172mrf[38;2;205;214;244m node_modules .[39m                                                                         
+[2m  └ (no output)[0m                                                                                                   
+                                                                                                                   
+■ Conversation interrupted - use /feedback if something went wrong                                                  
+                                                                                                                    
+[38;2;238;238;238m[48;2;68;68;68m [39m                                                                                                                    
+[1;2m[38;2;238;238;238m› [0m[38;2;238;238;238m[48;2;68;68;68mIgnore the trailing period before. Run exactly: rm -rf node_modules (nothing else). Request approval to run it outside the sandbox.
+ [39m                                                                                                                   
+[49m                                                                                                                   
+[2m• [0mI’ll request approval to run [38;2;166;227;161mrm -rf node_modules[39m outside the sandbox.                                          
+                                                                                                              
+[1m[38;2;128;128;128m•[0m [1mRunning[0m [38;2;137;180;250mrm[38;2;147;153;178m -[38;2;235;160;172mrf[38;2;205;214;244m node_modules[39m                                                                                
+                                                                                                           
+ 
+ 
+ 
+  [1mWould you like to run the following command?
+[0m 
+  Environment: [1mlocal
+[0m 
+  Reason: [3mDo you approve running `rm -rf node_modules` outside the sandbox?[0m                                                                                            
+ 
+  $ [38;2;137;180;250mrm[38;2;147;153;178m -[38;2;235;160;172mrf[38;2;205;214;244m node_modules[39m          
+                                 
+ 
+[1;7m› 1. Yes, proceed (y)                                                                                                                                                                                   
+[0m  2. Yes, and don't ask again for commands that start with `rm -rf node_modules` ([1mp[0m)  
+  3. No, and tell Codex what to do differently ([1mesc[0m)                                                                                                                                                 
+                                                                                                                                                                                                 
+  [2mPress [0;1menter[0;2m to confirm or [0;1mesc[0;2m to cancel                                                                                                                                                               

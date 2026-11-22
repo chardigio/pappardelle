@@ -183,6 +183,7 @@ def update_status(
     session_id: Optional[str] = None,
     event: Optional[str] = None,
     cwd: Optional[str] = None,
+    file_path: Optional[str] = None,
 ) -> None:
     workspace = get_workspace_name(cwd)
     if workspace is None:
@@ -202,6 +203,8 @@ def update_status(
         state["event"] = event
     if cwd:
         state["cwd"] = cwd
+    if file_path:
+        state["filePath"] = file_path
 
     socket_path = status_socket_path()
     if socket_path is None:
@@ -285,6 +288,11 @@ def main() -> None:
         elif hook_event == "Stop":
             status = "waiting_for_input"
         elif hook_event == "SubagentStop":
+            # Claude's own helper agents stop with no agent_type, often while
+            # a permission prompt is up; reporting that would replace the
+            # prompt's record, which the supervisor reads its file from.
+            if not input_data.get("agent_type"):
+                sys.exit(0)
             status = "waiting_for_input"
         elif hook_event == "SessionStart":
             status = "waiting_for_input"
@@ -311,8 +319,15 @@ def main() -> None:
     session_id = input_data.get("session_id", os.environ.get("CLAUDE_SESSION_ID"))
     event_name = input_data.get("hook_event_name")
     cwd = input_data.get("cwd")
+    # What an Edit, Write or Read prompt would touch, for the supervisor that
+    # answers it to place inside or outside the space.
+    file_path = None
+    if event_name == "PermissionRequest":
+        tool_input = input_data.get("tool_input") or {}
+        if isinstance(tool_input, dict):
+            file_path = tool_input.get("file_path") or tool_input.get("notebook_path")
     log_debug(f"Setting status to: {status} (tool={tool_name})")
-    update_status(status, tool_name, session_id, event_name, cwd)
+    update_status(status, tool_name, session_id, event_name, cwd, file_path)
 
     # Exit successfully
     sys.exit(0)

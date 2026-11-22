@@ -17,6 +17,7 @@ export const SUPERVISE_VERBS = [
 	'schedule',
 	'schedules',
 	'unschedule',
+	'holds',
 	'tui',
 ] as const;
 
@@ -80,6 +81,8 @@ export type SuperviseCommand =
 	| {verb: 'fire'; id: string}
 	| {verb: 'schedules'; key?: string}
 	| {verb: 'unschedule'; id: string}
+	| {verb: 'holds'; key?: string; all: boolean; json: boolean}
+	| {verb: 'hold-resolve'; id: string; resolution: 'approve' | 'dismiss'}
 	| {verb: 'panes'}
 	| {verb: 'focus-log'; seconds: number}
 	| {verb: 'help'; text: string};
@@ -99,6 +102,8 @@ export const superviseHelp = `
 	  $ pappardelle schedule KEY --keep-going --every DURATION --nudge TEXT [--until TIME]
 	  $ pappardelle schedules [KEY]
 	  $ pappardelle unschedule ID
+	  $ pappardelle holds [KEY] [--all] [--json]
+	  $ pappardelle holds approve|dismiss ID
 	  $ pappardelle tui panes
 	  $ pappardelle tui focus-log [--seconds N]
 
@@ -125,17 +130,22 @@ export const superviseHelp = `
 	              --options of a multi-select question and confirm them, or
 	              type --text into a question's free-text row. It checks the
 	              screen after each step, and fails if the agent didn't take
-	              it. Approving a
-	              Bash command once needs the hard refusals (push, --force, rm
-	              outside QA scratch…) and a Haiku check that it publishes and
-	              destroys nothing; anything else exits 3 with the command and
-	              the reason, for a person to decide. --force skips both
+	              it. Approving once is checked: a command or file that stays
+	              inside the space is approved, after a Haiku check for
+	              anything that leaves it. A hard stop (deploys, cloud CLIs,
+	              publishes, sudo, deletes outside the space, pushes to main)
+	              or a no from the check is held: the prompt is declined, the
+	              agent is told to carry on, and the hold waits for the chef.
+	              Choosing "don't ask again" exits 3. --force skips the checks
 	  queue       Hold a message for the next scheduled send to that space
 	  schedule    Wake the agent with an OS timer: a message at a time, continue
 	              once a Codex usage limit resets, or a nudge whenever it sits
 	              idle two checks in a row
 	  schedules   List scheduled wake-ups
 	  unschedule  Cancel one
+	  holds       List the prompts held for the chef (--all: resolved ones
+	              too). approve lets the agent's retry of that prompt through
+	              once; dismiss drops it. Only the chef decides a hold
 	  tui panes   What every TUI's rail and viewer panes are running
 	  tui focus-log  Log active-pane and client-focus changes for --seconds (30)
 
@@ -407,6 +417,30 @@ export function parseSuperviseArgs(argv: string[]): SuperviseCommand {
 
 		case 'unschedule': {
 			return {verb, id: oneKey(parse(rest, {}).positionals, verb, 'ID')};
+		}
+
+		case 'holds': {
+			const [sub, ...holdArgs] = rest;
+			if (sub === 'approve' || sub === 'dismiss') {
+				return {
+					verb: 'hold-resolve',
+					id: oneKey(parse(holdArgs, {}).positionals, `holds ${sub}`, 'ID'),
+					resolution: sub,
+				};
+			}
+
+			const {values, positionals} = parse(rest, {
+				all: {type: 'boolean'},
+				json: {type: 'boolean'},
+			});
+			if (positionals.length > 1)
+				throw new SuperviseUsageError('Usage: pappardelle holds [KEY] ...');
+			return {
+				verb,
+				...(positionals[0] ? {key: positionals[0]} : {}),
+				all: Boolean(values.all),
+				json: Boolean(values.json),
+			};
 		}
 
 		case 'tui': {

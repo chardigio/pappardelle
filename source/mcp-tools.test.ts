@@ -310,6 +310,8 @@ const ASKS_FIRST = new Set([
 	'space_close',
 	'link_pr',
 	'tui_restart',
+	// Approving a hold is the chef's word, so its prompt is where they give it.
+	'space_hold_resolve',
 ]);
 
 test('every tool but the ones that ask first is auto-approved', t => {
