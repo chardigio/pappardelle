@@ -195,6 +195,7 @@ import {
 	displayMessageInPaneAsync,
 	reconcilePaneLayout,
 	runningAgentProfile,
+	storeLaunchedAgentProfiles,
 	installSousChefKey,
 	measureCompanionColumnWidth,
 	setSpaceCompanionWidth,
@@ -1677,6 +1678,18 @@ export default function App({
 			}
 		}
 	};
+
+	useEffect(() => {
+		if (!configMemo) return;
+		storeLaunchedAgentProfiles(configMemo, agentSessions, spaceState).catch(
+			(error: unknown) => {
+				log.warn(
+					'Could not store the agent profiles of running agents',
+					error instanceof Error ? error : undefined,
+				);
+			},
+		);
+	}, [configMemo, agentSessions, spaceState]);
 
 	// Offered once per launch; declining leaves the config and its warnings as
 	// they are until the next start.

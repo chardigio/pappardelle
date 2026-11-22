@@ -34,6 +34,7 @@ test.serial(
 			t.is(daos.issueMeta.read('STA-1'), null);
 			t.deepEqual(daos.stateColors.load(), {});
 			t.is(daos.agentSessions.read('STA-1', 'claude'), undefined);
+			t.is(daos.agentSessions.latestProfile('STA-1'), undefined);
 			t.deepEqual(daos.agentSessions.keys(), []);
 			t.deepEqual(daos.companionWidths.all(), {});
 			t.is(daos.companionWidths.get('STA-1'), null);

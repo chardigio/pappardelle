@@ -76,12 +76,28 @@ contractTest(
 );
 
 contractTest(
+	'the agent running in a space is the one that started last',
+	(t, state) => {
+		const f = fixture(state);
+		t.is(f.dao.latestProfile('STA-1'), undefined);
+		f.record('STA-1', {
+			claude: entry('a', 'Mon Nov  2 10:00:00 2026'),
+			codex: entry('b', 'Mon Nov  2 11:30:00 2026'),
+			old: entry('c', 'Sun Nov  1 23:00:00 2026'),
+			unknown: entry('d', null),
+		});
+		t.is(f.dao.latestProfile('STA-1'), 'codex');
+	},
+);
+
+contractTest(
 	'a file that is not a set of sessions records nothing',
 	(t, state) => {
 		const f = fixture(state);
 		fs.mkdirSync(path.dirname(f.file('STA-1')), {recursive: true});
 		fs.writeFileSync(f.file('STA-1'), '{"claude": {"session_id": "a"');
 		t.is(f.dao.read('STA-1', 'claude'), undefined);
+		t.is(f.dao.latestProfile('STA-1'), undefined);
 	},
 );
 

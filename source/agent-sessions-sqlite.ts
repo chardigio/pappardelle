@@ -7,6 +7,7 @@
 
 import {createLogger} from './logger.ts';
 import {
+	latestStarted,
 	parseAgentSessions,
 	renderAgentSessions,
 	type AgentSession,
@@ -55,6 +56,12 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 		} catch (error) {
 			return {kind: 'unreadable', error};
 		}
+	}
+
+	latestProfile(key: string): string | undefined {
+		return latestStarted(
+			this.guardedRows(key).map(row => [row.agent_profile, row.started]),
+		);
 	}
 
 	keys(): string[] {

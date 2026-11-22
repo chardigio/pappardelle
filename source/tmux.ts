@@ -2386,10 +2386,37 @@ export function runningAgentProfile(
 	const profileName = savedSpaceProfile(issueKey);
 	const launched = spaceState().read(issueKey)?.agentProfile?.name;
 	const name =
-		launched && (launched === 'claude' || config.agent_profiles?.[launched])
+		launched && isDefinedAgentProfile(config, launched)
 			? launched
 			: resolveAgentProfileName(config, issueTitle, profileName);
 	return getNamedAgentProfile(config, name, issueTitle, profileName);
+}
+
+function isDefinedAgentProfile(
+	config: PappardelleConfig,
+	name: string,
+): boolean {
+	return name === 'claude' || config.agent_profiles?.[name] !== undefined;
+}
+
+/**
+ * Agents launched before spaces stored the agent profile they started with
+ * told their hook in the session env instead, so their hook records nothing
+ * until it is stored. The agent that started last is the one running. A space
+ * whose agent never recorded an id stays unknown until it relaunches.
+ */
+export async function storeLaunchedAgentProfiles(
+	config: PappardelleConfig,
+	sessions: Pick<AgentSessionsDao, 'keys' | 'latestProfile'>,
+	states: Pick<SpaceStateDao, 'read' | 'write'>,
+): Promise<void> {
+	for (const key of sessions.keys()) {
+		if (states.read(key)?.agentProfile) continue;
+		const name = sessions.latestProfile(key);
+		if (!name || !isDefinedAgentProfile(config, name)) continue;
+		const {isClaude} = getNamedAgentProfile(config, name);
+		await states.write(key, {agentProfile: {name, isClaude}});
+	}
 }
 
 type AttachOptions = {
