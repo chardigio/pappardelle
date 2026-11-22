@@ -162,8 +162,9 @@ export function extractIssueKeyFromIdowOutput(stdout: string): string | null {
  * an existing space only takes effect once its session is recreated. idow
  * prints this line when that happens.
  */
+export const IDOW_SKIPPED_AGENT_OVERRIDE =
+	'PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped';
+
 export function idowSkippedAgentOverride(stdout: string): boolean {
-	return stdout
-		.split('\n')
-		.includes('PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped');
+	return stdout.split('\n').includes(IDOW_SKIPPED_AGENT_OVERRIDE);
 }

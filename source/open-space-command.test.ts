@@ -504,6 +504,8 @@ test.serial(
 		});
 		t.is(result.code, 0, result.stderr);
 		t.regex(result.stderr, /STE-20: agent already running, claude not applied/);
+		t.false(result.stdout.includes('PAPPARDELLE_AGENT_PROFILE_OVERRIDE'));
+		t.regex(result.stdout, /Workspace STE-20 is ready!/);
 		t.deepEqual(f.readRegistry(), ['STE-20']);
 	},
 );

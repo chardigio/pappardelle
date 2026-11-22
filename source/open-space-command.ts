@@ -6,6 +6,7 @@ import {
 	buildNewSessionArgs,
 	extractIssueKeyFromIdowOutput,
 	idowSkippedAgentOverride,
+	IDOW_SKIPPED_AGENT_OVERRIDE,
 } from './session-routing.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 
@@ -41,6 +42,8 @@ export async function runOpenSpaceCommand(
 ): Promise<number> {
 	const since = Date.now();
 	let stdout = '';
+	// idow's marker is read below, not shown to whoever reads its output.
+	let partialLine = '';
 	let code: number | null;
 	let signal: NodeJS.Signals | null;
 	let child: ChildProcess | undefined;
@@ -91,7 +94,21 @@ export async function runOpenSpaceCommand(
 					decodeStrings: false,
 					write(chunk: string, _encoding, callback) {
 						stdout += chunk;
-						process.stdout.write(chunk, callback);
+						const lines = (partialLine + chunk).split('\n');
+						partialLine = lines.pop()!;
+						process.stdout.write(
+							lines
+								.filter(line => line !== IDOW_SKIPPED_AGENT_OVERRIDE)
+								.map(line => `${line}\n`)
+								.join(''),
+							callback,
+						);
+					},
+					final(callback) {
+						process.stdout.write(
+							partialLine === IDOW_SKIPPED_AGENT_OVERRIDE ? '' : partialLine,
+							callback,
+						);
 					},
 				}),
 			),
