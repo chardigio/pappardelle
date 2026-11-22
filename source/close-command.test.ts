@@ -10,7 +10,11 @@ import {
 	spaceSessionNames,
 	type AsyncTmuxRunner,
 } from './tmux.ts';
-import {testTmuxState} from '../test/helpers/state.ts';
+import {
+	recordIdentities,
+	testState,
+	testTmuxState,
+} from '../test/helpers/state.ts';
 
 const ISSUE: TrackerIssue = {
 	identifier: 'STA-1',
@@ -26,6 +30,7 @@ function fakeRegistry(
 		keepsLifecycle: false,
 		phase: key =>
 			open.includes(key) ? {kind: 'phase', phase: 'open'} : {kind: 'unknown'},
+		async settle() {},
 		async markClosing(key) {
 			events.push(`closing ${key}`);
 		},
@@ -65,6 +70,7 @@ function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 			companion: `companion-repo-${key}`,
 		}),
 		currentInnerSession: () => null,
+		liveSessions: () => new Set(),
 		mainRepoRoot: '/repo',
 		spawnTeardown(key, cwd) {
 			events.push(`spawn ${key} ${cwd}`);
@@ -290,6 +296,40 @@ test('a space still being set up is not closed', async t => {
 		t.is(await close(deps), 1);
 		t.false(events.some(event => /^(closing|kill|unregister) /.test(event)));
 	}
+});
+
+// No pid is this high, so the owner reads as dead.
+const DEAD_PID = 2_147_483_646;
+
+test('a space whose setup died is closed when its sessions run, and is gone when they do not', async t => {
+	for (const running of [true, false]) {
+		const state = testState(t, {sqlite: true});
+		await recordIdentities(state, ['STA-1']);
+		await state.daos.registry.reserveStart('STA-1', DEAD_PID);
+		const {deps, events} = fakeDeps({
+			registry: state.daos.registry,
+			sessionNames: () => null,
+			liveSessions: () => new Set(running ? [`agent-${state.repo}-STA-1`] : []),
+		});
+		t.is(
+			await runCloseCommand({key: 'STA-1', yes: true}, deps),
+			running ? 0 : 1,
+		);
+		t.is(events.includes('kill STA-1'), running);
+		t.deepEqual(state.daos.registry.phase('STA-1'), {kind: 'unknown'});
+	}
+});
+
+test('a space still being set up by a live idow is not closed', async t => {
+	const state = testState(t, {sqlite: true});
+	await recordIdentities(state, ['STA-1']);
+	await state.daos.registry.reserveStart('STA-1', process.ppid);
+	const {deps, events} = fakeDeps({
+		registry: state.daos.registry,
+		liveSessions: () => new Set([`agent-${state.repo}-STA-1`]),
+	});
+	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 1);
+	t.false(events.includes('kill STA-1'));
 });
 
 test('a close that a lifecycle registry cannot record ends no sessions and says why', async t => {

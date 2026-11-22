@@ -15,6 +15,7 @@ import {
 	getWorktreePath,
 	spaceSessionNames,
 	killSpaceSessions,
+	liveInnerSessions,
 } from './tmux.ts';
 import {getIssue} from './tracker.ts';
 import type {DeinitResult} from './workspace-deinit.ts';
@@ -28,8 +29,9 @@ const log = createLogger('close-command');
 export type CloseCommandDeps = {
 	registry: Pick<
 		SpaceRegistryDao,
-		'keepsLifecycle' | 'phase' | 'markClosing' | 'reopen' | 'remove'
+		'keepsLifecycle' | 'phase' | 'settle' | 'markClosing' | 'reopen' | 'remove'
 	>;
+	liveSessions: () => ReadonlySet<string> | null;
 	getIssue: (key: string) => Promise<TrackerIssue | null>;
 	worktreePath: (key: string) => string | null;
 	runHooks: (space: ClosingSpace) => Promise<DeinitResult>;
@@ -52,7 +54,7 @@ export async function runCloseCommand(
 	deps: CloseCommandDeps,
 ): Promise<number> {
 	const {key} = options;
-	const refusal = closeRefusal(key, deps);
+	const refusal = await closeRefusal(key, deps);
 	if (refusal) {
 		deps.print(refusal);
 		return 1;
@@ -117,7 +119,7 @@ export async function runCloseTeardown(
 	key: string,
 	deps: CloseCommandDeps,
 ): Promise<number> {
-	const refusal = closeRefusal(key, deps);
+	const refusal = await closeRefusal(key, deps);
 	if (refusal) {
 		deps.logError(refusal);
 		return 1;
@@ -127,8 +129,16 @@ export async function runCloseTeardown(
 }
 
 /** Why `key` can't be closed, or null when it can. */
-function closeRefusal(key: string, deps: CloseCommandDeps): string | null {
+async function closeRefusal(
+	key: string,
+	deps: CloseCommandDeps,
+): Promise<string | null> {
 	if (key === MAIN_WORKTREE_KEY) return `No open space ${key}`;
+	// A setup whose idow died stays starting until something settles it, and
+	// no TUI may be running to do that.
+	await deps.registry
+		.settle({closing: new Set(), liveSessions: deps.liveSessions})
+		.catch(() => undefined);
 	const lookup = deps.registry.phase(key);
 	if (lookup.kind === 'unreadable')
 		return `Could not read the space registry: ${String(lookup.error)}`;
@@ -193,6 +203,7 @@ export function defaultCloseCommandDeps(daos: StateDaos): CloseCommandDeps {
 			return deleteQaSimulator(key);
 		},
 		sessionNames: spaceSessionNames,
+		liveSessions: () => liveInnerSessions(),
 		currentInnerSession: () => currentInnerServerSession(process.env),
 		mainRepoRoot: getMainRepoRoot(),
 		spawnTeardown(key, cwd) {
