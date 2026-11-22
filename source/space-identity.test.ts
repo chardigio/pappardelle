@@ -44,6 +44,10 @@ function fixture(t: ExecutionContext, sqlite?: boolean) {
 	const open = async (key: string) => {
 		const made = identity(key);
 		fs.mkdirSync(made.worktreePath, {recursive: true});
+		if (key === 'main') {
+			fs.writeFileSync(path.join(mainRoot, '.pappardelle.yml'), 'version: 1\n');
+		}
+
 		await state.daos.spaceIdentities.record(made);
 		if (key !== 'main') await state.daos.registry.add(key);
 		return made;
@@ -176,14 +180,29 @@ test('a space whose worktree is not where idow puts them is found where it is', 
 	});
 });
 
-test('a space opened without the database is given the identity idow gave it', t => {
+test('a space opened without the database is given the identity idow gave it, along with main', t => {
 	const f = fixture(t, true);
 	fs.writeFileSync(f.state.registryFile, JSON.stringify(['STA-1']));
 	t.deepEqual(f.state.daos.spaceIdentities.get('STA-1'), {
 		kind: 'identity',
 		identity: f.identity('STA-1'),
 	});
+	t.deepEqual(f.state.daos.spaceIdentities.get('main'), {
+		kind: 'identity',
+		identity: f.identity('main'),
+	});
 });
+
+contractTest(
+	'a checkout with no Pappardelle config or stored identity belongs to no space',
+	(t, state) => {
+		const f = contractFixture(t, state);
+		t.deepEqual(
+			f.state.daos.spaceIdentities.atPath(path.join(f.mainRoot, 'src')),
+			{kind: 'unknown'},
+		);
+	},
+);
 
 test('two keys cannot share an agent session', async t => {
 	const f = fixture(t, true);

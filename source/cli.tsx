@@ -276,6 +276,8 @@ function checkConfig(): void {
 			);
 			process.exit(1);
 		}
+
+		loadConfig();
 	} catch (error) {
 		if (error instanceof ConfigNotFoundError) {
 			console.error(

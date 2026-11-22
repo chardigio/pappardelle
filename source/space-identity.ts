@@ -227,7 +227,16 @@ export class JsonSpaceIdentityDao implements SpaceIdentityDao {
 		}
 
 		for (;;) {
-			if (sameFile(directory, mainRoot)) return this.get(MAIN_WORKTREE_KEY);
+			if (sameFile(directory, mainRoot)) {
+				try {
+					if (!this.isPappardelleRepo(mainRoot)) return {kind: 'unknown'};
+				} catch (error) {
+					return {kind: 'unreadable', error};
+				}
+
+				return this.get(MAIN_WORKTREE_KEY);
+			}
+
 			const parent = path.dirname(directory);
 			if (parent === directory) return {kind: 'unknown'};
 			if (sameFile(parent, worktrees))
@@ -235,6 +244,11 @@ export class JsonSpaceIdentityDao implements SpaceIdentityDao {
 			if (isCheckoutRoot(directory)) return {kind: 'unknown'};
 			directory = parent;
 		}
+	}
+
+	private isPappardelleRepo(mainRoot: string): boolean {
+		if (fs.existsSync(path.join(mainRoot, '.pappardelle.yml'))) return true;
+		return this.registry.openSpaces() !== null;
 	}
 
 	async record(): Promise<void> {}

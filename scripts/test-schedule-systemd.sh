@@ -87,6 +87,8 @@ pappardelle() {
 }
 
 echo "schedule --at"
+# Register QA-1's identity so sqliteState=1 resolves its tmux session.
+(cd "$REPO" && env -u TMUX -u TMUX_PANE bun "$PROJECT/source/state-cli.ts" prepare-space --repo "$REPO_NAME" --worktree "$REPO" --main-root "$REPO" QA-1) >/dev/null
 at="$(date -d '+5 seconds' --iso-8601=seconds)"
 if pappardelle schedule QA-1 --at "$at" --message hello-from-a-timer >/dev/null; then
     pass "scheduled"
@@ -116,10 +118,10 @@ if [[ "$SQLITE_STATE" == 1 ]]; then
     jobs="$(stored_jobs)"
     if [[ "$jobs" -eq 0 ]]; then pass "the timer's process removed the row"; else fail "$jobs stored jobs left"; fi
 fi
-if grep -q '"caller":"timer:' "$HOME/.pappardelle/repos/$REPO_NAME/supervise.jsonl"; then
+if grep -q '"caller":"timer:.*"action":"send".*"detail":"sent"' "$HOME/.pappardelle/repos/$REPO_NAME/supervise.jsonl"; then
     pass "the send is logged as the timer's"
 else
-    fail "no timer entry in the log"
+    fail "no timer send entry in the log"
 fi
 
 echo "unschedule"

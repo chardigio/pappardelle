@@ -56,6 +56,10 @@ test.serial(
 		};
 		delete env.TMUX;
 		delete env.TMUX_PANE;
+		delete env.PAPPARDELLE_MAIN_REPO_ROOT;
+		delete env.PAPPARDELLE_PROJECT_ROOT;
+		delete env.PAPPARDELLE_REPO;
+		delete env.PAPPARDELLE_SPACE;
 		const socket = path.join(root, 'socket');
 		const runTmux = (...args: string[]) =>
 			execFileSync(tmux, ['-S', socket, ...args], {

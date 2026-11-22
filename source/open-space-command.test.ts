@@ -860,3 +860,17 @@ test.serial(
 		t.false(fs.existsSync(f.record));
 	},
 );
+
+test.serial(
+	'CLI commands reject experimental.sqliteState in project or local config',
+	async t => {
+		const f = fixture(t);
+		fs.writeFileSync(
+			path.join(f.repo, '.pappardelle.local.yml'),
+			'experimental:\n  sqliteState: true\n',
+		);
+		const result = await f.run(['highlight', 'STE-7']);
+		t.is(result.code, 1);
+		t.regex(result.stderr, /experimental\.sqliteState/);
+	},
+);

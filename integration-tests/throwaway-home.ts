@@ -12,11 +12,18 @@ import {fileURLToPath} from 'node:url';
  */
 export function runUnderThrowawayHome(check: URL): void {
 	const home = mkdtempSync(path.join(tmpdir(), 'pappa-app-home-'));
+	const env: NodeJS.ProcessEnv = {...process.env, HOME: home};
+	// Strip host space/repo overrides so the check loads its own temp repo's
+	// config instead of the caller's repo against an empty throwaway HOME.
+	delete env['PAPPARDELLE_MAIN_REPO_ROOT'];
+	delete env['PAPPARDELLE_PROJECT_ROOT'];
+	delete env['PAPPARDELLE_REPO'];
+	delete env['PAPPARDELLE_SPACE'];
 	try {
 		const {status} = spawnSync(
 			process.execPath,
 			[fileURLToPath(check), ...process.argv.slice(2)],
-			{stdio: 'inherit', env: {...process.env, HOME: home}},
+			{stdio: 'inherit', env},
 		);
 		process.exitCode = status ?? 1;
 	} finally {

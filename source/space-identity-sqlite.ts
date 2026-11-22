@@ -114,8 +114,19 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 			`INSERT OR IGNORE INTO space_identities (repo, ${COLUMNS})
 			VALUES (?, ?, ?, ?, ?, ?)`,
 		);
-		for (const key of keys)
-			insert.run(...this.values(defaultIdentity(this.defaults, key)));
+		for (const key of keys) {
+			let identity: SpaceIdentity;
+			try {
+				identity = defaultIdentity(this.defaults, key);
+			} catch (error) {
+				// Importing open-spaces.json outside a git checkout cannot resolve
+				// main's root; leave main unseeded until a checkout runs.
+				if (key === MAIN_WORKTREE_KEY) continue;
+				throw error;
+			}
+
+			insert.run(...this.values(identity));
+		}
 	}
 
 	private synced(): StateDb {
