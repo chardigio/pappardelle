@@ -969,8 +969,15 @@ test('--agent-profile on a space whose agent is running says it was not applied'
 
 test('an unknown --agent-profile stops idow before any setup', async t => {
 	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		stringify({agent_profiles: {codex: {command: 'codex'}}}),
+	);
 	const error = await t.throwsAsync(fixture.run({agentProfile: 'codx'}));
-	t.regex(String(error), /agent profile "codx" not found in agent_profiles/);
+	t.regex(
+		String(error),
+		/Unknown agent profile "codx"\. Agent profiles: claude, codex/,
+	);
 	t.false(fs.existsSync(fixture.workspace));
 });
 

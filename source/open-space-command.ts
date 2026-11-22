@@ -5,6 +5,7 @@ import {pipeline} from 'node:stream/promises';
 import {
 	buildNewSessionArgs,
 	extractIssueKeyFromIdowOutput,
+	idowSkippedAgentOverride,
 } from './session-routing.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 
@@ -14,6 +15,8 @@ export interface OpenSpaceCommandOptions {
 	issueKey: string | null;
 	resume?: boolean;
 	profileName?: string;
+	/** Launches the space's agent on this agent profile, for this launch only. */
+	agentProfileName?: string;
 	cwd: string;
 	env: NodeJS.ProcessEnv;
 	/** Resolves false when the space's agent didn't start after `since`. */
@@ -67,6 +70,7 @@ export async function runOpenSpaceCommand(
 				...(options.resume ? ['--resume'] : []),
 				...buildNewSessionArgs(options.prompt, {
 					profileName: options.profileName,
+					agentProfileName: options.agentProfileName,
 					inputIsIssueKey: false,
 				}),
 			],
@@ -144,6 +148,13 @@ export async function runOpenSpaceCommand(
 			`Workspace setup completed, but could not register ${issueKey}: ${error instanceof Error ? error.message : String(error)}\n`,
 		);
 		return 1;
+	}
+
+	if (options.agentProfileName && idowSkippedAgentOverride(stdout)) {
+		await writeOutput(
+			process.stderr,
+			`${issueKey}: agent already running, ${options.agentProfileName} not applied\n`,
+		);
 	}
 
 	if (options.waitForAgent && !(await options.waitForAgent(issueKey, since))) {

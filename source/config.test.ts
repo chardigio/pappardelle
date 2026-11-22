@@ -52,6 +52,7 @@ import {
 	DEFERRED_PROFILE_DISPLAY_NAME,
 	getAgentProfile,
 	listAgentProfiles,
+	checkAgentProfile,
 	loadAgentProfileSources,
 	isClaudeCommand,
 	renderAgentLaunchFlags,
@@ -5962,6 +5963,20 @@ test('listAgentProfiles labels each agent profile with its config files', t => {
 			{name: 'aider', source: 'built-in'},
 		],
 	);
+});
+
+test('checkAgentProfile knows the built-in claude and every configured agent profile, and lists them all for any other name', t => {
+	const config = agentProfileTestConfig({
+		agent_profiles: {'antigravity-neon:high': {command: 'agy'}},
+	});
+	t.deepEqual(checkAgentProfile(config, 'claude'), {kind: 'known'});
+	t.deepEqual(checkAgentProfile(config, 'antigravity-neon:high'), {
+		kind: 'known',
+	});
+	t.deepEqual(checkAgentProfile(config, 'antigravity-neon'), {
+		kind: 'unknown',
+		names: ['claude', 'antigravity-neon:high'],
+	});
 });
 
 test('listAgentProfiles keeps a shadowing claude where it was declared', t => {

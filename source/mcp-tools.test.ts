@@ -5,8 +5,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'ava';
 import {testState} from '../test/helpers/state.ts';
+import {runAgentProfileCommand} from './agent-profile-command.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 import {parseCompanionArgs} from './companion-args.ts';
+import type {PappardelleConfig} from './config.ts';
 import {AUTO_APPROVED_TOOLS, MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {runSpaceCommand} from './space-command.ts';
 import {newSpaceIdentity} from './space-identity.ts';
@@ -168,6 +170,43 @@ test('space_get maps onto space get, and all onto space list', async t => {
 		['main', 'STA-1'],
 	);
 	t.deepEqual(errors, []);
+});
+
+test('space_open passes agent_profile to the CLI as --agent-profile', t => {
+	t.like(
+		cli('space_open', {
+			input: 'STA-1',
+			profile: 'dev',
+			agent_profile: 'antigravity-neon:high',
+		}),
+		{
+			positional: ['STA-1'],
+			flags: {profile: 'dev', agentProfile: 'antigravity-neon:high'},
+		},
+	);
+	t.is(cli('space_open', {input: 'STA-1'}).flags.agentProfile, undefined);
+});
+
+test('agent_profiles_list maps onto agent-profile list as JSON', t => {
+	const [verb, ...argv] = call('agent_profiles_list', {}).args;
+	t.is(verb, 'agent-profile');
+	const out: string[] = [];
+	const errors: string[] = [];
+	const code = runAgentProfileCommand(argv, {
+		loadConfig: () =>
+			({
+				agent_profiles: {codex: {command: 'codex'}},
+			}) as unknown as PappardelleConfig,
+		loadSources: () => ({codex: ['.pappardelle.yml']}),
+		out: text => out.push(text),
+		err: text => errors.push(text),
+	});
+	t.is(code, 0);
+	t.deepEqual(errors, []);
+	t.deepEqual(JSON.parse(out[0]!), [
+		{name: 'claude', sources: []},
+		{name: 'codex', sources: ['.pappardelle.yml']},
+	]);
 });
 
 test('space_get refuses all together with a space or a field', t => {

@@ -12,6 +12,7 @@ const helpText = `
 	  $ pappardelle spaces [--json]
 	  $ pappardelle space get [issue-key] [--json] [--field <name>]...
 	  $ pappardelle space list [--json]
+	  $ pappardelle agent-profile list [--json]
 	  $ pappardelle read <issue-key> [--turns N] [--json]
 	  $ pappardelle companion <command...>
 	  $ pappardelle update [--restart-tuis | --no-restart-tuis]
@@ -46,6 +47,9 @@ const helpText = `
 	                   profile, tmux sessions and panes, PR and status. With
 	                   no key, the space this runs in. See pappardelle space --help
 	  space list       The main space and every open space, as space get
+	  agent-profile list
+	                   The agent profiles a space can be opened on with
+	                   --agent-profile (--json with the files defining each)
 	  read <key>       Print the last turns of a space's conversation
 	                   (--turns N, default 5; --json)
 	  screen|state|wait|answer <key>
@@ -82,6 +86,10 @@ const helpText = `
 
 	Options
 	  --profile <name>    Use a configured profile instead of automatic selection
+	  --agent-profile <name>
+	                      Launch the space's agent on this agent profile, for
+	                      this launch only. Not applied to an agent already
+	                      running
 	  --resume            Skip the initialization prompt when opening a space
 	  --no-resume         Enable the initialization prompt for an existing space
 	  --wait              After opening a space, wait up to 60s for its agent to
@@ -98,6 +106,7 @@ const helpText = `
 	  $ pappardelle "fix auth bug"  # Create new session with prompt
 	  $ pappardelle --profile mobile "fix auth bug"  # Select the mobile profile
 	  $ pappardelle --resume STA-313  # Reopen without an initialization prompt
+	  $ pappardelle --agent-profile codex STA-313  # Open STA-313 on codex this time
 	  $ pappardelle --resume --wait STA-313  # Reopen, then wait for its agent
 	  $ pappardelle highlight STA-313  # Highlight row in running TUI
 	  $ pappardelle highlight main --focus  # Jump to the sous-chef's agent pane
@@ -142,6 +151,28 @@ export const SPACE_HELP = `
 	     spaces it could read and names each one it could not
 `;
 
+export const AGENT_PROFILE_USAGE =
+	'Usage: pappardelle agent-profile list [--json]';
+
+export const AGENT_PROFILE_HELP = `
+	Usage
+	  $ pappardelle agent-profile list [--json]
+
+	Lists the agent profiles a space can be opened on, one name per line: the
+	built-in claude and every entry under agent_profiles: in the merged config.
+	Pass one to pappardelle --agent-profile <name> to open a space on it.
+
+	Options
+	  --json  Print [{name, sources}], sources being the config files that
+	          define the profile, highest priority first ([] for the built-in
+	          claude)
+
+	Exit codes
+	  0  Printed
+	  2  Usage
+	  3  The config could not be read
+`;
+
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 	return meow(helpText, {
 		importMeta: {...import.meta, url: packageModuleUrl},
@@ -153,6 +184,7 @@ export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 		booleanDefault: undefined,
 		flags: {
 			profile: {type: 'string'},
+			agentProfile: {type: 'string'},
 			resume: {type: 'boolean'},
 			wait: {type: 'boolean'},
 			workspace: {type: 'string'},

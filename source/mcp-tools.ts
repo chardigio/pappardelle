@@ -74,7 +74,9 @@ const tmuxKeys = z
  * supervision tools because watching other spaces means calling them in a
  * loop. companion_run, companion_type and companion_press_keys can run any
  * shell line in a pane, so this gives an agent Bash's power without a Bash
- * prompt; the companion workflow was judged worth that. space_answer stays safe unprompted because it approves only what
+ * prompt; the companion workflow was judged worth that. agent_profiles_list
+ * only reads the config. space_answer stays safe unprompted because it
+ * approves only what
  * passes both gates (approve-policy.ts, then approve-classifier.ts), and has
  * no override.
  */
@@ -99,6 +101,7 @@ export const AUTO_APPROVED_TOOLS = [
 	'space_schedule',
 	'space_schedules',
 	'space_unschedule',
+	'agent_profiles_list',
 	'tui_panes',
 	'tui_focus_log',
 ] as const;
@@ -578,6 +581,12 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				.describe(
 					"The profile's key in .pappardelle.yml, not its display name",
 				),
+			agent_profile: z
+				.string()
+				.optional()
+				.describe(
+					"An agent profile name from agent_profiles_list, for this launch only: the space's next launch goes back to its profile's agent. Not applied when the space's agent is already running",
+				),
 			wait: z
 				.boolean()
 				.optional()
@@ -585,15 +594,23 @@ export const MCP_TOOLS: readonly McpTool[] = [
 					"Wait up to 60s for the space's agent to start, and fail if it isn't confirmed. Set it before space_send to a space you just reopened: a failed launch leaves a shell in the pane, which would run the text as a command. Spaces running Codex never confirm, since Codex doesn't report its status",
 				),
 		},
-		toCli: ({input, resume, profile, wait}) => ({
+		toCli: ({input, resume, profile, agent_profile, wait}) => ({
 			args: [
-				...flags({profile}),
+				...flags({profile, 'agent-profile': agent_profile}),
 				...(resume === undefined ? [] : [resume ? '--resume' : '--no-resume']),
 				...(wait ? ['--wait'] : []),
 				'--',
 				input,
 			],
 		}),
+	}),
+	defineTool({
+		name: 'agent_profiles_list',
+		description:
+			"The agent profiles a space can be opened on, for space_open's agent_profile, each with the config files that define it",
+		readOnly: true,
+		inputSchema: {},
+		toCli: () => ({args: ['agent-profile', 'list', '--json']}),
 	}),
 	defineTool({
 		name: 'space_close',
