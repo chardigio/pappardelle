@@ -12,7 +12,7 @@ import {
 	type ApprovalVerdict,
 } from './approve-policy.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
-import {approvedHoldFor, type HeldPrompt, type Hold} from './holds.ts';
+import {holdFor, type HeldPrompt, type Hold} from './holds.ts';
 import type {SuperviseCommand} from './supervise-args.ts';
 import type {ActionEntry} from './supervise-log.ts';
 
@@ -34,6 +34,8 @@ export type AnswerDecision =
 			kind: 'press';
 			pressed: string[];
 			entry: ActionEntry;
+			/** Why the policy let this prompt through, when it judged one. */
+			allowed?: string;
 			/** The approved hold this press uses up. */
 			hold?: Hold;
 	  }
@@ -53,6 +55,14 @@ export type AnswerContext = {
 	hook: ClaudeSessionState | null;
 	holds: Hold[];
 };
+
+export function holdPlan(
+	prompt: HeldPrompt,
+	entry: ActionEntry,
+	reason: string,
+): HoldPlan {
+	return {reason, prompt, entry: {...entry, verdict: `held: ${reason}`}};
+}
 
 /** The arrows from the highlighted option to `option`, then Enter. */
 function arrowKeys(selected: number, option: number): string[] {
@@ -130,13 +140,18 @@ function checkFile(
 		permission.question,
 		permission.command,
 	].map(text => text.replaceAll(/\n\s*/g, ''));
-	if (!shown.some(text => text.includes(name)))
+	const named = new RegExp(
+		`(?:^|[\\s/])${name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(?=$|[\\s:,)'"?]|\\.(?:$|\\s))`,
+	);
+	if (!shown.some(text => named.test(text)))
 		return {
 			kind: 'hold',
 			reason: `the prompt doesn't show ${name}, the file its hook reported`,
 		};
-	const place = placeOf(file, policy);
-	return place === 'inside' ? {kind: 'approve'} : {kind: 'hold', reason: place};
+	const reading = permission.tool
+		? permission.tool === 'Read file'
+		: hook.currentTool === 'Read';
+	return placeOf(file, policy, {reading});
 }
 
 export function decideAnswer(
@@ -307,43 +322,45 @@ export function decideAnswer(
 	};
 	const held = (reason: string): AnswerDecision => ({
 		kind: 'hold',
-		reason,
-		prompt,
-		entry: {...entry, verdict: `held: ${reason}`},
+		...holdPlan(prompt, entry, reason),
+	});
+	const allowed = (
+		reason: string,
+	): Extract<AnswerDecision, {kind: 'press'}> => ({
+		kind: 'press',
+		pressed: keys,
+		allowed: reason,
+		entry: {...entry, verdict: `allowed: ${reason}`},
 	});
 
-	const approved = permission.cutOff ? null : approvedHoldFor(holds, prompt);
+	const approved = permission.cutOff
+		? null
+		: holdFor(holds, prompt, 'approved');
 	if (approved) {
-		return {
-			kind: 'press',
-			pressed: keys,
-			entry: {...entry, verdict: `allowed: the chef approved ${approved.id}`},
-			hold: approved,
-		};
+		return {...allowed(`the chef approved ${approved.id}`), hold: approved};
 	}
 
 	if (permission.files) {
+		if (permission.files.length === 0)
+			return held("the files this edit writes can't be read");
 		const outside = permission.files
 			.map(file => placeOf(file, policy))
-			.find(place => place !== 'inside');
-		return outside
-			? held(outside)
-			: {
-					kind: 'press',
-					pressed: keys,
-					entry: {...entry, verdict: 'allowed: files inside the space'},
-				};
+			.find(place => place.kind === 'hold');
+		return outside?.kind === 'hold'
+			? held(outside.reason)
+			: allowed('files inside the space');
 	}
 
-	if (FILE_TOOLS.has(hook?.currentTool ?? '') || FILE_HEADER.test(tool)) {
+	// The hook's tool stands in only for a header cut off the screen: it can
+	// be a record of a different call queued behind this one.
+	const fileTool = permission.tool
+		? FILE_HEADER.test(permission.tool)
+		: FILE_TOOLS.has(hook?.currentTool ?? '');
+	if (fileTool) {
 		const verdict = checkFile(permission, hook, policy);
 		return verdict.kind === 'hold'
 			? held(verdict.reason)
-			: {
-					kind: 'press',
-					pressed: keys,
-					entry: {...entry, verdict: 'allowed: a file inside the space'},
-				};
+			: allowed('a file inside the space');
 	}
 
 	if (permission.cutOff)

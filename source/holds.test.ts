@@ -1,13 +1,7 @@
 import fs from 'node:fs';
 import test from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
-import {
-	approvedHoldFor,
-	holdsDir,
-	openHoldFor,
-	type Hold,
-	type HeldPrompt,
-} from './holds.ts';
+import {holdsDir, holdFor, type Hold, type HeldPrompt} from './holds.ts';
 
 const prompt: HeldPrompt = {
 	key: 'STA-1',
@@ -56,13 +50,13 @@ contractTest(
 );
 
 test('a retry of an open hold reuses it rather than stacking another', t => {
-	t.is(openHoldFor([hold()], prompt)?.id, 'h1');
-	t.is(openHoldFor([hold({state: 'dismissed'})], prompt), null);
+	t.is(holdFor([hold()], prompt, 'open')?.id, 'h1');
+	t.is(holdFor([hold({state: 'dismissed'})], prompt, 'open'), null);
 });
 
 test('an approved hold matches only the same prompt from the same space', t => {
 	const approved = [hold({state: 'approved'})];
-	t.is(approvedHoldFor(approved, prompt)?.id, 'h1');
+	t.is(holdFor(approved, prompt, 'approved')?.id, 'h1');
 	for (const other of [
 		{key: 'STA-2'},
 		{tool: 'Edit file'},
@@ -70,9 +64,9 @@ test('an approved hold matches only the same prompt from the same space', t => {
 		{filePath: '/x'},
 		{cwd: '/tmp'},
 	]) {
-		t.is(approvedHoldFor(approved, {...prompt, ...other}), null);
+		t.is(holdFor(approved, {...prompt, ...other}, 'approved'), null);
 	}
 
-	t.is(approvedHoldFor([hold({state: 'used'})], prompt), null);
-	t.is(approvedHoldFor([hold()], prompt), null);
+	t.is(holdFor([hold({state: 'used'})], prompt, 'approved'), null);
+	t.is(holdFor([hold()], prompt, 'approved'), null);
 });

@@ -112,9 +112,12 @@ function defaultBranch(worktree: string): string | null {
 		: null;
 }
 
+const worktreeOf = (key: string) =>
+	key === MAIN_WORKTREE_KEY ? null : getWorktreePath(key);
+
 /** What is inside a space on this machine. */
 function approvalPolicy(key: string): ApprovalPolicy {
-	const worktree = key === MAIN_WORKTREE_KEY ? null : getWorktreePath(key);
+	const worktree = worktreeOf(key);
 	const claude = `claude-${userInfo().uid}`;
 	const tmuxTmpdir = process.env['TMUX_TMPDIR'];
 	return {
@@ -131,7 +134,7 @@ function approvalPolicy(key: string): ApprovalPolicy {
 			`/private/tmp/${claude}`,
 			path.join(tmpdir(), claude),
 		]),
-		home: homedir(),
+		scratchpad: (worktree ?? getMainRepoRoot()).replaceAll(/[^\w-]/g, '-'),
 		defaultBranch: worktree ? defaultBranch(worktree) : null,
 		realpath: target => realpathSync(target),
 	};
@@ -226,7 +229,7 @@ export function defaultSuperviseDeps(
 			return classifyCommand(
 				{
 					...request,
-					worktree: key === MAIN_WORKTREE_KEY ? null : getWorktreePath(key),
+					worktree: worktreeOf(key),
 					cwd: request.cwd ?? agentCwd(key),
 					tempRoots: tempRoots(),
 				},

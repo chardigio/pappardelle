@@ -197,7 +197,9 @@ const CODEX_SHORTCUT = /\s*\((\w+)\)$/;
  */
 function parseCodexApproval(lines: string[]): PermissionPrompt | null {
 	const footerAt = lastIndex(lines, line => CODEX_APPROVAL_FOOTER.test(line));
-	if (footerAt === -1) return null;
+	// The live prompt is the bottom of the pane; one higher up is scrollback.
+	if (footerAt === -1 || lines.slice(footerAt + 1).some(line => line.trim()))
+		return null;
 	const questionAt = lastIndex(lines.slice(0, footerAt), line =>
 		CODEX_APPROVAL.test(line),
 	);
@@ -251,11 +253,11 @@ function parseCodexApproval(lines: string[]): PermissionPrompt | null {
 	);
 	const commandAt = details.findIndex(line => /^\s*\$ /.test(line));
 	const command: string[] = [];
+	// The command runs to the options, blank lines and all.
 	if (isCommand && commandAt !== -1) {
-		for (const line of details.slice(commandAt)) {
-			if (!line.trim()) break;
+		for (const line of details.slice(commandAt))
 			command.push(line.replace(/^\s*(?:\$ )?/, '').trimEnd());
-		}
+		while (command.at(-1) === '') command.pop();
 	}
 
 	const files = isCommand ? undefined : field('Destination');

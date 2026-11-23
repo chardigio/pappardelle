@@ -37,7 +37,7 @@ const policy: ApprovalPolicy = {
 	roots: ['/tmp/'],
 	reserved: ['/tmp/tmux-'],
 	shared: ['/tmp/claude-1000'],
-	home: '/home/u',
+	scratchpad: 'x',
 	defaultBranch: 'trunk',
 	realpath,
 };
@@ -285,6 +285,11 @@ test('evasions of the delete, hard-stop and push rules hold', t => {
 	for (const command of [
 		'rm -rf /tmp/claude-1000/*',
 		'rm -rf /tmp/claude-1000/-home*',
+		'rm -rf /tmp/claude-1000/other-space/scratchpad',
+		"bash -c 'doctl apps list'",
+		"sh -c 'rm -rf /home/u/x'",
+		"zsh -lc 'npm publish'",
+		'git push --repo=origin HEAD:trunk',
 		'find h/. -delete',
 		'find -L dist -delete',
 		'find -P /home/x -delete',
@@ -425,6 +430,8 @@ test('evasions of the delete, hard-stop and push rules hold', t => {
 test('the fixes for those evasions leave everyday commands alone', t => {
 	for (const command of [
 		'rm -f .git/index.lock',
+		'ls .env*',
+		"bash -c 'rm -rf dist'",
 		'rm -f .git/refs/heads/x.lock',
 		'rm -f .git/worktrees/x/index.lock',
 		'cat .mcp.json',

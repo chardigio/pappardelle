@@ -22,12 +22,15 @@ export type ApprovalPolicy = {
 	 */
 	reserved: readonly string[];
 	/**
-	 * Directories under a temp root whose subdirectories are each a space's
-	 * own, such as the parent of every agent's scratchpad, while the
-	 * directory itself is everyone's.
+	 * Directories under a temp root whose subdirectories are each an agent's
+	 * own, such as the parent of every agent's scratchpad.
 	 */
 	shared: readonly string[];
-	home: string;
+	/**
+	 * The name of this space's own subdirectory of each shared directory:
+	 * Claude names a scratchpad after the checkout it started in.
+	 */
+	scratchpad: string;
 	/** origin's default branch, which pushes never reach without the chef. */
 	defaultBranch: string | null;
 	/** fs.realpathSync, injected so tests can lay out symlinks. */
@@ -325,7 +328,9 @@ function pushToMain(
 	const protectedBranches = new Set(
 		['main', 'master', policy.defaultBranch].filter(Boolean),
 	);
-	for (const word of positionals.slice(1)) {
+	// The repository is the first positional unless --repo=<name> gave it.
+	const repoGiven = pushArgs.some(word => word.startsWith('--repo='));
+	for (const word of positionals.slice(repoGiven ? 0 : 1)) {
 		const refspec = bare(word);
 		// B=main; git push origin $B, or {HEAD:x,HEAD:main}
 		if (/[$`{}*]/.test(refspec))
@@ -440,7 +445,7 @@ function isSpaceValue(
 		(freshDir ||
 			(!/\s/.test(value) &&
 				value.startsWith('/') &&
-				placeOf(value, policy) === 'inside'))
+				placeOf(value, policy).kind === 'approve'))
 	);
 }
 
@@ -552,22 +557,26 @@ export function isAgentConfig(relative: string): boolean {
 /**
  * Whether an absolute path is inside the space, or why not. A glob in its
  * last component is matched as a name, which holds for a glob that could
- * reach anything under a temp directory.
+ * reach anything under a temp directory. Reading agent configuration is
+ * fine; only writing it changes what agents may do.
  */
 export function placeOf(
 	target: string,
 	policy: ApprovalPolicy,
-	{followLast = true}: {followLast?: boolean} = {},
-): 'inside' | string {
-	if (!target.startsWith('/')) return `${target} is not an absolute path`;
-	if (mayClimb(target)) return `${target} may climb out of its directory`;
+	{
+		followLast = true,
+		reading = false,
+	}: {followLast?: boolean; reading?: boolean} = {},
+): ApprovalVerdict {
+	if (!target.startsWith('/')) return hold(`${target} is not an absolute path`);
+	if (mayClimb(target)) return hold(`${target} may climb out of its directory`);
 	const real = resolveReal(target, policy, followLast);
 	if (policy.worktree) {
 		const relative = below(real, resolveReal(policy.worktree, policy));
 		if (relative !== null) {
-			return isAgentConfig(relative)
-				? `${target} is agent configuration`
-				: 'inside';
+			return isAgentConfig(relative) && !reading
+				? hold(`${target} is agent configuration`)
+				: approve;
 		}
 	}
 
@@ -579,21 +588,26 @@ export function placeOf(
 				real.startsWith(resolveReal(prefix, policy)),
 			)
 		)
-			return `${target} holds the user's tmux sockets`;
+			return hold(`${target} holds the user's tmux sockets`);
 		for (const shared of policy.shared) {
-			const real_ = resolveReal(shared, policy);
-			if (real === real_) return `${target} holds every space's scratch`;
+			const realShared = resolveReal(shared, policy);
+			if (real === realShared)
+				return hold(`${target} holds every space's scratch`);
+			const within = below(real, realShared);
+			if (within === null) continue;
+			const owner = within.split('/')[0]!;
 			// /tmp/claude-1000/* reaches every space's scratchpad at once.
-			const within = below(real, real_);
-			if (within !== null && /[*?[]/.test(within.split('/')[0]!))
-				return `${target} globs every space's scratch`;
+			if (/[*?[]/.test(owner))
+				return hold(`${target} globs every space's scratch`);
+			if (owner !== policy.scratchpad)
+				return hold(`${target} is another agent's scratch`);
 		}
 		if (/[*?[]/.test(relative.split('/')[0]!))
-			return `${target} globs a whole temp directory`;
-		return 'inside';
+			return hold(`${target} globs a whole temp directory`);
+		return approve;
 	}
 
-	return `${target} is outside the space`;
+	return hold(`${target} is outside the space`);
 }
 
 // QA isolates tmux on a socket under /tmp/q-*, or through the qtmux and qenv
@@ -755,7 +769,7 @@ function checkTargets(
 			);
 		for (const target of paths) {
 			const place = placeOf(target, policy, {followLast});
-			if (place !== 'inside') return hold(`${what}: ${place}`);
+			if (place.kind === 'hold') return hold(`${what}: ${place.reason}`);
 		}
 	}
 
@@ -802,10 +816,6 @@ function findDeleteStarts(args: string[]): string[] | null {
 	return starts.length > 0 ? starts : ['.'];
 }
 
-// Words before a command that can run a cd conditionally, later, in a
-// subshell, or not at all (a heredoc line, a function body), or change the
-// directory some other way. With any of them and a change of directory, the
-// directory isn't taken to be known when the command runs.
 // A redirect or tee into the files isAgentConfig names.
 const AGENT_CONFIG_WRITE =
 	/(?:>[>|]?|\btee\b(?:\s+-a)?)\s*["']?(?:\S*\/)?(?:\.claude\/+settings[^\s"']*\.json|\.mcp\.json(?![\w.])|\.codex\/|\.git\/)/i;
@@ -887,6 +897,10 @@ function writesAgentConfig(
 	return null;
 }
 
+// Words before a command that can run a cd conditionally, later, in a
+// subshell, or not at all (a heredoc line, a function body), or change the
+// directory some other way. With any of them and a change of directory, the
+// directory isn't taken to be known when the command runs.
 const HIDES_DIRECTORY =
 	/[()`]|<<|(?:^|[\s;&|])(?:if|then|else|elif|fi|case|esac|while|until|for|select|do|done|function|\{|\}|\[\[|!|pushd|popd|source|\.|eval|exec|builtin|command|trap|alias)(?=$|[\s;&|])/;
 const CHANGES_DIRECTORY =
@@ -910,7 +924,9 @@ export function checkApproval(
 	const spelled = bare(text);
 	if (
 		/\.pappardelle(?:\/|$|[\s;&|)])/.test(spelled) ||
-		/(?:^|[\s/='"])\.[\w.-]*[*?[{]/.test(spelled)
+		[...spelled.matchAll(/(?:^|[\s/='"])(\.[\w.-]*)[*?[{]/g)].some(match =>
+			'.pappardelle'.startsWith(match[1]!),
+		)
 	)
 		return hold("it reaches Pappardelle's own state, where holds are approved");
 	if (AGENT_CONFIG_WRITE.test(text))
@@ -940,10 +956,11 @@ export function checkApproval(
 		const kill = KILL.exec(segment);
 		if (kill && !isolatedTmux(words, word => KILL.test(word), policy))
 			return hold(`${kill[0]} outside an isolated socket`);
+		const tmux = ['tmux', 'qtmux', 'qenv'].includes(words[0] ?? '');
 		// These run a shell command, or a config file of commands, which can
 		// reach the user's server whatever socket they start on.
 		if (
-			['tmux', 'qtmux', 'qenv'].includes(words[0] ?? '') &&
+			tmux &&
 			words.some(word =>
 				/^(?:run(?:-shell)?|if(?:-shell)?|display-?p\w*|popup|source(?:-file)?|pipe-?p\w*|confirm(?:-before)?)$/.test(
 					word,
@@ -952,7 +969,7 @@ export function checkApproval(
 		)
 			return hold('a tmux command that runs a shell command');
 		if (
-			['tmux', 'qtmux', 'qenv'].includes(words[0] ?? '') &&
+			tmux &&
 			words.some(word => TYPES_INTO.test(word)) &&
 			!isolatedTmux(words, word => TYPES_INTO.test(word), policy)
 		)
@@ -969,8 +986,19 @@ export function checkApproval(
 			.slice(0, start)
 			.some(word => /^(?:-\w*C|--chdir)/.test(bare(word)));
 		const args = raw.map(word => unquote(word));
+		const program = programName(args[0] ?? '');
 		const early = hardStop(args);
 		if (early) return hold(early);
+		// bash -c 'cmd' runs a command written as one word.
+		const script = /^(?:ba|da|k|z)?sh$/.test(program)
+			? args.findIndex((word, index) => index > 0 && /^-\w*c\w*$/.test(word))
+			: -1;
+		if (script !== -1) {
+			const inner = checkApproval(args[script + 1] ?? '', policy, {
+				startDir: cwd,
+			});
+			if (inner.kind === 'hold') return inner;
+		}
 		// env -S'cmd' and --split-string=cmd run a command written as one word.
 		const split = words
 			.map(word => /^(?:-S|--split-string=)(.+)$/.exec(bare(word))?.[1])
@@ -981,13 +1009,13 @@ export function checkApproval(
 		}
 
 		if (
-			programName(args[0] ?? '') === 'git' &&
+			program === 'git' &&
 			args.includes('push') &&
 			/\bGIT_(?:DIR|WORK_TREE)=/.test(text)
 		)
 			return hold("a push from another repository's git directory");
 		if (
-			programName(args[0] ?? '') === 'gh' &&
+			program === 'gh' &&
 			(args.some(word => word.includes('/git/refs/heads/')) ||
 				(args[1] === 'repo' && args[2] === 'sync'))
 		)
@@ -1005,7 +1033,6 @@ export function checkApproval(
 		};
 		const pushed = pushToMain(args, policy, scope.cwd);
 		if (pushed) return hold(pushed);
-		const program = programName(args[0] ?? '');
 		const written = writesAgentConfig(raw, program, scope.cwd, policy);
 		if (written) return hold(written);
 		const deletes =
@@ -1058,7 +1085,7 @@ export function checkApproval(
 				!['|', '||', '&'].includes(next ?? '') &&
 				paths?.length === 1 &&
 				// Into agent config too, so a write from there is still placed.
-				(placeOf(paths[0]!, policy) === 'inside' ||
+				(placeOf(paths[0]!, policy).kind === 'approve' ||
 					(policy.worktree !== null &&
 						below(path.posix.normalize(paths[0]!), policy.worktree) !== null))
 					? path.posix.normalize(paths[0]!)

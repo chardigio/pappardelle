@@ -105,23 +105,19 @@ export function isSamePrompt(hold: HeldPrompt, prompt: HeldPrompt): boolean {
 	);
 }
 
-/** The open hold for this prompt, which a retry reuses rather than stacking another. */
-export function openHoldFor(holds: Hold[], prompt: HeldPrompt): Hold | null {
-	return (
-		holds.find(hold => hold.state === 'open' && isSamePrompt(hold, prompt)) ??
-		null
-	);
-}
-
-/** The approved hold, not yet used, that lets this prompt through once. */
-export function approvedHoldFor(
+/**
+ * The hold for this prompt in the given state: an open one a retry reuses
+ * rather than stacking another, or an approved one that lets the prompt
+ * through once.
+ */
+export function holdFor(
 	holds: Hold[],
 	prompt: HeldPrompt,
+	state: 'open' | 'approved',
 ): Hold | null {
 	return (
-		holds.find(
-			hold => hold.state === 'approved' && isSamePrompt(hold, prompt),
-		) ?? null
+		holds.find(hold => hold.state === state && isSamePrompt(hold, prompt)) ??
+		null
 	);
 }
 

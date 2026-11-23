@@ -140,7 +140,7 @@ function harness(dialog: Dialog) {
 			roots: [],
 			reserved: [],
 			shared: [],
-			home: '/home/u',
+			scratchpad: '-repo',
 			defaultBranch: null,
 			realpath: target => target,
 		}),

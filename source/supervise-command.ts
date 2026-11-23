@@ -30,6 +30,7 @@ import {
 } from './agent-screen.ts';
 import {
 	decideAnswer,
+	holdPlan,
 	optionKeys,
 	POLICY_REFUSED_EXIT,
 	type CheckRequest,
@@ -37,10 +38,9 @@ import {
 } from './answer-decision.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 
-export {POLICY_REFUSED_EXIT} from './answer-decision.ts';
 import type {ClassifierVerdict} from './approve-classifier.ts';
 import type {ClaudeSessionState, StoredClaudeStatus} from './claude-status.ts';
-import {openHoldFor, type Hold, type HoldDao} from './holds.ts';
+import {holdFor, type Hold, type HoldDao} from './holds.ts';
 import {readCompanionPane} from './companion.ts';
 import {
 	fireJob,
@@ -63,6 +63,8 @@ import {
 } from './supervise-args.ts';
 import {recordSupervision, type SuperviseEntry} from './supervise-log.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
+
+export {POLICY_REFUSED_EXIT} from './answer-decision.ts';
 
 export type SuperviseDeps = {
 	repo: () => string;
@@ -714,7 +716,7 @@ async function holdPrompt(
 	}
 
 	const store = deps.holds();
-	const hold: Hold = openHoldFor(store.list(), prompt) ?? {
+	const hold: Hold = holdFor(store.list(), prompt, 'open') ?? {
 		...prompt,
 		id: deps.newHoldId(),
 		reason,
@@ -1059,6 +1061,7 @@ async function execute(
 				return holdPrompt(key, before, decision, deps, log);
 
 			const {entry, pressed} = decision;
+			let allowed = decision.kind === 'press' ? decision.allowed : undefined;
 			if (decision.kind === 'check') {
 				const verdict = await deps.classify(key, decision.request);
 				if (verdict.kind === 'unavailable') {
@@ -1073,11 +1076,7 @@ async function execute(
 					return holdPrompt(
 						key,
 						before,
-						{
-							reason: verdict.reason,
-							prompt: decision.prompt,
-							entry: {...entry, verdict: `held: ${verdict.reason}`},
-						},
+						holdPlan(decision.prompt, entry, verdict.reason),
 						deps,
 						log,
 					);
@@ -1093,9 +1092,8 @@ async function execute(
 					return 1;
 				}
 
-				entry.verdict = verdict.reason
-					? `allowed: ${verdict.reason}`
-					: 'allowed';
+				allowed = verdict.reason ?? '';
+				entry.verdict = allowed ? `allowed: ${allowed}` : 'allowed';
 			}
 
 			if (deps.sendKeys(key, pressed) !== 'sent') {
@@ -1132,9 +1130,9 @@ async function execute(
 			}
 
 			deps.out(
-				entry.verdict?.startsWith('allowed')
-					? `Pressed ${shown} in ${key} (${entry.verdict})`
-					: `Pressed ${shown} in ${key}`,
+				allowed === undefined
+					? `Pressed ${shown} in ${key}`
+					: `Pressed ${shown} in ${key} (${entry.verdict})`,
 			);
 			return 0;
 		}

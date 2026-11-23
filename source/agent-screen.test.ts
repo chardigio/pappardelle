@@ -474,6 +474,27 @@ test('a Codex prompt whose command is off the screen reads as no command', t => 
 	t.is(parseAgentScreen(text, NOW).permission?.command, '');
 });
 
+test('a Codex command with a blank line in it is read whole', t => {
+	const text = fs
+		.readFileSync(path.join(fixtures, 'codex-permission-command.txt'), 'utf8')
+		.replace(/ {2}\$ .*\n/, '  $ echo hi\n \n  doctl apps list\n');
+	t.is(
+		parseAgentScreen(text, NOW).permission?.command,
+		'echo hi\n\ndoctl apps list',
+	);
+});
+
+test('a Codex prompt left in the scrollback is not the prompt on screen', t => {
+	const text = fs.readFileSync(
+		path.join(fixtures, 'codex-permission-command.txt'),
+		'utf8',
+	);
+	t.not(
+		parseAgentScreen(`${text}\n● Done.\n`, NOW).permission?.choose,
+		'shortcut',
+	);
+});
+
 test('Write and Read prompts name their file where the path rule can check it', t => {
 	t.like(screen('claude-permission-write').permission, {
 		tool: 'Create file',
