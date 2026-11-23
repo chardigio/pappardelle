@@ -3,7 +3,7 @@
 Claude Code hook to send ntfy push notifications when user input is needed.
 
 Triggered by:
-  - PermissionRequest (Claude needs tool approval)
+  - Notification with notification_type "permission_prompt" (Claude needs tool approval)
   - PreToolUse:AskUserQuestion (Claude is asking a question)
 
 This lets Charlie get notified on his phone/iPad to go answer the prompt,
@@ -17,6 +17,7 @@ switch: leave it unset and the hook stays silent.
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -44,6 +45,19 @@ def send_zap(message: str) -> None:
         pass
 
 
+PERMISSION_PROMPT_TOOL = re.compile(r"permission to use (\S+)")
+
+
+def permission_prompt_tool(message: str | None) -> str | None:
+    """Read the tool name out of a permission_prompt message.
+
+    The Notification event has no tool_name field. Its message reads
+    "Claude needs your permission to use <Tool>".
+    """
+    match = PERMISSION_PROMPT_TOOL.search(message or "")
+    return match.group(1).rstrip(".") if match else None
+
+
 def main() -> None:
     try:
         input_data = json.load(sys.stdin)
@@ -56,7 +70,10 @@ def main() -> None:
     hook_event = input_data.get("hook_event_name", "")
     tool_name = input_data.get("tool_name", "")
 
-    if hook_event == "PermissionRequest":
+    if hook_event == "Notification" and input_data.get("notification_type") == "permission_prompt":
+        # Not a PermissionRequest hook (STA-3151): Claude Code ignores
+        # CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS while one exists.
+        tool_name = permission_prompt_tool(input_data.get("message"))
         # AskUserQuestion is handled by PreToolUse hook, not a real permission
         if tool_name == "AskUserQuestion":
             sys.exit(0)

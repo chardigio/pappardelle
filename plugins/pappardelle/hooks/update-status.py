@@ -21,6 +21,7 @@ Status values:
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -211,6 +212,20 @@ def update_status(
         status_file.unlink(missing_ok=True)
 
 
+PERMISSION_PROMPT_TOOL = re.compile(r"permission to use (\S+)")
+
+
+def permission_prompt_tool(message: Optional[str]) -> Optional[str]:
+    """Read the tool name out of a permission_prompt message.
+
+    The Notification event has no tool_name field. Its message reads
+    "Claude needs your permission to use <Tool>", and the UI needs the tool to
+    tell an AskUserQuestion dialog from a real permission prompt.
+    """
+    match = PERMISSION_PROMPT_TOOL.search(message or "")
+    return match.group(1).rstrip(".") if match else None
+
+
 def write_status_file(status_file: Path, state: dict[str, Any]) -> None:
     status_file.parent.mkdir(parents=True, exist_ok=True)
     # Atomic write: write to a sibling temp file then rename. POSIX rename is
@@ -267,8 +282,6 @@ def main() -> None:
             status = "running_tool"
         elif hook_event == "PostToolUse":
             status = "processing"
-        elif hook_event == "PermissionRequest":
-            status = "waiting_for_approval"
         elif hook_event == "Stop":
             status = "waiting_for_input"
         elif hook_event == "SubagentStop":
@@ -281,9 +294,12 @@ def main() -> None:
             status = "compacting"
         elif hook_event == "Notification":
             notification_type = input_data.get("notification_type")
-            # Skip permission_prompt — PermissionRequest hook handles this
+            # The plugin has no PermissionRequest hook (STA-3151): Claude Code ignores
+            # CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS while one exists. This
+            # notification marks the same moment, and names the tool only in its text.
             if notification_type == "permission_prompt":
-                sys.exit(0)
+                status = "waiting_for_approval"
+                tool_name = permission_prompt_tool(input_data.get("message"))
             elif notification_type == "idle_prompt":
                 status = "waiting_for_input"
             else:

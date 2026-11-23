@@ -30,6 +30,7 @@ def migrated_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
         if SQLITE_RUN:
             pytest.fail("PAPPARDELLE_SQLITE_STATE=1 needs bun to create the state database")
         pytest.skip("bun is not installed")
+    assert bun is not None  # pytest.skip ends the test, but mypy cannot see that here
     db = tmp_path_factory.mktemp("state-db") / "state.db"
     subprocess.run(
         [bun, str(REPO_ROOT / "source" / "state-cli.ts"), "migrate", str(db)],

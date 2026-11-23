@@ -96,17 +96,6 @@
 					{
 						"type": "command",
 						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/update-status.py\""
-					}
-				]
-			}
-		],
-		"PermissionRequest": [
-			{
-				"matcher": "*",
-				"hooks": [
-					{
-						"type": "command",
-						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/update-status.py\""
 					},
 					{
 						"type": "command",

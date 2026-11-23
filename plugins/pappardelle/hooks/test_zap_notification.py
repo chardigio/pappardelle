@@ -66,16 +66,31 @@ class TestMainLogic:
                 pass
             return mock_zap
 
-    def test_permission_request_sends_zap(self):
-        mock_zap = self._run_main({"hook_event_name": "PermissionRequest", "tool_name": "Bash"})
+    @staticmethod
+    def _permission_prompt(message: str = "Claude needs your permission to use Bash") -> dict:
+        return {"hook_event_name": "Notification", "notification_type": "permission_prompt", "message": message}
+
+    def test_permission_prompt_sends_zap(self):
+        """STA-3151: the zap comes from the Notification hook, not from a PermissionRequest hook."""
+        mock_zap = self._run_main(self._permission_prompt())
         mock_zap.assert_called_once_with("Claude needs permission for Bash")
 
-    def test_permission_request_without_tool_name(self):
-        mock_zap = self._run_main({"hook_event_name": "PermissionRequest"})
+    def test_permission_prompt_without_tool_name(self):
+        mock_zap = self._run_main(self._permission_prompt("Claude needs your permission"))
         mock_zap.assert_called_once_with("Claude needs permission")
 
-    def test_permission_request_skips_ask_user_question(self):
-        mock_zap = self._run_main({"hook_event_name": "PermissionRequest", "tool_name": "AskUserQuestion"})
+    def test_permission_prompt_skips_ask_user_question(self):
+        """PreToolUse:AskUserQuestion already sends the zap for a question."""
+        mock_zap = self._run_main(self._permission_prompt("Claude needs your permission to use AskUserQuestion"))
+        mock_zap.assert_not_called()
+
+    def test_idle_prompt_notification_no_zap(self):
+        mock_zap = self._run_main({"hook_event_name": "Notification", "notification_type": "idle_prompt"})
+        mock_zap.assert_not_called()
+
+    def test_permission_request_event_no_zap(self):
+        """The plugin registers no PermissionRequest hook, so the script ignores that event."""
+        mock_zap = self._run_main({"hook_event_name": "PermissionRequest", "tool_name": "Bash"})
         mock_zap.assert_not_called()
 
     def test_pre_tool_use_ask_user_question_sends_zap(self):
@@ -88,7 +103,7 @@ class TestMainLogic:
 
     def test_no_zap_when_no_ntfy_topic(self):
         mock_zap = self._run_main(
-            {"hook_event_name": "PermissionRequest", "tool_name": "Bash"},
+            self._permission_prompt(),
             ntfy_topic=None,
         )
         mock_zap.assert_not_called()
@@ -101,7 +116,7 @@ class TestMainLogic:
         """
         no_remote_login = MagicMock(returncode=0, stdout=W_OUTPUT_WITHOUT_REMOTE_LOGIN)
         with patch("subprocess.run", return_value=no_remote_login):
-            mock_zap = self._run_main({"hook_event_name": "PermissionRequest", "tool_name": "Bash"})
+            mock_zap = self._run_main(self._permission_prompt())
         mock_zap.assert_called_once_with("Claude needs permission for Bash")
 
     def test_ssh_probe_is_gone(self):

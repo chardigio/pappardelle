@@ -13,8 +13,9 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 from unittest.mock import patch
 
 import pytest
@@ -290,6 +291,7 @@ class TestStatusDetermination:
         hook_event: str,
         tool_name: Optional[str] = None,
         notification_type: Optional[str] = None,
+        message: Optional[str] = None,
         session_id: str = "test-session",
         cwd: str = "/Users/charlie/.worktrees/stardust-labs/STA-999",
     ) -> dict[str, Any]:
@@ -303,6 +305,8 @@ class TestStatusDetermination:
             data["tool_name"] = tool_name
         if notification_type:
             data["notification_type"] = notification_type
+        if message:
+            data["message"] = message
         return data
 
     def _run_hook_with_input(self, input_data: dict, temp_dir: Path) -> Optional[dict]:
@@ -387,33 +391,60 @@ class TestStatusDetermination:
     # Permission Request Tests
     # =========================================================================
 
-    def test_permission_request_sets_waiting_for_approval(self, tmp_path):
-        """PermissionRequest should set 'waiting_for_approval' uniformly."""
+    def test_permission_prompt_notification_sets_waiting_for_approval(self, tmp_path):
+        """A permission_prompt Notification sets 'waiting_for_approval' and keeps the tool name.
+
+        STA-3151: the plugin has no PermissionRequest hook, because Claude Code ignores
+        CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS while one exists. The
+        Notification event carries the tool only inside its message text.
+        """
         input_data = self._create_hook_input(
-            hook_event="PermissionRequest",
-            tool_name="Bash",
+            hook_event="Notification",
+            notification_type="permission_prompt",
+            message="Claude needs your permission to use Bash",
         )
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is not None
         assert result["status"] == "waiting_for_approval"
+        assert result.get("currentTool") == "Bash"
 
-    def test_permission_request_ask_user_question_sets_waiting_for_approval(self, tmp_path):
-        """PermissionRequest for AskUserQuestion also sets 'waiting_for_approval' — no special-casing.
-
-        The UI layer differentiates by checking currentTool == 'AskUserQuestion'.
-        """
+    def test_permission_prompt_notification_keeps_ask_user_question_tool(self, tmp_path):
+        """The UI tells a question from a permission by currentTool == 'AskUserQuestion'."""
         input_data = self._create_hook_input(
-            hook_event="PermissionRequest",
-            tool_name="AskUserQuestion",
+            hook_event="Notification",
+            notification_type="permission_prompt",
+            message="Claude needs your permission to use AskUserQuestion",
         )
 
         result = self._run_hook_with_input(input_data, tmp_path)
 
         assert result is not None
-        assert result["status"] == "waiting_for_approval", "No tool-specific special-casing (Claude Island model)"
-        assert result.get("currentTool") == "AskUserQuestion", "Tool name must be preserved for UI differentiation"
+        assert result["status"] == "waiting_for_approval"
+        assert result.get("currentTool") == "AskUserQuestion"
+
+    def test_permission_prompt_notification_without_tool_in_message(self, tmp_path):
+        """A message with no tool name still sets 'waiting_for_approval', with no currentTool."""
+        input_data = self._create_hook_input(
+            hook_event="Notification",
+            notification_type="permission_prompt",
+            message="Claude needs your permission",
+        )
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is not None
+        assert result["status"] == "waiting_for_approval"
+        assert "currentTool" not in result
+
+    def test_permission_request_event_is_not_handled(self, tmp_path):
+        """The plugin registers no PermissionRequest hook, so the script ignores that event."""
+        input_data = self._create_hook_input(hook_event="PermissionRequest", tool_name="Bash")
+
+        result = self._run_hook_with_input(input_data, tmp_path)
+
+        assert result is None
 
     # =========================================================================
     # Stop / Session Lifecycle Tests
@@ -483,17 +514,6 @@ class TestStatusDetermination:
 
         assert result is not None
         assert result["status"] == "waiting_for_input"
-
-    def test_notification_permission_prompt_does_not_update(self, tmp_path):
-        """permission_prompt notification should not update status (PermissionRequest handles it)."""
-        input_data = self._create_hook_input(
-            hook_event="Notification",
-            notification_type="permission_prompt",
-        )
-
-        result = self._run_hook_with_input(input_data, tmp_path)
-
-        assert result is None, "permission_prompt notifications should be ignored (PermissionRequest handles this)"
 
     def test_notification_other_type_does_not_update(self, tmp_path):
         """Notification with unrecognized type should not update status."""
@@ -806,10 +826,10 @@ class TestRepoEnvironment:
 
 class TestStoredSpace:
     @pytest.fixture(autouse=True)
-    def _no_process(self):
+    def _no_process(self) -> Iterator[None]:
         """The store names the space, so no git or bd runs for it."""
 
-        def refuse(*args, **kwargs):
+        def refuse(*args: Any, **kwargs: Any) -> NoReturn:
             raise AssertionError(f"no process may run: {args}")
 
         with patch("subprocess.run", side_effect=refuse):
@@ -822,26 +842,32 @@ class TestStoredSpace:
         record_space(state_db, "repo", "STA-5", str(worktree))
         return worktree
 
-    def test_a_worktree_subdirectory_reports_under_the_stored_space(self, worktree: Path, status_socket):
+    def test_a_worktree_subdirectory_reports_under_the_stored_space(
+        self, worktree: Path, status_socket: StatusSocket
+    ) -> None:
         update_status("processing", cwd=str(worktree / "src"))
         assert [message["state"]["workspaceName"] for message in status_socket.messages()] == ["repo-STA-5"]
 
     def test_a_symlinked_cwd_reports_under_the_space_it_leads_to(
-        self, worktree: Path, tmp_path: Path, status_socket
-    ):
+        self, worktree: Path, tmp_path: Path, status_socket: StatusSocket
+    ) -> None:
         link = tmp_path / "link"
         link.symlink_to(worktree / "src")
         update_status("processing", cwd=str(link))
         assert [message["state"]["workspaceName"] for message in status_socket.messages()] == ["repo-STA-5"]
 
-    def test_main_reports_under_its_key_whatever_the_branch(self, tmp_path: Path, state_db: Path, status_socket):
+    def test_main_reports_under_its_key_whatever_the_branch(
+        self, tmp_path: Path, state_db: Path, status_socket: StatusSocket
+    ) -> None:
         main = tmp_path / "main"
         (main / "src").mkdir(parents=True)
         record_space(state_db, "repo", "main", str(main))
         update_status("processing", cwd=str(main / "src"))
         assert [message["state"]["workspaceName"] for message in status_socket.messages()] == ["repo-main"]
 
-    def test_a_checkout_nested_in_main_is_not_main(self, tmp_path: Path, state_db: Path, status_socket):
+    def test_a_checkout_nested_in_main_is_not_main(
+        self, tmp_path: Path, state_db: Path, status_socket: StatusSocket
+    ) -> None:
         main = tmp_path / "main"
         nested = main / ".claude" / "worktrees" / "agent-x"
         (nested / "src").mkdir(parents=True)
@@ -850,7 +876,7 @@ class TestStoredSpace:
         update_status("processing", cwd=str(nested / "src"))
         assert status_socket.messages() == []
 
-    def test_a_closed_space_holds_no_caller(self, tmp_path: Path, state_db: Path, status_socket):
+    def test_a_closed_space_holds_no_caller(self, tmp_path: Path, state_db: Path, status_socket: StatusSocket) -> None:
         import sqlite3
 
         worktree = tmp_path / "closed"
@@ -863,14 +889,14 @@ class TestStoredSpace:
         update_status("processing", cwd=str(worktree))
         assert status_socket.messages() == []
 
-    def test_a_deleted_cwd_reports_nothing(self, worktree: Path, status_socket):
+    def test_a_deleted_cwd_reports_nothing(self, worktree: Path, status_socket: StatusSocket) -> None:
         with patch("os.getcwd", side_effect=FileNotFoundError):
             update_status("processing")
         assert status_socket.messages() == []
 
     def test_a_cwd_in_no_stored_space_reports_nothing(
-        self, worktree: Path, tmp_path: Path, status_socket, monkeypatch: pytest.MonkeyPatch
-    ):
+        self, worktree: Path, tmp_path: Path, status_socket: StatusSocket, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("PAPPARDELLE_STATUS_DIR", str(tmp_path / "status"))
         update_status("processing", cwd=str(tmp_path))
         assert status_socket.messages() == []
@@ -919,7 +945,9 @@ class TestStatusDaemon:
     def flag_on(self, state_db: Path) -> None:
         record_space(state_db, "stardust-labs", "STA-9200", self.CWD)
 
-    def test_flag_on_sends_one_line_and_writes_no_file(self, flag_on: None, status_socket, status_dir: Path):
+    def test_flag_on_sends_one_line_and_writes_no_file(
+        self, flag_on: None, status_socket: StatusSocket, status_dir: Path
+    ) -> None:
         update_status("running_tool", "Bash", "sess-1", "PreToolUse", self.CWD)
 
         (message,) = status_socket.messages()
@@ -940,8 +968,8 @@ class TestStatusDaemon:
         assert not status_dir.exists()
 
     def test_flag_on_a_later_event_leaves_out_what_it_does_not_report(
-        self, flag_on: None, status_socket, monkeypatch: pytest.MonkeyPatch
-    ):
+        self, flag_on: None, status_socket: StatusSocket, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("PAPPARDELLE_REPO", "repo")
         monkeypatch.setenv("PAPPARDELLE_SPACE", "QA-1")
         update_status("running_tool", "Bash", "sess-1", "PreToolUse", self.CWD)
@@ -956,8 +984,8 @@ class TestStatusDaemon:
         }
 
     def test_flag_on_a_sent_status_removes_the_file_from_before_the_flag(
-        self, status_socket, status_dir: Path, state_db: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+        self, status_socket: StatusSocket, status_dir: Path, state_db: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         record_space(state_db, "stardust-labs", "STA-9200", self.CWD)
         monkeypatch.setenv("PAPPARDELLE_REPO", "stardust-labs")
         monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
@@ -971,8 +999,13 @@ class TestStatusDaemon:
         assert sorted(file.name for file in status_dir.iterdir()) == ["stardust-labs-STA-9201.json"]
 
     def test_flag_on_with_nothing_listening_the_event_is_dropped_and_the_file_stays(
-        self, status_socket, status_dir: Path, tmp_path: Path, state_db: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+        self,
+        status_socket: StatusSocket,
+        status_dir: Path,
+        tmp_path: Path,
+        state_db: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         record_space(state_db, "stardust-labs", "STA-9200", self.CWD)
         monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
         update_status("processing", cwd=self.CWD)
@@ -1001,7 +1034,7 @@ class TestStatusDaemon:
 
     def test_flag_on_with_nothing_listening_and_no_file_nothing_is_written(
         self, flag_on: None, status_dir: Path, short_tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    ) -> None:
         monkeypatch.setenv("PAPPARDELLE_STATUS_SOCKET", str(short_tmp_path / "status-1.sock"))
 
         update_status("processing", cwd=self.CWD)
@@ -1011,7 +1044,7 @@ class TestStatusDaemon:
 
     def test_the_socket_is_beside_a_database_that_was_moved(
         self, short_tmp_path: Path, status_dir: Path, migrated_db: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    ) -> None:
         beside_the_database = StatusSocket(short_tmp_path / "status-1.sock")
         moved = short_tmp_path / "state.db"
         shutil.copy(migrated_db, moved)
@@ -1028,15 +1061,15 @@ class TestStatusDaemon:
             beside_the_database.close()
 
     def test_flag_off_writes_the_file_and_sends_nothing(
-        self, status_socket, status_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+        self, status_socket: StatusSocket, status_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
         update_status("processing", cwd=self.CWD)
 
         assert json.loads((status_dir / "STA-9200.json").read_text())["status"] == "processing"
         assert status_socket.messages() == []
 
-    def test_flag_off_loads_neither_sqlite_nor_socket(self, status_dir: Path):
+    def test_flag_off_loads_neither_sqlite_nor_socket(self, status_dir: Path) -> None:
         """The hook runs on every agent event. With the flag off it must cost
         what it did before the database and the daemon existed."""
         result = _run_hook(
