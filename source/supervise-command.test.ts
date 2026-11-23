@@ -58,12 +58,12 @@ const policy: ApprovalPolicy = {
 function harness(
 	t: ExecutionContext,
 	screens: string[],
-	{ignoresKeys = false} = {},
+	{ignoresKeys = false, caller = 'main'} = {},
 ) {
 	const {schedules, holds} = testState(t).daos;
 	const pressed: string[][] = [];
 	const classified: string[] = [];
-	const sent: Array<{text: string; force: boolean}> = [];
+	const sent: Array<{text: string}> = [];
 	let classifierVerdicts: ClassifierVerdict[] = [];
 	let hook: ClaudeSessionState | null = null;
 	let ids = 0;
@@ -113,8 +113,8 @@ function harness(
 		async waitForStatusChange(ms) {
 			clock += ms;
 		},
-		async send(_key, text, options) {
-			sent.push({text, force: options?.force ?? false});
+		async send(_key, text) {
+			sent.push({text});
 			return sendOutcome;
 		},
 		sendKeys(_key, keys) {
@@ -136,7 +136,7 @@ function harness(
 		holds: () => holds,
 		newHoldId: () => `h${++ids}`,
 		timers: () => ({create() {}, remove() {}}),
-		caller: 'STA-9',
+		caller,
 		readStdin: () => undefined,
 		out: text => out.push(text),
 		err: text => err.push(text),
@@ -204,7 +204,6 @@ test('a hard stop is held: declined, the agent told to carry on, and the hold st
 	t.deepEqual(h.pressed, [['3']]);
 	t.deepEqual(h.classified, []);
 	t.is(h.sent.length, 1);
-	t.true(h.sent[0]!.force);
 	t.regex(h.sent[0]!.text, /^Held for the chef \(h1\): doctl deploys/);
 	t.regex(h.out[0]!, /^Held h1: doctl deploys/);
 	t.like(h.holds.load('h1'), {
@@ -234,12 +233,19 @@ test('an agent retrying a held prompt reuses its open hold', async t => {
 	);
 });
 
-test('a hold is stored even when its message meets another prompt', async t => {
-	const h = harness(t, [permission('doctl account get')]);
-	h.sendGets('prompt');
-	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
-	t.is(h.holds.list().length, 1);
-	t.regex(h.out[0]!, /didn't reach STA-1 \(prompt\)\. Send it with space_send/);
+test('a hold is stored when its message meets another prompt or a draft', async t => {
+	for (const blocker of ['prompt', 'draft'] as const) {
+		const h = harness(t, [permission('doctl account get')]);
+		h.sendGets(blocker);
+		t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
+		t.is(h.holds.list().length, 1);
+		t.regex(
+			h.out[0]!,
+			new RegExp(
+				`didn't reach STA-1 \\(${blocker}\\)\\. Send it with space_send`,
+			),
+		);
+	}
 });
 
 test('a no from the model check holds the prompt', async t => {
@@ -280,6 +286,19 @@ test('an approved hold lets the same prompt through once, used only after the pr
 	t.is(h.holds.load('h2')?.state, 'open');
 });
 
+test('an approved hold never lets a Codex edit through, since its patch is not on record', async t => {
+	const capture = fixture('codex-permission-patch').replace(
+		/\/tmp\/claude-1000\/[^\s]*\/capture\/repo\/greet/,
+		'/home/u/elsewhere/greet',
+	);
+	const h = harness(t, [capture]);
+	await h.run('answer', 'STA-1', '--option', '1');
+	t.is(await h.run('holds', 'approve', 'h1'), 0);
+	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
+	t.deepEqual(h.pressed.at(-1), ['Escape']);
+	t.is(h.holds.load('h1')?.state, 'approved');
+});
+
 test('an approved hold is not used up by a press the agent did not take', async t => {
 	const h = harness(t, [permission('doctl account get')], {ignoresKeys: true});
 	const hold: Hold = {
@@ -299,11 +318,27 @@ test('an approved hold is not used up by a press the agent did not take', async 
 	t.is(h.holds.load('h9')?.state, 'approved');
 });
 
-test('a space cannot approve its own hold', async t => {
+test('a space answers no prompts and resolves no holds', async t => {
 	const h = harness(t, [permission('doctl account get')]);
 	await h.run('answer', 'STA-1', '--option', '1');
-	// The harness runs as STA-9.
-	await h.holds.save({...h.holds.load('h1')!, id: 'h5', key: 'STA-9'});
+	const space = harness(t, [permission('rm -rf node_modules')], {
+		caller: 'STA-9',
+	});
+	t.is(
+		await space.run('answer', 'STA-1', '--option', '1'),
+		POLICY_REFUSED_EXIT,
+	);
+	t.deepEqual(space.pressed, []);
+	await space.holds.save(h.holds.load('h1')!);
+	t.is(await space.run('holds', 'approve', 'h1'), POLICY_REFUSED_EXIT);
+	t.is(await space.run('holds', 'dismiss', 'h1'), POLICY_REFUSED_EXIT);
+	t.is(space.holds.load('h1')?.state, 'open');
+});
+
+test('the sous-chef cannot approve a hold from its own space', async t => {
+	const h = harness(t, [permission('doctl account get')]);
+	await h.run('answer', 'STA-1', '--option', '1');
+	await h.holds.save({...h.holds.load('h1')!, id: 'h5', key: 'main'});
 	t.is(await h.run('holds', 'approve', 'h5'), POLICY_REFUSED_EXIT);
 	t.is(h.holds.load('h5')?.state, 'open');
 	t.is(await h.run('holds', 'dismiss', 'h5'), 0);

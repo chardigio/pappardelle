@@ -417,8 +417,9 @@ tmuxTest(
 		fs.mkdirSync(bin);
 		fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\ncat > ${asked}\necho '{"structured_output":{"approve":true,"reason":"local cleanup"}}'\n`, {mode: 0o755}); // prettier-ignore
 		await delay(500);
+		// The sous-chef, which answers for the spaces.
 		const client = await connect(t, f, {
-			PAPPARDELLE_SPACE: 'STE-9',
+			PAPPARDELLE_SPACE: 'main',
 			PATH: `${bin}:${f.env['PATH'] ?? ''}`,
 		});
 		const call = async (name: string, args: Record<string, unknown>) =>
@@ -488,18 +489,18 @@ tmuxTest(
 			.split('\n')
 			.map(line => JSON.parse(line) as Record<string, string>);
 		t.like(log[0], {
-			caller: 'STE-9',
+			caller: 'main',
 			key: 'STE-2',
 			verdict: 'allowed: local cleanup',
 		});
 		t.like(log[1], {
-			caller: 'STE-9',
+			caller: 'main',
 			action: 'send',
 			key: 'STE-3',
 			detail: 'prompt',
 		});
 		t.like(log[2], {
-			caller: 'STE-9',
+			caller: 'main',
 			action: 'hold',
 			key: 'STE-3',
 			command: 'git push origin main',

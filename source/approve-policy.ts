@@ -274,6 +274,20 @@ function hardStop(args: string[]): string | null {
 
 const GIT_OPTION_WITH_VALUE = new Set(['-C', '-c']);
 
+/** The words from git's subcommand on, past git's own options. */
+function gitSubcommand(args: string[]): string[] {
+	let index = 1;
+	while (args[index]?.startsWith('-'))
+		index += GIT_OPTION_WITH_VALUE.has(args[index]!) ? 2 : 1;
+	return args.slice(index);
+}
+
+// Every space shares the repository's stash and worktree list.
+const SHARED_GIT: Record<string, ReadonlySet<string>> = {
+	stash: new Set(['clear', 'drop', 'pop']),
+	worktree: new Set(['remove', 'prune']),
+};
+
 /** Why a git push needs the chef, or null when it reaches only the space's own branches. */
 function pushToMain(
 	args: string[],
@@ -1033,6 +1047,10 @@ export function checkApproval(
 		};
 		const pushed = pushToMain(args, policy, scope.cwd);
 		if (pushed) return hold(pushed);
+		const [sub = '', action = ''] =
+			program === 'git' ? gitSubcommand(args) : [];
+		if (SHARED_GIT[sub]?.has(action))
+			return hold(`git ${sub} ${action} reaches state every space shares`);
 		const written = writesAgentConfig(raw, program, scope.cwd, policy);
 		if (written) return hold(written);
 		const deletes =

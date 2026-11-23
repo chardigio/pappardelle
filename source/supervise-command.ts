@@ -62,6 +62,7 @@ import {
 	type SuperviseCommand,
 } from './supervise-args.ts';
 import {recordSupervision, type SuperviseEntry} from './supervise-log.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
 export {POLICY_REFUSED_EXIT} from './answer-decision.ts';
@@ -82,11 +83,7 @@ export type SuperviseDeps = {
 	sleep: (ms: number) => Promise<void>;
 	/** Resolves early when a status file changes, else after `ms`. */
 	waitForStatusChange: (ms: number) => Promise<void>;
-	send: (
-		key: string,
-		text: string,
-		options?: {force?: boolean},
-	) => Promise<SendOutcome>;
+	send: (key: string, text: string) => Promise<SendOutcome>;
 	sendKeys: (key: string, keys: string[]) => 'sent' | 'no-session' | 'failed';
 	/** Types text as it is, where sendKeys would read `Enter` as the key. */
 	typeText: (key: string, text: string) => 'sent' | 'no-session' | 'failed';
@@ -315,6 +312,18 @@ function describeChanges(
 	return reports.map(report =>
 		describeChange(report, stateOf(baseline[report.key] ?? '')),
 	);
+}
+
+/**
+ * Why the caller may not answer prompts or resolve holds: only the chef and
+ * the sous-chef in the main checkout do, or one space could approve its way
+ * past another's hold.
+ */
+function refusedCaller(deps: SuperviseDeps): string | null {
+	const own = ownSpace(deps);
+	return own && own !== MAIN_WORKTREE_KEY
+		? `${own} is a space; only the chef or the sous-chef answers prompts and resolves holds`
+		: null;
 }
 
 /** The caller's own space, which watching every space leaves out. */
@@ -725,9 +734,9 @@ async function holdPrompt(
 		resolvedAt: null,
 	};
 	const message = holdMessage(hold.id, reason);
-	// Nobody can type while a prompt has the keyboard, so a draft left in the
-	// input box is the agent's own and is sent over.
-	const sent = await deps.send(key, message, {force: true});
+	// A draft in the input box can be the user's typing, so it is left for
+	// the sous-chef to send the message over once the space is free.
+	const sent = await deps.send(key, message);
 	await store.save(hold);
 	log({
 		action: 'hold',
@@ -999,6 +1008,12 @@ async function execute(
 		}
 
 		case 'answer': {
+			const refused = refusedCaller(deps);
+			if (refused) {
+				deps.err(refused);
+				return POLICY_REFUSED_EXIT;
+			}
+
 			const key = deps.resolveKey(command.key);
 			const before = await readState(key, deps);
 			const {question} = before;
@@ -1284,6 +1299,12 @@ async function execute(
 			if (hold.state !== 'open') {
 				deps.err(`Hold ${hold.id} is already ${hold.state}`);
 				return 1;
+			}
+
+			const refused = refusedCaller(deps);
+			if (refused) {
+				deps.err(refused);
+				return POLICY_REFUSED_EXIT;
 			}
 
 			if (command.resolution === 'approve' && ownSpace(deps) === hold.key) {

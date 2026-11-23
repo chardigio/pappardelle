@@ -333,9 +333,12 @@ export function decideAnswer(
 		entry: {...entry, verdict: `allowed: ${reason}`},
 	});
 
-	const approved = permission.cutOff
-		? null
-		: holdFor(holds, prompt, 'approved');
+	// A Codex edit shows only its paths, so a different patch to the same files
+	// would match an approval of the first.
+	const approved =
+		permission.cutOff || permission.files
+			? null
+			: holdFor(holds, prompt, 'approved');
 	if (approved) {
 		return {...allowed(`the chef approved ${approved.id}`), hold: approved};
 	}

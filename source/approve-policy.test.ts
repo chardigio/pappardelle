@@ -290,6 +290,9 @@ test('evasions of the delete, hard-stop and push rules hold', t => {
 		"sh -c 'rm -rf /home/u/x'",
 		"zsh -lc 'npm publish'",
 		'git push --repo=origin HEAD:trunk',
+		'git stash clear',
+		'git -C sub stash pop',
+		'git worktree remove ../other',
 		'find h/. -delete',
 		'find -L dist -delete',
 		'find -P /home/x -delete',
@@ -431,6 +434,8 @@ test('the fixes for those evasions leave everyday commands alone', t => {
 	for (const command of [
 		'rm -f .git/index.lock',
 		'ls .env*',
+		'git stash push -m wip',
+		'git worktree list',
 		"bash -c 'rm -rf dist'",
 		'rm -f .git/refs/heads/x.lock',
 		'rm -f .git/worktrees/x/index.lock',

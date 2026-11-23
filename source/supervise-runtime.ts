@@ -207,8 +207,8 @@ export function defaultSuperviseDeps(
 				programStatus.waitForChange(ms),
 			]);
 		},
-		async send(key, text, options) {
-			return sendToSpaceAgent(key, text, {force: options?.force});
+		async send(key, text) {
+			return sendToSpaceAgent(key, text);
 		},
 		sendKeys(key, keys) {
 			const result = sendKeysToSpaceAgent(key, keys, {

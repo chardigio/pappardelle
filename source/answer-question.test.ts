@@ -152,7 +152,7 @@ function harness(dialog: Dialog) {
 		}),
 		newHoldId: () => 'h1',
 		timers: () => ({create() {}, remove() {}}),
-		caller: 'STA-9',
+		caller: 'main',
 		readStdin: () => undefined,
 		out: text => out.push(text),
 		err: text => err.push(text),
