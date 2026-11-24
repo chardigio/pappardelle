@@ -19,6 +19,7 @@ import {
 	type FrameColors,
 	followTerminalColors,
 	paletteSequences,
+	rendererColorSource,
 } from './pane-frame-palette.ts';
 import {
 	CLIENT_TTY_OPTION,
@@ -225,7 +226,9 @@ graphics.probe();
 // (pappardelle-mocn), so every palette the frame applies is logged.
 const log = createLogger('pane-frame');
 const startedAt = performance.now();
-const PALETTE_TIMEOUT_MS = 500;
+// Longer than tmux holds replies behind a palette query the client ignores,
+// so a query ends on its own status reply rather than leaving it to the next.
+const PALETTE_TIMEOUT_MS = 1000;
 
 function describeColors(colors: FrameColors): string {
 	const reported = colors.palette.filter(Boolean).length;
@@ -245,21 +248,9 @@ function paneLabel(): string {
 // Loaded before the child starts so its first output is already in the
 // user's colors, and again whenever the terminal switches theme.
 await followTerminalColors(
-	{
-		write(sequence) {
-			process.stdout.write(sequence);
-		},
-		subscribeOsc: handler => renderer.subscribeOsc(handler),
-		prependInputHandler(handler) {
-			renderer.prependInputHandler(handler);
-		},
-		removeInputHandler(handler) {
-			renderer.removeInputHandler(handler);
-		},
-		on(event, listener) {
-			renderer.on(event, listener);
-		},
-	},
+	rendererColorSource(renderer, sequence => {
+		process.stdout.write(sequence);
+	}),
 	({colors, ms, timedOut}, reason) => {
 		const environment =
 			reason === 'start'
