@@ -366,16 +366,34 @@ function pushToMain(
  * The command with heredoc bodies left out: they are text fed to a program,
  * such as a commit message, and the words in them never run.
  */
-function withoutHeredocs(command: string): {text: string; unended: boolean} {
+/**
+ * The command without its heredoc bodies, and the same with each body's end
+ * line kept, so a heredoc inside $(…) still reads as ended. Unended: lines
+ * follow a heredoc that never ends, which would hide them.
+ */
+function withoutHeredocs(command: string): {
+	text: string;
+	ended: string;
+	unended: boolean;
+} {
 	const kept: string[] = [];
+	const ended: string[] = [];
 	const pending: string[] = [];
+	let swallowed = false;
 	for (const line of command.split('\n')) {
 		if (pending.length > 0) {
-			if (line.trim() === pending[0]) pending.shift();
+			if (line.trim() === pending[0]) {
+				pending.shift();
+				ended.push(line);
+			} else {
+				swallowed = true;
+			}
+
 			continue;
 		}
 
 		kept.push(line);
+		ended.push(line);
 		// Not a here-string (<<<), and not a shift inside $(( )).
 		for (const match of line.matchAll(
 			/(?<!<)<<(?!<)-?\s*(['"]?)([A-Za-z_][\w.-]*)\1/g,
@@ -385,7 +403,22 @@ function withoutHeredocs(command: string): {text: string; unended: boolean} {
 		}
 	}
 
-	return {text: kept.join('\n'), unended: pending.length > 0};
+	return {
+		text: kept.join('\n'),
+		ended: ended.join('\n'),
+		unended: pending.length > 0 && swallowed,
+	};
+}
+
+/** The index just past the quote that closes the one at `start`. */
+function pastQuote(command: string, start: number): number {
+	const quote = command[start]!;
+	let index = start + 1;
+	for (; index < command.length && command[index] !== quote; index++) {
+		if (quote === '"' && command[index] === '\\') index++;
+	}
+
+	return index + 1;
 }
 
 /**
@@ -420,9 +453,33 @@ function quotedSubstitutions(command: string): string[] {
 		) {
 			let depth = 1;
 			let end = index + 2;
-			for (; end < command.length && depth > 0; end++) {
-				if (command[end] === '(') depth++;
-				else if (command[end] === ')') depth--;
+			while (end < command.length && depth > 0) {
+				const inner = command[end]!;
+				if (inner === "'" || inner === '"') {
+					end = pastQuote(command, end);
+					continue;
+				}
+
+				switch (inner) {
+					case '\\': {
+						end++;
+						break;
+					}
+
+					case '(': {
+						depth++;
+						break;
+					}
+
+					case ')': {
+						depth--;
+						break;
+					}
+
+					default:
+				}
+
+				end++;
 			}
 
 			found.push(command.slice(index + 2, depth === 0 ? end - 1 : end));
@@ -961,9 +1018,10 @@ function writesAgentConfig(
 		const spelled = bare(word);
 		const target = spelled.replace(/^(?:\$\{?\w+\}?\/+)+/, '');
 		if (!target) continue;
-		if (/[$`]/.test(target)) continue;
-		if (target !== spelled) {
-			if (isAgentConfig(target))
+		if (target !== spelled || /[$`]/.test(target)) {
+			// "$(pwd)"/.claude/x and "${PWD%/}"/.claude/x: what follows the last
+			// expansion is the path inside the directory it names.
+			if (isAgentConfig(target.replace(/^.*[)}`]\/+/, '')))
 				return `it writes ${spelled}, agent configuration`;
 			continue;
 		}
@@ -1009,11 +1067,15 @@ export function checkApproval(
 	// An empty box or a layout the screen parser doesn't know reads as no
 	// command, and the model check has nothing to judge either.
 	if (command.trim() === '') return hold('no command to read');
-	const {text, unended} = withoutHeredocs(command);
+	const {text, ended, unended} = withoutHeredocs(command);
 	if (unended)
 		return hold('a heredoc that never ends hides the lines after it');
-	for (const inner of quotedSubstitutions(command)) {
-		const verdict = checkApproval(inner, policy, {startDir});
+	for (const inner of quotedSubstitutions(ended)) {
+		if (inner.trim() === '') continue;
+		const verdict = checkApproval(inner, policy, {
+			// Where a cd has taken the shell by then isn't followed here.
+			startDir: CHANGES_DIRECTORY.test(text) ? null : startDir,
+		});
 		if (verdict.kind === 'hold') return verdict;
 	}
 
@@ -1106,13 +1168,29 @@ export function checkApproval(
 			? args.findIndex((word, index) => index > 0 && /^-\w*c\w*$/.test(word))
 			: -1;
 		if (script !== -1) {
-			const inner = checkApproval(
-				args.slice(script + 1).find(word => !word.startsWith('-')) ?? '',
-				policy,
-				{startDir: cwd},
-			);
+			let body: string | undefined;
+			for (let at = script + 1; at < args.length && body === undefined; at++) {
+				const word = args[at]!;
+				// -o pipefail and +O extglob take a value.
+				if (/^[-+][oO]$/.test(word)) at++;
+				else if (!/^[-+]/.test(word)) body = word;
+			}
+
+			// bash -c "$(curl …)" runs whatever the download says.
+			if (body === undefined || /\$\(|`|<\(/.test(body))
+				return hold(`${program} -c runs a script made by another command`);
+			const inner = checkApproval(body, policy, {startDir: cwd});
 			if (inner.kind === 'hold') return inner;
 		}
+
+		if (
+			['eval', 'source', '.'].includes(program) &&
+			(/\$\(|`/.test(segment) ||
+				next === '$(' ||
+				next === '`' ||
+				(next === '(' && /<\s*$/.test(segment)))
+		)
+			return hold(`${program} runs a script made by another command`);
 		// env -S'cmd' and --split-string=cmd run a command written as one word.
 		const split = words
 			.map(word => /^(?:-S|--split-string=)(.+)$/.exec(bare(word))?.[1])

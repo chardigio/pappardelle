@@ -388,7 +388,10 @@ export function decideAnswer(
 		// Codex wraps a long command onto more lines with no mark, so its
 		// lines are also read as one.
 		const wrapped =
-			permission.choose === 'shortcut' && permission.command.includes('\n')
+			// A heredoc's end must stay on a line of its own.
+			permission.choose === 'shortcut' &&
+			permission.command.includes('\n') &&
+			!permission.command.includes('<<')
 				? checkApproval(permission.command.replaceAll('\n', ' '), policy, {
 						startDir: null,
 					})
