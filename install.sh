@@ -434,8 +434,6 @@ fi
 # ============================================================================
 
 # Link pappardelle and idow to ~/.local/bin/
-mkdir -p "$LOCAL_BIN"
-
 install_shim || exit 1
 print_status "Linked 'pappardelle' command globally"
 

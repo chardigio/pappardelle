@@ -93,7 +93,7 @@ try {
 	daos = createStateDaos({
 		repo,
 		stateDir,
-		sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+		sqlite: harness.sqlite,
 	});
 	initTmuxState(daos);
 	const tracker = createIssueTracker({provider: 'beads'});

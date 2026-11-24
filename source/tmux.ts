@@ -1419,8 +1419,11 @@ async function setInnerDefaultSize(
 				`${cols - PANE_FRAME_SIZE}x${rows - PANE_FRAME_SIZE}`,
 			]),
 		);
-	} catch {
-		log.debug('Could not set the default size on the inner socket');
+	} catch (error) {
+		log.warn(
+			'Could not set the default size on the inner socket',
+			error instanceof Error ? error : undefined,
+		);
 	}
 }
 
