@@ -4,7 +4,7 @@ import {selfLaunchArgs} from './runtime.ts';
 import {formatConfigErrors, getMainRepoRoot} from './config.ts';
 import {confirm} from './confirm.ts';
 import {
-	closedWithoutDeinit,
+	deinitSkipped,
 	runCloseHooks,
 	type CloseHooksOutcome,
 	type ClosingSpace,
@@ -103,9 +103,7 @@ export async function runCloseCommand(
 		}
 
 		case 'config-invalid': {
-			deps.print(
-				`${closedWithoutDeinit(key)}\n${formatConfigErrors(deinit.errors)}`,
-			);
+			deps.print(`${deinitSkipped(key)}\n${formatConfigErrors(deinit.errors)}`);
 			break;
 		}
 	}

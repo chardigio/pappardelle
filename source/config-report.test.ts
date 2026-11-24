@@ -74,12 +74,12 @@ test.serial(
 		readReportedConfig(paths);
 		reportWhileInvalid('Sessions of A-1 not started: the config is invalid');
 		reportConfigEvent(
-			'Closed A-2 without its deinit commands: the config is invalid',
+			'Skipped the deinit commands of A-2: the config is invalid',
 		);
 		write('version: 1\nprofiles: {}\n');
 		readReportedConfig(paths);
 		t.deepEqual(messages(), [
-			'Closed A-2 without its deinit commands: the config is invalid',
+			'Skipped the deinit commands of A-2: the config is invalid',
 		]);
 	},
 );
@@ -100,3 +100,14 @@ test.serial(
 		]);
 	},
 );
+
+test.serial('deleting the broken file does not say it loads', t => {
+	clearRecentErrors();
+	const {paths, write} = project(t);
+	write(BROKEN);
+	readReportedConfig(paths);
+	reportStartedWithInvalidConfig();
+	fs.rmSync(path.join(paths.projectDir, '.pappardelle.yml'));
+	readReportedConfig(paths);
+	t.false(messages().some(message => message.includes('loads now')));
+});

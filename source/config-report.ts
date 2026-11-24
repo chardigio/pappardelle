@@ -53,7 +53,7 @@ export function readReportedConfig(paths?: ConfigPaths): ConfigLoad {
 		linesWhileInvalid.clear();
 	}
 
-	if (restartNeeded) {
+	if (restartNeeded && load.kind === 'valid') {
 		restartNeeded = false;
 		dismiss(new Set([OFF_UNTIL_RESTART]));
 		raise(RESTART_AFTER_FIX);

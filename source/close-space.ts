@@ -92,8 +92,8 @@ export type CloseHooksOutcome =
 	| {kind: 'failed'; failedCommand?: string}
 	| {kind: 'config-invalid'; errors: string[]};
 
-export function closedWithoutDeinit(key: string): string {
-	return `Closed ${key} without its deinit commands: the config is invalid`;
+export function deinitSkipped(key: string): string {
+	return `Skipped the deinit commands of ${key}: the config is invalid`;
 }
 
 /**

@@ -165,11 +165,7 @@ import {
 	planConfigMigrations,
 	type ConfigMigration,
 } from './config-migration.ts';
-import {
-	closedWithoutDeinit,
-	runCloseHooks,
-	shouldAttach,
-} from './close-space.ts';
+import {deinitSkipped, runCloseHooks, shouldAttach} from './close-space.ts';
 import {
 	readReportedConfig,
 	reportConfigEvent,
@@ -2223,7 +2219,7 @@ export default function App({
 			}
 
 			if (deinit.kind === 'config-invalid')
-				reportConfigEvent(closedWithoutDeinit(space.name));
+				reportConfigEvent(deinitSkipped(space.name));
 
 			// Prevent reattachment until the deleted space has left the list.
 			closingSpacesRef.current.add(space.name);

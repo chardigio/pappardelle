@@ -166,7 +166,7 @@ test('an invalid config closes the space and says the deinit commands were skipp
 	t.true(events.includes('unregister STA-1'));
 	t.true(
 		events.includes(
-			'print Closed STA-1 without its deinit commands: the config is invalid\nInvalid .pappardelle.yml configuration:\n  - agent_profiles.opus.model: must be a string',
+			'print Skipped the deinit commands of STA-1: the config is invalid\nInvalid .pappardelle.yml configuration:\n  - agent_profiles.opus.model: must be a string',
 		),
 	);
 });
