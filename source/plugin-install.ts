@@ -5,8 +5,8 @@ import path from 'node:path';
 
 // Claude Code and agy load the plugin in place from the install this runs
 // from, so a new install is live after /reload-plugins (Claude Code) or in new
-// agy sessions. install.sh runs this from a snapshot of the checkout it was
-// run from, never from the checkout itself, so edits there stay out of
+// agy sessions. install.sh runs it from the release clone, or for a local
+// clone from the snapshot it copies, so edits in that clone stay out of
 // running sessions until the next install. Claude Code serves a GitHub marketplace from a cache that only
 // refreshes on a version bump; `marketplace add` under the same name repoints
 // it. Codex copies even a local plugin into its cache, and `plugin add`

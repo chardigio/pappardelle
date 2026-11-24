@@ -103,9 +103,8 @@ export function resolveInstalledVersion(projectDir: string): string | null {
 	);
 }
 
-// The sha of the last commit touching the pappardelle source, for the help
-// overlay. A snapshot install has no git history, so install.sh stamps the sha of the
-// checkout it copied into commit-sha.
+// A snapshot has no git history, so install.sh stamps the sha of the clone it
+// copied into commit-sha.
 export function readCommitSha(projectDir: string): string | undefined {
 	try {
 		return readFileSync(path.join(projectDir, 'commit-sha'), 'utf8').trim();

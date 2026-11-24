@@ -82,6 +82,6 @@ Every send, answer, schedule and reported watch change is logged in `~/.papparde
 1. Always pass a flag to `update`. There is no terminal here, so without one it never restarts TUIs
 2. A nonzero exit after a successful install means a TUI isn't confirmed on the new build. Relay the line naming the TUI and the reason
 3. Use `pappardelle restart` when the TUI looks frozen or stale. If it exits nonzero, relay its reason
-4. `install.sh` installs a copy of the checkout it runs from. Run it from the worktree whose build the user wants. Agents already running keep their MCP servers on the old build until their sessions restart
+4. `install.sh` installs a copy of the checkout it runs from. Run it from the worktree whose build the user wants. Processes already running (MCP servers, pane monitors, the status daemon) keep their binary until they restart; hooks and anything they start afterwards use the new build
 5. `--help` on `restart` or `update` changes nothing. Both reject unknown flags with exit 2
 6. Run `restart --hard --yes` only when the user explicitly asks to reset every session. Say first that it ends every agent session including yours, and wait for the go. Your reply won't arrive after it runs

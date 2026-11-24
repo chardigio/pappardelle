@@ -513,7 +513,7 @@ cd pappardelle
 ./install.sh
 ```
 
-`install.sh` typechecks and builds the clone, then copies the build, scripts and plugin to `~/.pappardelle/local/` and runs Pappardelle from there. Later builds in the clone don't reach running spaces until you run `install.sh` again, and you can remove a worktree you installed from. The previous install is kept at `~/.pappardelle/local.previous/`. Agents that are already running (their MCP servers, pane monitors and the status daemon) keep the build they started on until they restart.
+`install.sh` typechecks and builds the clone, then copies the build, scripts and plugin to `~/.pappardelle/local/` and runs Pappardelle from there. Later builds in the clone don't reach running spaces until you run `install.sh` again, and you can remove a worktree you installed from. The previous install is kept at `~/.pappardelle/local.previous/`. Processes that are already running (agents' MCP servers, pane monitors, the status daemon and the TUI) keep the binary they started with until they restart, but hooks, and anything those processes start after the install, use the new build.
 
 > **Compiled runtime:** release builds embed Bun, production React, and OpenTUI
 > in `dist/pappardelle`, with startup bytecode. Running the installed app requires

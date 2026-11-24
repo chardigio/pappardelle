@@ -465,6 +465,18 @@ function headSha(repo: string): string {
 	}).stdout.trim();
 }
 
+// install.sh sets REPO_DIR when sourced, so the checkout goes in after it.
+function runWithRepo(
+	call: string,
+	repo: string,
+	env: Record<string, string>,
+): ReturnType<typeof runInstallFunction> {
+	return runInstallFunction(`REPO_DIR="$TEST_REPO"; ${call}`, {
+		...env,
+		TEST_REPO: repo,
+	});
+}
+
 const installedBinary = (home: string) =>
 	fs.readFileSync(
 		path.join(home, '.pappardelle', 'local', 'dist', 'pappardelle'),
@@ -475,10 +487,7 @@ test('install_local_snapshot installs a copy, so a later build in the checkout d
 	const home = temporaryDir();
 	const repo = builtCheckout('first build');
 
-	const result = runInstallFunction(
-		`REPO_DIR=${JSON.stringify(repo)}; install_local_snapshot`,
-		{HOME: home},
-	);
+	const result = runWithRepo(`install_local_snapshot`, repo, {HOME: home});
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
 	spawnSync('bash', ['-c', buildCheckout('second build')], {cwd: repo});
 
@@ -496,7 +505,8 @@ test('install_local_snapshot installs a copy, so a later build in the checkout d
 		fs.readFileSync(path.join(local, 'commit-sha'), 'utf8').trim(),
 		headSha(repo),
 	);
-	t.true(fs.statSync(local).mode.toString(8).endsWith('755'));
+	// mktemp -d makes a 0700 directory; the install moves a child of it.
+	t.not(fs.statSync(local).mode.toString(8).slice(-3), '700');
 });
 
 test('install_local_snapshot keeps the replaced snapshot and marks a build with uncommitted changes', t => {
@@ -506,10 +516,7 @@ test('install_local_snapshot keeps the replaced snapshot and marks a build with 
 	fs.writeFileSync(path.join(second, 'package.json'), 'edited');
 
 	for (const repo of [first, second]) {
-		const result = runInstallFunction(
-			`REPO_DIR=${JSON.stringify(repo)}; install_local_snapshot`,
-			{HOME: home},
-		);
+		const result = runWithRepo(`install_local_snapshot`, repo, {HOME: home});
 		t.is(result.status, 0, `stderr: ${result.stderr}`);
 	}
 
@@ -529,37 +536,13 @@ test('install_local_snapshot keeps the replaced snapshot and marks a build with 
 	);
 });
 
-test('install_local_snapshot refuses a checkout without the native binary and keeps the current snapshot', t => {
-	const home = temporaryDir();
-	const built = builtCheckout('first build');
-	runInstallFunction(
-		`REPO_DIR=${JSON.stringify(built)}; install_local_snapshot`,
-		{HOME: home},
-	);
-	const unbuilt = builtCheckout('never installed');
-	fs.rmSync(path.join(unbuilt, 'dist'), {recursive: true});
-
-	const result = runInstallFunction(
-		`REPO_DIR=${JSON.stringify(unbuilt)}; install_local_snapshot`,
-		{HOME: home},
-	);
-
-	t.not(result.status, 0);
-	t.true(installedBinary(home).includes('first build'));
-	t.deepEqual(
-		fs
-			.readdirSync(path.join(home, '.pappardelle'))
-			.filter(name => name.startsWith('local.staging')),
-		[],
-	);
-});
-
 test('install_local_clone links the snapshot of a checkout', t => {
 	const home = temporaryDir();
 	const repo = builtCheckout();
 
-	const result = runInstallFunction(
-		`REPO_DIR=${JSON.stringify(repo)}; install_local_clone && echo "linking $REPO_DIR"`,
+	const result = runWithRepo(
+		`install_local_clone && echo "linking $INSTALL_DIR"`,
+		repo,
 		{HOME: home, PATH: toolsWithFakeBun()},
 	);
 
@@ -577,8 +560,9 @@ test('install_local_clone runs the release clone in place', t => {
 	fs.mkdirSync(path.dirname(repo), {recursive: true});
 	fs.renameSync(builtCheckout(), repo);
 
-	const result = runInstallFunction(
-		`REPO_DIR=${JSON.stringify(repo)}; install_local_clone && echo "linking $REPO_DIR"`,
+	const result = runWithRepo(
+		`install_local_clone && echo "linking $INSTALL_DIR"`,
+		repo,
 		{HOME: home, PATH: toolsWithFakeBun()},
 	);
 
@@ -595,10 +579,10 @@ test('install_local_clone stops before installing a checkout that does not typec
 	const repo = builtCheckout();
 	fs.writeFileSync(path.join(repo, 'typecheck.sh'), 'exit 2\n');
 
-	const result = runInstallFunction(
-		`REPO_DIR=${JSON.stringify(repo)}; install_local_clone`,
-		{HOME: home, PATH: toolsWithFakeBun()},
-	);
+	const result = runWithRepo(`install_local_clone`, repo, {
+		HOME: home,
+		PATH: toolsWithFakeBun(),
+	});
 
 	t.not(result.status, 0);
 	t.false(fs.existsSync(path.join(home, '.pappardelle', 'local')));
@@ -713,8 +697,8 @@ test('install_skill_scripts replaces the installed scripts with the checkout one
 	}
 
 	const result = runInstallFunction(
-		`REPO_DIR=${JSON.stringify(repo)}; install_skill_scripts`,
-		{HOME: home, PATH: process.env['PATH'] ?? ''},
+		'INSTALL_DIR="$TEST_REPO"; install_skill_scripts',
+		{HOME: home, PATH: process.env['PATH'] ?? '', TEST_REPO: repo},
 	);
 
 	t.is(result.status, 0, `stderr: ${result.stderr}`);

@@ -137,7 +137,7 @@ assert_eq "idow links into the snapshot" "$SNAPSHOT/scripts/idow" \
 assert_eq "snapshot holds the native binary" "yes" \
     "$([[ -x "$SNAPSHOT/dist/pappardelle" ]] && echo yes || echo no)"
 assert_eq "install links nothing to this checkout" "" \
-    "$(grep -rlF "$REPO_DIR" "$SANDBOX_HOME/.local/bin" || true)"
+    "$(grep -rlF "$REPO_DIR" "$SANDBOX_HOME" --exclude-dir=logs --exclude=commit-sha 2>/dev/null || true)"
 
 echo ""
 echo -e "${BOLD}Runtime: stale Bun 1.3 bun first on PATH (the issue's repro)${RESET}"

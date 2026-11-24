@@ -18,8 +18,8 @@
 # 4. Links `pappardelle` and `idow` in ~/.local/bin/ to the installed build
 # 5. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
 # 6. Installs skill helper scripts to ~/.pappardelle/scripts/
-# 7. Installs the Pappardelle plugin (skills and hooks) from this checkout
-#    into Claude Code, Codex and agy (`pappardelle plugin install`), and adds
+# 7. Installs the Pappardelle plugin (skills and hooks) from the installed
+#    build into Claude Code, Codex and agy (`pappardelle plugin install`), and adds
 #    the MCP server to the agents that don't get it from the plugin
 #    (`pappardelle mcp install`)
 
@@ -140,7 +140,11 @@ install_private_bun() {
 # `bun build` doesn't typecheck, so without the typecheck a tree that doesn't
 # compile still produces a dist/ that fails at runtime.
 build_checkout() {
-    (cd "$1" && bun install --frozen-lockfile --silent && bun run typecheck && bun run build)
+    print_info "Installing dependencies, typechecking and building..."
+    if ! (cd "$1" && bun install --frozen-lockfile --silent && bun run typecheck && bun run build); then
+        print_error "bun install, typecheck or build failed; your current install is unchanged"
+        return 1
+    fi
 }
 
 # Moves $1 to $2, keeping what was at $2 as $2.previous for a rollback.
@@ -150,9 +154,10 @@ swap_into_place() {
     local new="$1" dest="$2"
     rm -rf "$dest.previous"
     if [[ -e "$dest" ]]; then
-        mv "$dest" "$dest.previous"
+        mv "$dest" "$dest.previous" && mv "$new" "$dest"
+    else
+        mv "$new" "$dest"
     fi
-    mv "$new" "$dest"
 }
 
 # Clones and builds into a staging folder next to $REPO_DIR, and moves it into
@@ -171,13 +176,14 @@ install_repo_atomically() {
         rm -rf "$stage"; return 1
     fi
 
-    print_info "Installing dependencies, typechecking and building..."
     if ! build_checkout "$stage/repo"; then
-        print_error "bun install, typecheck or build failed; your current install is unchanged"
         rm -rf "$stage"; return 1
     fi
 
-    swap_into_place "$stage/repo" "$REPO_DIR"
+    if ! swap_into_place "$stage/repo" "$REPO_DIR"; then
+        print_error "Could not move the new build into $REPO_DIR"
+        rm -rf "$stage"; return 1
+    fi
     rm -rf "$stage"
     print_status "Built successfully and installed to $REPO_DIR"
 }
@@ -199,10 +205,6 @@ local_clone_dir() {
 # binary embeds Bun and the dependencies, so node_modules stays behind.
 install_local_snapshot() {
     local stage sha
-    if [[ ! -x "$REPO_DIR/dist/pappardelle" ]]; then
-        print_error "$REPO_DIR/dist/pappardelle is missing; your current install is unchanged"
-        return 1
-    fi
     mkdir -p "$PAPPARDELLE_DIR"
     stage="$(mktemp -d "$PAPPARDELLE_DIR/local.staging.XXXXXX")"
     mkdir "$stage/local"
@@ -210,32 +212,35 @@ install_local_snapshot() {
         print_error "Could not copy the build from $REPO_DIR; your current install is unchanged"
         rm -rf "$stage"; return 1
     fi
+    find "$stage/local" -name __pycache__ -type d -prune -exec rm -rf {} +
     if sha="$(git -C "$REPO_DIR" log -1 --format=%h -- .)" && [[ -n "$sha" ]]; then
         if [[ -n "$(git -C "$REPO_DIR" status --porcelain -- .)" ]]; then
             sha="$sha-dirty"
         fi
         printf '%s\n' "$sha" > "$stage/local/commit-sha"
     fi
-    swap_into_place "$stage/local" "$LOCAL_INSTALL_DIR"
+    if ! swap_into_place "$stage/local" "$LOCAL_INSTALL_DIR"; then
+        print_error "Could not move the new build into $LOCAL_INSTALL_DIR"
+        rm -rf "$stage"; return 1
+    fi
     rm -rf "$stage"
     print_status "Installed $REPO_DIR${sha:+ ($sha)} to $LOCAL_INSTALL_DIR"
 }
 
-# Builds the local clone at $REPO_DIR and points REPO_DIR at what the rest of
+# Builds the local clone at $REPO_DIR and sets INSTALL_DIR to what the rest of
 # the installer links: the snapshot, or the release clone itself, which runs in
 # place so its tag keeps driving the version and the update check.
 install_local_clone() {
     print_status "Running from local clone: $REPO_DIR"
-    print_info "Installing dependencies, typechecking and building..."
     if ! build_checkout "$REPO_DIR"; then
-        print_error "bun install, typecheck or build failed; your current install is unchanged"
         print_info "Try manually: cd $REPO_DIR && bun install --frozen-lockfile && bun run typecheck && bun run build"
         return 1
     fi
     print_status "Built successfully"
+    INSTALL_DIR="$REPO_DIR"
     if [[ ! "$REPO_DIR" -ef "$PAPPARDELLE_DIR/repo" ]]; then
         install_local_snapshot || return 1
-        REPO_DIR="$LOCAL_INSTALL_DIR"
+        INSTALL_DIR="$LOCAL_INSTALL_DIR"
     fi
 }
 
@@ -246,7 +251,7 @@ install_local_clone() {
 install_skill_scripts() {
     local dest="$PAPPARDELLE_DIR/scripts" src skill script
     rm -rf "$dest"
-    for src in "$REPO_DIR"/plugins/pappardelle/skills/*/scripts; do
+    for src in "$INSTALL_DIR"/plugins/pappardelle/skills/*/scripts; do
         [[ -d "$src" ]] || continue
         skill="$(basename "$(dirname "$src")")"
         mkdir -p "$dest/$skill"
@@ -404,6 +409,7 @@ else
     # Always a fresh clone to avoid divergent history issues, built off to the
     # side so a failure keeps the current install working.
     install_repo_atomically || exit 1
+    INSTALL_DIR="$REPO_DIR"
 fi
 
 # ============================================================================
@@ -417,12 +423,12 @@ mkdir -p "$LOCAL_BIN"
 # Rendered from a template so the shim's behavior is unit-tested
 # (install-shim.test.ts); the Bun binary is pinned to the one preflight
 # verified rather than PATH-resolved at runtime (STA-1682).
-SHIM_TEMPLATE="$REPO_DIR/scripts/pappardelle-shim-template.sh"
+SHIM_TEMPLATE="$INSTALL_DIR/scripts/pappardelle-shim-template.sh"
 if [[ ! -f "$SHIM_TEMPLATE" ]]; then
     print_error "Shim template not found at $SHIM_TEMPLATE"
     exit 1
 fi
-CLI_JS="$REPO_DIR/dist/cli.js"
+CLI_JS="$INSTALL_DIR/dist/cli.js"
 SHIM_CONTENT="$(<"$SHIM_TEMPLATE")"
 SHIM_CONTENT="${SHIM_CONTENT//__BUN_BIN__/$BUN_BIN}"
 SHIM_CONTENT="${SHIM_CONTENT//__CLI_JS__/$CLI_JS}"
@@ -432,7 +438,7 @@ chmod +x "$LOCAL_BIN/pappardelle"
 print_status "Linked 'pappardelle' command globally (Bun pinned to $BUN_BIN)"
 
 # idow
-IDOW_SRC="$REPO_DIR/scripts/idow"
+IDOW_SRC="$INSTALL_DIR/scripts/idow"
 if [[ -f "$IDOW_SRC" ]]; then
     if [[ -L "$LOCAL_BIN/idow" || -f "$LOCAL_BIN/idow" ]]; then
         rm "$LOCAL_BIN/idow"
