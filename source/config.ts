@@ -533,17 +533,33 @@ export class ConfigNotFoundError extends Error {
 	}
 }
 
+export function formatConfigErrors(errors: string[]): string {
+	return `Invalid .pappardelle.yml configuration:\n${errors
+		.map(e => `  - ${e}`)
+		.join('\n')}`;
+}
+
+/** The errors on one line, for the rail and other one-line places; a YAML error's code excerpt is dropped. */
+export function inlineConfigErrors(errors: string[]): string {
+	return errors
+		.map(error => error.split('\n')[0]!.trim().replace(/:$/, ''))
+		.join('; ');
+}
+
 export class ConfigValidationError extends Error {
 	errors: string[];
 
 	constructor(errors: string[]) {
-		super(
-			`Invalid .pappardelle.yml configuration:\n${errors
-				.map(e => `  - ${e}`)
-				.join('\n')}`,
-		);
+		super(formatConfigErrors(errors));
 		this.name = 'ConfigValidationError';
 		this.errors = errors;
+	}
+}
+
+export class NotInGitRepoError extends Error {
+	constructor() {
+		super('Not in a git repository');
+		this.name = 'NotInGitRepoError';
 	}
 }
 
@@ -581,7 +597,7 @@ export function getRepoRoot(): string {
 		gitCommonDirCache ??= commonDir || undefined;
 		return repoRootCache;
 	} catch {
-		throw new Error('Not in a git repository');
+		throw new NotInGitRepoError();
 	}
 }
 
@@ -668,7 +684,7 @@ export function getRepoName(): string {
 		cachedRepoName = repoNameFromGitCommonDir(getGitCommonDir());
 		return cachedRepoName;
 	} catch {
-		throw new Error('Not in a git repository');
+		throw new NotInGitRepoError();
 	}
 }
 
@@ -1245,6 +1261,33 @@ export function loadConfig(): PappardelleConfig {
 	});
 }
 
+export type ConfigLoad =
+	| {kind: 'missing'}
+	| {kind: 'valid'; config: PappardelleConfig}
+	| {kind: 'invalid'; errors: string[]};
+
+/**
+ * The config, or why there is none. Only a missing config falls back to the
+ * built-in defaults: an invalid one would replace the settings the user wrote.
+ */
+export function readConfig(paths?: ConfigPaths): ConfigLoad {
+	try {
+		return {
+			kind: 'valid',
+			config: loadConfigFromPaths(paths ?? defaultConfigPaths()),
+		};
+	} catch (error) {
+		if (error instanceof ConfigNotFoundError) return {kind: 'missing'};
+		if (error instanceof NotInGitRepoError) return {kind: 'missing'};
+		if (error instanceof ConfigValidationError)
+			return {kind: 'invalid', errors: error.errors};
+		return {
+			kind: 'invalid',
+			errors: [error instanceof Error ? error.message : String(error)],
+		};
+	}
+}
+
 export type ConfigPaths = {
 	homeConfigDir?: string;
 	projectDir?: string;
@@ -1263,11 +1306,13 @@ export function defaultConfigPaths(): ConfigPaths {
  * The raw config layers, lowest priority first, labeled the way config errors
  * name them. A layer that is missing or fails to parse is null, so callers
  * that only need part of the config keep working while another section is
- * broken.
+ * broken; `errors` says why a file that exists was left out.
  */
-function readConfigLayers(
-	paths: ConfigPaths,
-): Array<{label: string; layer: Record<string, unknown> | null}> {
+function readConfigLayers(paths: ConfigPaths): Array<{
+	label: string;
+	layer: Record<string, unknown> | null;
+	errors?: string[];
+}> {
 	return configLayerFiles(paths).map(({label, path: filePath}) => {
 		if (!filePath) return {label, layer: null};
 		try {
@@ -1275,8 +1320,17 @@ function readConfigLayers(
 				label,
 				layer: parseConfigLayer(label, fs.readFileSync(filePath, 'utf8')),
 			};
-		} catch {
-			return {label, layer: null};
+		} catch (error) {
+			return {
+				label,
+				layer: null,
+				errors:
+					error instanceof ConfigValidationError
+						? error.errors
+						: [
+								`${label}: ${error instanceof Error ? error.message : String(error)}`,
+							],
+			};
 		}
 	});
 }
@@ -1306,10 +1360,11 @@ export function validateHomeOnlySqliteState(
 export function loadProviderConfigs(opts?: ConfigPaths): {
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
+	/** Why a layer that exists was skipped; its providers are missing from the result. */
+	unparsable: string[];
 } {
-	const [home, project, local] = readConfigLayers(
-		opts ?? defaultConfigPaths(),
-	).map(({layer}) => layer);
+	const layers = readConfigLayers(opts ?? defaultConfigPaths());
+	const [home, project, local] = layers.map(({layer}) => layer);
 	const merged = mergeConfigLayers(
 		home ?? null,
 		project ?? null,
@@ -1318,6 +1373,7 @@ export function loadProviderConfigs(opts?: ConfigPaths): {
 	return {
 		issue_tracker: merged['issue_tracker'] as IssueTrackerConfig | undefined,
 		vcs_host: merged['vcs_host'] as VcsHostConfig | undefined,
+		unparsable: layers.flatMap(({errors}) => errors ?? []),
 	};
 }
 
@@ -3853,8 +3909,8 @@ export function getKeybindings(config: PappardelleConfig): KeybindingConfig[] {
 export function buildWorkspaceTemplateVars(
 	issueKey: string,
 	worktreePath: string,
+	config: PappardelleConfig | null,
 	issueTitle?: string,
-	configOverride?: PappardelleConfig,
 	profileName?: string,
 ): TemplateVars {
 	const vars: TemplateVars = {
@@ -3865,40 +3921,35 @@ export function buildWorkspaceTemplateVars(
 		REPO_NAME: getRepoName(),
 		SCRIPT_DIR: scriptsDir,
 	};
+	if (!config) return vars;
 
-	// Try to match a profile for additional template vars
-	try {
-		const config = configOverride ?? loadConfig();
-		let profile: Profile | undefined;
+	let profile: Profile | undefined;
 
-		if (profileName) {
-			profile = config.profiles[profileName];
+	if (profileName) {
+		profile = config.profiles[profileName];
+	}
+
+	if (!profile && issueTitle) {
+		const matches = matchProfiles(config, issueTitle);
+		if (matches.length > 0) {
+			profile = matches[0]!.profile;
 		}
+	}
 
-		if (!profile && issueTitle) {
-			const matches = matchProfiles(config, issueTitle);
-			if (matches.length > 0) {
-				profile = matches[0]!.profile;
-			}
-		}
+	if (!profile && config.default_profile) {
+		profile = config.profiles[config.default_profile];
+	}
 
-		if (!profile && config.default_profile) {
-			profile = config.profiles[config.default_profile];
-		}
+	if (profile?.vars) {
+		Object.assign(vars, profile.vars);
+	}
 
-		if (profile?.vars) {
-			Object.assign(vars, profile.vars);
+	if (profile) {
+		const vcsLabel = getProfileVcsLabel(profile);
+		if (vcsLabel) {
+			vars.VCS_LABEL = vcsLabel;
+			vars.GITHUB_LABEL = vcsLabel;
 		}
-
-		if (profile) {
-			const vcsLabel = getProfileVcsLabel(profile);
-			if (vcsLabel) {
-				vars.VCS_LABEL = vcsLabel;
-				vars.GITHUB_LABEL = vcsLabel;
-			}
-		}
-	} catch {
-		// Config load failed — continue with basic vars
 	}
 
 	return vars;

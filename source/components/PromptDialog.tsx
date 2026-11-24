@@ -9,15 +9,18 @@ import ConfirmDialog from './ConfirmDialog.tsx';
 import {resolveEmojiSlot} from '../emoji-rail-width.ts';
 import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {
-	loadConfig,
 	determineProfileForInput,
 	exampleIssueKeys,
+	inlineConfigErrors,
 	listAgentProfiles,
 	loadAgentProfileSources,
 	resolveAgentProfileName,
 	type PappardelleConfig,
 	type ProfileSelection,
 } from '../config.ts';
+import {readReportedConfig} from '../config-report.ts';
+import {truncateToWidth} from '../truncate-to-width.ts';
+import {useWidthMethod} from './use-width-method.ts';
 import {createIssueTracker} from '../providers/index.ts';
 import type {IssueTrackerProvider} from '../providers/types.ts';
 import {
@@ -182,13 +185,8 @@ export default function PromptDialog({
 	};
 
 	// Load config once
-	const config = useMemo((): PappardelleConfig | null => {
-		try {
-			return loadConfig();
-		} catch {
-			return null;
-		}
-	}, []);
+	const configLoad = useMemo(() => readReportedConfig(), []);
+	const config = configLoad.kind === 'valid' ? configLoad.config : null;
 	const exampleKeys = useMemo(
 		() => (config ? exampleIssueKeys(config) : ['STA-123', '123']),
 		[config],
@@ -203,6 +201,15 @@ export default function PromptDialog({
 		tracker,
 		!isPicking && !isCompleting && !isSkillFocused,
 	);
+	const widthMethod = useWidthMethod();
+	const errorMessage =
+		configLoad.kind === 'invalid'
+			? truncateToWidth(
+					`Fix .pappardelle.yml to create a space: ${inlineConfigErrors(configLoad.errors)}`,
+					availableWidth - 6,
+					widthMethod,
+				)
+			: ready.errorMessage;
 	// The close confirmation takes over the whole dialog, so every other keymap
 	// stands down while it is up.
 	const isPromptStage = !isPicking && ready.closeTarget === null;
@@ -449,7 +456,11 @@ export default function PromptDialog({
 		const resolved = resolveSubmission(value, ready.identifiers, ready.index);
 		if (resolved === null) return;
 
-		const decision = resolvePromptSubmit(config, resolved, canOverrideAgent);
+		const decision = resolvePromptSubmit(
+			configLoad,
+			resolved,
+			canOverrideAgent,
+		);
 		switch (decision.kind) {
 			case 'none': {
 				break;
@@ -492,16 +503,18 @@ export default function PromptDialog({
 	// With an agent to swap in, pickerOptions gives the deferred input a real
 	// row so `a` has something to act on.
 	const deferredLabel =
-		preview?.kind === 'deferred' && !preview.canPick && !canOverrideAgent
-			? preview.displayName
-			: undefined;
+		configLoad.kind === 'invalid'
+			? 'No profiles until .pappardelle.yml is fixed'
+			: preview?.kind === 'deferred' && !preview.canPick && !canOverrideAgent
+				? preview.displayName
+				: undefined;
 	const layout = promptDialogLayout(
 		availableHeight,
 		isCompleting ? SKILL_PICKER_MAX_VISIBLE : PICKER_MAX_VISIBLE,
 		{
 			readyCount: ready.issues.length,
 			isReadyLoading: ready.loading,
-			hasError: ready.errorMessage !== null,
+			hasError: errorMessage !== null,
 			pickerCount: isCompleting
 				? completions.length
 				: deferredLabel
@@ -559,10 +572,10 @@ export default function PromptDialog({
 					/>
 				</box>
 
-				{ready.errorMessage && (
+				{errorMessage && (
 					<box flexDirection="row" marginTop={1}>
 						<text flexShrink={1} fg={terminalColor('red')}>
-							{ready.errorMessage}
+							{errorMessage}
 						</text>
 					</box>
 				)}

@@ -6,21 +6,19 @@ import {
 	getMainRepoRoot,
 	getRepoName,
 	getRepoRoot,
-	loadConfig,
 	matchProfileByProject,
 	matchProfiles,
+	readConfig,
 	type CommandConfig,
+	type ConfigLoad,
 	type PappardelleConfig,
 } from './config.ts';
-import {createLogger} from './logger.ts';
 import type {TrackerIssue} from './providers/types.ts';
 import {
 	runPreWorkspaceDeinit,
 	type DeinitContext,
 	type DeinitResult,
 } from './workspace-deinit.ts';
-
-const log = createLogger('close-space');
 
 export function resolveDeinitCommands(
 	config: PappardelleConfig,
@@ -70,7 +68,7 @@ export type ClosingSpace = {
 };
 
 export type CloseHooksDeps = {
-	loadConfig: () => PappardelleConfig;
+	readConfig: () => ConfigLoad;
 	runDeinit: (
 		commands: CommandConfig[],
 		worktreePath: string,
@@ -80,7 +78,7 @@ export type CloseHooksDeps = {
 };
 
 export const defaultCloseHooksDeps: CloseHooksDeps = {
-	loadConfig,
+	readConfig: () => readConfig(),
 	runDeinit: runPreWorkspaceDeinit,
 	context: () => ({
 		repoRoot: getRepoRoot(),
@@ -89,26 +87,34 @@ export const defaultCloseHooksDeps: CloseHooksDeps = {
 	}),
 };
 
+export type CloseHooksOutcome =
+	| {kind: 'ran'}
+	| {kind: 'failed'; failedCommand?: string}
+	| {kind: 'config-invalid'; errors: string[]};
+
+export function closedWithoutDeinit(key: string): string {
+	return `Closed ${key} without its deinit commands: the config is invalid`;
+}
+
+/**
+ * An invalid config can't say which deinit commands a space has, and must not
+ * leave the space impossible to close, so the caller closes it and says so.
+ */
 export async function runCloseHooks(
 	space: ClosingSpace,
 	deps: CloseHooksDeps = defaultCloseHooksDeps,
-): Promise<DeinitResult> {
-	try {
-		const commands = resolveDeinitCommands(
-			deps.loadConfig(),
-			space.trackerIssue,
-		);
-		if (commands.length === 0 || !space.worktreePath) return {success: true};
-		return await deps.runDeinit(commands, space.worktreePath, {
-			issueKey: space.name,
-			...deps.context(),
-		});
-	} catch (err) {
-		// A broken config must not leave a space impossible to close.
-		log.error(
-			'pre_workspace_deinit error',
-			err instanceof Error ? err : undefined,
-		);
-		return {success: true};
-	}
+): Promise<CloseHooksOutcome> {
+	const load = deps.readConfig();
+	if (load.kind === 'invalid')
+		return {kind: 'config-invalid', errors: load.errors};
+	if (load.kind === 'missing' || !space.worktreePath) return {kind: 'ran'};
+	const commands = resolveDeinitCommands(load.config, space.trackerIssue);
+	if (commands.length === 0) return {kind: 'ran'};
+	const result = await deps.runDeinit(commands, space.worktreePath, {
+		issueKey: space.name,
+		...deps.context(),
+	});
+	return result.success
+		? {kind: 'ran'}
+		: {kind: 'failed', failedCommand: result.failedCommand};
 }

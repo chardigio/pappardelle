@@ -13,6 +13,7 @@ import {
 } from './profile-picker.ts';
 import {
 	DEFERRED_PROFILE_DISPLAY_NAME,
+	type ConfigLoad,
 	type PappardelleConfig,
 } from './config.ts';
 
@@ -43,6 +44,11 @@ function makeConfig(
 		profiles,
 	} as unknown as PappardelleConfig;
 }
+
+const valid = (config: PappardelleConfig): ConfigLoad => ({
+	kind: 'valid',
+	config,
+});
 
 const CONFIG = makeConfig(
 	{
@@ -350,7 +356,7 @@ const BEADS_CONFIG: PappardelleConfig = {
 };
 
 test('resolvePromptSubmit opens the picker for a beads ID nothing claims', t => {
-	const result = resolvePromptSubmit(BEADS_CONFIG, 'pap-a1b2');
+	const result = resolvePromptSubmit(valid(BEADS_CONFIG), 'pap-a1b2');
 	t.is(result.kind, 'pick');
 	if (result.kind !== 'pick') return;
 	// The preselected row names a real profile — the same one idow falls back
@@ -379,14 +385,14 @@ test('buildProfileOptions leads a claimed beads prefix with the deferred row', t
 });
 
 test('resolvePromptSubmit opens the picker for a claimed beads prefix', t => {
-	const result = resolvePromptSubmit(BEADS_CONFIG, 'vendor-sdk-a1b2');
+	const result = resolvePromptSubmit(valid(BEADS_CONFIG), 'vendor-sdk-a1b2');
 	t.is(result.kind, 'pick');
 });
 
 test('resolvePromptSubmit leaves beads-shaped prose on the keyword path', t => {
 	// 'stardust-crash' names no beads prefix, so it is a description and the
 	// keyword match leads.
-	const result = resolvePromptSubmit(BEADS_CONFIG, 'stardust-crash');
+	const result = resolvePromptSubmit(valid(BEADS_CONFIG), 'stardust-crash');
 	t.is(result.kind, 'pick');
 	if (result.kind !== 'pick') return;
 	t.is(result.options[0]!.name, 'stardust');
@@ -397,7 +403,10 @@ test('resolvePromptSubmit leaves beads-shaped prose on the keyword path', t => {
 // ============================================================================
 
 test('resolvePromptSubmit opens the picker for a free-text prompt', t => {
-	const result = resolvePromptSubmit(CONFIG, 'fix the stardust map crash');
+	const result = resolvePromptSubmit(
+		valid(CONFIG),
+		'fix the stardust map crash',
+	);
 	t.is(result.kind, 'pick');
 	if (result.kind !== 'pick') return;
 	t.is(result.options[0]!.name, 'stardust');
@@ -408,14 +417,14 @@ test('resolvePromptSubmit spawns immediately for inputs carrying no key prefix',
 	// there is no prefix to match profiles against — behaves exactly as it did
 	// before the picker existed: one Enter, no --profile flag, so idow resolves
 	// the profile from the fetched issue's tracker project.
-	const result = resolvePromptSubmit(CONFIG, '123');
+	const result = resolvePromptSubmit(valid(CONFIG), '123');
 	t.is(result.kind, 'spawn');
 	if (result.kind !== 'spawn') return;
 	t.is(result.profileName, null);
 });
 
 test('resolvePromptSubmit spawns immediately for an issue key no profile claims', t => {
-	const result = resolvePromptSubmit(CONFIG, 'ZZZ-123');
+	const result = resolvePromptSubmit(valid(CONFIG), 'ZZZ-123');
 	t.is(result.kind, 'spawn');
 	if (result.kind !== 'spawn') return;
 	t.is(result.profileName, null);
@@ -426,7 +435,7 @@ test('resolvePromptSubmit opens the picker for an issue key whose prefix is clai
 		'STA-123',
 		'https://linear.app/acme/issue/STA-123/some-slug',
 	]) {
-		const result = resolvePromptSubmit(CONFIG, input);
+		const result = resolvePromptSubmit(valid(CONFIG), input);
 		t.is(result.kind, 'pick');
 		if (result.kind !== 'pick') continue;
 		// The deferred lookup leads, so Enter-Enter still spawns with no
@@ -437,7 +446,7 @@ test('resolvePromptSubmit opens the picker for an issue key whose prefix is clai
 
 test('resolvePromptSubmit gives unclaimed inputs a deferred-only picker when an agent can be swapped in', t => {
 	for (const input of ['123', 'ZZZ-123']) {
-		const result = resolvePromptSubmit(CONFIG, input, true);
+		const result = resolvePromptSubmit(valid(CONFIG), input, true);
 		t.is(result.kind, 'pick');
 		if (result.kind !== 'pick') continue;
 		t.deepEqual(
@@ -471,18 +480,29 @@ test("pickerOptions leads with an existing space's saved profile", t => {
 });
 
 test('resolvePromptSubmit ignores blank input', t => {
-	t.is(resolvePromptSubmit(CONFIG, '   ').kind, 'none');
+	t.is(resolvePromptSubmit(valid(CONFIG), '   ').kind, 'none');
 });
 
-test('resolvePromptSubmit spawns with no profile when config failed to load', t => {
-	const result = resolvePromptSubmit(null, 'fix the stardust map crash');
+test('resolvePromptSubmit starts nothing while the config is invalid', t => {
+	const result = resolvePromptSubmit(
+		{kind: 'invalid', errors: ['agent_profiles.opus.model: must be a string']},
+		'123',
+	);
+	t.is(result.kind, 'none');
+});
+
+test('resolvePromptSubmit spawns with no profile when there is no config', t => {
+	const result = resolvePromptSubmit(
+		{kind: 'missing'},
+		'fix the stardust map crash',
+	);
 	t.is(result.kind, 'spawn');
 	if (result.kind !== 'spawn') return;
 	t.is(result.profileName, null);
 });
 
 test('resolvePromptSubmit trims surrounding whitespace before deciding', t => {
-	const result = resolvePromptSubmit(CONFIG, '  ZZZ-123  ');
+	const result = resolvePromptSubmit(valid(CONFIG), '  ZZZ-123  ');
 	t.is(result.kind, 'spawn');
 });
 

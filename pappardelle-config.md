@@ -419,13 +419,19 @@ See https://github.com/chardigio/pappardelle for the configuration schema.
 ### Invalid Config
 
 ```
-Error: Invalid .pappardelle.yml configuration.
-
-- profiles.stardust-jams.vars.BUNDLE_ID: must be a string
-- profiles.backend.commands[0].run: must be a string
-
-Please fix the configuration and try again.
+Invalid .pappardelle.yml configuration:
+  - profiles.stardust-jams.vars.BUNDLE_ID: must be a string
+  - profiles.backend.commands[0].run: must be a string
 ```
+
+A config that fails validation, fails to parse or can't be read is invalid, never treated as a missing one, so nothing falls back to the built-in defaults in its place:
+
+- The TUI still starts, and the rail shows `.pappardelle.yml is invalid: …` until the file loads. Settings read once at startup (keybindings, watchlists, rail layout) stay off until Pappardelle restarts
+- Spaces aren't created: the new-space dialog shows the errors, and `idow` and `pappardelle <prompt>` exit with them
+- A dead agent or companion session isn't restarted with the wrong command; the rail names the space
+- Closing a space skips its `pre_workspace_deinit` commands and says so; `auto_remove_when_done` waits until the config loads
+- Agents' MCP tools are off, and the server's instructions name the errors
+- `pappardelle <verb> <number>` can't expand a bare number without `team_prefix`; a full issue key still works
 
 ### Profile Not Found
 

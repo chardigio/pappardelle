@@ -981,6 +981,17 @@ test('an unknown --agent-profile stops idow before any setup', async t => {
 	t.false(fs.existsSync(fixture.workspace));
 });
 
+test('an invalid agent profile the space does not use still stops idow before any setup', async t => {
+	const fixture = setup(t);
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		stringify({agent_profiles: {opus: {command: 'claude', model: 7}}}),
+	);
+	const error = await t.throwsAsync(fixture.run());
+	t.regex(String(error), /agent_profiles\.opus\.model: must be a string/);
+	t.false(fs.existsSync(fixture.workspace));
+});
+
 test('a reopened space resumes the session its agent recorded', async t => {
 	const fixture = setup(t);
 	fs.writeFileSync(
@@ -1377,7 +1388,7 @@ for (const consumer of ['links', 'apps']) {
 					: '  - name: Save PR\n    command: \'printf %s "${PR_URL}" > "${WORKTREE_PATH}/pr"\'\n    if_set: PR_URL';
 			fs.writeFileSync(
 				path.join(fixture.main, '.pappardelle.yml'),
-				`common_entries: &entries\n${entry}\nversion: 1\nteam_prefix: test\nissue_tracker:\n  provider: beads\ndefault_profile: dev\nterminal:\n  app: none\nprofiles:\n  dev:\n${consumer === 'apps' ? '    links: []\n' : ''}    ${consumer}: *entries\n`,
+				`common_entries: &entries\n${entry}\nversion: 1\nteam_prefix: test\nissue_tracker:\n  provider: beads\ndefault_profile: dev\nterminal:\n  app: none\nprofiles:\n  dev:\n    display_name: Dev\n${consumer === 'apps' ? '    links: []\n' : ''}    ${consumer}: *entries\n`,
 			);
 			const output = await fixture.run({open: true});
 			const url = 'https://github.com/test/repo/pull/1';
@@ -1485,11 +1496,11 @@ function stateCli(fixture: ReturnType<typeof setup>, exitCode: number) {
 	const executable = path.join(fixture.bin, 'pappardelle-state-stub');
 	writeScript(
 		executable,
-		`if [[ "$2" != space && "$2" != worktree-path ]]; then
+		`if [[ "$2" != space && "$2" != worktree-path && "$2" != check-config ]]; then
     test ! -f "$IDOW_TEST_LAUNCH_ARGS" || echo "after sessions" >> ${JSON.stringify(calls)}
     printf '%s\\n' "$*" >> ${JSON.stringify(calls)}
 fi
-${exitCode === 0 ? '' : `if [[ "$2" != space && "$2" != worktree-path ]]; then\n    echo "no state for you" >&2\n    exit ${exitCode}\nfi\n`}exec ${JSON.stringify(path.join(fixture.bin, 'pappardelle-state'))} "$@"`,
+${exitCode === 0 ? '' : `if [[ "$2" != space && "$2" != worktree-path && "$2" != check-config ]]; then\n    echo "no state for you" >&2\n    exit ${exitCode}\nfi\n`}exec ${JSON.stringify(path.join(fixture.bin, 'pappardelle-state'))} "$@"`,
 	);
 	return {
 		calls: () => fs.readFileSync(calls, 'utf8').trim().split('\n'),

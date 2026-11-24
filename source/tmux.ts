@@ -133,14 +133,12 @@ import {
 	getCompanionCommand,
 	getCompanionSplits,
 	quoteLaunchValue,
-	ConfigNotFoundError,
-	ConfigValidationError,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
 	getListLayout,
 	getPaneWidths,
 	getRepoName,
-	loadConfig,
+	readConfig,
 	type ResolvedCompanionSplit,
 	type PappardelleConfig,
 	type ResolvedAgentProfile,
@@ -162,7 +160,8 @@ import {
 	type CompanionSplit,
 	type SplitDirection,
 } from './companion-splits.ts';
-import {createLogger, dismissRecentErrors, getRecentErrors} from './logger.ts';
+import {createLogger} from './logger.ts';
+import {readReportedConfig, reportWhileInvalid} from './config-report.ts';
 import {
 	ControlClientNeverStarted,
 	TmuxControlClient,
@@ -301,23 +300,10 @@ export function storedIdentity(issueKey: string): SpaceIdentity | null {
 	return null;
 }
 
-const INVALID_CONFIG_REPORT = 'not started: the config is invalid:';
-
-// The TUI loads the config on every selection, and the rail keeps only the
-// last few errors, for a few minutes.
-function reportInvalidConfig(
-	issueKey: string,
-	error: ConfigValidationError,
-): void {
-	const report = `Sessions of ${issueKey} ${INVALID_CONFIG_REPORT}`;
-	const message = `${report} ${error.errors.join('; ')}`;
-	if (getRecentErrors().some(entry => entry.message === message)) return;
-	dismissRecentErrors(entry => entry.message.startsWith(report));
-	log.error(message);
-}
-
-function dismissInvalidConfigErrors(): void {
-	dismissRecentErrors(entry => entry.message.includes(INVALID_CONFIG_REPORT));
+function reportHeldBack(issueKey: string): void {
+	reportWhileInvalid(
+		`Sessions of ${issueKey} not started: the config is invalid`,
+	);
 }
 
 function sessionNamesOf(identity: SpaceIdentity): SpaceSessionNames {
@@ -419,11 +405,9 @@ export function setConfiguredPaneWidthsForTests(widths: PaneWidths): void {
 
 function getConfiguredPaneWidths(): PaneWidths {
 	if (configuredPaneWidths === undefined) {
-		try {
-			configuredPaneWidths = getPaneWidths(loadConfig());
-		} catch {
-			configuredPaneWidths = {};
-		}
+		const load = readReportedConfig();
+		configuredPaneWidths =
+			load.kind === 'valid' ? getPaneWidths(load.config) : {};
 	}
 
 	return configuredPaneWidths;
@@ -437,11 +421,11 @@ export function setConfiguredListLines(lines: 1 | 2 | undefined): void {
 }
 function getConfiguredListLines(): 1 | 2 {
 	if (configuredListLines === undefined) {
-		try {
-			configuredListLines = getListLayout(loadConfig()) === 'two_line' ? 2 : 1;
-		} catch {
-			configuredListLines = 1;
-		}
+		const load = readReportedConfig();
+		configuredListLines =
+			load.kind === 'valid' && getListLayout(load.config) === 'two_line'
+				? 2
+				: 1;
 	}
 
 	return configuredListLines;
@@ -2537,19 +2521,23 @@ async function attachViewers(
 					// stay on screen. The next attach's sync waits for this one.
 					run: options.run ?? runTmux,
 					listing,
-					seed: () =>
-						configuredSplits ??
-						getCompanionSplits(
-							loadConfig(),
-							issueTitle,
-							savedSpaceProfile(issueKey),
-						),
+					seed() {
+						if (configuredSplits) return configuredSplits;
+						const load = readConfig();
+						// Without a config there are no splits to seed, and an
+						// invalid one is seeded once it is fixed.
+						return load.kind === 'valid'
+							? getCompanionSplits(
+									load.config,
+									issueTitle,
+									savedSpaceProfile(issueKey),
+								)
+							: undefined;
+					},
 				},
 			);
 		} catch (err) {
 			if (signal?.aborted) return false;
-			// The splits are seeded once the config is fixed.
-			if (err instanceof ConfigValidationError) return true;
 			log.warn(
 				`Failed to show the companion splits of ${issueKey}`,
 				err instanceof Error ? err : undefined,
@@ -2627,11 +2615,13 @@ async function attachViewers(
 	let sessionId: string | undefined;
 	let launch: AgentLaunch = {rules: false};
 	let splitListing: string | undefined;
-	let invalidConfig: ConfigValidationError | undefined;
 	const profileName = savedSpaceProfile(issueKey);
-	try {
-		const config = loadConfig();
-		dismissInvalidConfigErrors();
+	// Without a config there is no agent profile to lose, so the built-in one
+	// is right. A broken config would replace the space's own.
+	const load = readReportedConfig();
+	const invalidConfig = load.kind === 'invalid';
+	if (load.kind === 'valid') {
+		const {config} = load;
 		launch = {
 			rules: workspaceAwareAgents(config),
 			...(issueKey === MAIN_WORKTREE_KEY ? sousChefLaunch(config) : {}),
@@ -2640,16 +2630,6 @@ async function attachViewers(
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
 		configuredSplits = getCompanionSplits(config, issueTitle, profileName);
 		agentProfile = getAgentProfile(config, issueTitle, profileName);
-	} catch (error) {
-		// Without a config there is no agent profile to lose, so the built-in
-		// one is right. A broken config would replace the space's own.
-		if (error instanceof ConfigValidationError) invalidConfig = error;
-		else if (error instanceof ConfigNotFoundError) dismissInvalidConfigErrors();
-		else
-			log.warn(
-				`Could not load the config for ${issueKey}; starting with the built-in defaults`,
-				error instanceof Error ? error : undefined,
-			);
 	}
 
 	if (agentProfile)
@@ -2662,12 +2642,7 @@ async function attachViewers(
 		// commands, and they keep running after the config is fixed.
 		const prepared = await Promise.allSettled([
 			invalidConfig
-				? resumeHeldBackAgent(
-						issueKey,
-						sessions.agent,
-						options.run ?? runTmux,
-						invalidConfig,
-					)
+				? resumeHeldBackAgent(issueKey, sessions.agent, options.run ?? runTmux)
 				: ensureAgentSession(
 						issueKey,
 						mainWorktreePath,
@@ -2683,7 +2658,6 @@ async function attachViewers(
 							issueKey,
 							sessions.companion,
 							options.run ?? runTmux,
-							invalidConfig,
 						)
 					: ensureCompanionSession(
 							issueKey,
@@ -3079,7 +3053,8 @@ export async function syncCompanionSplits(
 	issueKey: string,
 	options: {
 		run?: AsyncTmuxRunner;
-		seed?: () => ResolvedCompanionSplit[];
+		/** The splits to start with, or undefined to leave the companion unseeded for now. */
+		seed?: () => ResolvedCompanionSplit[] | undefined;
 		/** The inner sessions in SPLIT_LIST_FORMAT, when the caller just listed them. */
 		listing?: string;
 	} = {},
@@ -3093,12 +3068,11 @@ export async function syncCompanionSplits(
 		companionSession,
 	);
 	let {splits} = listing;
-	if (
-		options.seed &&
-		listing.companion &&
-		!listing.companion.seeded &&
-		(await seedCompanionSplits(identity, splits, options.seed(), run))
-	)
+	const seed =
+		listing.companion && !listing.companion.seeded
+			? options.seed?.()
+			: undefined;
+	if (seed && (await seedCompanionSplits(identity, splits, seed, run)))
 		({splits} = await listCompanion(companionSession, run));
 
 	// rebuildLayout takes the split panes down with the companion pane.
@@ -4022,10 +3996,9 @@ async function resumeHeldBackAgent(
 	issueKey: string,
 	sessionName: string,
 	run: AsyncTmuxRunner,
-	error: ConfigValidationError,
 ): Promise<boolean> {
 	const resumed = await resumeAgentSession(issueKey, sessionName, run);
-	if (resumed === 'absent') reportInvalidConfig(issueKey, error);
+	if (resumed === 'absent') reportHeldBack(issueKey);
 	return resumed === 'resumed';
 }
 
@@ -4033,10 +4006,9 @@ async function resumeHeldBackCompanion(
 	issueKey: string,
 	sessionName: string,
 	run: AsyncTmuxRunner,
-	error: ConfigValidationError,
 ): Promise<boolean> {
 	const exists = await innerSessionExistsAsync(sessionName, run);
-	if (!exists) reportInvalidConfig(issueKey, error);
+	if (!exists) reportHeldBack(issueKey);
 	return exists;
 }
 

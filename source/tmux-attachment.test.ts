@@ -1296,6 +1296,11 @@ const showsNoProgram = (
 		),
 	);
 
+const configStateLine = () =>
+	getRecentErrors().find(error =>
+		error.message.startsWith('.pappardelle.yml is invalid:'),
+	);
+
 const invalidConfigErrors = (issueKey: string) =>
 	getRecentErrors().filter(error =>
 		error.message.startsWith(`Sessions of ${issueKey} not started`),
@@ -1318,7 +1323,11 @@ test.serial(
 		t.true(showsNoProgram(calls, 'TEST-INVALID', 'companion'));
 		const [reported, ...more] = invalidConfigErrors('TEST-INVALID');
 		t.deepEqual(more, []);
-		t.true(reported?.message.includes('agent_profiles.opus.model'));
+		t.is(
+			reported?.message,
+			'Sessions of TEST-INVALID not started: the config is invalid',
+		);
+		t.true(configStateLine()?.message.includes('agent_profiles.opus.model'));
 		t.is(derived.daos.spaceState.read('TEST-INVALID')?.agentProfile, undefined);
 
 		clearCurrentlyViewingSpace();
@@ -1395,6 +1404,7 @@ for (const [recovery, recover] of [
 			t.true(createsSession(calls, agent));
 			t.true(createsSession(calls, companion));
 			t.deepEqual(invalidConfigErrors('TEST-FIXED'), []);
+			t.is(configStateLine(), undefined);
 			clearCurrentlyViewingSpace();
 		},
 	);
@@ -1436,9 +1446,12 @@ test.serial(
 		await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
 			run,
 		});
-		const [reported, ...more] = invalidConfigErrors('TEST-EDITED');
-		t.deepEqual(more, []);
-		t.true(reported?.message.includes('agent_profiles.opus.effort'));
+		t.is(invalidConfigErrors('TEST-EDITED').length, 1);
+		const [stateLine, ...staleLines] = getRecentErrors().filter(error =>
+			error.message.startsWith('.pappardelle.yml is invalid:'),
+		);
+		t.deepEqual(staleLines, []);
+		t.true(stateLine?.message.includes('agent_profiles.opus.effort'));
 		clearCurrentlyViewingSpace();
 	},
 );

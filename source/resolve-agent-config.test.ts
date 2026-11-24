@@ -853,38 +853,6 @@ profiles:
 	},
 );
 
-maybeMacro('both init command spellings in one layer is an error', t => {
-	const {configPath, homeConfigPath, cleanup} = setupConfigFiles(
-		`version: 1
-profiles:
-  test:
-    display_name: Test
-`,
-		undefined,
-		`version: 1
-profiles:
-  test:
-    initialization_command: /new
-    claude:
-      initialization_command: /old
-`,
-	);
-	try {
-		const stderr = runResolverExpectingError(configPath, [
-			'--home-config',
-			homeConfigPath,
-		]);
-		t.true(
-			stderr.includes(
-				`${homeConfigPath}: profiles.test.initialization_command and profiles.test.claude.initialization_command cannot both be specified`,
-			),
-			stderr,
-		);
-	} finally {
-		cleanup();
-	}
-});
-
 maybeMacro('agent profiles merge across config layers', t => {
 	const {configPath, localConfigPath, homeConfigPath, cleanup} =
 		setupConfigFiles(
@@ -1080,56 +1048,6 @@ for (const [profile, expected] of [
 	});
 }
 
-maybeMacro('model on a CLI with no flag template is an error', t => {
-	const fixture = setupConfigFiles(`version: 1
-agent_profiles:
-  aider:
-    command: aider
-    model: x
-profiles:
-  aider:
-    display_name: Aider
-    agent_profile: aider
-`);
-	t.teardown(fixture.cleanup);
-	const error = t.throws(() =>
-		execFileSync(
-			'bash',
-			[SCRIPT_PATH, '--config', fixture.configPath, '--profile', 'aider'],
-			{stdio: 'pipe'},
-		),
-	);
-	t.regex(
-		String((error as {stderr?: unknown}).stderr),
-		/agent_profiles\.aider\.model: "aider" has no built-in model flag; set model_args/,
-	);
-});
-
-maybeMacro('a flag template without its placeholder is an error', t => {
-	const fixture = setupConfigFiles(`version: 1
-agent_profiles:
-  codex:
-    command: codex
-    model_args: -m
-profiles:
-  codex:
-    display_name: Codex
-    agent_profile: codex
-`);
-	t.teardown(fixture.cleanup);
-	const error = t.throws(() =>
-		execFileSync(
-			'bash',
-			[SCRIPT_PATH, '--config', fixture.configPath, '--profile', 'codex'],
-			{stdio: 'pipe'},
-		),
-	);
-	t.regex(
-		String((error as {stderr?: unknown}).stderr),
-		/agent_profiles\.codex\.model_args: must contain \{model\}/,
-	);
-});
-
 maybeMacro('the deprecated claude.model and claude.effort are flagged', t => {
 	const fixture = setupConfigFiles(
 		`version: 1
@@ -1267,23 +1185,6 @@ for (const [name, expected] of Object.entries(AGENT_DEFAULTS_CASES)) {
 	);
 }
 
-for (const promptArgs of ['-i', '', '-i {prompt} {prompt}']) {
-	maybeMacro(`prompt_args ${JSON.stringify(promptArgs)} is an error`, t => {
-		const fixture = setupConfigFiles(
-			stringify({
-				version: 1,
-				agent_profiles: {agy: {command: 'agy', prompt_args: promptArgs}},
-				agent_profile: 'agy',
-			}),
-		);
-		t.teardown(fixture.cleanup);
-		t.regex(
-			runResolverExpectingError(fixture.configPath),
-			/agent_profiles\.agy\.prompt_args: must contain \{prompt\} exactly once/,
-		);
-	});
-}
-
 maybeMacro(
 	'agent_env is the agent profile env, merged per variable across layers',
 	t => {
@@ -1328,68 +1229,6 @@ maybeMacro('agent_env is an empty map for an agent profile without env', t => {
 			JSON.parse(runResolver(configPath, localConfigPath).agent_env),
 			{},
 		);
-	} finally {
-		cleanup();
-	}
-});
-
-maybeMacro('agent profile env is validated like validateConfig does', t => {
-	const {configPath, cleanup} = setupConfigFiles(
-		`version: 1
-agent_profile: opus
-agent_profiles:
-  opus:
-    command: claude
-    env:
-      1BAD: x
-      "TRAILING\\n": x
-      PAPPARDELLE_SPACE: x
-      NUMBER: 1
-`,
-	);
-	try {
-		const stderr = runResolverExpectingError(configPath);
-		t.true(
-			stderr.includes(
-				'agent_profiles.opus.env.1BAD: must be an environment variable name',
-			),
-			stderr,
-		);
-		t.true(
-			stderr.includes(
-				'agent_profiles.opus.env.TRAILING\n: must be an environment variable name',
-			),
-			stderr,
-		);
-		t.true(
-			stderr.includes(
-				'agent_profiles.opus.env.PAPPARDELLE_SPACE: PAPPARDELLE_ variables are set by pappardelle',
-			),
-			stderr,
-		);
-		t.true(
-			stderr.includes('agent_profiles.opus.env.NUMBER: must be a string'),
-			stderr,
-		);
-		t.false(stderr.includes('agent_profiles.opus.env: must be a string'));
-	} finally {
-		cleanup();
-	}
-});
-
-maybeMacro('an agent profile env that is not a map is an error', t => {
-	const {configPath, cleanup} = setupConfigFiles(
-		`version: 1
-agent_profile: opus
-agent_profiles:
-  opus:
-    command: claude
-    env: [FOO=1]
-`,
-	);
-	try {
-		const stderr = runResolverExpectingError(configPath);
-		t.true(stderr.includes('agent_profiles.opus.env: must be a map'), stderr);
 	} finally {
 		cleanup();
 	}

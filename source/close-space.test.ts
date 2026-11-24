@@ -1,7 +1,11 @@
 import test from 'ava';
-import type {PappardelleConfig} from './config.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {readConfig, type PappardelleConfig} from './config.ts';
 import type {TrackerIssue} from './providers/types.ts';
 import {
+	defaultCloseHooksDeps,
 	resolveDeinitCommands,
 	runCloseHooks,
 	shouldAttach,
@@ -62,7 +66,7 @@ test('runCloseHooks passes the space key and repo context to the hooks', async t
 	const result = await runCloseHooks(
 		{name: 'STA-1', worktreePath: '/wt/STA-1', trackerIssue: null},
 		{
-			loadConfig: () => config,
+			readConfig: () => ({kind: 'valid', config}),
 			async runDeinit(commands, worktreePath, context) {
 				calls.push({commands: names(commands), worktreePath, context});
 				return {success: false, failedCommand: 'global'};
@@ -74,7 +78,7 @@ test('runCloseHooks passes the space key and repo context to the hooks', async t
 			}),
 		},
 	);
-	t.deepEqual(result, {success: false, failedCommand: 'global'});
+	t.deepEqual(result, {kind: 'failed', failedCommand: 'global'});
 	t.deepEqual(calls, [
 		{
 			commands: ['global'],
@@ -89,21 +93,39 @@ test('runCloseHooks passes the space key and repo context to the hooks', async t
 	]);
 });
 
-test('a config that fails to load does not block the close', async t => {
+test('an invalid config skips the deinit commands and says why', async t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-close-'));
+	t.teardown(() => {
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+	const marker = path.join(dir, 'deinit-ran');
+	fs.writeFileSync(
+		path.join(dir, '.pappardelle.yml'),
+		`version: 1
+profiles: {}
+pre_workspace_deinit:
+  - name: mark
+    run: touch ${marker}
+agent_profiles:
+  opus:
+    command: claude
+    model: 7
+`,
+	);
 	const result = await runCloseHooks(
-		{name: 'STA-1', worktreePath: '/wt/STA-1', trackerIssue: null},
+		{name: 'STA-1', worktreePath: dir, trackerIssue: null},
 		{
-			loadConfig() {
-				throw new Error('bad yaml');
-			},
-			async runDeinit() {
-				t.fail('no hooks to run');
-				return {success: true};
-			},
-			context: () => ({}),
+			...defaultCloseHooksDeps,
+			readConfig: () =>
+				readConfig({homeConfigDir: path.join(dir, 'home'), projectDir: dir}),
 		},
 	);
-	t.deepEqual(result, {success: true});
+	t.is(result.kind, 'config-invalid');
+	t.true(
+		result.kind === 'config-invalid' &&
+			result.errors.some(error => error.includes('agent_profiles.opus.model')),
+	);
+	t.false(fs.existsSync(marker));
 });
 
 test('a row the registry no longer lists is not attached', t => {

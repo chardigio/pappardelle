@@ -1,9 +1,14 @@
 import {legacyAgentSession, type SpaceSessionNames} from './space-identity.ts';
 import {spawn} from 'node:child_process';
 import {selfLaunchArgs} from './runtime.ts';
-import {getMainRepoRoot} from './config.ts';
+import {formatConfigErrors, getMainRepoRoot} from './config.ts';
 import {confirm} from './confirm.ts';
-import {runCloseHooks, type ClosingSpace} from './close-space.ts';
+import {
+	closedWithoutDeinit,
+	runCloseHooks,
+	type CloseHooksOutcome,
+	type ClosingSpace,
+} from './close-space.ts';
 import {createLogger} from './logger.ts';
 import type {TrackerIssue} from './providers/types.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
@@ -18,7 +23,6 @@ import {
 	liveInnerSessions,
 } from './tmux.ts';
 import {getIssue} from './tracker.ts';
-import type {DeinitResult} from './workspace-deinit.ts';
 
 // `pappardelle close <space>`: the CLI twin of pressing x in the TUI, for
 // agents and scripts that can't answer the TUI's confirm popup. A running TUI
@@ -34,7 +38,7 @@ export type CloseCommandDeps = {
 	liveSessions: () => ReadonlySet<string> | null;
 	getIssue: (key: string) => Promise<TrackerIssue | null>;
 	worktreePath: (key: string) => string | null;
-	runHooks: (space: ClosingSpace) => Promise<DeinitResult>;
+	runHooks: (space: ClosingSpace) => Promise<CloseHooksOutcome>;
 	killSpaceSessions: (key: string) => Promise<boolean>;
 	cleanup: (key: string) => Promise<boolean>;
 	sessionNames: (key: string) => SpaceSessionNames | null;
@@ -86,11 +90,24 @@ export async function runCloseCommand(
 		worktreePath: deps.worktreePath(key),
 		trackerIssue,
 	});
-	if (!deinit.success) {
-		deps.print(
-			`pre_workspace_deinit hook failed: ${deinit.failedCommand ?? 'unknown'}. ${key} is still open`,
-		);
-		return 1;
+	switch (deinit.kind) {
+		case 'ran': {
+			break;
+		}
+
+		case 'failed': {
+			deps.print(
+				`pre_workspace_deinit hook failed: ${deinit.failedCommand ?? 'unknown'}. ${key} is still open`,
+			);
+			return 1;
+		}
+
+		case 'config-invalid': {
+			deps.print(
+				`${closedWithoutDeinit(key)}\n${formatConfigErrors(deinit.errors)}`,
+			);
+			break;
+		}
 	}
 
 	const sessions = deps.sessionNames(key);

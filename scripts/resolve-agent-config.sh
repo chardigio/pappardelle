@@ -203,26 +203,6 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     (if .agent_profile_ref == "" then "claude" else .agent_profile_ref end) as $agent_profile |
     (if .agent_profile_ref == "" then .agent_profile_defs.claude else .agent_profile_defs.ref end) as $def |
     (.agent_profile_names | index($agent_profile) != null) as $defined |
-    # Same checks as validateConfig() in source/config.ts, which idow never runs.
-    ([if $defined and (($def.command | type) != "string" or ($def.command | test("^\\s*$"))) then
-        "agent_profiles.\($agent_profile).command: required non-empty string" else empty end
-    ] + [$def | to_entries[]
-        | select(.key != "command" and .key != "is_claude" and .key != "env" and (.value | type) != "string")
-        | "agent_profiles.\($agent_profile).\(.key): must be a string"
-    ] + [$def | select(has("is_claude") and (.is_claude | type) != "boolean")
-        | "agent_profiles.\($agent_profile).is_claude: must be a boolean"
-    ] + [$def | select(has("env")) | .env
-        | if type != "object" then "agent_profiles.\($agent_profile).env: must be a map of variable names to strings"
-          else to_entries[] |
-            if (.key | test("\\A[A-Za-z_][A-Za-z0-9_]*\\z") | not) then "agent_profiles.\($agent_profile).env.\(.key): must be an environment variable name"
-            elif (.key | startswith("PAPPARDELLE_")) then "agent_profiles.\($agent_profile).env.\(.key): PAPPARDELLE_ variables are set by pappardelle"
-            elif (.value | type) != "string" then "agent_profiles.\($agent_profile).env.\(.key): must be a string"
-            else empty end
-          end
-    ]) as $type_errors |
-    if $type_errors != [] then
-        {agent_profile_missing: "", agent_type_errors: ($type_errors | join("\n")), agent_launch_errors: ""}
-    else
     # Trailing whitespace trimmed like lookupAgentProfile(): a YAML block
     # scalar (args: >) ends in a newline.
     (if $defined then $def else {command: "claude"} end
@@ -250,18 +230,6 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     # A block-scalar item ends in a newline that is not part of the argument.
     (if $is_claude then ($selected.claude.extra_args // $claude.extra_args // [] | map(tostring | sub("\n+$"; "")))
      else [] end) as $extra_args |
-    ([("model", "effort") as $f | $launch[$f] as $l |
-        if $l.template_set and ($l.template | contains("{" + $f + "}") | not) then
-            "agent_profiles.\($agent_profile).\($f)_args: must contain {\($f)}"
-        elif $l.value != "" and ($l.template_set | not) then
-            "agent_profiles.\($agent_profile).\($f): \"\($def_resolved.command)\" has no built-in \($f) flag; set \($f)_args"
-        else empty end
-    ] + [$def_resolved | select(has("prompt_args") and (.prompt_args | split("{prompt}") | length) != 2)
-        | "agent_profiles.\($agent_profile).prompt_args: must contain {prompt} exactly once"
-    ] + [$def_resolved | to_entries[]
-        | select((.value | type) == "string" and (.value | test("[\r\n]")))
-        | "agent_profiles.\($agent_profile).\(.key): must be a single line"
-    ] | join("\n")) as $launch_errors |
     {
         init_cmd: (.initialization_command // ""),
         profile_init_cmd_set: (.profile_init | has("initialization_command")),
@@ -289,23 +257,18 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         # bare `if` as an object value, while jq 1.8 accepts it.
         agent_rules_flags: (if .workspace_aware_agents != true then "" else (($companion_rules | sub("\\s+$"; "") | gsub("\\s*\n\\s*"; " ")) as $rules
             | $builtin_agent.rules_args // [] | map(split("{rules}") | join($rules) | quote_value) | join(" ")) end),
-        agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end),
-        agent_type_errors: ($type_errors | join("\n")),
-        agent_launch_errors: $launch_errors
+        agent_profile_missing: (if $defined or $agent_profile == "claude" then "" else $agent_profile end)
     } |
     with_entries(.value |= tostring) |
     .skip_permissions = ((.skip_permissions == "true") | tostring)
-    end
 ')
 
-# The TUI rejects a reference to an undefined agent profile at config load;
-# idow never runs that validator, so a typo would otherwise quietly launch
-# claude. The first kind of error found is reported.
-AGENT_ERRORS=$(jq -r '[.agent_type_errors,
-    (if .agent_profile_missing == "" then "" else "agent profile \"\(.agent_profile_missing)\" not found in agent_profiles" end),
-    .agent_launch_errors] | map(select(. != "")) | first // ""' <<< "$RESOLVED_JSON")
-if [[ -n "$AGENT_ERRORS" ]]; then
-    printf 'Error: %s\n' "$AGENT_ERRORS" >&2
+# idow validates the config before it resolves anything, but --agent-profile
+# names an agent profile the config never references, and a typo there would
+# otherwise quietly launch claude.
+AGENT_PROFILE_MISSING=$(jq -r '.agent_profile_missing' <<< "$RESOLVED_JSON")
+if [[ -n "$AGENT_PROFILE_MISSING" ]]; then
+    printf 'Error: agent profile "%s" not found in agent_profiles\n' "$AGENT_PROFILE_MISSING" >&2
     exit 1
 fi
 
@@ -313,11 +276,6 @@ fi
 # layer, so the warnings read the raw layers to name the file to edit: the
 # top-level ones, and the selected profile's. `eval` (not eval-all) keeps
 # filename per file.
-#
-# The same pass finds a file that sets both spellings of an init command, which
-# is ambiguous: the per-layer rename silently keeps the new one. Same error as
-# initializationCommandConflictErrors() in source/config.ts, which idow never
-# runs.
 LAYER_SPEC_MERGE=()
 for layer in "${LAYERS[@]}"; do
     has_yaml_merge_keys "$(<"$layer")" && LAYER_SPEC_MERGE=(--yaml-fix-merge-anchor-to-spec)
@@ -331,22 +289,9 @@ LAYER_CHECKS=$(PROFILE="$PROFILE" yq eval "${LAYER_SPEC_MERGE[@]}" -o=json -I=0 
         "init": (.claude.initialization_command != null),
         "keys": ((.claude // {}) | pick($launch_keys) | keys),
         "profile_init": ($profile_claude.initialization_command != null),
-        "profile_keys": ($profile_claude | pick($launch_keys) | keys),
-        "init_conflicts": (
-            [{"p": "", "c": (.initialization_command != null and .claude.initialization_command != null)}] +
-            ((.profiles // {}) | to_entries | map({
-                "p": "profiles." + .key + ".",
-                "c": (.value.initialization_command != null and .value.claude.initialization_command != null)
-            }))
-        )
+        "profile_keys": ($profile_claude | pick($launch_keys) | keys)
     }
 ' "${LAYERS[@]}")
-INIT_CMD_CONFLICTS=$(jq -rs '.[] | .file as $f | .init_conflicts[] | select(.c)
-    | "\($f): \(.p)initialization_command and \(.p)claude.initialization_command cannot both be specified (use initialization_command)"' <<< "$LAYER_CHECKS")
-if [[ -n "$INIT_CMD_CONFLICTS" ]]; then
-    printf 'Error: %s\n' "$INIT_CMD_CONFLICTS" >&2
-    exit 1
-fi
 DEPRECATIONS=$(jq -s --arg profile "$PROFILE" '
     def target: if . == "extra_args" then "args" else . end;
     {
@@ -362,4 +307,4 @@ DEPRECATIONS=$(jq -s --arg profile "$PROFILE" '
 ' <<< "$LAYER_CHECKS")
 
 jq --argjson deprecations "$DEPRECATIONS" \
-    'del(.agent_profile_missing, .agent_type_errors, .agent_launch_errors) + $deprecations' <<< "$RESOLVED_JSON"
+    'del(.agent_profile_missing) + $deprecations' <<< "$RESOLVED_JSON"

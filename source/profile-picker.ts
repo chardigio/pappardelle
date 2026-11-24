@@ -6,6 +6,7 @@ import {
 	getProfileEmoji,
 	DEFERRED_PROFILE_DISPLAY_NAME,
 	inputKeyPrefix,
+	type ConfigLoad,
 	type PappardelleConfig,
 } from './config.ts';
 
@@ -221,13 +222,16 @@ export type PromptSubmit =
  * pickerOptions).
  */
 export function resolvePromptSubmit(
-	config: PappardelleConfig | null,
+	load: ConfigLoad,
 	input: string,
 	canOverrideAgent = false,
 ): PromptSubmit {
 	const trimmed = input.trim();
 	if (!trimmed) return {kind: 'none'};
-	if (!config) return {kind: 'spawn', profileName: null};
+	// An invalid config could start the space with the wrong profile and team prefix.
+	if (load.kind === 'invalid') return {kind: 'none'};
+	if (load.kind === 'missing') return {kind: 'spawn', profileName: null};
+	const {config} = load;
 
 	const selection = determineProfileForInput(config, trimmed);
 	if (!selection) return {kind: 'spawn', profileName: null};

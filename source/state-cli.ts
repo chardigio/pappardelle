@@ -11,9 +11,12 @@ import {
 } from './space-identity.ts';
 import {
 	checkAgentProfile,
+	formatConfigErrors,
 	getDefaultHomeConfigDir,
 	loadConfigFromPaths,
+	readConfig,
 	unknownAgentProfileMessage,
+	type ConfigPaths,
 } from './config.ts';
 import {createStateDaos} from './state-daos.ts';
 import {openStateDb} from './state-db.ts';
@@ -23,6 +26,33 @@ type Verb = (args: string[]) => number | Promise<number>;
 function usage(message: string): number {
 	console.error(`pappardelle --internal-state: ${message}`);
 	return 2;
+}
+
+/** The config layers idow reads: `--project-root` is the checkout it runs for, `--main-root` the main checkout it falls back to. */
+function idowConfigPaths(args: string[]): {
+	paths: ConfigPaths | undefined;
+	positionals: string[];
+} {
+	const {values, positionals} = parseArgs({
+		args,
+		allowPositionals: true,
+		options: {
+			'project-root': {type: 'string'},
+			'main-root': {type: 'string'},
+		},
+	});
+	const {'project-root': projectDir, 'main-root': mainRoot} = values;
+	return {
+		paths:
+			projectDir && mainRoot
+				? {
+						homeConfigDir: getDefaultHomeConfigDir(),
+						projectDir,
+						fallbackProjectDir: () => mainRoot,
+					}
+				: undefined,
+		positionals,
+	};
 }
 
 const verbs: Record<string, Verb> = {
@@ -180,28 +210,33 @@ const verbs: Record<string, Verb> = {
 	 * runs for and `--main-root <dir>` the main checkout it falls back to.
 	 */
 	'check-agent-profile'(args) {
-		const {values, positionals} = parseArgs({
-			args,
-			allowPositionals: true,
-			options: {
-				'project-root': {type: 'string'},
-				'main-root': {type: 'string'},
-			},
-		});
+		const {paths, positionals} = idowConfigPaths(args);
 		const [name] = positionals;
-		const {'project-root': projectDir, 'main-root': mainRoot} = values;
-		if (!projectDir || !mainRoot || !name || positionals.length !== 1)
+		if (!paths || !name || positionals.length !== 1)
 			return usage(
 				'check-agent-profile needs --project-root <dir>, --main-root <dir> and one agent profile name',
 			);
-		const config = loadConfigFromPaths({
-			homeConfigDir: getDefaultHomeConfigDir(),
-			projectDir,
-			fallbackProjectDir: () => mainRoot,
-		});
+		const config = loadConfigFromPaths(paths);
 		const check = checkAgentProfile(config, name);
 		if (check.kind === 'known') return 0;
 		console.error(unknownAgentProfileMessage(name, check.names));
+		return 1;
+	},
+
+	/**
+	 * Whether the config idow reads is usable, checked with the validator the
+	 * TUI runs, so idow refuses the same configs. Takes the same roots as
+	 * `check-agent-profile`.
+	 */
+	'check-config'(args) {
+		const {paths, positionals} = idowConfigPaths(args);
+		if (!paths || positionals.length > 0)
+			return usage(
+				'check-config needs --project-root <dir> and --main-root <dir>',
+			);
+		const load = readConfig(paths);
+		if (load.kind !== 'invalid') return 0;
+		console.error(`Error: ${formatConfigErrors(load.errors)}`);
 		return 1;
 	},
 
