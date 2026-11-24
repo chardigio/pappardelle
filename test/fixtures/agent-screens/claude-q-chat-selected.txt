@@ -1,0 +1,39 @@
+[91m ▐[40m▛███▛█[39m[49m   [1mClaude Code[0m [2m[37mv2.1.331
+[0m[91m▝▜[40m█████[49m█▀[39m  [2m[37mFable 5.2 with high effort · Claude Ultra
+[0m[91m ▝▝   ▝▝ [39m  [2m[37m/tmp/repo
+
+[0m[93m⚠[39m [93mCode Mode (experimental) is on · this session can be resumed only with Code Mode on
+⚠[39m [93mRemote Control isn't available in Code Mode (experimental) yet, so this session isn't connected. 
+[39m  [93mTo use Remote Control, quit Claude Code and start it again with CLAUDE_CODE_EXPERIMENTAL_CODE_MODE
+[39m  [93mset to 0.
+
+[37m[100m❯ [97mUse the AskUserQuestion tool to ask me one question: which color do I prefer, with options red [39m   
+  [97mand blue. Do nothing else.[39m                                                                        
+
+[2m[37m[49m●[0m Working[2m[37m · 8s[0m…
+
+
+
+
+
+
+
+
+
+
+
+
+[37m────────────────────────────────────────────────────────────────────────────────────────────────────
+[30m[104m ☐ Color 
+
+[1m[97m[49mWhich color do you prefer?
+
+[0m  [2m[37m1.[0m Red
+     [2m[37mYou prefer red[0m                                                
+  [2m[37m2.[0m Blue                                                                                         
+     [2m[37mYou prefer blue[0m                                                                                
+  [2m[37m3. [0m[37mType something.[39m                                                                                
+[37m────────────────────────────────────────────────────────────────────────────────────────────────────
+[94m❯[39m [94m4. Chat about this[39m                                                                                
+                                                                                                  
+[2m[37mEnter to select · ↑/↓ to navigate · ctrl+g to edit in Nvim · Esc to cancel

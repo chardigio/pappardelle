@@ -4,6 +4,7 @@ import {exec, execFile, spawn, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
+import {setTimeout as delay} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -175,7 +176,7 @@ import {
 	frameReadyChannel,
 	frameStartedChannel,
 } from './pane-frame-options.ts';
-import {parseAgentScreen} from './agent-screen.ts';
+import {type AgentScreen, parseAgentScreen} from './agent-screen.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {PaneLayout} from './types.ts';
@@ -1768,8 +1769,15 @@ const CLEAR_COMPOSER_CHUNK = Array.from(
 const CLEAR_COMPOSER_CALLS =
 	CLEAR_COMPOSER_ROUNDS / CLEAR_COMPOSER_ROUNDS_PER_CALL;
 
+type ComposerWatch = {
+	runner: SendTmuxRunner;
+	target: string;
+	sleep: (ms: number) => Promise<void>;
+};
+
 /**
- * Leave any pane mode, empty the composer, paste `text`, then press Enter.
+ * Leave any pane mode, empty the composer unless it was read empty, then
+ * paste `text`.
  *
  * Agents detect a fast burst of keystrokes as a paste and turn an Enter that
  * arrives inside it into a newline: Codex does this even when Enter is its own
@@ -1778,28 +1786,34 @@ const CLEAR_COMPOSER_CALLS =
  * `-r` keeps newlines as LF, so an app without bracketed paste mode does not
  * receive each line as a separate submit.
  *
+ * A Codex session that has taken no prompt yet works through the clear keys
+ * at about 100 a second, and draws the paste only after them, some 8 s later
+ * (pappardelle-hrdr). An input box read empty is left as it is.
+ *
  * A viewer pane scrolled back in copy-mode would swallow the Enter while the
  * paste still reaches the agent. The text goes through stdin because tmux
  * rejects a command line over ~16KB.
  *
- * Stops at the first failing call so Enter is never sent without the text.
- * `-d` only deletes the buffer when the paste succeeds, so a failed paste
- * deletes it explicitly rather than leave the prompt on the server.
+ * Stops at the first failing call. `-d` only deletes the buffer when the
+ * paste succeeds, so a failed paste deletes it explicitly rather than leave
+ * the prompt on the server.
  */
-export async function pasteThenEnter(
+async function pasteIntoComposer(
 	runner: SendTmuxRunner,
 	target: string,
 	text: string,
+	{clear}: {clear: boolean},
 ): Promise<boolean> {
 	const buffer = `pappardelle-send-${process.pid}`;
 	const steps: Array<{args: string[]; input?: string}> = [
 		{args: ['copy-mode', '-q', '-t', target]},
-		...Array.from({length: CLEAR_COMPOSER_CALLS}, () => ({
-			args: ['send-keys', '-t', target, ...CLEAR_COMPOSER_CHUNK],
-		})),
+		...(clear
+			? Array.from({length: CLEAR_COMPOSER_CALLS}, () => ({
+					args: ['send-keys', '-t', target, ...CLEAR_COMPOSER_CHUNK],
+				}))
+			: []),
 		{args: ['load-buffer', '-b', buffer, '-'], input: text},
 		{args: ['paste-buffer', '-p', '-d', '-r', '-b', buffer, '-t', target]},
-		{args: ['send-keys', '-t', target, 'Enter']},
 	];
 	for (const {args, input} of steps) {
 		const r = await runner(args, input);
@@ -1811,6 +1825,90 @@ export async function pasteThenEnter(
 	}
 
 	return true;
+}
+
+async function pressEnter(
+	runner: SendTmuxRunner,
+	target: string,
+): Promise<boolean> {
+	const r = await runner(['send-keys', '-t', target, 'Enter']);
+	return !r.error && r.status === 0;
+}
+
+async function readAgentScreen(
+	runner: SendTmuxRunner,
+	target: string,
+): Promise<AgentScreen | null> {
+	const r = await runner(['capture-pane', '-p', '-e', '-J', '-t', target]);
+	if (r.error || r.status !== 0) return null;
+	return parseAgentScreen(r.stdout, new Date());
+}
+
+// A send watches the input box every 50 ms: up to 20 s for the agent to draw
+// the pasted text, since a new Codex session took 7.5-9 s over the clear keys
+// of a forced send, and up to 2 s after each Enter for it to leave. The worst
+// case, 24 s, stays inside the send lock's timeout.
+const COMPOSER_POLL_MS = 50;
+const PASTE_SHOWN_POLLS = 400;
+const ENTER_TAKEN_POLLS = 40;
+
+/**
+ * Read the agent's input box until `done` holds for it, at most `polls`
+ * times. Counting reads rather than reading the clock keeps a test's instant
+ * sleep from spinning.
+ */
+async function waitForComposer(
+	{runner, target, sleep}: ComposerWatch,
+	polls: number,
+	done: (composer: string | null) => boolean,
+): Promise<{met: boolean; composer: string | null}> {
+	for (let poll = 0; poll < polls; poll++) {
+		if (poll > 0) await sleep(COMPOSER_POLL_MS);
+		const screen = await readAgentScreen(runner, target);
+		if (screen && done(screen.composer))
+			return {met: true, composer: screen.composer};
+	}
+
+	return {met: false, composer: null};
+}
+
+/**
+ * Paste `text` and press Enter. When the agent's input box can be read, the
+ * text must show there before Enter is pressed, and leave it after. Codex has
+ * been seen to keep a sent prompt in its box until the next key
+ * (pappardelle-hrdr), so a second Enter follows if it stays.
+ *
+ * Enter is pressed again only while the box holds exactly the pasted text:
+ * a dialog that opens on the submit has no box to read, so the second Enter
+ * can never answer it.
+ */
+async function submit(
+	watcher: ComposerWatch,
+	text: string,
+	composer: string | null,
+): Promise<'sent' | 'unsubmitted' | 'failed'> {
+	const {runner, target} = watcher;
+	const pasted = await pasteIntoComposer(runner, target, text, {
+		clear: composer !== '',
+	});
+	if (!pasted) return 'failed';
+	if (composer === null)
+		return (await pressEnter(runner, target)) ? 'sent' : 'failed';
+	const shown = await waitForComposer(watcher, PASTE_SHOWN_POLLS, Boolean);
+	// Unseen, the text may not be in the box at all, and Enter could land on
+	// whatever took its place.
+	if (!shown.met) return 'failed';
+	for (let attempt = 0; attempt < 2; attempt++) {
+		if (!(await pressEnter(runner, target))) return 'failed';
+		const taken = await waitForComposer(
+			watcher,
+			ENTER_TAKEN_POLLS,
+			composer => composer !== shown.composer,
+		);
+		if (taken.met) return 'sent';
+	}
+
+	return 'unsubmitted';
 }
 
 /**
@@ -1844,6 +1942,8 @@ export type SendToSpaceAgentResult =
 	| 'prompt'
 	| 'no-session'
 	| 'busy'
+	/** The text showed in the input box and was still there after two Enters. */
+	| 'unsubmitted'
 	| 'failed';
 
 /**
@@ -1851,15 +1951,10 @@ export type SendToSpaceAgentResult =
  * the keys as an answer, which must go through `pappardelle answer` and its
  * policy. Text typed into the agent's input box would be cleared by the send.
  */
-async function sendBlocker(
-	runner: SendTmuxRunner,
-	target: string,
+function sendBlocker(
+	screen: AgentScreen,
 	force: boolean,
-): Promise<'draft' | 'prompt' | 'failed' | null> {
-	const r = await runner(['capture-pane', '-p', '-e', '-J', '-t', target]);
-	// Unread, the screen may hold a prompt the keys would answer.
-	if (r.error || r.status !== 0) return 'failed';
-	const screen = parseAgentScreen(r.stdout, new Date());
+): 'draft' | 'prompt' | null {
 	if (screen.permission || screen.question || screen.codexDialog)
 		return 'prompt';
 	return screen.composer && !force ? 'draft' : null;
@@ -1878,6 +1973,7 @@ export async function sendToSpaceAgent(
 		lockTimeoutMs?: number;
 		/** Send over a draft in the input box. Never over a prompt. */
 		force?: boolean;
+		sleep?: (ms: number) => Promise<void>;
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
@@ -1891,13 +1987,16 @@ export async function sendToSpaceAgent(
 			async () => {
 				// Checked under the lock, so no other send changes the screen
 				// between the check and the paste.
-				const blocker = await sendBlocker(
-					runner,
-					target,
-					options.force ?? false,
-				);
+				const screen = await readAgentScreen(runner, target);
+				// Unread, the screen may hold a prompt the keys would answer.
+				if (!screen) return 'failed';
+				const blocker = sendBlocker(screen, options.force ?? false);
 				if (blocker) return blocker;
-				return (await pasteThenEnter(runner, target, text)) ? 'sent' : 'failed';
+				return submit(
+					{runner, target, sleep: options.sleep ?? delay},
+					text,
+					screen.composer,
+				);
 			},
 			{dir: options.lockDir, timeoutMs: options.lockTimeoutMs},
 		);

@@ -514,3 +514,36 @@ test('Write and Read prompts name their file where the path rule can check it', 
 		question: 'Do you want to create numbers.js?',
 	});
 });
+
+test("a highlighted Chat about this row in a question is not Claude's input box", t => {
+	const {composer, question} = screen('claude-q-chat-selected');
+	t.is(composer, null);
+	t.deepEqual(
+		question?.options.map(option => option.label),
+		['Red', 'Blue'],
+	);
+});
+
+// The echo line is the one Claude drew for a SendMessage, set into a real
+// permission capture: an isolated Claude can't be sent one.
+test("a message echoed above a permission prompt is not Codex's input box", t => {
+	const {composer, permission, lines} = screen('claude-permission-echo');
+	t.is(composer, null);
+	t.is(permission?.command, 'touch made-by-claude.txt');
+	t.true(
+		lines.some(line => line.includes('› Message from @sous-chef: keep going')),
+	);
+});
+
+test("Codex's empty input box is read under the message it just sent", t => {
+	const {composer, lines} = screen('codex-sent');
+	t.is(composer, '');
+	t.true(
+		lines.some(line => line.startsWith('› reply with just the word three')),
+	);
+});
+
+test('a long paste collapsed into a placeholder is the draft', t => {
+	t.is(screen('claude-long-paste').composer, '[Pasted text #1 +39 lines]');
+	t.is(screen('codex-long-paste').composer, '[Pasted Content 2190 chars]');
+});

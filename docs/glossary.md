@@ -9,3 +9,5 @@
 - **Status snapshot**: a pane monitor's latest program status for one pane generation (`ProgramStatusSnapshot`). Not the install **Snapshot**
 - **Pane generation**: the id of one monitor attach to one agent pane, a hash of the socket, pane id, pid and marker. Status snapshots and leases are filed under it
 - **Forgotten generation**: a pane generation the status daemon was told to forget when its space closed or its pane was replaced. The daemon ignores status snapshots that arrive for it later
+- **Composer**: the agent's input box: Claude's `❯` (`!` in shell mode) between two rules, Codex's `›`. Not read while a dialog is open
+- **Unsubmitted send**: a send whose text showed in the composer and was still there after two Enters
