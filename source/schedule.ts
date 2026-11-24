@@ -331,7 +331,7 @@ async function fireOneShot(
 }
 
 function nudgeResult(outcome: SendOutcome): FireResult {
-	if (outcome === 'sent') return 'sent';
+	if (outcome === 'sent' || outcome === 'unsubmitted') return outcome;
 	return outcome === 'draft' ? 'skipped_draft' : 'waiting';
 }
 

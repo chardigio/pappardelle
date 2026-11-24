@@ -1769,7 +1769,8 @@ const CLEAR_COMPOSER_CHUNK = Array.from(
 const CLEAR_COMPOSER_CALLS =
 	CLEAR_COMPOSER_ROUNDS / CLEAR_COMPOSER_ROUNDS_PER_CALL;
 
-type ComposerWatch = {
+/** An agent's tmux pane, and how a send waits between reads of it. */
+type AgentPane = {
 	runner: SendTmuxRunner;
 	target: string;
 	sleep: (ms: number) => Promise<void>;
@@ -1799,8 +1800,7 @@ type ComposerWatch = {
  * the prompt on the server.
  */
 async function pasteIntoComposer(
-	runner: SendTmuxRunner,
-	target: string,
+	{runner, target}: AgentPane,
 	text: string,
 	{clear}: {clear: boolean},
 ): Promise<boolean> {
@@ -1827,30 +1827,30 @@ async function pasteIntoComposer(
 	return true;
 }
 
-async function pressEnter(
-	runner: SendTmuxRunner,
-	target: string,
-): Promise<boolean> {
+async function pressEnter({runner, target}: AgentPane): Promise<boolean> {
 	const r = await runner(['send-keys', '-t', target, 'Enter']);
 	return !r.error && r.status === 0;
 }
 
-async function readAgentScreen(
-	runner: SendTmuxRunner,
-	target: string,
-): Promise<AgentScreen | null> {
+async function readAgentScreen({
+	runner,
+	target,
+}: AgentPane): Promise<AgentScreen | null> {
 	const r = await runner(['capture-pane', '-p', '-e', '-J', '-t', target]);
 	if (r.error || r.status !== 0) return null;
 	return parseAgentScreen(r.stdout, new Date());
 }
 
-// A send watches the input box every 50 ms: up to 20 s for the agent to draw
+// A send watches the input box every 50 ms: up to 12 s for the agent to draw
 // the pasted text, since a new Codex session took 7.5-9 s over the clear keys
-// of a forced send, and up to 2 s after each Enter for it to leave. The worst
-// case, 24 s, stays inside the send lock's timeout.
+// of a forced send, and up to 2 s after each Enter for it to leave. With the
+// tmux calls between reads that keeps a send's hold on the send lock near
+// 20 s, under the 30 s after which another sender takes the lock over.
 const COMPOSER_POLL_MS = 50;
-const PASTE_SHOWN_POLLS = 400;
+const PASTE_SHOWN_POLLS = 240;
 const ENTER_TAKEN_POLLS = 40;
+// The bead's report was that the key after a lost Enter submitted the text.
+const ENTER_ATTEMPTS = 2;
 
 /**
  * Read the agent's input box until `done` holds for it, at most `polls`
@@ -1858,13 +1858,13 @@ const ENTER_TAKEN_POLLS = 40;
  * sleep from spinning.
  */
 async function waitForComposer(
-	{runner, target, sleep}: ComposerWatch,
+	pane: AgentPane,
 	polls: number,
 	done: (composer: string | null) => boolean,
 ): Promise<{met: boolean; composer: string | null}> {
 	for (let poll = 0; poll < polls; poll++) {
-		if (poll > 0) await sleep(COMPOSER_POLL_MS);
-		const screen = await readAgentScreen(runner, target);
+		if (poll > 0) await pane.sleep(COMPOSER_POLL_MS);
+		const screen = await readAgentScreen(pane);
 		if (screen && done(screen.composer))
 			return {met: true, composer: screen.composer};
 	}
@@ -1874,34 +1874,38 @@ async function waitForComposer(
 
 /**
  * Paste `text` and press Enter. When the agent's input box can be read, the
- * text must show there before Enter is pressed, and leave it after. Codex has
- * been seen to keep a sent prompt in its box until the next key
- * (pappardelle-hrdr), so a second Enter follows if it stays.
+ * pasted text must show there, settled over two reads and different from what
+ * the box held before, before Enter is pressed, and must leave it after. If
+ * it stays, Enter is pressed once more.
  *
- * Enter is pressed again only while the box holds exactly the pasted text:
- * a dialog that opens on the submit has no box to read, so the second Enter
- * can never answer it.
+ * Enter is pressed again only when the read just before it shows the pasted
+ * text still in the box, so a dialog the submit opened has had to appear
+ * within one tmux round trip to take that Enter.
  */
 async function submit(
-	watcher: ComposerWatch,
+	pane: AgentPane,
 	text: string,
-	composer: string | null,
+	before: string | null,
 ): Promise<'sent' | 'unsubmitted' | 'failed'> {
-	const {runner, target} = watcher;
-	const pasted = await pasteIntoComposer(runner, target, text, {
-		clear: composer !== '',
+	if (!(await pasteIntoComposer(pane, text, {clear: before !== ''})))
+		return 'failed';
+	if (before === null) return (await pressEnter(pane)) ? 'sent' : 'failed';
+	// Over a draft, the box keeps showing it until the agent has worked
+	// through the clear keys, and a long paste can be drawn over several reads.
+	let previous: string | null = null;
+	const shown = await waitForComposer(pane, PASTE_SHOWN_POLLS, composer => {
+		const settled =
+			Boolean(composer) && composer !== before && composer === previous;
+		previous = composer;
+		return settled;
 	});
-	if (!pasted) return 'failed';
-	if (composer === null)
-		return (await pressEnter(runner, target)) ? 'sent' : 'failed';
-	const shown = await waitForComposer(watcher, PASTE_SHOWN_POLLS, Boolean);
 	// Unseen, the text may not be in the box at all, and Enter could land on
 	// whatever took its place.
 	if (!shown.met) return 'failed';
-	for (let attempt = 0; attempt < 2; attempt++) {
-		if (!(await pressEnter(runner, target))) return 'failed';
+	for (let attempt = 0; attempt < ENTER_ATTEMPTS; attempt++) {
+		if (!(await pressEnter(pane))) return 'failed';
 		const taken = await waitForComposer(
-			watcher,
+			pane,
 			ENTER_TAKEN_POLLS,
 			composer => composer !== shown.composer,
 		);
@@ -1987,16 +1991,13 @@ export async function sendToSpaceAgent(
 			async () => {
 				// Checked under the lock, so no other send changes the screen
 				// between the check and the paste.
-				const screen = await readAgentScreen(runner, target);
+				const pane = {runner, target, sleep: options.sleep ?? delay};
+				const screen = await readAgentScreen(pane);
 				// Unread, the screen may hold a prompt the keys would answer.
 				if (!screen) return 'failed';
 				const blocker = sendBlocker(screen, options.force ?? false);
 				if (blocker) return blocker;
-				return submit(
-					{runner, target, sleep: options.sleep ?? delay},
-					text,
-					screen.composer,
-				);
+				return submit(pane, text, screen.composer);
 			},
 			{dir: options.lockDir, timeoutMs: options.lockTimeoutMs},
 		);

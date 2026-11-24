@@ -526,7 +526,7 @@ test("a highlighted Chat about this row in a question is not Claude's input box"
 
 // The echo line is the one Claude drew for a SendMessage, set into a real
 // permission capture: an isolated Claude can't be sent one.
-test("a message echoed above a permission prompt is not Codex's input box", t => {
+test("a message echo above Claude's permission prompt is not read as an input box", t => {
 	const {composer, permission, lines} = screen('claude-permission-echo');
 	t.is(composer, null);
 	t.is(permission?.command, 'touch made-by-claude.txt');

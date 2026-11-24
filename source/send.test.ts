@@ -292,6 +292,36 @@ test('a send presses Enter once the agent shows the pasted text, and is sent whe
 });
 
 // pappardelle-hrdr: Codex has left a sent prompt in its box until the next key.
+test('a forced send waits while the box still shows the old draft, and presses Enter once the paste has settled', async t => {
+	const draft = '\u001B[1m›\u001B[0m half a thought\n  gpt-6 · ~/repo\n';
+	let readsSincePaste = 0;
+	let entersWhileDraft = 0;
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen(sent) {
+			if (!sent.pasted) return draft;
+			readsSincePaste++;
+			if (readsSincePaste <= 5) {
+				if (sent.enters > 0) entersWhileDraft++;
+				return draft;
+			}
+
+			return submitsOnEnter(1)(sent);
+		},
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner,
+			lockDir,
+			sleep,
+			force: true,
+		}),
+		'sent',
+	);
+	t.is(entersWhileDraft, 0);
+	t.is(enters(calls), 1);
+});
+
 test('a send presses Enter again when the first leaves the text in the box', async t => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],

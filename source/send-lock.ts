@@ -9,8 +9,9 @@ export class SendLockTimeout extends Error {}
 /** How long a send waits for another send to the same agent. */
 export const SEND_LOCK_TIMEOUT_MS = 30_000;
 
-// No send holds the lock for long, so one held past the timeout was left by a
-// sender that died, even when its pid has since been reused by a live process.
+// A send holds the lock for about 20 s at most, while it waits on the agent's
+// screen, so one held past the timeout was left by a sender that died, even
+// when its pid has since been reused by a live process.
 const ABANDONED_LOCK_MS = SEND_LOCK_TIMEOUT_MS;
 
 // A lock file is empty for a moment between its creation and the pid write,
