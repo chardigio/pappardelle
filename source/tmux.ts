@@ -162,7 +162,7 @@ import {
 	type CompanionSplit,
 	type SplitDirection,
 } from './companion-splits.ts';
-import {createLogger, dismissRecentErrors} from './logger.ts';
+import {createLogger, dismissRecentErrors, getRecentErrors} from './logger.ts';
 import {
 	ControlClientNeverStarted,
 	TmuxControlClient,
@@ -301,24 +301,21 @@ export function storedIdentity(issueKey: string): SpaceIdentity | null {
 	return null;
 }
 
-// The TUI loads the config on every selection, and the rail keeps only the
-// last few errors.
-const reportedInvalidConfig = new Set<string>();
+const INVALID_CONFIG_REPORT = 'not started: the config is invalid:';
 
+// The TUI loads the config on every selection, and the rail keeps only the
+// last few errors, for a few minutes.
 function reportInvalidConfig(
 	issueKey: string,
 	error: ConfigValidationError,
 ): void {
-	const message = `Not starting the agent of ${issueKey}: the config is invalid: ${error.errors.join('; ')}`;
-	if (reportedInvalidConfig.has(message)) return;
-	reportedInvalidConfig.add(message);
+	const message = `Agent of ${issueKey} ${INVALID_CONFIG_REPORT} ${error.errors.join('; ')}`;
+	if (getRecentErrors().some(entry => entry.message === message)) return;
 	log.error(message);
 }
 
 function dismissInvalidConfigErrors(): void {
-	if (reportedInvalidConfig.size === 0) return;
-	dismissRecentErrors(entry => reportedInvalidConfig.has(entry.message));
-	reportedInvalidConfig.clear();
+	dismissRecentErrors(entry => entry.message.includes(INVALID_CONFIG_REPORT));
 }
 
 function sessionNamesOf(identity: SpaceIdentity): SpaceSessionNames {
@@ -2645,7 +2642,8 @@ async function attachViewers(
 		// Without a config there is no agent profile to lose, so the built-in
 		// one is right. A broken config would replace the space's own.
 		if (error instanceof ConfigValidationError) invalidConfig = error;
-		else if (!(error instanceof ConfigNotFoundError))
+		else if (error instanceof ConfigNotFoundError) dismissInvalidConfigErrors();
+		else
 			log.warn(
 				`Could not load the config for ${issueKey}; starting with the built-in defaults`,
 				error instanceof Error ? error : undefined,
@@ -2654,36 +2652,38 @@ async function attachViewers(
 
 	if (agentProfile)
 		sessionId = agentSessions().read(issueKey, agentProfile.name);
-	const heldBack = invalidConfig;
-	const prepareAgent = heldBack
-		? resumeAgentSession(issueKey, sessions.agent, options.run ?? runTmux).then(
-				resumed => {
-					if (resumed === 'absent') reportInvalidConfig(issueKey, heldBack);
-					return resumed === 'resumed';
-				},
-			)
-		: ensureAgentSession(
-				issueKey,
-				mainWorktreePath,
-				skipPermissions,
-				options.run ?? runTmux,
-				agentProfile,
-				sessionId,
-				launch,
-			);
 
 	try {
 		// Complete session creation and command launch together so a superseded
 		// selection can't leave an existing session with no agent running.
+		// A broken config would start the space's programs with the wrong
+		// commands, and they keep running after the config is fixed.
 		const prepared = await Promise.allSettled([
-			prepareAgent,
-			companionViewerPaneId
-				? ensureCompanionSession(
+			invalidConfig
+				? resumeHeldBackAgent(
+						issueKey,
+						sessions.agent,
+						options.run ?? runTmux,
+						invalidConfig,
+					)
+				: ensureAgentSession(
 						issueKey,
 						mainWorktreePath,
-						companionCommand,
+						skipPermissions,
 						options.run ?? runTmux,
-					)
+						agentProfile,
+						sessionId,
+						launch,
+					),
+			companionViewerPaneId
+				? invalidConfig
+					? innerSessionExistsAsync(sessions.companion, options.run ?? runTmux)
+					: ensureCompanionSession(
+							issueKey,
+							mainWorktreePath,
+							companionCommand,
+							options.run ?? runTmux,
+						)
 				: Promise.resolve(false),
 		]);
 		signal?.throwIfAborted();
@@ -4009,6 +4009,17 @@ async function resumeAgentSession(
 		);
 		return 'failed';
 	}
+}
+
+async function resumeHeldBackAgent(
+	issueKey: string,
+	sessionName: string,
+	run: AsyncTmuxRunner,
+	error: ConfigValidationError,
+): Promise<boolean> {
+	const resumed = await resumeAgentSession(issueKey, sessionName, run);
+	if (resumed === 'absent') reportInvalidConfig(issueKey, error);
+	return resumed === 'resumed';
 }
 
 /**

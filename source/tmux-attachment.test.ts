@@ -1250,20 +1250,22 @@ test.serial(
 );
 
 // A config that fails validation while the TUI runs must not bring a space's
-// agent back as built-in claude: its agent profile, model and env would be lost.
+// programs back with built-in commands: its agent profile, model and env would
+// be lost.
 const INVALID_AGENT_PROFILE =
 	'agent_profiles:\n  opus:\n    command: claude\n    model: 7\n';
+const VALID_CONFIG = 'version: 1\nprofiles: {}\n';
+const projectConfig = () => join(process.cwd(), '.pappardelle.yml');
 
 function withInvalidConfig(t: ExecutionContext): void {
-	const configPath = join(process.cwd(), '.pappardelle.yml');
-	writeFileSync(configPath, INVALID_AGENT_PROFILE);
+	isolatedHome(t);
+	writeFileSync(projectConfig(), INVALID_AGENT_PROFILE);
 	t.teardown(() => {
-		rmSync(configPath, {force: true});
+		rmSync(projectConfig(), {force: true});
 	});
 }
 
-// Answers has-session as missing for the sessions in `missing`.
-function tmuxWithout(...missing: string[]) {
+function tmuxMissingSessions(...missing: string[]) {
 	const fake = fakeTmux();
 	const run: AsyncTmuxRunner = async args => {
 		if (
@@ -1282,33 +1284,38 @@ const createsSession = (calls: string[][], session: string) =>
 			args.includes('new-session') && args.some(arg => arg.includes(session)),
 	);
 
+const showsNoProgram = (
+	calls: string[][],
+	issueKey: string,
+	program: 'agent' | 'companion',
+) =>
+	calls.some(args =>
+		args.some(
+			arg =>
+				arg.includes(`has no ${program} running`) && arg.includes(issueKey),
+		),
+	);
+
 const invalidConfigErrors = (issueKey: string) =>
 	getRecentErrors().filter(error =>
-		error.message.includes(`Not starting the agent of ${issueKey}`),
+		error.message.startsWith(`Agent of ${issueKey} not started`),
 	);
 
 test.serial(
-	'an invalid config holds back a dead agent session and says why, once',
+	'an invalid config holds back dead sessions and says why, once',
 	async t => {
 		withInvalidConfig(t);
 		const {agent, companion} = sessionNamesFor('TEST-INVALID', getRepoName());
-		const {calls, run} = tmuxWithout(agent, companion);
+		const {calls, run} = tmuxMissingSessions(agent, companion);
 		clearRecentErrors();
 		clearCurrentlyViewingSpace();
 		await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
 			run,
 		});
 		t.false(createsSession(calls, agent));
-		t.true(createsSession(calls, companion));
-		t.true(
-			calls.some(args =>
-				args.some(
-					arg =>
-						arg.includes('has no agent running') &&
-						arg.includes('TEST-INVALID'),
-				),
-			),
-		);
+		t.false(createsSession(calls, companion));
+		t.true(showsNoProgram(calls, 'TEST-INVALID', 'agent'));
+		t.true(showsNoProgram(calls, 'TEST-INVALID', 'companion'));
 		const [reported, ...more] = invalidConfigErrors('TEST-INVALID');
 		t.deepEqual(more, []);
 		t.true(reported?.message.includes('agent_profiles.opus.model'));
@@ -1324,47 +1331,71 @@ test.serial(
 );
 
 test.serial(
-	'an invalid config still attaches an agent session that is running',
+	'an invalid config reports again once the rail has dropped the error',
+	async t => {
+		withInvalidConfig(t);
+		const {agent, companion} = sessionNamesFor('TEST-AGAIN', getRepoName());
+		const {run} = tmuxMissingSessions(agent, companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
+			run,
+		});
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.is(invalidConfigErrors('TEST-AGAIN').length, 1);
+		clearCurrentlyViewingSpace();
+	},
+);
+
+test.serial(
+	'an invalid config still attaches sessions that are running',
 	async t => {
 		withInvalidConfig(t);
 		const {agent, companion} = sessionNamesFor('TEST-LIVE', getRepoName());
-		const {calls, run} = tmuxWithout(companion);
+		const {calls, run} = tmuxMissingSessions();
 		clearRecentErrors();
 		clearCurrentlyViewingSpace();
 		await attachToSpace('%1', '%2', 'TEST-LIVE', '%0', '/tmp', undefined, {
 			run,
 		});
 		t.false(createsSession(calls, agent));
-		t.false(
-			calls.some(args =>
-				args.some(arg => arg.includes('has no agent running')),
-			),
-		);
+		t.false(createsSession(calls, companion));
+		t.false(showsNoProgram(calls, 'TEST-LIVE', 'agent'));
 		t.deepEqual(invalidConfigErrors('TEST-LIVE'), []);
 		clearCurrentlyViewingSpace();
 	},
 );
 
-test.serial(
-	'a fixed config starts the held-back agent and clears its error',
-	async t => {
-		withInvalidConfig(t);
-		const {agent, companion} = sessionNamesFor('TEST-FIXED', getRepoName());
-		const {calls, run} = tmuxWithout(agent, companion);
-		clearRecentErrors();
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
-			run,
-		});
-		t.is(invalidConfigErrors('TEST-FIXED').length, 1);
+for (const [recovery, recover] of [
+	['fixed', () => writeFileSync(projectConfig(), VALID_CONFIG)],
+	['removed', () => rmSync(projectConfig())],
+] as const) {
+	test.serial(
+		`a ${recovery} config starts the held-back sessions and clears the error`,
+		async t => {
+			withInvalidConfig(t);
+			const {agent, companion} = sessionNamesFor('TEST-FIXED', getRepoName());
+			const {calls, run} = tmuxMissingSessions(agent, companion);
+			clearRecentErrors();
+			clearCurrentlyViewingSpace();
+			await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+				run,
+			});
+			t.is(invalidConfigErrors('TEST-FIXED').length, 1);
 
-		rmSync(join(process.cwd(), '.pappardelle.yml'));
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
-			run,
-		});
-		t.true(createsSession(calls, agent));
-		t.deepEqual(invalidConfigErrors('TEST-FIXED'), []);
-		clearCurrentlyViewingSpace();
-	},
-);
+			recover();
+			clearCurrentlyViewingSpace();
+			await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+				run,
+			});
+			t.true(createsSession(calls, agent));
+			t.true(createsSession(calls, companion));
+			t.deepEqual(invalidConfigErrors('TEST-FIXED'), []);
+			clearCurrentlyViewingSpace();
+		},
+	);
+}
