@@ -13,6 +13,9 @@
 #   from the issue) and still runs the CLI under the pinned bun
 # - when the pinned binary vanishes, the shim falls back to PATH but fails
 #   loud + actionable on a below-floor bun instead of half-working
+# - the shim, idow and the installed skill scripts run from a snapshot in
+#   ~/.pappardelle/local, so a later build in this checkout doesn't go live
+#   (pappardelle-c3k5)
 #
 # Runs `bun install --frozen-lockfile` + `bun run build` in this checkout (LOCAL_MODE). Also
 # runs in CI: the monorepo's pappardelle workflow globs scripts/test-*.sh and
@@ -109,6 +112,7 @@ if ! HOME="$SANDBOX_HOME" bash "$REPO_DIR/install.sh" > "$INSTALL_LOG" 2>&1; the
 fi
 
 SHIM="$SANDBOX_HOME/.local/bin/pappardelle"
+SNAPSHOT="$SANDBOX_HOME/.pappardelle/local"
 
 # ============================================================================
 # Tests
@@ -122,6 +126,18 @@ assert_contains "shim pins the bun that ran the installer" \
     "PINNED_BUN=\"$EXPECTED_BUN_BIN\"" "$(cat "$SHIM")"
 assert_eq "shim has no unpinned 'exec bun'" "no" \
     "$(grep -q 'exec bun ' "$SHIM" && echo yes || echo no)"
+
+echo ""
+echo -e "${BOLD}Snapshot install${RESET}"
+
+assert_eq "shim runs the snapshot's build" "CLI_JS=\"$SNAPSHOT/dist/cli.js\"" \
+    "$(grep '^CLI_JS=' "$SHIM")"
+assert_eq "idow links into the snapshot" "$SNAPSHOT/scripts/idow" \
+    "$(readlink "$SANDBOX_HOME/.local/bin/idow")"
+assert_eq "snapshot holds the native binary" "yes" \
+    "$([[ -x "$SNAPSHOT/dist/pappardelle" ]] && echo yes || echo no)"
+assert_eq "install links nothing to this checkout" "" \
+    "$(grep -rlF "$REPO_DIR" "$SANDBOX_HOME/.local/bin" || true)"
 
 echo ""
 echo -e "${BOLD}Runtime: stale Bun 1.3 bun first on PATH (the issue's repro)${RESET}"

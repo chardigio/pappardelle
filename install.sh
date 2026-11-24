@@ -10,9 +10,12 @@
 #
 # This script:
 # 1. Checks prerequisites (Bun >= 1.4.4, tmux, jq)
-# 2. Clones or updates chardigio/pappardelle to ~/.pappardelle/repo/
-# 3. Builds and links the application (makes `pappardelle` available globally)
-# 4. Symlinks `idow` to ~/.local/bin/
+# 2. Clones chardigio/pappardelle to ~/.pappardelle/repo/, or, run from a
+#    local clone, uses that clone
+# 3. Typechecks and builds it. A local clone's build is copied to
+#    ~/.pappardelle/local/, so later builds in the clone don't go live until
+#    the next install
+# 4. Links `pappardelle` and `idow` in ~/.local/bin/ to the installed build
 # 5. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
 # 6. Installs skill helper scripts to ~/.pappardelle/scripts/
 # 7. Installs the Pappardelle plugin (skills and hooks) from this checkout
@@ -37,6 +40,7 @@ print_info() { echo -e "${BLUE}→${NC} $1"; }
 
 PAPPARDELLE_DIR="$HOME/.pappardelle"
 REPO_DIR="$PAPPARDELLE_DIR/repo"
+LOCAL_INSTALL_DIR="$PAPPARDELLE_DIR/local"
 LOCAL_BIN="$HOME/.local/bin"
 WORKTREES_DIR="$HOME/.worktrees"
 REPO_URL="https://github.com/chardigio/pappardelle.git"
@@ -133,6 +137,24 @@ install_private_bun() {
     printf '%s\n' "$PRIVATE_BUN_DIR/current/bun"
 }
 
+# `bun build` doesn't typecheck, so without the typecheck a tree that doesn't
+# compile still produces a dist/ that fails at runtime.
+build_checkout() {
+    (cd "$1" && bun install --frozen-lockfile --silent && bun run typecheck && bun run build)
+}
+
+# Moves $1 to $2, keeping what was at $2 as $2.previous for a rollback.
+# Hooks run scripts from the install on every agent tool call, so nothing may
+# go between the two moves.
+swap_into_place() {
+    local new="$1" dest="$2"
+    rm -rf "$dest.previous"
+    if [[ -e "$dest" ]]; then
+        mv "$dest" "$dest.previous"
+    fi
+    mv "$new" "$dest"
+}
+
 # Clones and builds into a staging folder next to $REPO_DIR, and moves it into
 # place only after the build succeeds. The shim runs from $REPO_DIR/dist, so
 # deleting $REPO_DIR first (as the installer used to) left no working
@@ -149,17 +171,13 @@ install_repo_atomically() {
         rm -rf "$stage"; return 1
     fi
 
-    print_info "Installing dependencies and building..."
-    if ! (cd "$stage/repo" && bun install --frozen-lockfile --silent && bun run build); then
-        print_error "bun install/build failed; your current install is unchanged"
+    print_info "Installing dependencies, typechecking and building..."
+    if ! build_checkout "$stage/repo"; then
+        print_error "bun install, typecheck or build failed; your current install is unchanged"
         rm -rf "$stage"; return 1
     fi
 
-    rm -rf "$REPO_DIR.previous"
-    if [[ -e "$REPO_DIR" ]]; then
-        mv "$REPO_DIR" "$REPO_DIR.previous"
-    fi
-    mv "$stage/repo" "$REPO_DIR"
+    swap_into_place "$stage/repo" "$REPO_DIR"
     rm -rf "$stage"
     print_status "Built successfully and installed to $REPO_DIR"
 }
@@ -174,6 +192,51 @@ local_clone_dir() {
     dir="$(cd "$(dirname "$script")" && pwd)" || return 1
     grep -q '"name".*"pappardelle"' "$dir/package.json" 2>/dev/null || return 1
     printf '%s\n' "$dir"
+}
+
+# Copies the build of the local clone at $REPO_DIR to $LOCAL_INSTALL_DIR,
+# which the shim, idow and the agents' plugin then run from. The native
+# binary embeds Bun and the dependencies, so node_modules stays behind.
+install_local_snapshot() {
+    local stage sha
+    if [[ ! -x "$REPO_DIR/dist/pappardelle" ]]; then
+        print_error "$REPO_DIR/dist/pappardelle is missing; your current install is unchanged"
+        return 1
+    fi
+    mkdir -p "$PAPPARDELLE_DIR"
+    stage="$(mktemp -d "$PAPPARDELLE_DIR/local.staging.XXXXXX")"
+    mkdir "$stage/local"
+    if ! (cd "$REPO_DIR" && cp -R dist scripts plugins .claude-plugin package.json "$stage/local/"); then
+        print_error "Could not copy the build from $REPO_DIR; your current install is unchanged"
+        rm -rf "$stage"; return 1
+    fi
+    if sha="$(git -C "$REPO_DIR" log -1 --format=%h -- .)" && [[ -n "$sha" ]]; then
+        if [[ -n "$(git -C "$REPO_DIR" status --porcelain -- .)" ]]; then
+            sha="$sha-dirty"
+        fi
+        printf '%s\n' "$sha" > "$stage/local/commit-sha"
+    fi
+    swap_into_place "$stage/local" "$LOCAL_INSTALL_DIR"
+    rm -rf "$stage"
+    print_status "Installed $REPO_DIR${sha:+ ($sha)} to $LOCAL_INSTALL_DIR"
+}
+
+# Builds the local clone at $REPO_DIR and points REPO_DIR at what the rest of
+# the installer links: the snapshot, or the release clone itself, which runs in
+# place so its tag keeps driving the version and the update check.
+install_local_clone() {
+    print_status "Running from local clone: $REPO_DIR"
+    print_info "Installing dependencies, typechecking and building..."
+    if ! build_checkout "$REPO_DIR"; then
+        print_error "bun install, typecheck or build failed; your current install is unchanged"
+        print_info "Try manually: cd $REPO_DIR && bun install --frozen-lockfile && bun run typecheck && bun run build"
+        return 1
+    fi
+    print_status "Built successfully"
+    if [[ ! "$REPO_DIR" -ef "$PAPPARDELLE_DIR/repo" ]]; then
+        install_local_snapshot || return 1
+        REPO_DIR="$LOCAL_INSTALL_DIR"
+    fi
 }
 
 # Copies each skill's scripts/ to $PAPPARDELLE_DIR/scripts/<skill>/, where the
@@ -336,18 +399,7 @@ echo ""
 # ============================================================================
 
 if [[ "$LOCAL_MODE" == true ]]; then
-    print_status "Running from local clone: $REPO_DIR"
-    print_info "Installing dependencies and building..."
-    (
-        cd "$REPO_DIR"
-        bun install --frozen-lockfile --silent
-        bun run build
-    ) || {
-        print_error "bun install/build failed"
-        print_info "Try manually: cd $REPO_DIR && bun install --frozen-lockfile && bun run build"
-        exit 1
-    }
-    print_status "Built successfully"
+    install_local_clone || exit 1
 else
     # Always a fresh clone to avoid divergent history issues, built off to the
     # side so a failure keeps the current install working.

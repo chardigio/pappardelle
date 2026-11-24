@@ -52,6 +52,8 @@ const TOOLS = [
 	'find',
 	'dirname',
 	'cat',
+	'cp',
+	'chmod',
 	'git',
 	'tee',
 	'env',
@@ -296,11 +298,12 @@ test('install_private_bun names the archive URL when its download fails', t => {
 // install_repo_atomically
 // ============================================================================
 
-// A git repo whose `bun run build` runs build.sh, with a fake bun on PATH so
-// the test needs no registry.
-function sourceRepo(buildScript: string): string {
+// A git repo whose `bun run build` runs build.sh and `bun run typecheck`
+// runs typecheck.sh, with a fake bun on PATH so the test needs no registry.
+function sourceRepo(buildScript: string, typecheckScript = 'exit 0\n'): string {
 	const repo = temporaryDir();
 	fs.writeFileSync(path.join(repo, 'build.sh'), buildScript);
+	fs.writeFileSync(path.join(repo, 'typecheck.sh'), typecheckScript);
 	const git = (...args: string[]) =>
 		spawnSync('git', args, {cwd: repo, encoding: 'utf8'});
 	git('init', '-q');
@@ -322,7 +325,7 @@ function toolsWithFakeBun(): string {
 	const tools = toolsDir();
 	fs.writeFileSync(
 		path.join(tools, 'bun'),
-		'#!/bin/bash\nif [[ "$1" == run ]]; then bash build.sh; fi\n',
+		'#!/bin/bash\ncase "$1 $2" in\n\t"run typecheck") bash typecheck.sh ;;\n\t"run build") bash build.sh ;;\nesac\n',
 		{mode: 0o755},
 	);
 	return tools;
@@ -354,6 +357,26 @@ test('a failed build leaves the current install in place', t => {
 		.readdirSync(path.join(home, '.pappardelle'))
 		.filter(name => name.startsWith('repo.staging'));
 	t.deepEqual(leftovers, []);
+});
+
+test('a clone that does not typecheck is never built and leaves the current install in place', t => {
+	const home = temporaryDir();
+	const repoDir = existingInstall(home);
+
+	const result = runInstallFunction('install_repo_atomically', {
+		HOME: home,
+		PATH: toolsWithFakeBun(),
+		PAPPARDELLE_REPO_URL: sourceRepo(
+			'mkdir -p dist && echo new build > dist/cli.js\n',
+			'exit 2\n',
+		),
+	});
+
+	t.not(result.status, 0);
+	t.is(
+		fs.readFileSync(path.join(repoDir, 'dist', 'cli.js'), 'utf8'),
+		'old build',
+	);
 });
 
 test('a clone failure leaves the current install in place', t => {
@@ -394,6 +417,191 @@ test('a successful build replaces the install and keeps the old one as a rollbac
 		fs.readFileSync(path.join(`${repoDir}.previous`, 'dist', 'cli.js'), 'utf8'),
 		'old build',
 	);
+});
+
+// ============================================================================
+// install_local_snapshot and install_local_clone
+// ============================================================================
+
+const buildCheckout = (marker: string) =>
+	`mkdir -p dist && printf '#!/bin/bash\\necho ${marker}\\n' > dist/pappardelle && chmod +x dist/pappardelle\n`;
+
+// A built pappardelle checkout, committed, with what install.sh copies and a
+// node_modules it must leave behind.
+function builtCheckout(marker = 'first build'): string {
+	const repo = sourceRepo(buildCheckout(marker));
+	for (const file of [
+		'package.json',
+		'scripts/idow',
+		'plugins/pappardelle/hooks/update-status.py',
+		'.claude-plugin/marketplace.json',
+		'node_modules/dep/index.js',
+	]) {
+		fs.mkdirSync(path.dirname(path.join(repo, file)), {recursive: true});
+		fs.writeFileSync(path.join(repo, file), file);
+	}
+
+	const git = (...args: string[]) =>
+		spawnSync('git', ['-C', repo, ...args], {encoding: 'utf8'});
+	fs.writeFileSync(path.join(repo, '.gitignore'), 'dist\nnode_modules\n');
+	git('add', '.');
+	git(
+		'-c',
+		'user.name=t',
+		'-c',
+		'user.email=t@example.com',
+		'commit',
+		'-q',
+		'-m',
+		'checkout',
+	);
+	spawnSync('bash', ['build.sh'], {cwd: repo});
+	return repo;
+}
+
+function headSha(repo: string): string {
+	return spawnSync('git', ['-C', repo, 'log', '-1', '--format=%h'], {
+		encoding: 'utf8',
+	}).stdout.trim();
+}
+
+const installedBinary = (home: string) =>
+	fs.readFileSync(
+		path.join(home, '.pappardelle', 'local', 'dist', 'pappardelle'),
+		'utf8',
+	);
+
+test('install_local_snapshot installs a copy, so a later build in the checkout does not go live', t => {
+	const home = temporaryDir();
+	const repo = builtCheckout('first build');
+
+	const result = runInstallFunction(
+		`REPO_DIR=${JSON.stringify(repo)}; install_local_snapshot`,
+		{HOME: home},
+	);
+	t.is(result.status, 0, `stderr: ${result.stderr}`);
+	spawnSync('bash', ['-c', buildCheckout('second build')], {cwd: repo});
+
+	const local = path.join(home, '.pappardelle', 'local');
+	t.true(installedBinary(home).includes('first build'));
+	t.deepEqual(fs.readdirSync(local).sort(), [
+		'.claude-plugin',
+		'commit-sha',
+		'dist',
+		'package.json',
+		'plugins',
+		'scripts',
+	]);
+	t.is(
+		fs.readFileSync(path.join(local, 'commit-sha'), 'utf8').trim(),
+		headSha(repo),
+	);
+	t.true(fs.statSync(local).mode.toString(8).endsWith('755'));
+});
+
+test('install_local_snapshot keeps the replaced snapshot and marks a build with uncommitted changes', t => {
+	const home = temporaryDir();
+	const first = builtCheckout('first build');
+	const second = builtCheckout('second build');
+	fs.writeFileSync(path.join(second, 'package.json'), 'edited');
+
+	for (const repo of [first, second]) {
+		const result = runInstallFunction(
+			`REPO_DIR=${JSON.stringify(repo)}; install_local_snapshot`,
+			{HOME: home},
+		);
+		t.is(result.status, 0, `stderr: ${result.stderr}`);
+	}
+
+	const local = path.join(home, '.pappardelle', 'local');
+	t.true(installedBinary(home).includes('second build'));
+	t.true(
+		fs
+			.readFileSync(
+				path.join(`${local}.previous`, 'dist', 'pappardelle'),
+				'utf8',
+			)
+			.includes('first build'),
+	);
+	t.is(
+		fs.readFileSync(path.join(local, 'commit-sha'), 'utf8').trim(),
+		`${headSha(second)}-dirty`,
+	);
+});
+
+test('install_local_snapshot refuses a checkout without the native binary and keeps the current snapshot', t => {
+	const home = temporaryDir();
+	const built = builtCheckout('first build');
+	runInstallFunction(
+		`REPO_DIR=${JSON.stringify(built)}; install_local_snapshot`,
+		{HOME: home},
+	);
+	const unbuilt = builtCheckout('never installed');
+	fs.rmSync(path.join(unbuilt, 'dist'), {recursive: true});
+
+	const result = runInstallFunction(
+		`REPO_DIR=${JSON.stringify(unbuilt)}; install_local_snapshot`,
+		{HOME: home},
+	);
+
+	t.not(result.status, 0);
+	t.true(installedBinary(home).includes('first build'));
+	t.deepEqual(
+		fs
+			.readdirSync(path.join(home, '.pappardelle'))
+			.filter(name => name.startsWith('local.staging')),
+		[],
+	);
+});
+
+test('install_local_clone links the snapshot of a checkout', t => {
+	const home = temporaryDir();
+	const repo = builtCheckout();
+
+	const result = runInstallFunction(
+		`REPO_DIR=${JSON.stringify(repo)}; install_local_clone && echo "linking $REPO_DIR"`,
+		{HOME: home, PATH: toolsWithFakeBun()},
+	);
+
+	t.is(result.status, 0, `stderr: ${result.stderr}`);
+	t.true(
+		result.stdout.includes(
+			`linking ${path.join(home, '.pappardelle', 'local')}`,
+		),
+	);
+});
+
+test('install_local_clone runs the release clone in place', t => {
+	const home = temporaryDir();
+	const repo = path.join(home, '.pappardelle', 'repo');
+	fs.mkdirSync(path.dirname(repo), {recursive: true});
+	fs.renameSync(builtCheckout(), repo);
+
+	const result = runInstallFunction(
+		`REPO_DIR=${JSON.stringify(repo)}; install_local_clone && echo "linking $REPO_DIR"`,
+		{HOME: home, PATH: toolsWithFakeBun()},
+	);
+
+	t.is(result.status, 0, `stderr: ${result.stderr}`);
+	t.true(
+		result.stdout.includes(`linking ${repo}
+`),
+	);
+	t.false(fs.existsSync(path.join(home, '.pappardelle', 'local')));
+});
+
+test('install_local_clone stops before installing a checkout that does not typecheck', t => {
+	const home = temporaryDir();
+	const repo = builtCheckout();
+	fs.writeFileSync(path.join(repo, 'typecheck.sh'), 'exit 2\n');
+
+	const result = runInstallFunction(
+		`REPO_DIR=${JSON.stringify(repo)}; install_local_clone`,
+		{HOME: home, PATH: toolsWithFakeBun()},
+	);
+
+	t.not(result.status, 0);
+	t.false(fs.existsSync(path.join(home, '.pappardelle', 'local')));
 });
 
 // ============================================================================
