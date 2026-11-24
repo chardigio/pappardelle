@@ -25,7 +25,8 @@ has_yaml_merge_keys() {
 }
 
 # Deep-merge the config layers into one YAML document on stdout, lowest to
-# highest priority: home -> project -> local. Missing files are skipped. Maps
+# highest priority: home -> project -> local. Missing files are skipped, and a
+# file with no YAML document (empty, or only comments) adds nothing. Maps
 # merge key by key and arrays replace wholesale, which is what deepMerge() in
 # source/config.ts does, so the TUI and idow see the same effective config.
 # YAML merge keys (`<<: *anchor`) are resolved here, the way the YAML spec and
@@ -59,10 +60,9 @@ merge_config_layers() {
         fi
         return
     fi
-    local expr="(select(fileIndex==0)$explode)" i
-    for (( i=1; i<${#files[@]}; i++ )); do
-        expr="$expr * (select(fileIndex==$i)$explode)"
-    done
+    # Reducing from {}, not multiplying one select per file, so a layer with
+    # zero documents can't empty the whole product.
+    local expr="(.$explode) as \$item ireduce ({}; . * \$item)" i
     if [[ "$needs_rename" == false ]]; then
         yq eval-all "${spec_merge[@]}" "$expr" "${files[@]}"
         return
