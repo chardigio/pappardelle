@@ -516,6 +516,28 @@ test('heredoc bodies, quoted parens, a cd, other spellings of the directory and 
 	}
 });
 
+test('substitutions in an unquoted heredoc body, -co values and case patterns hide nothing', t => {
+	for (const command of [
+		'cat <<EOF > f\n"$(sudo reboot)"\nEOF',
+		"cat <<EOF > f\nit's `doctl apps list`\nEOF",
+		"bash -co pipefail 'sudo reboot'",
+		'echo "$(case a in a) sudo reboot;; esac)"',
+		"bash -c 'echo $(sudo reboot)'",
+	]) {
+		t.false(approved(command), `${JSON.stringify(command)}`);
+	}
+
+	for (const command of [
+		"cat <<'EOF' > f\n$(sudo reboot) is only text here\nEOF",
+		"bash -c 'echo $(date)'",
+		'bash -c \'git commit -m "$(cat msg)"\'',
+		"bash -co pipefail 'bun test'",
+		'cat <<EOF > notes.md\nbuilt on $(date)\nEOF',
+	]) {
+		t.true(approved(command), `${JSON.stringify(command)}`);
+	}
+});
+
 test('the fixes for those evasions leave everyday commands alone', t => {
 	for (const command of [
 		'rm -f .git/index.lock',

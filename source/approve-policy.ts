@@ -363,30 +363,31 @@ function pushToMain(
 }
 
 /**
- * The command with heredoc bodies left out: they are text fed to a program,
- * such as a commit message, and the words in them never run.
- */
-/**
- * The command without its heredoc bodies, and the same with each body's end
- * line kept, so a heredoc inside $(…) still reads as ended. Unended: lines
- * follow a heredoc that never ends, which would hide them.
+ * The command without its heredoc bodies, which are text fed to a program,
+ * and the same with each body's end line kept, so a heredoc inside $(…)
+ * still reads as ended. Expanded: the bodies of unquoted heredocs, where the
+ * shell still runs $(…) and backticks. Unended: lines follow a heredoc that
+ * never ends, which would hide them.
  */
 function withoutHeredocs(command: string): {
 	text: string;
 	ended: string;
+	expanded: string[];
 	unended: boolean;
 } {
 	const kept: string[] = [];
 	const ended: string[] = [];
-	const pending: string[] = [];
+	const expanded: string[] = [];
+	const pending: Array<{word: string; quoted: boolean}> = [];
 	let swallowed = false;
 	for (const line of command.split('\n')) {
 		if (pending.length > 0) {
-			if (line.trim() === pending[0]) {
+			if (line.trim() === pending[0]!.word) {
 				pending.shift();
 				ended.push(line);
 			} else {
 				swallowed = true;
+				if (!pending[0]!.quoted) expanded.push(line);
 			}
 
 			continue;
@@ -399,13 +400,14 @@ function withoutHeredocs(command: string): {
 			/(?<!<)<<(?!<)-?\s*(['"]?)([A-Za-z_][\w.-]*)\1/g,
 		)) {
 			if (!/\$\(\([^)]*$/.test(line.slice(0, match.index)))
-				pending.push(match[2]!);
+				pending.push({word: match[2]!, quoted: match[1] !== ''});
 		}
 	}
 
 	return {
 		text: kept.join('\n'),
 		ended: ended.join('\n'),
+		expanded,
 		unended: pending.length > 0 && swallowed,
 	};
 }
@@ -421,13 +423,50 @@ function pastQuote(command: string, start: number): number {
 	return index + 1;
 }
 
+/** The index just past the ) that closes the $( at `start`. */
+function pastSubstitution(command: string, start: number): number {
+	let depth = 1;
+	let end = start + 2;
+	while (end < command.length && depth > 0) {
+		const char = command[end]!;
+		if (char === "'" || char === '"') {
+			end = pastQuote(command, end);
+			continue;
+		}
+
+		switch (char) {
+			case '\\': {
+				end++;
+				break;
+			}
+
+			case '(': {
+				depth++;
+				break;
+			}
+
+			case ')': {
+				depth--;
+				break;
+			}
+
+			default:
+		}
+
+		end++;
+	}
+
+	return end;
+}
+
 /**
- * The commands that $(…) and backticks run from inside double quotes, where
- * segments() keeps them as the text of one word.
+ * The commands that $(…) and backticks run in text the shell expands
+ * without splitting it into commands: a double-quoted word, or the body of an
+ * unquoted heredoc (`quoted` false).
  */
-function quotedSubstitutions(command: string): string[] {
+function substitutions(command: string, {quoted = true} = {}): string[] {
 	const found: string[] = [];
-	let quote: string | undefined;
+	let quote: string | undefined = quoted ? undefined : '"';
 	for (let index = 0; index < command.length; index++) {
 		const char = command[index]!;
 		if (quote === "'") {
@@ -445,44 +484,14 @@ function quotedSubstitutions(command: string): string[] {
 			continue;
 		}
 
-		if (char === '"') {
+		if (char === '"' && quoted) {
 			quote = undefined;
 		} else if (
 			command.startsWith('$(', index) &&
 			!command.startsWith('$((', index)
 		) {
-			let depth = 1;
-			let end = index + 2;
-			while (end < command.length && depth > 0) {
-				const inner = command[end]!;
-				if (inner === "'" || inner === '"') {
-					end = pastQuote(command, end);
-					continue;
-				}
-
-				switch (inner) {
-					case '\\': {
-						end++;
-						break;
-					}
-
-					case '(': {
-						depth++;
-						break;
-					}
-
-					case ')': {
-						depth--;
-						break;
-					}
-
-					default:
-				}
-
-				end++;
-			}
-
-			found.push(command.slice(index + 2, depth === 0 ? end - 1 : end));
+			const end = pastSubstitution(command, index);
+			found.push(command.slice(index + 2, end - 1));
 			index = end - 1;
 		} else if (char === '`') {
 			const end = command.indexOf('`', index + 1);
@@ -1067,11 +1076,17 @@ export function checkApproval(
 	// An empty box or a layout the screen parser doesn't know reads as no
 	// command, and the model check has nothing to judge either.
 	if (command.trim() === '') return hold('no command to read');
-	const {text, ended, unended} = withoutHeredocs(command);
+	const {text, ended, expanded, unended} = withoutHeredocs(command);
 	if (unended)
 		return hold('a heredoc that never ends hides the lines after it');
-	for (const inner of quotedSubstitutions(ended)) {
+	for (const inner of [
+		...substitutions(ended),
+		...expanded.flatMap(body => substitutions(body, {quoted: false})),
+	]) {
 		if (inner.trim() === '') continue;
+		// A case pattern's ) reads as the end of the $(…).
+		if (/\bcase\b/.test(inner))
+			return hold('a case inside $(…) hides where the command ends');
 		const verdict = checkApproval(inner, policy, {
 			// Where a cd has taken the shell by then isn't followed here.
 			startDir: CHANGES_DIRECTORY.test(text) ? null : startDir,
@@ -1168,23 +1183,31 @@ export function checkApproval(
 			? args.findIndex((word, index) => index > 0 && /^-\w*c\w*$/.test(word))
 			: -1;
 		if (script !== -1) {
-			let body: string | undefined;
-			for (let at = script + 1; at < args.length && body === undefined; at++) {
+			// -o pipefail, +O extglob and -co pipefail take a value.
+			const takesValue = (word: string) => /^[-+][a-zA-Z]*[oO]/.test(word);
+			let skip = takesValue(args[script]!) ? 1 : 0;
+			let at = script + 1;
+			for (; at < args.length; at++) {
 				const word = args[at]!;
-				// -o pipefail and +O extglob take a value.
-				if (/^[-+][oO]$/.test(word)) at++;
-				else if (!/^[-+]/.test(word)) body = word;
+				if (skip > 0) skip--;
+				else if (/^[-+]/.test(word)) skip += takesValue(word) ? 1 : 0;
+				else break;
 			}
 
-			// bash -c "$(curl …)" runs whatever the download says.
-			if (body === undefined || /\$\(|`|<\(/.test(body))
+			const body = args[at];
+			// bash -c "$(curl …)" runs whatever the download says; in single
+			// quotes the $(…) is the inner shell's, checked below.
+			if (
+				body === undefined ||
+				(!raw[at]!.startsWith("'") && /\$\(|`|<\(/.test(body))
+			)
 				return hold(`${program} -c runs a script made by another command`);
 			const inner = checkApproval(body, policy, {startDir: cwd});
 			if (inner.kind === 'hold') return inner;
 		}
 
 		if (
-			['eval', 'source', '.'].includes(program) &&
+			['source', '.'].includes(program) &&
 			(/\$\(|`/.test(segment) ||
 				next === '$(' ||
 				next === '`' ||
