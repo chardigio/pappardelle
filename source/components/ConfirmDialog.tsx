@@ -97,7 +97,7 @@ export default function ConfirmDialog({
 				// Caller has opted into the loading state: show the spinner and
 				// run onConfirm only once a frame with it has been presented.
 				// Async onConfirms (like workspace deletion) typically run a
-				// chunk of synchronous setup — execSync `git rev-parse`, reading
+				// chunk of synchronous setup — a synchronous `git rev-parse`, reading
 				// `.pappardelle.yml`, walking profiles — *before* their first
 				// await, and the dialog looks frozen if that runs before the
 				// spinner is on screen (STA-1373).

@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {homedir} from 'node:os';
-import {rmSync, writeFileSync} from 'node:fs';
+import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
 import App from '../source/app.tsx';
 import {getRepoName} from '../source/config.ts';
-import {setRegistryPath, resetRegistryPath} from '../source/space-registry.ts';
+import {getRegistryPathForRepo} from '../source/space-registry.ts';
+import {createStateDaos, type StateDaos} from '../source/state-daos.ts';
+import {initTmuxState} from '../source/tmux.ts';
 import {
 	createIssueTracker,
 	createVcsHost,
@@ -18,7 +20,8 @@ import {StatusHarness, until} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
 const originalDirectory = process.cwd();
-const registry = path.join(harness.root, 'open-spaces.json');
+let registry = '';
+let daos: StateDaos | undefined;
 const frames: Array<{scenario: string; frame: string}> = [];
 let view: Awaited<ReturnType<typeof render>> | undefined;
 let repo: string | undefined;
@@ -49,6 +52,7 @@ async function mount(width = 80, height = 40) {
 	view?.unmount();
 	view = await render(
 		React.createElement(App, {
+			daos: daos!,
 			paneLayout: null,
 			commitSha: 'fixture',
 			installedVersion: null,
@@ -83,7 +87,15 @@ try {
 		path.join(harness.root, '.pappardelle.yml'),
 		'version: 1\ndefault_profile: fixture\nlist_view:\n  group_by: status\nprofiles:\n  fixture:\n    display_name: Fixture\n    keywords: []\n',
 	);
-	setRegistryPath(registry);
+	const stateDir = path.join(harness.root, 'state');
+	registry = getRegistryPathForRepo(repo, stateDir);
+	mkdirSync(path.dirname(registry), {recursive: true});
+	daos = createStateDaos({
+		repo,
+		stateDir,
+		sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+	});
+	initTmuxState(daos);
 	const tracker = createIssueTracker({provider: 'beads'});
 	tracker.getIssue = async key => issues.get(key) ?? null;
 	tracker.getIssueCached = key => issues.get(key) ?? null;
@@ -140,6 +152,27 @@ try {
 		'escape restores both boxes',
 		lines => topBorder(lines, 'rail') > 0,
 	);
+	// Regression check: the search row's input takes over typing mid-write.
+	await view!.stdin.write('/fixture-2');
+	await expectFrame(
+		'a search typed in one write keeps each character once',
+		lines =>
+			/\/ fixture-2 *│$/.test(lines[1]!) && lines[0]!.endsWith(' 1 match ─╮'),
+	);
+	await view!.stdin.write('\u001B');
+	await expectFrame(
+		'escape restores both boxes after a one-write search',
+		lines => topBorder(lines, 'rail') > 0,
+	);
+	// A dialog opened by a key takes the rest of the write: the second ? closes
+	// the help the first one opened.
+	await view!.stdin.write('??');
+	await expectFrame(
+		'help opened and closed in one write leaves the rail',
+		lines =>
+			topBorder(lines, 'rail') > 0 &&
+			!lines.some(line => line.includes('Keyboard Shortcuts')),
+	);
 
 	seed(60);
 	await mount();
@@ -178,7 +211,6 @@ try {
 	throw error;
 } finally {
 	view?.unmount();
-	resetRegistryPath();
 	resetProviders();
 	process.chdir(originalDirectory);
 	await harness.cleanup();

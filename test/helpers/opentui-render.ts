@@ -2,7 +2,10 @@ import {Buffer} from 'node:buffer';
 import type {ReactNode} from 'react';
 import {createRoot, flushSync} from '@opentui/react';
 import {createTestRenderer} from '@opentui/core/testing';
-import {tmuxRendererEnvironment} from '../../source/render-tui.ts';
+import {
+	commitEachKey,
+	tmuxRendererEnvironment,
+} from '../../source/render-tui.ts';
 /** Component tests use OpenTUI's real offscreen renderer and input parser. */
 export async function render(
 	node: ReactNode,
@@ -32,6 +35,7 @@ export async function render(
 	// Keep the last completed frame, just as a terminal displays it, rather
 	// than acquiring the buffer while a subsequent async frame is in flight.
 	setup.renderer.on('frame', captureFrame);
+	commitEachKey(setup.renderer);
 	const root = createRoot(setup.renderer);
 	const dispose = async () => {
 		await setup.dispose();

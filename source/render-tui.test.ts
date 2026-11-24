@@ -13,8 +13,9 @@ import {pathToFileURL} from 'node:url';
 import test from 'ava';
 import React from 'react';
 import {terminalView} from '../test/helpers/terminal-view.ts';
+import {LatestTask} from './latest-task.ts';
 import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
-import {useKeyboard} from '@opentui/react';
+import {useKeyboard, usePaste} from '@opentui/react';
 
 const list = (query: string, rows: string[]) =>
 	React.createElement(
@@ -51,6 +52,118 @@ test.serial(
 		t.is(mounts, 1);
 	},
 );
+
+// Each handler reads state from its render, as the rail's handlers do, so a key
+// sees what the key before it did only if that key was committed first.
+function Counter() {
+	const [count, setCount] = React.useState(0);
+	useKeyboard(key => {
+		if (key.name === 'j') setCount(count + 1);
+	});
+	return React.createElement('text', null, `count ${count}`);
+}
+
+test.serial(
+	'keys in one write each act on what the key before did',
+	async t => {
+		const view = await terminalView(React.createElement(Counter));
+		t.teardown(async () => view.dispose());
+		view.stdin.write('jjj');
+		await view.flush();
+		t.is(view.line(0), 'count 3');
+	},
+);
+
+test.serial(
+	'keys typed while a view starts each act on what the key before did',
+	async t => {
+		const view = await terminalView(React.createElement(Counter), {
+			typedAhead: 'jjj',
+		});
+		t.teardown(async () => view.dispose());
+		await view.flush();
+		t.is(view.line(0), 'count 3');
+	},
+);
+
+test.serial('a view opened by a key takes the rest of the write', async t => {
+	const rail: string[] = [];
+	const dialog: string[] = [];
+	function Dialog() {
+		useKeyboard(key => dialog.push(key.name));
+		return React.createElement('text', null, 'dialog');
+	}
+	function Rail() {
+		const [isOpen, setIsOpen] = React.useState(false);
+		useKeyboard(key => {
+			if (isOpen) return;
+			if (key.name === 'n') setIsOpen(true);
+			else rail.push(key.name);
+		});
+		return isOpen
+			? React.createElement(Dialog)
+			: React.createElement('text', null, 'rail');
+	}
+	const view = await terminalView(React.createElement(Rail));
+	t.teardown(async () => view.dispose());
+	view.stdin.write('nab');
+	await view.flush();
+	t.deepEqual(rail, []);
+	t.deepEqual(dialog, ['a', 'b']);
+});
+
+test.serial(
+	"work a key's commit queues is ahead of the next key's",
+	async t => {
+		const queue = new LatestTask();
+		const done: string[] = [];
+		// As in app.tsx: selecting a row queues its attachment from an effect, and
+		// Enter queues focus behind whatever is queued.
+		function Rail() {
+			const [selected, setSelected] = React.useState(0);
+			React.useEffect(() => {
+				void queue.run(async () => {
+					done.push(`attach ${selected}`);
+				});
+			}, [selected]);
+			useKeyboard(key => {
+				if (key.name === 'j') setSelected(selected + 1);
+				if (key.name === 'return') {
+					void queue.exclusive(async () => {
+						done.push(`focus ${selected}`);
+					});
+				}
+			});
+			return React.createElement('text', null, `row ${selected}`);
+		}
+		const view = await terminalView(React.createElement(Rail));
+		t.teardown(async () => view.dispose());
+		await queue.idle();
+		done.length = 0;
+		view.stdin.write('j\r');
+		await view.flush();
+		await queue.idle();
+		t.deepEqual(done, ['attach 1', 'focus 1']);
+	},
+);
+
+test.serial('a paste and the keys after it in one write', async t => {
+	function Filter() {
+		const [query, setQuery] = React.useState('');
+		usePaste(event => {
+			setQuery(query + new TextDecoder().decode(event.bytes));
+		});
+		useKeyboard(key => {
+			if (key.name === 'x') setQuery(query + 'x');
+		});
+		return React.createElement('text', null, `query ${query}`);
+	}
+	const view = await terminalView(React.createElement(Filter));
+	t.teardown(async () => view.dispose());
+	view.stdin.write('\u001B[200~front\u001B[201~x');
+	await view.flush();
+	t.is(view.line(0), 'query frontx');
+});
 
 test.serial(
 	'filtering and resizing remove stale rows and keep the list at the top',

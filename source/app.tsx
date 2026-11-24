@@ -1,6 +1,6 @@
 import {recordSupervision} from './supervise-log.ts';
 import {stripVTControlCharacters} from 'node:util';
-import {useKeyboard, useRenderer} from '@opentui/react';
+import {flushSync, useKeyboard, useRenderer} from '@opentui/react';
 import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
 import type {CliRenderer, KeyEvent} from '@opentui/core';
 import {typedText} from './key-press.ts';
@@ -172,7 +172,6 @@ import {
 import {spaceStatusKey} from './claude-status.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
-import {AttachmentGate} from './attachment-gate.ts';
 import {LatestTask} from './latest-task.ts';
 import {
 	sendToSelectedAgent,
@@ -500,9 +499,6 @@ export default function App({
 	const railGrouped = isRailGroupedByStatus(configMemo);
 	const [stackedLayout, setStackedLayout] = useState(false);
 	const railGroups = useMemo(() => getRailGroups(configMemo), [configMemo]);
-	// Grouped rows and cursor from the live selection, not the last render: one
-	// input write can carry several keys, and each must see what the previous
-	// one did.
 	const railNow = useCallback(() => {
 		if (!railGrouped || searchNow.current) return null;
 		const {spaces, selectedIndex} = currentSelection();
@@ -804,7 +800,6 @@ export default function App({
 	const startupQueue = useMemo(() => new StartupQueue(2), []);
 	const attachmentTask = useMemo(() => new LatestTask(), []);
 	const sendTask = useMemo(() => new LatestTask(), []);
-	const attachmentGate = useMemo(() => new AttachmentGate(), []);
 	const [attachmentRevision, setAttachmentRevision] = useState(0);
 	useEffect(
 		() => () => {
@@ -1200,19 +1195,6 @@ export default function App({
 		attachmentTask,
 		attachmentRevision,
 	]);
-	// Declared after the attachment effect so it runs after any attachment
-	// this render queued. Every render releases waiting keys: one whose space
-	// was left again in the same input write is then refused, not kept.
-	useEffect(() => {
-		attachmentGate.rendered(selectedSpaceName);
-	});
-	// Every key in one input write runs before React renders, so keys after one
-	// that opened an inline dialog would still act on the rail.
-	// They are dropped until that dialog is on screen to take them.
-	const inlineDialogOpening = useRef(false);
-	useEffect(() => {
-		inlineDialogOpening.current = false;
-	});
 
 	// Initialize panes with empty state message on first load
 	useEffect(() => {
@@ -1372,26 +1354,25 @@ export default function App({
 		if (!paneLayout || !targetSpace) return;
 
 		// Attaching ends by selecting the rail pane, so focus goes after it.
-		void attachmentGate.whenRendered(targetSpace).then(async () =>
-			attachmentTask.exclusive(async () => {
-				const layout = paneLayoutRef.current;
-				if (layout) await focusPane(layout.agentViewerPaneId);
-			}),
-		);
+		void attachmentTask.exclusive(async () => {
+			const layout = paneLayoutRef.current;
+			if (layout) await focusPane(layout.agentViewerPaneId);
+		});
 	};
 
 	// While a dialog or prompt is open, the rail owns the keyboard.
 	const railInputBlockedNow = () =>
-		dialogOpenRef.current ||
-		popupOpening.current ||
-		inlineDialogOpening.current;
+		dialogOpenRef.current || popupOpening.current;
 
 	// Selects a space and focuses its agent, as the sous-chef key and `s` do.
 	const focusSpaceAgent = (issueKey: string) => {
 		// Moving focus away would leave the dialog open with the user's next
 		// keys going to the agent.
 		if (railInputBlockedNow()) return;
-		selectSpace(issueKey);
+		// Committed now so the attachment it queues is ahead of the focus.
+		flushSync(() => {
+			selectSpace(issueKey);
+		});
 		const {spaces, selectedIndex} = currentSelection();
 		// Before the rows load, or for an unknown key, the selection stays put
 		// and focusing would land on another space's agent.
@@ -1457,38 +1438,30 @@ export default function App({
 
 		const targetSpace = selectedSpaceNow()?.name;
 		if (!targetSpace) return;
-		void attachmentGate
-			.whenRendered(targetSpace)
-			.then(async () =>
-				sendToSelectedAgent({
-					queue: attachmentTask,
-					sends: sendTask,
-					targetSpace,
-					viewingSpace: getCurrentlyViewingSpace,
-					// Not through the viewer pane: its frame process holds a bracketed
-					// paste briefly while plain keys pass, so Enter would arrive first.
-					async send() {
-						const result = await sendToSpaceAgent(targetSpace, text);
-						recordSupervision(
-							repoName,
-							'tui',
-							{action: 'send', key: targetSpace, sent: text, detail: result},
-							new Date(),
-						);
-						if (result !== 'sent') {
-							log.error(`Send to ${targetSpace}'s agent session: ${result}`);
-						}
-
-						return result;
-					},
-				}),
-			)
-			.then(result => {
-				setHeaderWithTimeout(
-					sendResultMessage(result, targetSpace, text),
-					3000,
+		void sendToSelectedAgent({
+			queue: attachmentTask,
+			sends: sendTask,
+			targetSpace,
+			viewingSpace: getCurrentlyViewingSpace,
+			// Not through the viewer pane: its frame process holds a bracketed
+			// paste briefly while plain keys pass, so Enter would arrive first.
+			async send() {
+				const result = await sendToSpaceAgent(targetSpace, text);
+				recordSupervision(
+					repoName,
+					'tui',
+					{action: 'send', key: targetSpace, sent: text, detail: result},
+					new Date(),
 				);
-			});
+				if (result !== 'sent') {
+					log.error(`Send to ${targetSpace}'s agent session: ${result}`);
+				}
+
+				return result;
+			},
+		}).then(result => {
+			setHeaderWithTimeout(sendResultMessage(result, targetSpace, text), 3000);
+		});
 	};
 
 	// Execute a custom keybinding command for the selected workspace
@@ -1586,13 +1559,8 @@ export default function App({
 		handlers: PopupHandlers,
 		showInline: () => void,
 	) => {
-		const openInline = () => {
-			inlineDialogOpening.current = true;
-			showInline();
-		};
-
 		if (!isPopupAvailable()) {
-			openInline();
+			showInline();
 			return;
 		}
 
@@ -1610,7 +1578,9 @@ export default function App({
 			},
 		})
 			.then(outcome => {
-				if (outcome === 'unavailable') openInline();
+				// Committed before the gate below opens, so the rail's next key
+				// finds the dialog open.
+				if (outcome === 'unavailable') flushSync(showInline);
 			})
 			.finally(() => {
 				popupBusy.current = false;
@@ -1780,7 +1750,6 @@ export default function App({
 					4000,
 				);
 			} else {
-				inlineDialogOpening.current = true;
 				setShowPromptDialog(true);
 			}
 		} else if (isCloseSpaceKey(event)) {
