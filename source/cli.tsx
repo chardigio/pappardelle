@@ -446,7 +446,7 @@ if (cli.input[0] === 'send') {
 		},
 		new Date(),
 	);
-	const refusal = sendRefusal(result, issueKey);
+	const refusal = sendRefusal(result, issueKey, {typedText: keys.length === 0});
 	if (refusal) {
 		console.error(refusal);
 		process.exit(1);
@@ -912,6 +912,7 @@ process.exit(0);
 function sendRefusal(
 	result: SendToSpaceAgentResult,
 	issueKey: string,
+	{typedText}: {typedText: boolean},
 ): string | undefined {
 	switch (result) {
 		case 'sent': {
@@ -942,7 +943,9 @@ function sendRefusal(
 		}
 
 		case 'failed': {
-			return `Failed to send to ${issueKey}. The text may still have reached its input box: check it with \`pappardelle screen ${issueKey}\``;
+			return typedText
+				? `Failed to send to ${issueKey}. The text may still have reached its input box: check it with \`pappardelle screen ${issueKey}\``
+				: `Failed to press keys in ${issueKey}`;
 		}
 	}
 }

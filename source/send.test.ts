@@ -69,6 +69,7 @@ function makeRunner(options: {
 					typeof screen === 'string'
 						? screen
 						: screen({
+								cleared: calls.some(call => call.includes('C-u')),
 								pasted: calls.some(call => call[0] === 'paste-buffer'),
 								enters: calls.filter(call => call.at(-1) === 'Enter').length,
 							}),
@@ -92,7 +93,7 @@ const sleep = async () => {};
 function submitsOnEnter(
 	submitsOn: number,
 	after = agentScreenFixture('codex-sent'),
-): (sent: {pasted: boolean; enters: number}) => string {
+): (sent: {cleared: boolean; pasted: boolean; enters: number}) => string {
 	return ({pasted, enters}) => {
 		if (!pasted) return agentScreenFixture('codex-sent');
 		return enters >= submitsOn ? after : agentScreenFixture('codex-draft');
@@ -171,7 +172,10 @@ test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced'
 	const draft = '\u001B[1m›\u001B[0m half a thought\n  gpt-6 · ~/repo\n';
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
-		screen: sent => (sent.pasted ? submitsOnEnter(1)(sent) : draft),
+		screen(sent) {
+			if (sent.pasted) return submitsOnEnter(1)(sent);
+			return sent.cleared ? agentScreenFixture('codex-sent') : draft;
+		},
 	});
 	t.is(
 		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
@@ -193,7 +197,10 @@ test("sendToSpaceAgent leaves a command typed in Claude's shell mode alone unles
 	const draft = agentScreenFixture('claude-shell-draft');
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
-		screen: sent => (sent.pasted ? submitsOnEnter(1)(sent) : draft),
+		screen(sent) {
+			if (sent.pasted) return submitsOnEnter(1)(sent);
+			return sent.cleared ? agentScreenFixture('codex-sent') : draft;
+		},
 	});
 	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'draft');
 	t.deepEqual(calls, []);
@@ -292,25 +299,46 @@ test('a send presses Enter once the agent shows the pasted text, and is sent whe
 });
 
 // pappardelle-hrdr: Codex has left a sent prompt in its box until the next key.
-test('a forced send waits while the box still shows the old draft, and presses Enter once the paste has settled', async t => {
+test('a forced send pastes only once the cleared box reads empty', async t => {
 	const draft = '\u001B[1m›\u001B[0m half a thought\n  gpt-6 · ~/repo\n';
-	let readsSincePaste = 0;
-	let entersWhileDraft = 0;
+	let readsAfterClear = 0;
+	let pastedEarly = false;
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen(sent) {
-			if (!sent.pasted) return draft;
-			readsSincePaste++;
-			if (readsSincePaste <= 5) {
-				if (sent.enters > 0) entersWhileDraft++;
-				return draft;
-			}
+			if (!sent.cleared) return draft;
+			if (sent.pasted) return submitsOnEnter(1)(sent);
+			readsAfterClear++;
+			return readsAfterClear <= 5 ? draft : agentScreenFixture('codex-sent');
+		},
+	});
+	const result = await sendToSpaceAgent('STA-1', 'hi', {
+		async runner(args, input) {
+			if (args[0] === 'paste-buffer' && readsAfterClear <= 5)
+				pastedEarly = true;
+			return runner(args, input);
+		},
+		lockDir,
+		sleep,
+		force: true,
+	});
+	t.is(result, 'sent');
+	t.false(pastedEarly);
+	t.is(enters(calls), 1);
+});
 
-			return submitsOnEnter(1)(sent);
+// The draft left by an unsubmitted send, sent again with --force.
+test('a forced send of the same text as the draft is sent', async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen(sent) {
+			if (!sent.cleared || sent.pasted)
+				return submitsOnEnter(1)({...sent, pasted: true});
+			return agentScreenFixture('codex-sent');
 		},
 	});
 	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {
+		await sendToSpaceAgent('STA-1', 'a draft I have not sent yet', {
 			runner,
 			lockDir,
 			sleep,
@@ -318,8 +346,23 @@ test('a forced send waits while the box still shows the old draft, and presses E
 		}),
 		'sent',
 	);
-	t.is(entersWhileDraft, 0);
 	t.is(enters(calls), 1);
+});
+
+// Clearing the box is what takes Claude out of shell mode; pasted into it, the
+// prompt would run as a shell command.
+test("a send clears Claude's empty shell-mode box, so the prompt is not run as a command", async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen(sent) {
+			if (!sent.cleared) return agentScreenFixture('claude-shell-empty');
+			return sent.pasted
+				? submitsOnEnter(1)(sent)
+				: agentScreenFixture('claude-placeholder');
+		},
+	});
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
+	t.true(calls.some(args => args.includes('C-u')));
 });
 
 test('a send presses Enter again when the first leaves the text in the box', async t => {

@@ -94,6 +94,11 @@ export type AgentScreen = {
 	 * with `!`.
 	 */
 	composer: string | null;
+	/**
+	 * Claude's input box is in shell mode (`!`), where Enter runs the box as a
+	 * shell command. Clearing the box leaves it.
+	 */
+	shellMode: boolean;
 	/** Codex's own dialogs (folder trust, model switch) that take the keyboard. */
 	codexDialog: CodexDialog | null;
 	/** The screen as text, with the input box's dim placeholder left out. */
@@ -582,8 +587,8 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 		codexDialog || permission || question ? null : parseComposer(raw, lines);
 	// Claude Code shows a suggested next prompt as the placeholder. In plain
 	// text it reads as typed, so a supervisor would take it for a draft.
-	const input = composer === '' ? composerLine(lines) : null;
-	if (input) {
+	const input = composer === null ? null : composerLine(lines);
+	if (input && composer === '') {
 		const line = lines[input.at]!;
 		lines[input.at] = line.slice(0, line.indexOf(input.glyph) + 1);
 	}
@@ -596,6 +601,7 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 		question,
 		usageLimit: parseUsageLimit(lines, now),
 		composer,
+		shellMode: input?.glyph === '!',
 		codexDialog,
 		lines,
 	};

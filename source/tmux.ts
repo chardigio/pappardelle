@@ -1776,52 +1776,73 @@ type AgentPane = {
 	sleep: (ms: number) => Promise<void>;
 };
 
+/** Runs tmux calls in order and stops at the first that fails. */
+async function runSteps(
+	{runner}: AgentPane,
+	steps: Array<{args: string[]; input?: string}>,
+): Promise<boolean> {
+	for (const {args, input} of steps) {
+		const r = await runner(args, input);
+		if (r.error || r.status !== 0) return false;
+	}
+
+	return true;
+}
+
 /**
- * Leave any pane mode, empty the composer unless it was read empty, then
- * paste `text`.
- *
- * Agents detect a fast burst of keystrokes as a paste and turn an Enter that
- * arrives inside it into a newline: Codex does this even when Enter is its own
- * `send-keys` call, and drops the newlines of text typed key by key. A
- * bracketed paste marks where the text ends, so the Enter after it submits.
- * `-r` keeps newlines as LF, so an app without bracketed paste mode does not
- * receive each line as a separate submit.
- *
- * A Codex session that has taken no prompt yet works through the clear keys
- * at about 100 a second, and draws the paste only after them, some 8 s later
- * (pappardelle-hrdr). An input box read empty is left as it is.
- *
- * A viewer pane scrolled back in copy-mode would swallow the Enter while the
- * paste still reaches the agent. The text goes through stdin because tmux
- * rejects a command line over ~16KB.
- *
- * Stops at the first failing call. `-d` only deletes the buffer when the
- * paste succeeds, so a failed paste deletes it explicitly rather than leave
- * the prompt on the server.
+ * Leave any pane mode, so a viewer scrolled back in copy-mode doesn't swallow
+ * the Enter while the paste still reaches the agent, then empty the composer
+ * when it may hold something. In Claude, the clear also leaves shell mode.
  */
-async function pasteIntoComposer(
-	{runner, target}: AgentPane,
-	text: string,
+async function prepareComposer(
+	pane: AgentPane,
 	{clear}: {clear: boolean},
 ): Promise<boolean> {
-	const buffer = `pappardelle-send-${process.pid}`;
-	const steps: Array<{args: string[]; input?: string}> = [
+	const {target} = pane;
+	return runSteps(pane, [
 		{args: ['copy-mode', '-q', '-t', target]},
 		...(clear
 			? Array.from({length: CLEAR_COMPOSER_CALLS}, () => ({
 					args: ['send-keys', '-t', target, ...CLEAR_COMPOSER_CHUNK],
 				}))
 			: []),
-		{args: ['load-buffer', '-b', buffer, '-'], input: text},
-		{args: ['paste-buffer', '-p', '-d', '-r', '-b', buffer, '-t', target]},
-	];
-	for (const {args, input} of steps) {
-		const r = await runner(args, input);
-		if (r.error || r.status !== 0) {
-			if (args[0] === 'paste-buffer')
-				await runner(['delete-buffer', '-b', buffer]);
-			return false;
-		}
+	]);
+}
+
+/**
+ * Agents detect a fast burst of keystrokes as a paste and turn an Enter that
+ * arrives inside it into a newline: Codex does this even when Enter is its own
+ * `send-keys` call, and drops the newlines of text typed key by key. A
+ * bracketed paste marks where the text ends, so the Enter after it submits.
+ * `-r` keeps newlines as LF, so an app without bracketed paste mode does not
+ * receive each line as a separate submit. The text goes through stdin because
+ * tmux rejects a command line over ~16KB.
+ *
+ * `-d` only deletes the buffer when the paste succeeds, so a failed paste
+ * deletes it explicitly rather than leave the prompt on the server.
+ */
+async function pasteText(pane: AgentPane, text: string): Promise<boolean> {
+	const {runner, target} = pane;
+	const buffer = `pappardelle-send-${process.pid}`;
+	if (
+		!(await runSteps(pane, [
+			{args: ['load-buffer', '-b', buffer, '-'], input: text},
+		]))
+	)
+		return false;
+	const r = await runner([
+		'paste-buffer',
+		'-p',
+		'-d',
+		'-r',
+		'-b',
+		buffer,
+		'-t',
+		target,
+	]);
+	if (r.error || r.status !== 0) {
+		await runner(['delete-buffer', '-b', buffer]);
+		return false;
 	}
 
 	return true;
@@ -1841,42 +1862,44 @@ async function readAgentScreen({
 	return parseAgentScreen(r.stdout, new Date());
 }
 
-// A send watches the input box every 50 ms: up to 12 s for the agent to draw
-// the pasted text, since a new Codex session took 7.5-9 s over the clear keys
-// of a forced send, and up to 2 s after each Enter for it to leave. With the
-// tmux calls between reads that keeps a send's hold on the send lock near
-// 20 s, under the 30 s after which another sender takes the lock over.
-const COMPOSER_POLL_MS = 50;
-const PASTE_SHOWN_POLLS = 240;
+// A send reads the agent's screen every 50 ms. A Codex session that has taken
+// no prompt yet works through the clear keys at about 100 a second, 7.5-9 s
+// for a forced send (pappardelle-hrdr), so up to 12 s for a box to read empty
+// after them. A paste into an empty box showed within 100 ms; 3 s is margin.
+// Then up to 2 s after each Enter for the text to leave. With the tmux calls
+// between reads that keeps a send's hold on the send lock near 20 s, under the
+// 30 s after which another sender takes the lock over.
+const SCREEN_POLL_MS = 50;
+const CLEARED_POLLS = 240;
+const PASTE_SHOWN_POLLS = 60;
 const ENTER_TAKEN_POLLS = 40;
 // The bead's report was that the key after a lost Enter submitted the text.
 const ENTER_ATTEMPTS = 2;
 
 /**
- * Read the agent's input box until `done` holds for it, at most `polls`
- * times. Counting reads rather than reading the clock keeps a test's instant
- * sleep from spinning.
+ * Read the agent's screen until `done` holds for it, at most `polls` times.
+ * Counting reads rather than reading the clock keeps a test's instant sleep
+ * from spinning.
  */
-async function waitForComposer(
+async function waitForScreen(
 	pane: AgentPane,
 	polls: number,
-	done: (composer: string | null) => boolean,
-): Promise<{met: boolean; composer: string | null}> {
+	done: (screen: AgentScreen) => boolean,
+): Promise<AgentScreen | undefined> {
 	for (let poll = 0; poll < polls; poll++) {
-		if (poll > 0) await pane.sleep(COMPOSER_POLL_MS);
+		if (poll > 0) await pane.sleep(SCREEN_POLL_MS);
 		const screen = await readAgentScreen(pane);
-		if (screen && done(screen.composer))
-			return {met: true, composer: screen.composer};
+		if (screen && done(screen)) return screen;
 	}
 
-	return {met: false, composer: null};
+	return undefined;
 }
 
 /**
- * Paste `text` and press Enter. When the agent's input box can be read, the
- * pasted text must show there, settled over two reads and different from what
- * the box held before, before Enter is pressed, and must leave it after. If
- * it stays, Enter is pressed once more.
+ * Paste `text` and press Enter. When the agent's input box can be read, a box
+ * that needed clearing must read empty, out of shell mode, before the paste;
+ * the pasted text must show there, the same over two reads, before Enter is
+ * pressed; and it must leave after. If it stays, Enter is pressed once more.
  *
  * Enter is pressed again only when the read just before it shows the pasted
  * text still in the box, so a dialog the submit opened has had to appear
@@ -1885,31 +1908,40 @@ async function waitForComposer(
 async function submit(
 	pane: AgentPane,
 	text: string,
-	before: string | null,
+	before: AgentScreen,
 ): Promise<'sent' | 'unsubmitted' | 'failed'> {
-	if (!(await pasteIntoComposer(pane, text, {clear: before !== ''})))
-		return 'failed';
-	if (before === null) return (await pressEnter(pane)) ? 'sent' : 'failed';
-	// Over a draft, the box keeps showing it until the agent has worked
-	// through the clear keys, and a long paste can be drawn over several reads.
+	const watched = before.composer !== null;
+	const clear = before.composer !== '' || before.shellMode;
+	if (!(await prepareComposer(pane, {clear}))) return 'failed';
+	if (watched && clear) {
+		const cleared = await waitForScreen(
+			pane,
+			CLEARED_POLLS,
+			screen => screen.composer === '' && !screen.shellMode,
+		);
+		if (!cleared) return 'failed';
+	}
+
+	if (!(await pasteText(pane, text))) return 'failed';
+	if (!watched) return (await pressEnter(pane)) ? 'sent' : 'failed';
+	// A long paste can be drawn over several reads.
 	let previous: string | null = null;
-	const shown = await waitForComposer(pane, PASTE_SHOWN_POLLS, composer => {
-		const settled =
-			Boolean(composer) && composer !== before && composer === previous;
+	const shown = await waitForScreen(pane, PASTE_SHOWN_POLLS, ({composer}) => {
+		const settled = Boolean(composer) && composer === previous;
 		previous = composer;
 		return settled;
 	});
 	// Unseen, the text may not be in the box at all, and Enter could land on
 	// whatever took its place.
-	if (!shown.met) return 'failed';
+	if (!shown) return 'failed';
 	for (let attempt = 0; attempt < ENTER_ATTEMPTS; attempt++) {
 		if (!(await pressEnter(pane))) return 'failed';
-		const taken = await waitForComposer(
+		const taken = await waitForScreen(
 			pane,
 			ENTER_TAKEN_POLLS,
-			composer => composer !== shown.composer,
+			({composer}) => composer !== shown.composer,
 		);
-		if (taken.met) return 'sent';
+		if (taken) return 'sent';
 	}
 
 	return 'unsubmitted';
@@ -1997,7 +2029,7 @@ export async function sendToSpaceAgent(
 				if (!screen) return 'failed';
 				const blocker = sendBlocker(screen, options.force ?? false);
 				if (blocker) return blocker;
-				return submit(pane, text, screen.composer);
+				return submit(pane, text, screen);
 			},
 			{dir: options.lockDir, timeoutMs: options.lockTimeoutMs},
 		);
