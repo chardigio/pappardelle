@@ -11,6 +11,7 @@ import {
 	type OuterTmuxRunner,
 } from './tmux.ts';
 import {shellQuote} from './shell-quote.ts';
+import {tmuxFormatLiteral} from './tmux-format.ts';
 import type {PaneLayout} from './types.ts';
 import {
 	tryRestartLock,
@@ -125,11 +126,12 @@ export function tuiListPane(
 // one step, but on tmux next-3.9 it kills the whole server when the window has
 // several panes and a client attached. Both commands go in one invocation so
 // nothing else reaches the window between them. The pane kept can be a
-// viewer, so the TUI is started in the session's own directory, the repo's.
+// viewer started elsewhere, so the TUI is started in `cwd`, a tmux -c value:
+// by default the session's own directory.
 export function restartTuiArgs(
 	paneId: string,
 	command: string,
-	envArgs: readonly string[] = [],
+	start: {cwd?: string; envArgs?: readonly string[]} = {},
 ): string[] {
 	return [
 		'kill-pane',
@@ -142,8 +144,8 @@ export function restartTuiArgs(
 		'-t',
 		paneId,
 		'-c',
-		'#{session_path}',
-		...envArgs,
+		start.cwd ?? '#{session_path}',
+		...(start.envArgs ?? []),
 		command,
 	];
 }
@@ -152,23 +154,25 @@ function restartPane(
 	paneId: string,
 	command: string,
 	tmux: OuterTmuxRunner,
-	envArgs: readonly string[] = [],
+	start: {cwd?: string; envArgs?: readonly string[]} = {},
 ): PaneOutcome {
-	const result = tmux(restartTuiArgs(paneId, command, envArgs));
+	const result = tmux(restartTuiArgs(paneId, command, start));
 	return result.error || result.status !== 0
 		? {ok: false, reason: tmuxFailure(result)}
 		: {ok: true, paneId};
 }
 
 /**
- * Rerun a TUI that died in its session's pane. Killing the session and
- * creating it again can empty the server, and a client that reaches a server
- * on its way out ends with it.
+ * Rerun a TUI that died in its session's pane, in `cwd`, the directory it is
+ * launched from: the one the session was created in may be a closed space's
+ * worktree. Killing the session and creating it again can empty the server,
+ * and a client that reaches a server on its way out ends with it.
  */
 export function reviveTui(
 	revival: {
 		session: string;
 		command: string;
+		cwd: string;
 		envArgs: readonly string[];
 		markerPaneId: string | null;
 	},
@@ -176,7 +180,10 @@ export function reviveTui(
 ): PaneOutcome {
 	const pane = tuiListPane(revival.session, tmux, revival.markerPaneId);
 	return pane.ok
-		? restartPane(pane.paneId, revival.command, tmux, revival.envArgs)
+		? restartPane(pane.paneId, revival.command, tmux, {
+				cwd: tmuxFormatLiteral(revival.cwd),
+				envArgs: revival.envArgs,
+			})
 		: pane;
 }
 

@@ -154,6 +154,7 @@ tmuxTest('a dead TUI is rerun in its own session, which never goes away', t => {
 		execFileSync('sleep', ['0.05']);
 	t.regex(pane(), /^1\|/);
 	// The TUI's own pane can be gone, leaving a viewer started elsewhere.
+	// The session's own directory is not where the TUI is launched from.
 	const viewer = execFileSync(
 		'tmux',
 		[
@@ -174,6 +175,7 @@ tmuxTest('a dead TUI is rerun in its own session, which never goes away', t => {
 	const revived = reviveTui({
 		session,
 		command: 'sleep 30',
+		cwd: repo,
 		envArgs: ['-e', 'PAPPARDELLE_REVIVE_TEST=1'],
 		markerPaneId: viewer,
 	});

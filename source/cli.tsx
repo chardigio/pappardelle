@@ -17,6 +17,7 @@ import {
 	cleanupOrphanedOuterSessions,
 	migrateLegacyAgentSessions,
 	exactSessionTarget,
+	killSession,
 	isInTmux,
 	sendKeysToSpaceAgent,
 	newOuterSessionArgs,
@@ -651,7 +652,7 @@ if (tmuxVersion && tmuxVersionTooOld(tmuxVersion.version)) {
 if (!isInTmux() && cli.flags.layout) {
 	const outerDone = startupTrace.current?.begin('outer-bootstrap');
 	const repoName = getRepoName();
-	const existing = tuiSessionNames(repoName).find(name => sessionExists(name));
+	let existing = tuiSessionNames(repoName).find(name => sessionExists(name));
 	const cmd = tuiLaunchCommand({
 		execPath: process.execPath,
 		cliPath: cliFilePath(),
@@ -663,14 +664,18 @@ if (!isInTmux() && cli.flags.layout) {
 		const revived = reviveTui({
 			session: existing,
 			command: cmd,
+			cwd: process.cwd(),
 			envArgs: startupSessionEnvArgs(),
 			markerPaneId: daos.tuiMarker.read()?.paneId ?? null,
 		});
+		// The session is created again instead, which can race the server's
+		// exit when it was the server's last session.
 		if (!revived.ok) {
-			console.error(
+			createLogger('cli').warn(
 				`Could not restart the TUI in ${existing}: ${revived.reason}`,
 			);
-			process.exit(1);
+			killSession(existing);
+			existing = undefined;
 		}
 	}
 
