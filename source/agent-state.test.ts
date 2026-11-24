@@ -81,6 +81,8 @@ test('the screen alone shows a Codex usage limit, a draft and a spinner', async 
 	t.is(await stateOf(fixture('claude-idle')), 'idle');
 	t.is(await stateOf(fixture('claude-suggestion-named')), 'idle');
 	t.is(await stateOf(fixture('claude-draft-named')), 'draft');
+	t.is(await stateOf(fixture('claude-shell-draft')), 'draft');
+	t.is(await stateOf(fixture('claude-shell-empty')), 'idle');
 });
 
 test('a space with no agent session says so', async t => {

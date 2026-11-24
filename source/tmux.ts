@@ -1848,7 +1848,7 @@ export type SendToSpaceAgentResult =
 /**
  * Why the agent's screen stops a send. A permission prompt or question takes
  * the keys as an answer, which must go through `pappardelle answer` and its
- * policy. Text typed into Codex's composer would be cleared by the send.
+ * policy. Text typed into the agent's input box would be cleared by the send.
  */
 async function sendBlocker(
 	runner: SendTmuxRunner,

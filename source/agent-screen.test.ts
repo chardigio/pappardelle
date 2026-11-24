@@ -3,7 +3,8 @@ import path from 'node:path';
 import test from 'ava';
 import {parseAgentScreen, parseResetTime} from './agent-screen.ts';
 
-// Captured from real Claude Code (2.1.319, 2.1.327) and Codex (0.166) sessions.
+// Captured from real Claude Code (2.1.319, 2.1.327, 2.1.330) and Codex (0.166)
+// sessions.
 const fixtures = path.join(
 	import.meta.dirname,
 	'..',
@@ -212,6 +213,14 @@ test("Claude's input box is found under a rule that carries the session name", t
 	t.is(suggestion.composer, '');
 	t.false(suggestion.lines.some(line => line.includes("what's in calc.py")));
 	t.is(screen('claude-draft-named').composer, 'a draft I have not sent yet');
+});
+
+test("a command typed in Claude's shell mode is a draft that starts with !", t => {
+	t.is(screen('claude-shell-draft').composer, '!ls -la');
+	const empty = screen('claude-shell-empty');
+	t.is(empty.composer, '');
+	t.false(empty.lines.some(line => line.includes('Try "edit')));
+	t.is(screen('claude-shell-empty-history').composer, '');
 });
 
 test("a message echoed into Claude's transcript is not taken for Codex's composer", t => {
