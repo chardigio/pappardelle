@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import test, {type ExecutionContext} from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
 	newSpaceIdentity,
 	protectedSessionNames,
@@ -18,12 +19,7 @@ const SOCKET = 'identity-test-socket';
 
 /** Stores with a home of their own, and the identities idow would give its spaces. */
 function fixture(t: ExecutionContext, sqlite?: boolean, repo?: string) {
-	const home = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-identity-')),
-	);
-	t.teardown(() => {
-		fs.rmSync(home, {recursive: true, force: true});
-	});
+	const home = tempDir(t, 'papp-identity-');
 	const mainRoot = path.join(home, 'workspace', 'repo');
 	fs.mkdirSync(path.join(mainRoot, 'src'), {recursive: true});
 	const state = testState(t, {
