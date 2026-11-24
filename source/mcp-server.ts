@@ -21,6 +21,7 @@ import {
 } from './config.ts';
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
+import {findPartnerAgent} from './partner-agents.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
 import {spaceFromWorktreePath} from './space-target.ts';
 
@@ -33,7 +34,21 @@ const MESSAGING =
 const MESSAGE_SOUS_CHEF = `The main checkout's agent coordinates the spaces; reach it with SendMessage to \`${SOUS_CHEF_NAME}\`.`;
 
 const SOUS_CHEF =
-	"Sous-chef mode is on: this session coordinates the repo's spaces. Keep the other agents moving: `spaces_list` for the board, `space_watch` with `until: [blocked, idle]` in a loop to catch every space waiting on a person or stopped, `space_state` and `space_question_tabs` to read what it asks, and `space_answer` for the user's answer. Bring each prompt and question to the user, and answer it on their word. Nudge an idle agent that stopped with work it can carry on alone, such as waiting on CI or a background task after a restart. When a turn ends without AskUserQuestion, keep a `pappardelle watch` running in the background so changes wake you. Never do task-level work yourself: investigate and plan with the user, then file a new issue and open a space for the task with `space_open`. Small upkeep, such as a configuration change or fixing CI, can be done here. Name every issue by its number and a short title, the same words each time, never the number alone. The /sous-chef skill has the full kitchen routine.";
+	"Sous-chef mode is on: this session coordinates the repo's spaces. Keep the other agents moving: `spaces_list` for the board, `space_watch` with `until: [blocked, idle]` in a loop to catch every space waiting on a person or stopped, `space_state` and `space_question_tabs` to read what it asks, and `space_answer` for the user's answer. Bring each prompt and question to the user, and answer it on their word. Nudge an idle agent that stopped with work it can carry on alone, such as waiting on CI or a background task after a restart. When a turn ends without AskUserQuestion, keep a `pappardelle watch` running in the background so changes wake you. Never do task-level work yourself: investigate and plan with the user, then file a new issue and open a space for the task with `space_open`. Small upkeep, such as a configuration change or fixing CI, can be done here. Name every issue by its number and a short title, the same words each time, never the number alone. `spaces_list` also lists the partner agents, permanent agents beside you with no issue: reach them by name, relay their prompts, but never open, close or nudge them, since idle is where they wait for work. The /sous-chef skill has the full kitchen routine.";
+
+/** A partner agent's own instructions, in place of a space's. */
+function partnerInstructions(
+	partner: {name: string; description?: string},
+	repoName: string | undefined,
+	sousChef: boolean,
+): string {
+	const role = partner.description ? `: ${partner.description}` : '';
+	return `You are ${partner.name}, a partner agent in Pappardelle${repoName ? ` (repo ${repoName})` : ''}${role}. Partners are permanent agents beside the main checkout's at the top of the rail, with no worktree, issue or PR. You run in the main checkout; the companion tools target your own companion pane. Open a space for task-level work, such as a feature or a fix, with \`space_open\` and a description of it: that space's agent does the work.
+
+${sousChef ? `${MESSAGING} ${MESSAGE_SOUS_CHEF}` : MESSAGING}
+
+${companionRules()}`;
+}
 
 export function workspaceInstructions(
 	space: string | undefined,
@@ -42,8 +57,17 @@ export function workspaceInstructions(
 		sousChef?: boolean;
 		/** The SOUS-CHEF.md to point the coordinator at, when there is one. */
 		sousChefFile?: string;
+		/** Set when `space` is a partner agent's name, from agents: in the config. */
+		partner?: {name: string; description?: string};
 	} = {},
 ): string {
+	if (space && options.partner)
+		return partnerInstructions(
+			options.partner,
+			repoName,
+			options.sousChef ?? false,
+		);
+
 	if (!space) {
 		return [
 			"This repo uses Pappardelle, which gives each issue a git worktree, an agent session and a companion pane. This session isn't in a space, so pass `space` to the companion tools. Use this server's tools rather than tmux. The pappardelle-agent skill covers updating and restarting Pappardelle.",
@@ -70,9 +94,11 @@ export function createMcpServer(options: {
 	repoName?: string;
 	sousChef?: boolean;
 	sousChefFile?: string;
+	partner?: {name: string; description?: string};
 	runCli: RunCli;
 }): McpServer {
-	const {enabled, space, repoName, sousChef, sousChefFile, runCli} = options;
+	const {enabled, space, repoName, sousChef, sousChefFile, partner, runCli} =
+		options;
 	const server = new McpServer(
 		{name: 'pappardelle', version: '1.0.0'},
 		enabled
@@ -80,6 +106,7 @@ export function createMcpServer(options: {
 					instructions: workspaceInstructions(space, repoName, {
 						sousChef,
 						sousChefFile,
+						partner,
 					}),
 				}
 			: {},
@@ -204,6 +231,9 @@ export async function runMcpServer(): Promise<void> {
 	const config = loadRepoConfig();
 	const enabled = workspaceAwareAgents(config);
 	const sousChef = enabled && sousChefLaunch(config) !== undefined;
+	// A partner agent's PAPPARDELLE_SPACE is its name. An attached one (a bot
+	// that runs outside Pappardelle) exports it itself.
+	const partner = space ? findPartnerAgent(config, space) : undefined;
 	const closed = new Promise(resolve => {
 		process.stdin.once('close', resolve);
 	});
@@ -213,6 +243,10 @@ export async function runMcpServer(): Promise<void> {
 		repoName,
 		sousChef,
 		sousChefFile: sousChef && !space ? findSousChefFile() : undefined,
+		partner: partner && {
+			name: partner.name,
+			...(partner.description ? {description: partner.description} : {}),
+		},
 		runCli: spawnCli(space),
 	}).connect(new StdioServerTransport());
 	await closed;

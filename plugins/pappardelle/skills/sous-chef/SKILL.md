@@ -51,6 +51,8 @@ Call `spaces_list`. Each space entry has:
 - `git` — `ahead` (commits ahead of `base`), `filesChanged`, `insertions`, `deletions`
 - `spaceStateUpdatedAt` — when the TUI last refreshed pipeline, comments and recap
 
+`spaces_list` also returns `partners`: the partner agents, permanent agents beside you at the top of the rail, with no issue, worktree or PR. Each has `name`, `description` (its role), `kind` (`launched` runs in Pappardelle; `attached` runs on its own tmux server, such as a chat bot), `status`, `minutesAgo`, `running` and `lastTurn` (its latest prompt and reply). Learn them here, so you know what each one is for. Partner Agents has the rules for them.
+
 Condense `title` to a 3-6 word gist for the board, or use `recap.customTitle` when `title` is null. Add a trailing flag when the pipeline is failing ("pipeline red") or `unresolvedCommentCount` is non-zero ("3 unresolved"). The TUI refreshes pipeline, comments and recap every ~60s while it runs, so they may be stale or absent when it hasn't been open.
 
 **Step 2: Present the board**
@@ -77,8 +79,12 @@ HEARD:
 WORKING:
   723, sous-chef skill — running Bash, just now
 
+Partners: trotbot waiting, starbot working, tradbot not running.
+
 What's the call, chef?
 ```
+
+Partners go on one line after the groups, by name, with their state. A partner at `waiting_for_approval` goes under FIRE like a space. Waiting for input is where a partner rests between messages, so it never goes under HEARD. Skip the line when there are no partners.
 
 Then nudge the idle spaces that stopped with work left, as in Keeping the Line Moving, and name the nudged ones under the board: "Nudged 699, newsletter enrichment, waiting on CI since the restart."
 
@@ -148,6 +154,17 @@ Every companion pane, yours in the main space and each space's, is an open termi
 
 `space_send` types the chef's words into the space's TUI, as if the chef typed them. When the message is yours, not the chef's, such as a heads-up about another space or a question back, use SendMessage with the full key as `to` (ListAgents lists them). The agent sees it came from you and can reply. Codex, Pi and agy agents can't receive SendMessage; use `space_send` for them.
 
+## Partner Agents
+
+A partner has no number: call it by its name ("trotbot"). Every space tool takes the name as its key.
+
+- Relay the chef's words with `space_send`, and your own messages with SendMessage to the name, as for a space
+- When the chef's request fits a partner's role, its `description`, offer to pass it on: "Fits trotbot, the iMessage bot. Send it?"
+- `space_watch` covers the running partners. Relay a partner's prompt or question as in Relaying a Space's Question
+- Never nudge a partner for sitting idle: idle is where it waits for its next message
+- Never close a partner. `space_open` with a partner's name only starts a `launched` partner that isn't running. An `attached` partner runs outside Pappardelle: say it's down and leave it to the chef
+- A partner opens spaces of its own with `space_open` for task-level work. They are spaces like any other on the board
+
 ## Relaying a Space's Question
 
 When a space's agent asks the chef something in a question dialog, relay it with your own AskUserQuestion, not in chat. The dialog shows the chef the sous-chef needs them, and the Claude app sends a push notification.
@@ -183,7 +200,7 @@ Read its last turn with `space_read`. Nudge it when the turn ended with work the
 - It listed next steps it meant to take itself, or stopped mid-task: cut off by a restart, a compaction, an error or the usage limit
 - It hit a failure it can fix: red tests, a red pipeline on its PR (`pipeline` in `spaces_list`), unresolved review comments it was working through
 
-Leave it alone when it asked the chef a question or for a decision (relay that instead, as in Relaying a Space's Question), reported the work done or ready for review, has a draft in its input box, has a `space_schedules` entry that will wake it, or the chef said to leave it.
+Leave it alone when it's a partner agent, when it asked the chef a question or for a decision (relay that instead, as in Relaying a Space's Question), reported the work done or ready for review, has a draft in its input box, has a `space_schedules` entry that will wake it, or the chef said to leave it.
 
 Send the nudge with SendMessage to the space's key, since it's your message, not the chef's; for Codex, Pi and agy agents use `space_send`. Say what it was waiting on or meant to do next and tell it to check and carry on: "Sous-chef here. You were waiting on CI for your push; check it now and carry on. If you need the chef, say what for." Call it out in one line: "Nudged 696, waiting on CI."
 
@@ -318,6 +335,7 @@ The chef doesn't remember issue numbers or beads hashes. Every time you mention 
 - Pick it the first time the issue comes up and reuse exactly the same words for the rest of the conversation, so the chef learns to recognise it. Don't vary or reword it
 - Two issues whose names would read alike get names that tell them apart
 - The chef may refer to an issue by its short name or part of it ("the USB one"). Resolve it to the key from the board, and ask only when it matches more than one
+- Partner agents have no issue. Name them by their name alone
 
 ## Repo Configuration
 
@@ -326,6 +344,7 @@ The tools detect the repo from the directory this session started in. The standa
 - **Worktree base**: `~/.worktrees/{repo-name}/`
 - **Agent session**: `agent-{repo-name}-{ISSUE-KEY}` on the `pappardelle_inner` tmux socket; relay to it with `space_send`
 - **Companion session**: `companion-{repo-name}-{ISSUE-KEY}` on the same socket; change it with the `companion_*` tools
+- **Partner agents**: `agents:` in `.pappardelle.yml`. A launched partner's session is `agent-{repo-name}-{name}`; an attached one runs on its own tmux server
 - **TUI session**: `pappardelle-{repo-name}` on the default tmux server
 - **Status dir**: `~/.pappardelle/claude-status/`
 - **Open spaces**: `~/.pappardelle/repos/{repo-name}/open-spaces.json`

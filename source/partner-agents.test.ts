@@ -11,6 +11,7 @@ import {
 	keptSessionKeys,
 	listPartnerAgents,
 	partnerAgentRows,
+	partnerMemoryDir,
 	partnerAgentStatusKey,
 	resolvePartnerSessionLaunch,
 	validatePartnerAgents,
@@ -237,6 +238,7 @@ test('keptSessionKeys keeps partner sessions from the startup reaper', t => {
 const deps = (sessionId?: string) => ({
 	mainRepoRoot: '/repo',
 	readSessionId: () => sessionId,
+	memoryDir: (name: string) => `/memory/${name}`,
 });
 
 test('resolvePartnerSessionLaunch ignores a name that is not a partner', t => {
@@ -293,7 +295,33 @@ test('resolvePartnerSessionLaunch uses the agent profile, then the top-level one
 	)!;
 	t.is(helper.agentProfile.name, 'claude');
 	t.true(helper.command.includes('--resume id-1'));
-	t.true(helper.command.endsWith("--name helper '/help'"));
+	t.true(
+		helper.command.endsWith(
+			`--name helper --settings '{"autoMemoryDirectory":"/memory/helper"}' '/help'`,
+		),
+	);
+	// Codex has no auto memory to point anywhere.
+	t.false(reviewer.command.includes('--settings'));
+});
+
+test('a claude partner keeps its own auto memory, also on resume', t => {
+	const command = buildPartnerLaunchCommand('reviewer', CLAUDE, {
+		skipPermissions: false,
+		sessionId: 'abc-123',
+		memoryDir: '/home/u/.pappardelle/repos/r/agents/reviewer/memory',
+	});
+	const settings = `--settings '{"autoMemoryDirectory":"/home/u/.pappardelle/repos/r/agents/reviewer/memory"}'`;
+	t.is(
+		command,
+		`claude --name reviewer ${settings} --resume abc-123 || { printf '\\033[A\\033[2K'; false; } || claude --name reviewer ${settings}`,
+	);
+});
+
+test('partnerMemoryDir is per repo and partner, outside the repo', t => {
+	t.is(
+		partnerMemoryDir('stardust', 'reviewer', '/home/u'),
+		'/home/u/.pappardelle/repos/stardust/agents/reviewer/memory',
+	);
 });
 
 test('partnerAgentRows gives each agent its status key and emoji fallback', t => {
@@ -455,4 +483,15 @@ test('describePartners reads status, session and last exchange from each partner
 			tmux: {socket: 'pappardelle_inner', session: 'agent-repo-reviewer'},
 		},
 	]);
+});
+
+test('validatePartnerAgents caps a description, which goes into MCP instructions', t => {
+	t.deepEqual(
+		validatePartnerAgents({scribe: {description: 'x'.repeat(120)}}, PROFILES),
+		[],
+	);
+	t.deepEqual(
+		validatePartnerAgents({scribe: {description: 'x'.repeat(121)}}, PROFILES),
+		['agents.scribe.description: must be at most 120 characters'],
+	);
 });

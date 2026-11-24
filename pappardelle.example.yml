@@ -53,10 +53,12 @@ team_prefix: ENG
 # agents:
 #   reviewer:
 #     emoji: "🔍"
+#     description: Reviews every open PR    # One line: its role
 #     agent_profile: codex                  # Default: the top-level agent_profile
 #     initialization_command: review-queue  # First launch only
 #   chatbot:
 #     emoji: "🤖"
+#     description: Answers the team chat
 #     attach: {socket: chatbot, session: chatbot}
 
 # Agent profiles for the agent pane (optional). The built-in `claude` agent

@@ -586,7 +586,10 @@ if (cli.input.length > 0) {
 							partner.name,
 							getDangerouslySkipPermissions(partnerConfig),
 							fresh
-								? {mainRepoRoot: mainRoot, readSessionId: () => undefined}
+								? {
+										...partners.defaultPartnerSessionDeps(),
+										readSessionId: () => undefined,
+									}
 								: undefined,
 						);
 						if (!launch) return false;

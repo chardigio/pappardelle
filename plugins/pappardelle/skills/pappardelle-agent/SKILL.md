@@ -18,10 +18,11 @@ Pappardelle gives each issue a git worktree, an agent session (Claude, or the ag
 - Each space has two tmux sessions on the `pappardelle_inner` socket: `agent-{repo}-{key}` (the agent) and `companion-{repo}-{key}` (the companion). In the key, `_` becomes `__` and `.` becomes `_`, because tmux rejects `.` in session names
 - Each companion split is a session of its own, `companion-{repo}-{key}~{name}`, which the TUI shows in a framed pane beside the companion. Splits show only in the TUI, not in the terminal launchers
 - The TUI runs in the session `pappardelle-{repo}` on the default tmux server
+- A partner agent (`agents:` in the config) is a permanent agent beside the main checkout's, with no issue or worktree. It runs in the main checkout with `PAPPARDELLE_SPACE` set to its name, which is also its key for every space tool. A launched partner's session is `agent-{repo}-{name}`; an attached one, such as a chat bot, runs on its own tmux server. `spaces_list` lists them under `partners`
 
 Never drive tmux directly. The sessions are on another socket, and Pappardelle handles naming, exact-match targets, and quoting.
 
-To talk to the agent in another space, use Claude Code's SendMessage and ListAgents. Sessions are named by space key, so the recipient is the key (`SendMessage({to: "STA-696", message: "..."})`; with `sous_chef: true` the main checkout's agent is `sous-chef`), and the message carries who sent it and can be answered. `space_send` types into that agent's TUI as if the user did; use it when the user asks for it.
+To talk to the agent in another space, use Claude Code's SendMessage and ListAgents. Sessions are named by space key, so the recipient is the key (`SendMessage({to: "STA-696", message: "..."})`; with `sous_chef: true` the main checkout's agent is `sous-chef`, and a partner agent is its name), and the message carries who sent it and can be answered. `space_send` types into that agent's TUI as if the user did; use it when the user asks for it.
 
 ## Without the MCP tools
 

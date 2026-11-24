@@ -1078,35 +1078,50 @@ auto_remove_when_done?: boolean;
 
 ## Partner agents
 
-The top-level `agents:` map adds partner agents: permanent rows under the main agent (the sous-chef) in the top section of the rail. A partner has no issue and no worktree. It is for an agent that coordinates rather than codes, such as a review queue or a chat bot.
+The top-level `agents:` map adds partner agents: permanent agents under the main agent (the sous-chef) in the top section of the rail. A partner has no issue, worktree or PR. It is for an agent that coordinates or answers rather than codes, such as a review queue or a chat bot.
 
 ```yaml
 agents:
   reviewer:
     emoji: '🔍'
+    description: Reviews every open PR # one line: its role
     agent_profile: codex # default: the top-level agent_profile
     initialization_command: review-queue # first launch only
   trotbot:
     emoji: '🐴'
+    description: iMessage bot for the racing group
     attach: {socket: trotbot, session: trotbot}
 ```
 
 ```typescript
 agents?: Record<string, {
 	emoji?: string;
+	description?: string; // one line, at most 120 characters
 	agent_profile?: string;
 	initialization_command?: string;
 	attach?: {socket: string; session: string};
 }>;
 ```
 
-- The key is the row name. It must be lowercase letters, digits, `-` or `_`, start with a letter, and not be `main`, so it can never collide with an issue key
+In the rail:
+
+- The key is the partner's name. It must be lowercase letters, digits, `-` or `_`, start with a letter, and not be `main`, so it can never collide with an issue key
 - Rows show in config order. Absent `agents:` keeps the rail identical to before
 - A **launched** partner (no `attach`) starts when you first select its row, in the main repo root. Its first launch is fresh, never claude's `--continue`, because `--continue` in the main repo root would resume the sous-chef's conversation. Later launches resume its own recorded session
 - An **attach** partner shows a session that runs on its own tmux server: `socket` is a `-L` name, or a path for `-S`. Pappardelle never starts or kills it. When the session is down, the pane says so and attaches again within 5 seconds of its return. `agent_profile` and `initialization_command` are rejected on an attach partner, since nothing is launched
 - A partner's space key is its name. Pappardelle sets `PAPPARDELLE_SPACE=<name>` and `PAPPARDELLE_REPO` for a launched partner, so the status hook files its status under `<repo>-<name>`. An attached process must export both itself, or its dot stays `?` (and, in the main repo root, lands on the main row)
 - `x` refuses to close a partner, and `o` and `i` do nothing. Remove it from `agents:` to remove the row; the startup reaper then ends its sessions
 - `emoji` falls back to the top-level `default_emoji`
+
+Memory: Claude Code gives every session in a repo one auto memory folder, so a partner would share it with the sous-chef and every space's agent. A launched partner that runs Claude gets its own instead, in `~/.pappardelle/repos/<repo>/agents/<name>/memory`, outside the repo. An attach partner sets its own when it starts: `claude --settings '{"autoMemoryDirectory": "<folder>"}'`.
+
+With `workspace_aware_agents: true`, partners work with the MCP tools:
+
+- `spaces_list` (`pappardelle spaces`) lists the partners under `partners`, apart from the spaces, with each one's role, status, whether it runs and its last exchange
+- Every space tool takes a partner's name as its key, such as `space_read`, `space_state`, `space_watch`, `space_answer` and `space_send`. For an attach partner they act on its session on its own tmux server, and never end it. A watch of every space includes the attach partners that run
+- `space_read` finds a partner's conversation by the session id in its status file, since the partners and the sous-chef share the main checkout's transcript folder
+- `space_open` with a partner's name starts a launched partner that isn't running, and files no issue. It never starts an attach partner. `space_close` refuses a partner
+- A partner's MCP instructions give it its name and role, and tell it to open a space with `space_open` for task-level work. In sous-chef mode, the sous-chef shows the partners on its board and relays to them, but never nudges or closes them
 
 ## Sous-chef key
 

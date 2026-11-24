@@ -47,13 +47,16 @@ agent_profiles:
 
 # Partner agents sit under the sous-chef in the top of the rail. These are
 # chat bots that launchd runs on their own tmux sockets, so Pappardelle only
-# attaches to them. Each bot exports PAPPARDELLE_SPACE=<repo>-agent-<name>.
+# attaches to them. Each bot exports PAPPARDELLE_REPO and
+# PAPPARDELLE_SPACE=<name>, so its status shows on its row.
 agents:
   trotbot:
     emoji: '🐴'
+    description: iMessage bot for the racing group
     attach: {socket: trotbot, session: trotbot}
   starbot:
     emoji: '⭐'
+    description: iMessage bot for the music app group
     attach: {socket: starbot, session: starbot}
 
 post_workspace_init:

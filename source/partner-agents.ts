@@ -1,3 +1,5 @@
+import {homedir} from 'node:os';
+import path from 'node:path';
 import {
 	bindResumeArgs,
 	builtinAgentDefaults,
@@ -59,6 +61,8 @@ export type PartnerAgent = PartnerAgentConfig & {name: string};
  * never `main`, which is the sous-chef's row and session key.
  */
 const NAME_PATTERN = /^[a-z][a-z\d_-]*$/;
+
+export const MAX_DESCRIPTION_LENGTH = 120;
 
 export function isPartnerAgentName(name: string): boolean {
 	return NAME_PATTERN.test(name) && name !== 'main';
@@ -148,9 +152,18 @@ export function validatePartnerAgents(
 				errors.push(`${prefix}.${field}: must be a string`);
 		}
 
+		// It goes into the partner's MCP instructions, which Claude Code cuts
+		// off past about 3 KB.
 		const {description} = raw;
 		if (typeof description === 'string' && /[\r\n]/.test(description.trim()))
 			errors.push(`${prefix}.description: must be a single line`);
+		else if (
+			typeof description === 'string' &&
+			description.trim().length > MAX_DESCRIPTION_LENGTH
+		)
+			errors.push(
+				`${prefix}.description: must be at most ${MAX_DESCRIPTION_LENGTH} characters`,
+			);
 
 		const profile = raw['agent_profile'];
 		if (
@@ -231,6 +244,8 @@ export function buildPartnerLaunchCommand(
 		promptArgs?: string;
 		/** Pass the companion rules at launch, as workspace_aware_agents does. */
 		rules?: boolean;
+		/** Claude's auto memory folder for this partner; see partnerMemoryDir. */
+		memoryDir?: string;
 	},
 ): string {
 	const parts = [agentProfile.command];
@@ -242,6 +257,8 @@ export function buildPartnerLaunchCommand(
 		renderAgentLaunchFlags(agentProfile) +
 		(options.rules ? agentRulesFlags(agentProfile.command) : '');
 	if (agentProfile.isClaude) base += ` --name ${quoteLaunchValue(name)}`;
+	if (agentProfile.isClaude && options.memoryDir)
+		base += ` --settings ${shellQuote(JSON.stringify({autoMemoryDirectory: options.memoryDir}))}`;
 
 	const init = options.initializationCommand?.trim();
 	let launch = base;
@@ -286,6 +303,30 @@ export interface PartnerSessionLaunch {
 export interface PartnerSessionDeps {
 	mainRepoRoot: string;
 	readSessionId: (name: string, agentProfile: string) => string | undefined;
+	memoryDir: (name: string) => string;
+}
+
+/**
+ * Where a partner keeps its Claude auto memory. Claude Code gives every
+ * session in a repo one shared memory folder, so without this a partner
+ * would load what the sous-chef and every space's agent saved, and they
+ * would load what it saved: for a chat bot, things people told it. The
+ * folder is outside the repo, so nothing in it reaches a commit.
+ */
+export function partnerMemoryDir(
+	repoName: string,
+	name: string,
+	home = homedir(),
+): string {
+	return path.join(
+		home,
+		'.pappardelle',
+		'repos',
+		repoName,
+		'agents',
+		name,
+		'memory',
+	);
 }
 
 /** Null when `name` is not a configured partner agent. */
@@ -320,16 +361,18 @@ export function resolvePartnerSessionLaunch(
 			initializationCommand: agent.initialization_command,
 			promptArgs,
 			rules: workspaceAwareAgents(config),
+			memoryDir: deps.memoryDir(name),
 		}),
 	};
 }
 
-function defaultPartnerSessionDeps(): PartnerSessionDeps {
+export function defaultPartnerSessionDeps(): PartnerSessionDeps {
 	const repoName = getRepoName();
 	return {
 		mainRepoRoot: getMainRepoRoot(),
 		readSessionId: (name, agentProfile) =>
 			readAgentSession(repoName, name, agentProfile),
+		memoryDir: name => partnerMemoryDir(repoName, name),
 	};
 }
 

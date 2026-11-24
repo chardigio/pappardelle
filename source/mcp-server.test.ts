@@ -140,6 +140,40 @@ test('instructions fit before Claude Code truncates them', t => {
 	);
 });
 
+test('a partner agent is told who it is and where task work goes, within the limit', t => {
+	const partner = {
+		name: 'trotbot',
+		description: 'iMessage bot for the racing group',
+	};
+	const text = workspaceInstructions('trotbot', 'repo', {
+		sousChef: true,
+		partner,
+	});
+	t.regex(
+		text,
+		/^You are trotbot, a partner agent in Pappardelle \(repo repo\): iMessage bot for the racing group\./,
+	);
+	t.regex(text, /no worktree, issue or PR/);
+	t.regex(text, /`space_open` and a description/);
+	t.regex(text, /SendMessage to `sous-chef`/);
+	t.regex(text, /companion_run/);
+	t.notRegex(text, /You are in Pappardelle space/);
+	t.notRegex(workspaceInstructions('trotbot', 'repo', {partner}), /sous-chef/);
+	t.true(
+		workspaceInstructions('trotbot', 'a-long-repository-name', {
+			sousChef: true,
+			partner: {name: 'a-long-partner-name-here', description: 'x'.repeat(120)},
+		}).length < 3000,
+	);
+});
+
+test('the sous-chef is told partners are never opened, closed or nudged', t => {
+	t.regex(
+		workspaceInstructions(undefined, 'repo', {sousChef: true}),
+		/partner agents.*never open, close or nudge them/,
+	);
+});
+
 test('only a session in a space is told to keep a companion current', t => {
 	t.regex(workspaceInstructions('STA-1', 'repo'), /companion_run/);
 	t.notRegex(workspaceInstructions(undefined, 'repo'), /companion_run/);

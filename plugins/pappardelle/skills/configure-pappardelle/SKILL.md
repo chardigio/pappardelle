@@ -375,12 +375,12 @@ Rules to apply when editing:
 
 ## Configuring Partner Agents
 
-`agents:` is a top-level map of permanent rows under the sous-chef. Each key is the row name (lowercase, starts with a letter, not `main`). Ask which kind:
+`agents:` is a top-level map of permanent agents under the sous-chef. Each key is the partner's name (lowercase, starts with a letter, not `main`). Ask which kind:
 
-- **Launched**: `agent_profile` (optional, falls back to the top-level `agent_profile`) and `initialization_command` (optional, first launch only). It runs in the main repo root on first select.
-- **Attach**: `attach: {socket, session}` for a session that something else keeps running on its own tmux server. Tell the user that process must export `PAPPARDELLE_SPACE=<repo>-agent-<name>`, or its status dot stays `?`.
+- **Launched**: `agent_profile` (optional, falls back to the top-level `agent_profile`) and `initialization_command` (optional, first launch only). It runs in the main repo root on first select. A Claude partner keeps its own auto memory under `~/.pappardelle/repos/<repo>/agents/<name>/memory`.
+- **Attach**: `attach: {socket, session}` for a session that something else keeps running on its own tmux server. Tell the user that process must export `PAPPARDELLE_REPO=<repo>` and `PAPPARDELLE_SPACE=<name>`, or its status dot stays `?`, and that it can keep its own memory with `claude --settings '{"autoMemoryDirectory": "<folder>"}'`.
 
-Offer an `emoji` for each. Do not prompt about partner agents during unrelated edits, and never suggest one for a task that needs its own branch: that is a workspace.
+Offer an `emoji` and a one-line `description` (its role, at most 120 characters; the sous-chef and the partner read it) for each. Do not prompt about partner agents during unrelated edits, and never suggest one for a task that needs its own branch: that is a workspace.
 
 ## Configuring the Companion Pane Command
 
