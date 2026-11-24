@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import {execFileSync, spawn, type ChildProcess} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {once} from 'node:events';
-import {existsSync, mkdirSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {WorkspaceStatuses} from '../source/workspace-status.ts';
 import {
+	LIVENESS_CHECK_MS,
 	STATUS_MONITOR_OPTION,
 	STATUS_PANE_FORMAT,
 	listStatusPanes,
@@ -23,15 +24,9 @@ const previousPath = process.env['PATH'];
 const realTmux = execFileSync('which', ['tmux'], {encoding: 'utf8'}).trim();
 const bin = path.join(harness.root, 'bin');
 mkdirSync(bin);
-const fail = path.join(harness.root, 'fail-probe');
-const used = path.join(harness.root, 'probe-failed');
+const calls = path.join(harness.root, 'tmux-calls');
 const shim = `#!/bin/bash
-set -e
-if [[ "$*" == *'#{pane_pid} #{pane_dead}'* && -f ${shellQuoteStatus(fail)} ]]; then
-  rm ${shellQuoteStatus(fail)}
-  touch ${shellQuoteStatus(used)}
-  exit 1
-fi
+printf '%s\\n' "$*" >> ${shellQuoteStatus(calls)}
 exec ${shellQuoteStatus(realTmux)} "$@"
 `;
 execFileSync('shellcheck', ['-s', 'bash', '-'], {input: shim});
@@ -220,23 +215,21 @@ try {
 	evidence['watcher-discovery-commands'] = queries - before;
 	console.log('PASS native watcher updates avoid tmux discovery');
 
-	writeFileSync(fail, '');
-	await until(() => existsSync(used), Boolean, 'failed liveness probe');
-	await delay(100);
-	const afterFailedProbe = await programStatus.read(key, pane);
-	assert.equal(afterFailedProbe?.exited, false);
-	const afterProbe = await statuses.read(key);
-	assert.equal(afterProbe?.status, 'working');
+	const callsBefore = readFileSync(calls, 'utf8').length;
+	await delay(LIVENESS_CHECK_MS + 1000);
+	assert.equal(readFileSync(calls, 'utf8').slice(callsBefore), '');
+	const afterInterval = await programStatus.read(key, pane);
+	assert.equal(afterInterval?.exited, false);
 	await harness.emit(session, 'state=blocked:app=fixture:kind=question');
 	await until(
 		async () => statuses.read(key),
 		info => info?.status === 'blocked',
-		'report after failed probe',
+		'report after a liveness interval',
 	);
-	evidence['failed-probe'] =
-		'working and generation retained; subsequent blocked report consumed';
+	evidence['liveness-without-tmux'] =
+		'a live monitor makes no tmux call across a liveness interval and keeps reporting';
 	console.log(
-		'PASS failed liveness probe retains live state and subsequent reports',
+		'PASS the liveness check makes no tmux call and keeps the monitor live',
 	);
 
 	const racePane = parseStatusPane(
@@ -279,7 +272,7 @@ mock.module('node:fs', () => ({...fs, writeFileSync: interceptedWrite}));
 const {monitorPane} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-monitor.ts'))});
 const {followedPublisher} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-daemon.ts'))});
 const publisher = followedPublisher({dir: ${JSON.stringify(path.dirname(target))}, socketPath: ${JSON.stringify(harness.statusSocket)}, daemonMode: () => ${JSON.stringify(harness.sqlite)}});
-monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(harness.socket)}, ${JSON.stringify(racePane)}, ${JSON.stringify(path.dirname(target))}, publisher);
+monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(racePane)}, ${JSON.stringify(path.dirname(target))}, publisher);
 original(${JSON.stringify(ready)}, '');
 `,
 	);

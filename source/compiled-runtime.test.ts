@@ -100,7 +100,6 @@ test.serial(
 				'watch',
 				'r',
 				'k',
-				's',
 				malformedPane,
 				root,
 				'',

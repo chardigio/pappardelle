@@ -543,7 +543,6 @@ for (const sqlite of [false, true]) {
 					'watch',
 					'repo',
 					'TASK-1',
-					'test-status',
 					Buffer.from(JSON.stringify(pane)).toString('base64'),
 					path.dirname(file),
 					'',
