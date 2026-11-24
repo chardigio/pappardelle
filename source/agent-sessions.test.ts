@@ -285,6 +285,8 @@ for key in sys.argv[2:]:
 		{
 			env: {
 				PATH: process.env['PATH'],
+				// This env is an allow-list, and without TMPDIR the hook would write
+				// to /tmp instead of the run tmpdir.
 				TMPDIR: os.tmpdir(),
 				HOME: home,
 				PAPPARDELLE_SQLITE_STATE: '1',

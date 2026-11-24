@@ -18,6 +18,8 @@ import {
 } from './skill-completion.ts';
 import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
 
+const skillTestDir = (t: Teardown) => tempDir(t, 'pappardelle-skill-test-');
+
 // ============================================================================
 // Test helpers
 // ============================================================================
@@ -323,11 +325,11 @@ test('handleSkillListKey ignores an ordinary letter', t => {
 // ============================================================================
 
 test('discoverSkills reads repo skills with their descriptions', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
 	writeSkill(repo, 'do-pappardelle', 'Work through a TODO checklist.');
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: tempDir(t, 'pappardelle-skill-test-'),
+		homeDir: skillTestDir(t),
 	});
 	t.deepEqual(found, [
 		{
@@ -340,30 +342,30 @@ test('discoverSkills reads repo skills with their descriptions', async t => {
 });
 
 test('discoverSkills tolerates a skill with no description', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
 	writeSkill(repo, 'bare', null);
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: tempDir(t, 'pappardelle-skill-test-'),
+		homeDir: skillTestDir(t),
 	});
 	t.is(found[0]?.description, '');
 });
 
 test('discoverSkills reads commands, including nested ones', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
 	writeCommand(repo, 'deploy', 'Ship it.');
 	writeCommand(repo, 'db/reset', 'Reset the database.');
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: tempDir(t, 'pappardelle-skill-test-'),
+		homeDir: skillTestDir(t),
 	});
 	t.deepEqual(found.map(f => f.name).sort(), ['db:reset', 'deploy']);
 	t.true(found.every(f => f.kind === 'command'));
 });
 
 test('discoverSkills includes user skills and marks their source', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
-	const home = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
+	const home = skillTestDir(t);
 	writeSkill(repo, 'repo-skill', 'From the repo.');
 	writeSkill(home, 'user-skill', 'From home.');
 	const found = await discoverSkills({repoRoot: repo, homeDir: home});
@@ -377,8 +379,8 @@ test('discoverSkills includes user skills and marks their source', async t => {
 });
 
 test('discoverSkills lets a repo entry hide a user entry of the same name', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
-	const home = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
+	const home = skillTestDir(t);
 	writeSkill(repo, 'shared', 'Repo version.');
 	writeSkill(home, 'shared', 'User version.');
 	const found = await discoverSkills({repoRoot: repo, homeDir: home});
@@ -390,34 +392,34 @@ test('discoverSkills lets a repo entry hide a user entry of the same name', asyn
 test('discoverSkills returns an empty list when nothing is installed', async t => {
 	t.deepEqual(
 		await discoverSkills({
-			repoRoot: tempDir(t, 'pappardelle-skill-test-'),
-			homeDir: tempDir(t, 'pappardelle-skill-test-'),
+			repoRoot: skillTestDir(t),
+			homeDir: skillTestDir(t),
 		}),
 		[],
 	);
 });
 
 test('discoverSkills skips a skill directory with no SKILL.md', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
 	fs.mkdirSync(path.join(repo, '.claude', 'skills', 'empty'), {
 		recursive: true,
 	});
 	t.deepEqual(
 		await discoverSkills({
 			repoRoot: repo,
-			homeDir: tempDir(t, 'pappardelle-skill-test-'),
+			homeDir: skillTestDir(t),
 		}),
 		[],
 	);
 });
 
 test('discoverSkills sorts entries by name within each source', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
 	writeSkill(repo, 'zebra', 'Z.');
 	writeSkill(repo, 'alpha', 'A.');
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: tempDir(t, 'pappardelle-skill-test-'),
+		homeDir: skillTestDir(t),
 	});
 	t.deepEqual(
 		found.map(f => f.name),
@@ -426,7 +428,7 @@ test('discoverSkills sorts entries by name within each source', async t => {
 });
 
 test('discoverSkills reads a description from the top of a long SKILL.md', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
 	writeSkill(repo, 'long', 'Near the top.');
 	fs.appendFileSync(
 		path.join(repo, '.claude', 'skills', 'long', 'SKILL.md'),
@@ -434,13 +436,13 @@ test('discoverSkills reads a description from the top of a long SKILL.md', async
 	);
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: tempDir(t, 'pappardelle-skill-test-'),
+		homeDir: skillTestDir(t),
 	});
 	t.is(found[0]?.description, 'Near the top.');
 });
 
 test('discoverSkills reads frontmatter up to 4096 characters, not bytes', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
 	const dir = path.join(repo, '.claude', 'skills', 'cjk');
 	fs.mkdirSync(dir, {recursive: true});
 	// 1500 three-byte characters push the description past byte 4096 while
@@ -451,14 +453,14 @@ test('discoverSkills reads frontmatter up to 4096 characters, not bytes', async 
 	);
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: tempDir(t, 'pappardelle-skill-test-'),
+		homeDir: skillTestDir(t),
 	});
 	t.is(found[0]?.description, 'cjk desc');
 });
 
 test('discoverSkills keeps the other scope when one skills path is a file', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
-	const home = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
+	const home = skillTestDir(t);
 	fs.mkdirSync(path.join(repo, '.claude'), {recursive: true});
 	fs.writeFileSync(path.join(repo, '.claude', 'skills'), 'not a directory');
 	writeCommand(repo, 'deploy', 'Ship it.');
@@ -474,8 +476,8 @@ test('discoverSkills keeps the other scope when one skills path is a file', asyn
 });
 
 test('discoverSkills follows a symlinked command file and directory', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
-	const shared = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
+	const shared = skillTestDir(t);
 	fs.writeFileSync(
 		path.join(shared, 'linked.md'),
 		'---\ndescription: Linked.\n---\n',
@@ -496,7 +498,7 @@ test('discoverSkills follows a symlinked command file and directory', async t =>
 
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: tempDir(t, 'pappardelle-skill-test-'),
+		homeDir: skillTestDir(t),
 	});
 	t.deepEqual(
 		found.map(f => [f.name, f.description]),
@@ -508,14 +510,14 @@ test('discoverSkills follows a symlinked command file and directory', async t =>
 });
 
 test('discoverSkills stops at a command symlink back to an ancestor', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
 	writeCommand(repo, 'loop/inner', null);
 	const commands = path.join(repo, '.claude', 'commands');
 	fs.symlinkSync(commands, path.join(commands, 'loop', 'back'));
 
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: tempDir(t, 'pappardelle-skill-test-'),
+		homeDir: skillTestDir(t),
 	});
 	t.deepEqual(
 		found.map(f => f.name),
@@ -524,7 +526,7 @@ test('discoverSkills stops at a command symlink back to an ancestor', async t =>
 });
 
 test('discoverSkills hides skills and commands marked user-invocable: false', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
 	writeSkill(repo, 'visible', 'Shown.');
 	const hidden = path.join(repo, '.claude', 'skills', 'internal');
 	fs.mkdirSync(hidden, {recursive: true});
@@ -538,7 +540,7 @@ test('discoverSkills hides skills and commands marked user-invocable: false', as
 
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: tempDir(t, 'pappardelle-skill-test-'),
+		homeDir: skillTestDir(t),
 	});
 	t.deepEqual(
 		found.map(f => f.name),
@@ -553,7 +555,7 @@ type PluginSpec = {
 };
 
 function installPlugin(t: Teardown, home: string, spec: PluginSpec): string {
-	const installPath = tempDir(t, 'pappardelle-skill-test-');
+	const installPath = skillTestDir(t);
 	if (spec.manifest) {
 		fs.mkdirSync(path.join(installPath, '.claude-plugin'));
 		fs.writeFileSync(
@@ -598,8 +600,8 @@ function enablePlugins(
 }
 
 test('discoverSkills lists enabled plugin skills and commands under the plugin name', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
-	const home = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
+	const home = skillTestDir(t);
 	const plugin = installPlugin(t, home, {
 		key: 'tools@market',
 		manifest: {name: 'tools'},
@@ -624,8 +626,8 @@ test('discoverSkills lists enabled plugin skills and commands under the plugin n
 });
 
 test('discoverSkills follows the skill and command paths a plugin manifest names', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
-	const home = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
+	const home = skillTestDir(t);
 	const plugin = installPlugin(t, home, {
 		key: 'deep@market',
 		manifest: {
@@ -658,16 +660,13 @@ test('discoverSkills follows the skill and command paths a plugin manifest names
 });
 
 test('discoverSkills skips plugins that are disabled, not enabled here, or installed for another project', async t => {
-	const repo = tempDir(t, 'pappardelle-skill-test-');
-	const home = tempDir(t, 'pappardelle-skill-test-');
+	const repo = skillTestDir(t);
+	const home = skillTestDir(t);
 	const keys = ['off@m', 'repo-off@m', 'other-project@m', 'repo-on@m'];
 	for (const key of keys) {
 		const plugin = installPlugin(t, home, {
 			key,
-			projectPath:
-				key === 'other-project@m'
-					? tempDir(t, 'pappardelle-skill-test-')
-					: undefined,
+			projectPath: key === 'other-project@m' ? skillTestDir(t) : undefined,
 		});
 		fs.mkdirSync(path.join(plugin, 'commands'));
 		fs.writeFileSync(path.join(plugin, 'commands', 'go.md'), 'Go.\n');
@@ -690,7 +689,7 @@ test('discoverSkills skips plugins that are disabled, not enabled here, or insta
 });
 
 function gitRepoWithWorktrees(t: Teardown, worktreeCount: number) {
-	const main = tempDir(t, 'pappardelle-skill-test-');
+	const main = skillTestDir(t);
 	const git = (...args: string[]) =>
 		execFileSync('git', ['-C', main, ...args], {stdio: 'pipe'});
 	git('init', '-q');
@@ -708,10 +707,7 @@ function gitRepoWithWorktrees(t: Teardown, worktreeCount: number) {
 		'initial',
 	);
 	const worktrees = Array.from({length: worktreeCount}, (_, index) => {
-		const worktree = path.join(
-			tempDir(t, 'pappardelle-skill-test-'),
-			'worktree',
-		);
+		const worktree = path.join(skillTestDir(t), 'worktree');
 		git('worktree', 'add', '-q', '-b', `linked-${index}`, worktree);
 		return worktree;
 	});
@@ -744,7 +740,7 @@ test('discoverSkills offers a project plugin in every worktree of the repository
 	const subdirectory = path.join(main, 'packages', 'app');
 	fs.mkdirSync(subdirectory, {recursive: true});
 	const otherRepo = gitRepoWithWorktrees(t, 0).main;
-	const home = tempDir(t, 'pappardelle-skill-test-');
+	const home = skillTestDir(t);
 	installEnabledCommandPlugin(t, home, 'main@m', main);
 	installEnabledCommandPlugin(t, home, 'sibling@m', sibling);
 	installEnabledCommandPlugin(t, home, 'subdirectory@m', subdirectory);
@@ -765,7 +761,7 @@ test('discoverSkills offers a project plugin in every worktree of the repository
 
 test('discoverSkills offers a project plugin installed in a worktree from the main checkout', async t => {
 	const {main, worktrees} = gitRepoWithWorktrees(t, 1);
-	const home = tempDir(t, 'pappardelle-skill-test-');
+	const home = skillTestDir(t);
 	installEnabledCommandPlugin(t, home, 'linked@m', worktrees[0]!);
 
 	const found = await discoverSkills({repoRoot: main, homeDir: home});

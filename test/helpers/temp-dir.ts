@@ -6,9 +6,8 @@ import path from 'node:path';
 export type Teardown = {teardown(fn: () => void | Promise<void>): unknown};
 
 /**
- * A new directory under the temp dir, removed when the test ends. Resolved
- * through symlinks, since on macOS the temp dir is reached through one and
- * paths a subprocess reports back come out resolved.
+ * Resolved through symlinks, since on macOS the temp dir is reached through
+ * one and paths a subprocess reports back come out resolved.
  */
 export function tempDir(t: Teardown, prefix: string): string {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import {isMainThread} from 'node:worker_threads';
 
 // xo's ava rules load this file in a worker thread, where an exit listener
@@ -31,6 +32,13 @@ if (isMainThread) {
 			retryDelay: 50,
 		});
 	});
+	// Node exits on these without running exit listeners, which would leave the
+	// run tmpdir behind when CI cancels a job or a terminal closes.
+	for (const signal of ['SIGTERM', 'SIGHUP']) {
+		process.once(signal, () => {
+			process.exit(128 + os.constants.signals[signal]);
+		});
+	}
 }
 
 const config = {
