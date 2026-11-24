@@ -60,8 +60,6 @@ merge_config_layers() {
         fi
         return
     fi
-    # Reducing from {}, not multiplying one select per file, so a layer with
-    # zero documents can't empty the whole product.
     local expr="(.$explode) as \$item ireduce ({}; . * \$item)" i
     if [[ "$needs_rename" == false ]]; then
         yq eval-all "${spec_merge[@]}" "$expr" "${files[@]}"

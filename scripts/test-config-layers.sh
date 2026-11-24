@@ -195,20 +195,19 @@ cleanup; unset TMPDIR_ROOT
 # ==========================================================================
 
 echo -e "\n${BOLD}Test: a layer with no YAML document adds nothing to the merge${RESET}"
-# An empty file is zero documents, and yq's `*` over per-file selects used to
-# make the whole merge empty when any layer had none.
-declare -A EMPTY_LAYERS=(
-    [empty]=""
-    [whitespace-only]=$'\n  \n'
-    [comments-only]=$'# only a comment\n  # and another'
-)
+# An empty file holds zero documents.
 for kind in empty whitespace-only comments-only; do
+    case "$kind" in
+        empty) local_text="" ;;
+        whitespace-only) local_text=$'\n  \n' ;;
+        comments-only) local_text=$'# only a comment\n  # and another' ;;
+    esac
     setup_configs "version: 1
 team_prefix: KEEP
 profiles:
   api:
     display_name: API"
-    printf '%s' "${EMPTY_LAYERS[$kind]}" > "$TMPDIR_ROOT/.pappardelle.local.yml"
+    printf '%s' "$local_text" > "$TMPDIR_ROOT/.pappardelle.local.yml"
     assert_eq "$kind local layer keeps team_prefix" "KEEP" "$(merged | yq -r '.team_prefix')"
     assert_eq "$kind local layer keeps profiles" "api" "$(merged | yq -r '.profiles | keys | .[]')"
     cleanup; unset TMPDIR_ROOT
@@ -218,6 +217,24 @@ setup_configs "version: 1
 team_prefix: PROJECT" "team_prefix: LOCAL"
 : > "$TMPDIR_ROOT/home/.pappardelle.yml"
 assert_eq "zero-byte home layer: local still beats project" "LOCAL" "$(merged | yq -r '.team_prefix')"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+claude:
+  initialization_command: /project"
+: > "$TMPDIR_ROOT/.pappardelle.local.yml"
+assert_eq "empty layer beside a deprecated init command spelling" "/project" "$(merged | yq -r '.initialization_command')"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+defaults: &defaults
+  display_name: Shared
+profiles:
+  api:
+    <<: *defaults
+    team_prefix: API"
+: > "$TMPDIR_ROOT/.pappardelle.local.yml"
+assert_eq "empty layer beside a YAML merge key" "Shared/API" "$(merged | yq -r '.profiles.api.display_name + "/" + .profiles.api.team_prefix')"
 cleanup; unset TMPDIR_ROOT
 
 setup_configs ""
@@ -263,7 +280,7 @@ assert_eq "terminal resolver reuses the merged snapshot" "0" \
 # shortcut, missing-layer skipping) that a second copy drifts silently, which is
 # how idow and the TUI stopped agreeing on the effective config before.
 assert_eq "no resolver re-implements the merge" "" \
-    "$(grep -l 'ireduce' "$SCRIPT_DIR"/resolve-*.sh 2>/dev/null || true)"
+    "$(grep -lE 'ireduce|fileIndex' "$SCRIPT_DIR"/resolve-*.sh 2>/dev/null || true)"
 
 # ==========================================================================
 
