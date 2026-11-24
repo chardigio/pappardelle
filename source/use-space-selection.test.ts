@@ -1,5 +1,5 @@
 import React, {useEffect} from 'react';
-import {useKeyboard} from '@opentui/react';
+import {flushSync, useKeyboard} from '@opentui/react';
 import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import test, {type ExecutionContext} from 'ava';
@@ -45,7 +45,7 @@ async function setup(t: ExecutionContext) {
 	});
 	await update(() => {
 		selection.setSpaces(spaces(['main', 'STA-4', 'STA-3', 'STA-2', 'STA-1']));
-		selection.setSelectedIndex(2);
+		selection.selectSpace('STA-3');
 	});
 	t.is(view.lastFrame(), 'STA-3');
 	attachments.length = 0;
@@ -105,7 +105,7 @@ test.serial(
 	async t => {
 		const harness = await setup(t);
 		await harness.update(() => {
-			harness.selection.setSelectedIndex(3);
+			harness.selection.moveSelection(1);
 			harness.selection.setSpaces(current =>
 				current.filter(space => space.name !== 'STA-4'),
 			);
@@ -157,19 +157,13 @@ test.serial(
 	async t => {
 		function Rail() {
 			const selection = useSpaceSelection();
-			const {
-				spaces: rows,
-				selectedIndex,
-				setSpaces,
-				setSelectedIndex,
-			} = selection;
+			const {spaces: rows, selectedIndex, setSpaces, selectSpace} = selection;
 			useEffect(() => {
 				setSpaces(spaces(['main', 'STA-4', 'STA-3', 'STA-2', 'STA-1']));
-				setSelectedIndex(1);
-			}, [setSpaces, setSelectedIndex]);
+				selectSpace('STA-4');
+			}, [setSpaces, selectSpace]);
 			useKeyboard(key => {
-				if (key.name === 'j')
-					setSelectedIndex(selection.current().selectedIndex + 1);
+				if (key.name === 'j') selection.moveSelection(1);
 			});
 			return React.createElement(
 				'text',
@@ -186,5 +180,41 @@ test.serial(
 		t.is(view.lastFrame(), 'STA-4');
 		await view.stdin.write('jj');
 		t.is(view.lastFrame(), 'STA-2');
+	},
+);
+
+test.serial(
+	'a key acts on rows a refresh queued but has not drawn yet',
+	async t => {
+		let selection!: ReturnType<typeof useSpaceSelection>;
+		function Rail() {
+			selection = useSpaceSelection();
+			useKeyboard(key => {
+				if (key.name === 'j') selection.moveSelection(1);
+			});
+			return React.createElement(
+				'text',
+				{},
+				selection.spaces[selection.selectedIndex]?.name ?? 'empty',
+			);
+		}
+
+		const view = await render(React.createElement(Rail));
+		t.teardown(async () => {
+			await view.unmount();
+		});
+		flushSync(() => {
+			selection.setSpaces(spaces(['main', 'STA-4', 'STA-3', 'STA-2', 'STA-1']));
+			selection.selectSpace('STA-2');
+		});
+		// A refresh lands outside any key, so React has not rendered it when the
+		// key in the same tick runs.
+		selection.setSpaces(current =>
+			current.filter(space => space.name !== 'STA-4'),
+		);
+		await view.stdin.write('j');
+		await delay(50);
+		await view.stdin.write('');
+		t.is(view.lastFrame(), 'STA-1');
 	},
 );

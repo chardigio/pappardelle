@@ -344,7 +344,7 @@ export default function App({
 		spaces,
 		setSpaces,
 		selectedIndex,
-		setSelectedIndex,
+		moveSelection,
 		selectSpace,
 		current: currentSelection,
 	} = useSpaceSelection();
@@ -776,7 +776,11 @@ export default function App({
 				);
 			});
 			if (focus) focusSpaceAgentRef.current(issueKey);
-			else selectSpace(issueKey);
+			// Not a key, so nothing else commits it before the rail's next key.
+			else
+				flushSync(() => {
+					selectSpace(issueKey);
+				});
 		});
 
 		return unwatch;
@@ -1732,15 +1736,9 @@ export default function App({
 
 		// Non-overridable built-in shortcuts
 		if (event.name === 'up' || input === 'k') {
-			const {selectedIndex} = currentSelection();
-			if (selectedIndex > 0) {
-				setSelectedIndex(selectedIndex - 1);
-			}
+			moveSelection(-1);
 		} else if (event.name === 'down' || input === 'j') {
-			const {spaces, selectedIndex} = currentSelection();
-			if (selectedIndex < spaces.length - 1) {
-				setSelectedIndex(selectedIndex + 1);
-			}
+			moveSelection(1);
 		} else if (isFocusAgentKey(event)) {
 			handleFocusAgent();
 		} else if (input === 'n') {
@@ -2787,7 +2785,11 @@ export default function App({
 				);
 				if (index !== -1) updateSearch({...current, index});
 			} else {
-				selectSpace(name);
+				// A click is not a key, so nothing else commits it before a key
+				// that arrives with it in one write.
+				flushSync(() => {
+					selectSpace(name);
+				});
 			}
 		},
 		[railInputBlocked, filteredDisplaySpaces, selectSpace, updateSearch],

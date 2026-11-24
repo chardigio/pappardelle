@@ -36,10 +36,18 @@ export function useSpaceSelection() {
 		});
 	}, []);
 
-	const setSelectedIndex = useCallback((selectedIndex: number) => {
-		setState(prev =>
-			prev.selectedIndex === selectedIndex ? prev : {...prev, selectedIndex},
-		);
+	// Resolved against the rows the update lands on: a refresh can still be
+	// queued, not yet drawn, when a key moves the selection.
+	const moveSelection = useCallback((step: -1 | 1) => {
+		setState(prev => {
+			const selectedIndex = Math.max(
+				0,
+				Math.min(prev.selectedIndex + step, prev.spaces.length - 1),
+			);
+			return selectedIndex === prev.selectedIndex
+				? prev
+				: {...prev, selectedIndex};
+		});
 	}, []);
 
 	const selectSpace = useCallback((name: string) => {
@@ -51,5 +59,11 @@ export function useSpaceSelection() {
 		});
 	}, []);
 
-	return {...state, current, setSpaces, setSelectedIndex, selectSpace};
+	return {
+		...state,
+		current,
+		setSpaces,
+		moveSelection,
+		selectSpace,
+	};
 }

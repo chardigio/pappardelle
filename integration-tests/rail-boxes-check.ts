@@ -174,6 +174,19 @@ try {
 			!lines.some(line => line.includes('Keyboard Shortcuts')),
 	);
 
+	// A click is not a key, so it is committed before the key after it in the
+	// same write only if its handler commits it.
+	const rows = view!.lastFrame().split('\n');
+	const clicked = rows.findIndex(line => line.includes('fixture-1'));
+	assert.ok(clicked > 0, 'fixture-1 row is on screen');
+	const click = `\u001B[<0;6;${clicked + 1}M\u001B[<0;6;${clicked + 1}m`;
+	await view!.stdin.write(click + 'x');
+	await expectFrame(
+		'a click then x in one write closes the clicked space',
+		lines => lines.some(line => line.includes('Close space fixture-1?')),
+	);
+	await view!.stdin.write('\u001B');
+
 	seed(60);
 	await mount();
 	await expectFrame('a long list shows its range in the rail border', lines =>
