@@ -7,6 +7,7 @@ import test from 'ava';
 import {PANE_FRAME_SIZE, PANE_TITLE_OPTION} from './pane-frame-options.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {
+	INNER_SOCKET,
 	SYNC_TERMINAL_FEATURE,
 	reconcilePaneLayout,
 	setupPappardellLayout,
@@ -69,17 +70,21 @@ async function isolatedPane(
 	process.env['TMUX_PANE'] = listPaneId;
 	// The inner socket is addressed by name, which resolves under this directory.
 	process.env['TMUX_TMPDIR'] = dir;
-	return {run, listPaneId};
+	return {run, listPaneId, tmuxTmpdir: dir};
 }
 
 // Unit tests run without the TUI's control clients, which start the inner
 // server, so a held session stands in for them.
-async function innerServer(t: {
-	teardown(fn: () => Promise<void> | void): void;
-}) {
-	const env = {...process.env, TMUX: ''};
+async function innerServer(
+	t: {teardown(fn: () => Promise<void> | void): void},
+	tmuxTmpdir: string,
+) {
+	// A socket name resolves under TMUX_TMPDIR. Left to the environment, a
+	// missing one would make this the developer's live inner server, which the
+	// teardown kills.
+	const env = {...process.env, TMUX: '', TMUX_TMPDIR: tmuxTmpdir};
 	const run = async (args: string[]) => {
-		const {stdout} = await exec('tmux', ['-L', 'pappardelle_inner', ...args], {
+		const {stdout} = await exec('tmux', ['-L', INNER_SOCKET, ...args], {
 			env,
 			timeout: 5000,
 		});
@@ -212,8 +217,8 @@ test.serial(
 			return;
 		}
 
-		const {run} = await isolatedPane(t, 200);
-		const sizeOfNewSession = await innerServer(t);
+		const {run, tmuxTmpdir} = await isolatedPane(t, 200);
+		const sizeOfNewSession = await innerServer(t, tmuxTmpdir);
 		const layout = await setupPappardellLayout();
 		t.is(
 			await sizeOfNewSession('unviewed'),
@@ -230,8 +235,8 @@ test.serial(
 			return;
 		}
 
-		const {run} = await isolatedPane(t, 200);
-		const sizeOfNewSession = await innerServer(t);
+		const {run, tmuxTmpdir} = await isolatedPane(t, 200);
+		const sizeOfNewSession = await innerServer(t, tmuxTmpdir);
 		const layout = await setupPappardellLayout();
 		const before = await viewerInnerSize(run, layout!.agentViewerPaneId);
 		await run(['resize-window', '-t', 'fixture', '-x', '240', '-y', '60']);
