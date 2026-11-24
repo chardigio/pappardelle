@@ -21,9 +21,5 @@ export default function ClaudeAnimation({
 }) {
 	const frameIndex = useSpinnerFrame() % CLAUDE_FRAMES.length;
 
-	return (
-		<text flexShrink={1} {...paint}>
-			{CLAUDE_FRAMES[frameIndex]}
-		</text>
-	);
+	return <span {...paint}>{CLAUDE_FRAMES[frameIndex]}</span>;
 }

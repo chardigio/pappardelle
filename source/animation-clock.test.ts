@@ -26,8 +26,8 @@ function scene({spinners = 0, blink = false}) {
 		'box',
 		{flexDirection: 'column'},
 		React.createElement(
-			'box',
-			{flexDirection: 'row', height: 1},
+			'text',
+			{height: 1},
 			...Array.from({length: spinners}, (_, key) =>
 				React.createElement(ClaudeAnimation, {key}),
 			),

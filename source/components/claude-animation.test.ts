@@ -11,8 +11,8 @@ test('twenty active rows animate in one React commit per frame', async t => {
 			Profiler,
 			{id: 'busy-workspaces', onRender: () => commits++},
 			React.createElement(
-				'box',
-				{flexDirection: 'row'},
+				'text',
+				null,
 				...Array.from({length: 20}, (_, key) =>
 					React.createElement(ClaudeAnimation, {key}),
 				),

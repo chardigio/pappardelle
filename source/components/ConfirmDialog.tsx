@@ -169,7 +169,9 @@ export default function ConfirmDialog({
 
 			{processingFrame ? (
 				<box flexDirection="row" flexShrink={0}>
-					<ClaudeAnimation />
+					<text flexShrink={1}>
+						<ClaudeAnimation />
+					</text>
 					<text fg={terminalColor()} flexShrink={1}>
 						{' '}
 						{processingFrame.status}
