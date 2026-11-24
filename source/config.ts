@@ -1910,7 +1910,6 @@ const AGENT_PROFILE_STRING_FIELDS = [
 
 const ENV_NAME_PATTERN = /^[A-Za-z_]\w*$/;
 
-/** Mirrored by the env checks in resolve-agent-config.sh, which idow runs. */
 function validateAgentProfileEnv(name: string, env: unknown): string[] {
 	if (env === undefined) return [];
 	if (typeof env !== 'object' || env === null || Array.isArray(env)) {
@@ -1936,8 +1935,7 @@ function validateAgentProfileEnv(name: string, env: unknown): string[] {
 /**
  * A template must carry its placeholder, or the configured value would be
  * silently dropped; and a value with no template, built in or configured,
- * has no way to reach the CLI. Mirrored by resolve-agent-config.sh, which
- * idow runs instead of this validator.
+ * has no way to reach the CLI.
  */
 function validateAgentLaunchTemplates(
 	name: string,
@@ -2965,12 +2963,14 @@ export function getDefaultProfile(config: PappardelleConfig): {
 	return {name, profile};
 }
 
+export const DEFAULT_TEAM_PREFIX = 'STA';
+
 /**
  * Get the team prefix for issue identifiers (e.g., 'STA' for 'STA-123')
- * Defaults to 'STA' if not configured
+ * Defaults to DEFAULT_TEAM_PREFIX if not configured
  */
 export function getTeamPrefix(config: PappardelleConfig): string {
-	const prefix = config.team_prefix ?? 'STA';
+	const prefix = config.team_prefix ?? DEFAULT_TEAM_PREFIX;
 	return prefix.toUpperCase();
 }
 
@@ -2982,7 +2982,8 @@ export function getProfileTeamPrefix(
 	profile: Profile,
 	config: PappardelleConfig,
 ): string {
-	const prefix = profile.team_prefix ?? config.team_prefix ?? 'STA';
+	const prefix =
+		profile.team_prefix ?? config.team_prefix ?? DEFAULT_TEAM_PREFIX;
 	return prefix.toUpperCase();
 }
 

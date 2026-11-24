@@ -20,6 +20,8 @@ import {
 	type ConfigLoad,
 } from './config.ts';
 import {createLogger} from './logger.ts';
+
+const log = createLogger('mcp');
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
@@ -244,7 +246,7 @@ export async function runMcpServer(): Promise<void> {
 	const config = load.kind === 'valid' ? load.config : null;
 	const awareness = workspaceAwareness(load);
 	if (awareness.kind === 'invalid-config')
-		createLogger('mcp').error(invalidConfigInstructions(awareness.errors));
+		log.error(invalidConfigInstructions(awareness.errors));
 	const sousChef =
 		awareness.kind === 'on' && sousChefLaunch(config) !== undefined;
 	const closed = new Promise(resolve => {

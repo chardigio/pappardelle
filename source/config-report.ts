@@ -13,6 +13,12 @@ const log = createLogger('config');
 // on screen, and raised again if the rail dropped it.
 let stateLine: string | undefined;
 const linesWhileInvalid = new Set<string>();
+let restartNeeded = false;
+
+const OFF_UNTIL_RESTART =
+	'Keybindings, watchlists, auto-remove and rail settings are off until Pappardelle restarts';
+const RESTART_AFTER_FIX =
+	'.pappardelle.yml loads now: restart Pappardelle to turn keybindings, watchlists, auto-remove and rail settings back on';
 
 function raise(message: string): void {
 	if (getRecentErrors().some(entry => entry.message === message)) return;
@@ -39,12 +45,30 @@ export function readReportedConfig(paths?: ConfigPaths): ConfigLoad {
 	stateLine = message;
 	if (message) {
 		raise(message);
-	} else if (linesWhileInvalid.size > 0) {
+		return load;
+	}
+
+	if (linesWhileInvalid.size > 0) {
 		dismiss(linesWhileInvalid);
 		linesWhileInvalid.clear();
 	}
 
+	if (restartNeeded) {
+		restartNeeded = false;
+		dismiss(new Set([OFF_UNTIL_RESTART]));
+		raise(RESTART_AFTER_FIX);
+	}
+
 	return load;
+}
+
+/**
+ * The TUI reads some settings once at startup, so fixing the file doesn't
+ * bring them back; the rail says so now and again once the file loads.
+ */
+export function reportStartedWithInvalidConfig(): void {
+	restartNeeded = true;
+	raise(OFF_UNTIL_RESTART);
 }
 
 /** A line that stops being true once the config loads, such as a held-back session. */

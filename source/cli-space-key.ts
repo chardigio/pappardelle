@@ -1,4 +1,9 @@
-import {getBeadsPrefixes, getTeamPrefix, type ConfigLoad} from './config.ts';
+import {
+	DEFAULT_TEAM_PREFIX,
+	getBeadsPrefixes,
+	getTeamPrefix,
+	type ConfigLoad,
+} from './config.ts';
 import {isIssueNumber, resolveSpaceKey} from './issue-utils.ts';
 import type {TrackerProviderName} from './providers/types.ts';
 
@@ -32,13 +37,19 @@ export function cliSpaceKey(
 		}
 
 		case 'missing': {
-			return {kind: 'key', key: resolveSpaceKey(rawKey, 'STA', provider, [])};
+			return {
+				kind: 'key',
+				key: resolveSpaceKey(rawKey, DEFAULT_TEAM_PREFIX, provider, []),
+			};
 		}
 
 		case 'invalid': {
 			return isIssueNumber(rawKey.trim())
 				? {kind: 'invalid-config', errors: load.errors}
-				: {kind: 'key', key: resolveSpaceKey(rawKey, 'STA', provider, [])};
+				: {
+						kind: 'key',
+						key: resolveSpaceKey(rawKey, DEFAULT_TEAM_PREFIX, provider, []),
+					};
 		}
 	}
 }

@@ -109,6 +109,7 @@ import {
 import {
 	getDefaultHomeConfigDir,
 	readConfig,
+	DEFAULT_TEAM_PREFIX,
 	sousChefLaunch,
 	getStateColors,
 	getBeadsPrefixes,
@@ -169,7 +170,11 @@ import {
 	runCloseHooks,
 	shouldAttach,
 } from './close-space.ts';
-import {readReportedConfig, reportConfigEvent} from './config-report.ts';
+import {
+	readReportedConfig,
+	reportConfigEvent,
+	reportStartedWithInvalidConfig,
+} from './config-report.ts';
 import {spaceStatusKey} from './claude-status.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
@@ -480,8 +485,6 @@ export default function App({
 	const openPRRequest = useRef(0);
 
 	// Load config once at startup. Used for keybindings, emoji lookup, etc.
-	// Null when .pappardelle.yml is missing or invalid; downstream lookups use
-	// their defaults.
 	const configMemo = React.useMemo(() => {
 		const load = readReportedConfig();
 		switch (load.kind) {
@@ -494,9 +497,7 @@ export default function App({
 			}
 
 			case 'invalid': {
-				reportConfigEvent(
-					'Keybindings, watchlists and rail settings are off until Pappardelle restarts',
-				);
+				reportStartedWithInvalidConfig();
 				return null;
 			}
 		}
@@ -1531,6 +1532,13 @@ export default function App({
 			return;
 		}
 
+		// Read fresh so profile vars edited since startup reach the command.
+		const load = readReportedConfig();
+		if (load.kind === 'invalid') {
+			setHeaderWithTimeout(`${kb.name} not run: the config is invalid`, 4000);
+			return;
+		}
+
 		const startTime = Date.now();
 		setRunningCommand(kb.name);
 		showHeaderMessage(`Running: ${kb.name}...`);
@@ -1539,7 +1547,7 @@ export default function App({
 		const vars = buildWorkspaceTemplateVars(
 			space.name,
 			worktreePath,
-			configMemo,
+			load.kind === 'valid' ? load.config : null,
 			space.trackerIssue?.title ?? space.linearIssue?.title,
 		);
 		const expandedCommand = expandTemplate(kb.run!, vars);
@@ -2039,6 +2047,10 @@ export default function App({
 			log.debug('Watchlist: polling for assigned issues…');
 
 			try {
+				// A space started now would stop at idow's config check, and its issue
+				// would not be picked up again until Pappardelle restarts.
+				if (readReportedConfig().kind === 'invalid') return;
+
 				// Fetch the registered space set once per poll cycle; the
 				// per-issue spawn guard (watchlistSpawnedRef) handles dedup both
 				// across watchlists and across cycles.
@@ -2484,6 +2496,14 @@ export default function App({
 			return;
 		}
 
+		if (readReportedConfig().kind === 'invalid') {
+			setHeaderWithTimeout(
+				`${space.name} not opened: the config is invalid`,
+				4000,
+			);
+			return;
+		}
+
 		showHeaderMessage(`Opening ${space.name}...`);
 
 		const child = spawnQuietCommand(
@@ -2538,7 +2558,7 @@ export default function App({
 
 		const config = load.kind === 'valid' ? load.config : null;
 
-		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
+		const teamPrefix = config ? getTeamPrefix(config) : DEFAULT_TEAM_PREFIX;
 		const normalizedIssueKey = inputIsIssueKey
 			? input.trim()
 			: normalizeIssueIdentifier(

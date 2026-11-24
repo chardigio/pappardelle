@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
 	readReportedConfig,
 	reportConfigEvent,
+	reportStartedWithInvalidConfig,
 	reportWhileInvalid,
 } from './config-report.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
@@ -79,6 +80,23 @@ test.serial(
 		readReportedConfig(paths);
 		t.deepEqual(messages(), [
 			'Closed A-2 without its deinit commands: the config is invalid',
+		]);
+	},
+);
+
+test.serial(
+	'a TUI started on an invalid config asks for a restart once the file loads',
+	t => {
+		clearRecentErrors();
+		const {paths, write} = project(t);
+		write(BROKEN);
+		readReportedConfig(paths);
+		reportStartedWithInvalidConfig();
+		write('version: 1\nprofiles: {}\n');
+		readReportedConfig(paths);
+		readReportedConfig(paths);
+		t.deepEqual(messages(), [
+			'.pappardelle.yml loads now: restart Pappardelle to turn keybindings, watchlists, auto-remove and rail settings back on',
 		]);
 	},
 );

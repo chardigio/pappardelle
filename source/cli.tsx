@@ -38,6 +38,7 @@ import {
 	getRepoName,
 	readConfig,
 	formatConfigErrors,
+	DEFAULT_TEAM_PREFIX,
 	checkAgentProfile,
 	unknownAgentProfileMessage,
 	loadProviderConfigs,
@@ -565,7 +566,7 @@ if (cli.input.length > 0) {
 		}
 	}
 
-	let teamPrefix = config ? getTeamPrefix(config) : 'STA';
+	let teamPrefix = config ? getTeamPrefix(config) : DEFAULT_TEAM_PREFIX;
 	const profile = cli.flags.profile
 		? config?.profiles[cli.flags.profile]
 		: undefined;

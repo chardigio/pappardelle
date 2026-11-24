@@ -1296,8 +1296,8 @@ const showsNoProgram = (
 		),
 	);
 
-const configStateLine = () =>
-	getRecentErrors().find(error =>
+const configStateLines = () =>
+	getRecentErrors().filter(error =>
 		error.message.startsWith('.pappardelle.yml is invalid:'),
 	);
 
@@ -1327,7 +1327,9 @@ test.serial(
 			reported?.message,
 			'Sessions of TEST-INVALID not started: the config is invalid',
 		);
-		t.true(configStateLine()?.message.includes('agent_profiles.opus.model'));
+		t.true(
+			configStateLines()[0]?.message.includes('agent_profiles.opus.model'),
+		);
 		t.is(derived.daos.spaceState.read('TEST-INVALID')?.agentProfile, undefined);
 
 		clearCurrentlyViewingSpace();
@@ -1404,7 +1406,7 @@ for (const [recovery, recover] of [
 			t.true(createsSession(calls, agent));
 			t.true(createsSession(calls, companion));
 			t.deepEqual(invalidConfigErrors('TEST-FIXED'), []);
-			t.is(configStateLine(), undefined);
+			t.deepEqual(configStateLines(), []);
 			clearCurrentlyViewingSpace();
 		},
 	);
@@ -1447,9 +1449,7 @@ test.serial(
 			run,
 		});
 		t.is(invalidConfigErrors('TEST-EDITED').length, 1);
-		const [stateLine, ...staleLines] = getRecentErrors().filter(error =>
-			error.message.startsWith('.pappardelle.yml is invalid:'),
-		);
+		const [stateLine, ...staleLines] = configStateLines();
 		t.deepEqual(staleLines, []);
 		t.true(stateLine?.message.includes('agent_profiles.opus.effort'));
 		clearCurrentlyViewingSpace();

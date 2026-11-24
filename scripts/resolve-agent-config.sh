@@ -32,7 +32,7 @@
 # --merged <path> is the three layers already merged by merge_config_layers,
 # which idow does once per run; values resolve from it instead of merging
 # again. The raw layers are still read for the warnings, which name the file
-# to edit, and for the init command conflict check.
+# to edit.
 #
 # --agent-profile <name> replaces the agent_profile reference for one launch
 # (the TUI's per-session override); everything else still resolves from the
