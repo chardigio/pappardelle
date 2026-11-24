@@ -40,6 +40,13 @@ if (isMainThread) {
 	// Without a .zshrc, a zsh started in a test's tmux pane opens its first-run
 	// wizard, which takes the keys the test types.
 	fs.writeFileSync(path.join(throwawayHome, '.zshrc'), '');
+	// Every git commit and fetch otherwise detaches a `git maintenance run
+	// --auto`, which can still be writing into a test's repo after the test
+	// removed it. Set through the environment rather than HOME's .gitconfig so it
+	// also reaches the gits that tests start under a HOME of their own.
+	process.env.GIT_CONFIG_COUNT = '1';
+	process.env.GIT_CONFIG_KEY_0 = 'maintenance.auto';
+	process.env.GIT_CONFIG_VALUE_0 = 'false';
 	process.on('exit', () => {
 		// A failed, timed-out or interrupted run kills workers before their own
 		// cleanup runs, so leftovers then say nothing about the tests.

@@ -1,10 +1,11 @@
 import test, {type ExecutionContext} from 'ava';
 import fs, {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
-import {tmpdir, homedir} from 'node:os';
+import {homedir} from 'node:os';
 import path from 'node:path';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState} from '../test/helpers/state.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
 	parseSemver,
 	compareSemver,
@@ -98,14 +99,10 @@ test('compareSemver: unparsable falls back to 0', t => {
 // ============================================================================
 
 test('readInstalledVersion: reads from package.json', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-'));
+	const dir = tempDir(t, 'pap-uc-');
 	const pkg = path.join(dir, 'package.json');
 	writeFileSync(pkg, JSON.stringify({name: 'pappardelle', version: '1.2.3'}));
-	try {
-		t.is(readInstalledVersion(pkg), '1.2.3');
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	t.is(readInstalledVersion(pkg), '1.2.3');
 });
 
 test('readInstalledVersion: returns null when file missing', t => {
@@ -113,14 +110,10 @@ test('readInstalledVersion: returns null when file missing', t => {
 });
 
 test('readInstalledVersion: returns null when version missing', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-'));
+	const dir = tempDir(t, 'pap-uc-');
 	const pkg = path.join(dir, 'package.json');
 	writeFileSync(pkg, JSON.stringify({name: 'pappardelle'}));
-	try {
-		t.is(readInstalledVersion(pkg), null);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	t.is(readInstalledVersion(pkg), null);
 });
 
 // ============================================================================
@@ -136,46 +129,30 @@ test('readInstalledVersion: returns null when version missing', t => {
 test.serial(
 	'readInstalledVersionFromGit: returns the latest semver tag reachable from HEAD',
 	t => {
-		const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
-		try {
-			initRepoWithTag(dir, 'v1.2.3');
-			t.is(readInstalledVersionFromGit(dir), 'v1.2.3');
-		} finally {
-			rmSync(dir, {recursive: true, force: true});
-		}
+		const dir = tempDir(t, 'pap-uc-git-');
+		initRepoWithTag(dir, 'v1.2.3');
+		t.is(readInstalledVersionFromGit(dir), 'v1.2.3');
 	},
 );
 
 test.serial('readInstalledVersionFromGit: ignores non-semver tags', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
-	try {
-		initRepoWithTag(dir, 'not-a-version');
-		t.is(readInstalledVersionFromGit(dir), null);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	const dir = tempDir(t, 'pap-uc-git-');
+	initRepoWithTag(dir, 'not-a-version');
+	t.is(readInstalledVersionFromGit(dir), null);
 });
 
 test.serial(
 	'readInstalledVersionFromGit: returns null when no tags exist',
 	t => {
-		const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
-		try {
-			initRepoWithTag(dir, null);
-			t.is(readInstalledVersionFromGit(dir), null);
-		} finally {
-			rmSync(dir, {recursive: true, force: true});
-		}
+		const dir = tempDir(t, 'pap-uc-git-');
+		initRepoWithTag(dir, null);
+		t.is(readInstalledVersionFromGit(dir), null);
 	},
 );
 
 test('readInstalledVersionFromGit: returns null when not a git repo', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-git-'));
-	try {
-		t.is(readInstalledVersionFromGit(dir), null);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	const dir = tempDir(t, 'pap-uc-git-');
+	t.is(readInstalledVersionFromGit(dir), null);
 });
 
 // ============================================================================
@@ -183,43 +160,31 @@ test('readInstalledVersionFromGit: returns null when not a git repo', t => {
 // ============================================================================
 
 test.serial('resolveInstalledVersion: uses the git tag when present', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-resolve-'));
-	try {
-		initRepoWithTag(dir, 'v2.0.0');
-		writeFileSync(
-			path.join(dir, 'package.json'),
-			JSON.stringify({version: '0.1.0'}),
-		);
-		t.is(resolveInstalledVersion(dir), 'v2.0.0');
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	const dir = tempDir(t, 'pap-uc-resolve-');
+	initRepoWithTag(dir, 'v2.0.0');
+	writeFileSync(
+		path.join(dir, 'package.json'),
+		JSON.stringify({version: '0.1.0'}),
+	);
+	t.is(resolveInstalledVersion(dir), 'v2.0.0');
 });
 
 test.serial(
 	'resolveInstalledVersion: falls back to package.json when no tags',
 	t => {
-		const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-resolve-'));
-		try {
-			initRepoWithTag(dir, null);
-			writeFileSync(
-				path.join(dir, 'package.json'),
-				JSON.stringify({version: '0.1.0'}),
-			);
-			t.is(resolveInstalledVersion(dir), '0.1.0');
-		} finally {
-			rmSync(dir, {recursive: true, force: true});
-		}
+		const dir = tempDir(t, 'pap-uc-resolve-');
+		initRepoWithTag(dir, null);
+		writeFileSync(
+			path.join(dir, 'package.json'),
+			JSON.stringify({version: '0.1.0'}),
+		);
+		t.is(resolveInstalledVersion(dir), '0.1.0');
 	},
 );
 
 test('resolveInstalledVersion: returns null when neither source works', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-resolve-'));
-	try {
-		t.is(resolveInstalledVersion(dir), null);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	const dir = tempDir(t, 'pap-uc-resolve-');
+	t.is(resolveInstalledVersion(dir), null);
 });
 
 // ============================================================================
@@ -227,36 +192,24 @@ test('resolveInstalledVersion: returns null when neither source works', t => {
 // ============================================================================
 
 test('readCommitSha: a snapshot reports the sha install.sh stamped, not the git history around it', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-sha-'));
-	try {
-		initRepoWithTag(dir, null);
-		writeFileSync(path.join(dir, 'commit-sha'), 'abc1234-dirty\n');
-		t.is(readCommitSha(dir), 'abc1234-dirty');
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	const dir = tempDir(t, 'pap-sha-');
+	initRepoWithTag(dir, null);
+	writeFileSync(path.join(dir, 'commit-sha'), 'abc1234-dirty\n');
+	t.is(readCommitSha(dir), 'abc1234-dirty');
 });
 
 test('readCommitSha: a checkout without a stamp reports its last commit', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-sha-'));
-	try {
-		initRepoWithTag(dir, null);
-		const head = execFileSync('git', ['-C', dir, 'log', '-1', '--format=%h'], {
-			encoding: 'utf8',
-		}).trim();
-		t.is(readCommitSha(dir), head);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	const dir = tempDir(t, 'pap-sha-');
+	initRepoWithTag(dir, null);
+	const head = execFileSync('git', ['-C', dir, 'log', '-1', '--format=%h'], {
+		encoding: 'utf8',
+	}).trim();
+	t.is(readCommitSha(dir), head);
 });
 
 test('readCommitSha: neither a stamp nor git reports no sha', t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-sha-'));
-	try {
-		t.is(readCommitSha(dir), undefined);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	const dir = tempDir(t, 'pap-sha-');
+	t.is(readCommitSha(dir), undefined);
 });
 
 // ============================================================================
@@ -266,19 +219,14 @@ test('readCommitSha: neither a stamp nor git reports no sha', t => {
 test.serial(
 	'resolveDisplayVersion: real release checkout reports the tag, not dev',
 	t => {
-		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-		const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
-		try {
-			initRepoWithTag(proj, 'v0.7.9');
-			initRepoWithTag(install, 'v0.7.9');
-			t.deepEqual(resolveDisplayVersion(proj, install), {
-				version: 'v0.7.9',
-				isDev: false,
-			});
-		} finally {
-			rmSync(proj, {recursive: true, force: true});
-			rmSync(install, {recursive: true, force: true});
-		}
+		const proj = tempDir(t, 'pap-disp-proj-');
+		const install = tempDir(t, 'pap-disp-inst-');
+		initRepoWithTag(proj, 'v0.7.9');
+		initRepoWithTag(install, 'v0.7.9');
+		t.deepEqual(resolveDisplayVersion(proj, install), {
+			version: 'v0.7.9',
+			isDev: false,
+		});
 	},
 );
 
@@ -286,19 +234,14 @@ test.serial(
 	'resolveDisplayVersion: monorepo/worktree build reports the installed clone tag, flagged -dev',
 	t => {
 		// projectDir has no vX.Y.Z tag (mirrors the monorepo); installed clone does.
-		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-		const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
-		try {
-			initRepoWithTag(proj, null);
-			initRepoWithTag(install, 'v0.7.9');
-			t.deepEqual(resolveDisplayVersion(proj, install), {
-				version: 'v0.7.9',
-				isDev: true,
-			});
-		} finally {
-			rmSync(proj, {recursive: true, force: true});
-			rmSync(install, {recursive: true, force: true});
-		}
+		const proj = tempDir(t, 'pap-disp-proj-');
+		const install = tempDir(t, 'pap-disp-inst-');
+		initRepoWithTag(proj, null);
+		initRepoWithTag(install, 'v0.7.9');
+		t.deepEqual(resolveDisplayVersion(proj, install), {
+			version: 'v0.7.9',
+			isDev: true,
+		});
 	},
 );
 
@@ -307,41 +250,31 @@ test.serial(
 	t => {
 		// Regression guard for STA-1494: a worktree build whose package.json says
 		// 0.1.0 must surface the installed clone's real tag (as -dev), not 0.1.0.
-		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-		const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
-		try {
-			initRepoWithTag(proj, null);
-			writeFileSync(
-				path.join(proj, 'package.json'),
-				JSON.stringify({version: '0.1.0'}),
-			);
-			initRepoWithTag(install, 'v0.7.9');
-			const result = resolveDisplayVersion(proj, install);
-			t.not(result.version, '0.1.0');
-			t.deepEqual(result, {version: 'v0.7.9', isDev: true});
-		} finally {
-			rmSync(proj, {recursive: true, force: true});
-			rmSync(install, {recursive: true, force: true});
-		}
+		const proj = tempDir(t, 'pap-disp-proj-');
+		const install = tempDir(t, 'pap-disp-inst-');
+		initRepoWithTag(proj, null);
+		writeFileSync(
+			path.join(proj, 'package.json'),
+			JSON.stringify({version: '0.1.0'}),
+		);
+		initRepoWithTag(install, 'v0.7.9');
+		const result = resolveDisplayVersion(proj, install);
+		t.not(result.version, '0.1.0');
+		t.deepEqual(result, {version: 'v0.7.9', isDev: true});
 	},
 );
 
 test.serial(
 	'resolveDisplayVersion: returns null version (sha-only) when nothing is resolvable',
 	t => {
-		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-		const install = mkdtempSync(path.join(tmpdir(), 'pap-disp-inst-'));
-		try {
-			initRepoWithTag(proj, null);
-			initRepoWithTag(install, null);
-			t.deepEqual(resolveDisplayVersion(proj, install), {
-				version: null,
-				isDev: false,
-			});
-		} finally {
-			rmSync(proj, {recursive: true, force: true});
-			rmSync(install, {recursive: true, force: true});
-		}
+		const proj = tempDir(t, 'pap-disp-proj-');
+		const install = tempDir(t, 'pap-disp-inst-');
+		initRepoWithTag(proj, null);
+		initRepoWithTag(install, null);
+		t.deepEqual(resolveDisplayVersion(proj, install), {
+			version: null,
+			isDev: false,
+		});
 	},
 );
 
@@ -350,16 +283,12 @@ test.serial(
 	t => {
 		// When projectDir itself carries the tag, the default installedRoot is never
 		// consulted, so this is safe to run without touching the real home dir.
-		const proj = mkdtempSync(path.join(tmpdir(), 'pap-disp-proj-'));
-		try {
-			initRepoWithTag(proj, 'v1.2.3');
-			t.deepEqual(resolveDisplayVersion(proj), {
-				version: 'v1.2.3',
-				isDev: false,
-			});
-		} finally {
-			rmSync(proj, {recursive: true, force: true});
-		}
+		const proj = tempDir(t, 'pap-disp-proj-');
+		initRepoWithTag(proj, 'v1.2.3');
+		t.deepEqual(resolveDisplayVersion(proj), {
+			version: 'v1.2.3',
+			isDev: false,
+		});
 	},
 );
 
@@ -470,7 +399,6 @@ function setupFakeInstall(
 ): {
 	projectDir: string;
 	cache: UpdateCheckDao;
-	cleanup: () => void;
 } {
 	// Build a fake installed tree under ~/.pappardelle/repo/ (in the run's
 	// throwaway HOME) so LOCAL_MODE detection passes. git-init the fake dir so it
@@ -480,6 +408,9 @@ function setupFakeInstall(
 	const installedRoot = path.join(homedir(), '.pappardelle', 'repo');
 	mkdirSync(installedRoot, {recursive: true});
 	const dir = mkdtempSync(path.join(installedRoot, '_test-'));
+	t.teardown(() => {
+		rmSync(dir, {recursive: true, force: true});
+	});
 	initRepoWithTag(dir, null);
 	writeFileSync(
 		path.join(dir, 'package.json'),
@@ -488,44 +419,35 @@ function setupFakeInstall(
 	return {
 		projectDir: dir,
 		cache: testState(t).daos.updateCheck,
-		cleanup: () => rmSync(dir, {recursive: true, force: true}),
 	};
 }
 
 test('checkForUpdate: returns null when LOCAL_MODE', async t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-'));
+	const dir = tempDir(t, 'pap-uc-');
 	writeFileSync(
 		path.join(dir, 'package.json'),
 		JSON.stringify({version: '0.1.0'}),
 	);
-	try {
-		const result = await checkForUpdate({
-			projectDir: dir,
-			cache: testState(t).daos.updateCheck,
-		});
-		t.is(result, null);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	const result = await checkForUpdate({
+		projectDir: dir,
+		cache: testState(t).daos.updateCheck,
+	});
+	t.is(result, null);
 });
 
 test.serial(
 	'checkForUpdate: returns null when cache says we are up to date',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			await fake.cache.write({
-				checkedAt: Date.now(),
-				latestVersion: '0.1.0',
-			});
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-			});
-			t.is(result, null);
-		} finally {
-			fake.cleanup();
-		}
+		await fake.cache.write({
+			checkedAt: Date.now(),
+			latestVersion: '0.1.0',
+		});
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+		});
+		t.is(result, null);
 	},
 );
 
@@ -533,19 +455,15 @@ test.serial(
 	'checkForUpdate: surfaces update when cache shows a newer version',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			await fake.cache.write({
-				checkedAt: Date.now(),
-				latestVersion: 'v0.2.0',
-			});
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-			});
-			t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.2.0'});
-		} finally {
-			fake.cleanup();
-		}
+		await fake.cache.write({
+			checkedAt: Date.now(),
+			latestVersion: 'v0.2.0',
+		});
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+		});
+		t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.2.0'});
 	},
 );
 
@@ -554,19 +472,15 @@ test.serial(
 	async t => {
 		// Can happen if you manually bump package.json locally.
 		const fake = setupFakeInstall(t, '0.3.0');
-		try {
-			await fake.cache.write({
-				checkedAt: Date.now(),
-				latestVersion: '0.2.0',
-			});
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-			});
-			t.is(result, null);
-		} finally {
-			fake.cleanup();
-		}
+		await fake.cache.write({
+			checkedAt: Date.now(),
+			latestVersion: '0.2.0',
+		});
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+		});
+		t.is(result, null);
 	},
 );
 
@@ -574,37 +488,33 @@ test.serial(
 	'checkForUpdate: bypasses stale cache, calls fetchLatest, and rewrites the cache',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			const now = 1_800_000_000_000;
-			const STALE_TTL_MS = 25 * 60 * 60 * 1000;
-			await fake.cache.write({
-				checkedAt: now - STALE_TTL_MS,
-				latestVersion: 'v0.1.0',
-			});
+		const now = 1_800_000_000_000;
+		const STALE_TTL_MS = 25 * 60 * 60 * 1000;
+		await fake.cache.write({
+			checkedAt: now - STALE_TTL_MS,
+			latestVersion: 'v0.1.0',
+		});
 
-			let fetchCalls = 0;
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-				now,
-				async fetchLatest() {
-					fetchCalls += 1;
-					return 'v0.5.0';
-				},
-			});
+		let fetchCalls = 0;
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+			now,
+			async fetchLatest() {
+				fetchCalls += 1;
+				return 'v0.5.0';
+			},
+		});
 
-			t.is(fetchCalls, 1, 'stub should be called exactly once');
-			t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.5.0'});
+		t.is(fetchCalls, 1, 'stub should be called exactly once');
+		t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.5.0'});
 
-			const refreshed = fake.cache.read();
-			t.deepEqual(
-				refreshed,
-				{checkedAt: now, latestVersion: 'v0.5.0'},
-				'cache should be rewritten with the new value and fresh timestamp',
-			);
-		} finally {
-			fake.cleanup();
-		}
+		const refreshed = fake.cache.read();
+		t.deepEqual(
+			refreshed,
+			{checkedAt: now, latestVersion: 'v0.5.0'},
+			'cache should be rewritten with the new value and fresh timestamp',
+		);
 	},
 );
 
@@ -612,33 +522,29 @@ test.serial(
 	'checkForUpdate: stale cache + fetchLatest returning null does not corrupt the cache',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			const now = 1_800_000_000_000;
-			const STALE_TTL_MS = 25 * 60 * 60 * 1000;
-			const staleEntry: CacheEntry = {
-				checkedAt: now - STALE_TTL_MS,
-				latestVersion: 'v0.1.0',
-			};
-			await fake.cache.write(staleEntry);
+		const now = 1_800_000_000_000;
+		const STALE_TTL_MS = 25 * 60 * 60 * 1000;
+		const staleEntry: CacheEntry = {
+			checkedAt: now - STALE_TTL_MS,
+			latestVersion: 'v0.1.0',
+		};
+		await fake.cache.write(staleEntry);
 
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-				now,
-				async fetchLatest() {
-					return null;
-				},
-			});
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+			now,
+			async fetchLatest() {
+				return null;
+			},
+		});
 
-			t.is(result, null);
-			t.deepEqual(
-				fake.cache.read(),
-				staleEntry,
-				'cache must not be overwritten when fetchLatest yields null',
-			);
-		} finally {
-			fake.cleanup();
-		}
+		t.is(result, null);
+		t.deepEqual(
+			fake.cache.read(),
+			staleEntry,
+			'cache must not be overwritten when fetchLatest yields null',
+		);
 	},
 );
 
@@ -647,40 +553,32 @@ test.serial(
 // ============================================================================
 
 test('safeCheckForUpdate: resolves to null for LOCAL_MODE', async t => {
-	const dir = mkdtempSync(path.join(tmpdir(), 'pap-safe-'));
+	const dir = tempDir(t, 'pap-safe-');
 	writeFileSync(
 		path.join(dir, 'package.json'),
 		JSON.stringify({version: '0.1.0'}),
 	);
-	try {
-		const result = await safeCheckForUpdate({
-			projectDir: dir,
-			cache: testState(t).daos.updateCheck,
-		});
-		t.is(result, null);
-	} finally {
-		rmSync(dir, {recursive: true, force: true});
-	}
+	const result = await safeCheckForUpdate({
+		projectDir: dir,
+		cache: testState(t).daos.updateCheck,
+	});
+	t.is(result, null);
 });
 
 test.serial(
 	'safeCheckForUpdate: swallows a throwing fetchLatest and resolves to null',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			const now = 1_800_000_000_000;
-			// No cache written — orchestrator will go straight to fetchLatest.
-			const result = await safeCheckForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-				now,
-				async fetchLatest() {
-					throw new Error('boom');
-				},
-			});
-			t.is(result, null, 'the wrapper must not propagate the throw');
-		} finally {
-			fake.cleanup();
-		}
+		const now = 1_800_000_000_000;
+		// No cache written — orchestrator will go straight to fetchLatest.
+		const result = await safeCheckForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+			now,
+			async fetchLatest() {
+				throw new Error('boom');
+			},
+		});
+		t.is(result, null, 'the wrapper must not propagate the throw');
 	},
 );
