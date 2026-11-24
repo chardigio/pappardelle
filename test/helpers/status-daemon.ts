@@ -21,9 +21,8 @@ import {
 	type DaemonMessage,
 	type StatusTimers,
 } from '../../source/status-protocol.ts';
+import {tempDir, type Teardown} from './temp-dir.ts';
 import {waitUntil} from './wait.ts';
-
-type Teardown = {teardown(fn: () => void | Promise<void>): unknown};
 
 /** Timers that run only when a test fires them. */
 export function manualTimers(): {
@@ -58,11 +57,7 @@ export function manualTimers(): {
  * limited to about 104 bytes, so the directory name is kept short.
  */
 export function testSocketPath(t: Teardown): string {
-	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-sd-'));
-	t.teardown(() => {
-		fs.rmSync(directory, {recursive: true, force: true});
-	});
-	return path.join(directory, 'status-1.sock');
+	return path.join(tempDir(t, 'papp-sd-'), 'status-1.sock');
 }
 
 /** A daemon in this process, closed when the test ends. */

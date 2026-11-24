@@ -9,24 +9,13 @@
 // what the editor actually receives rather than on the string we built.
 import {spawn} from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 import {DEFAULT_IDE_COMMAND, expandTemplate} from './config.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
 /** A worktree path carrying every shell metacharacter that could bite us. */
 const HOSTILE_PATH = '/tmp/$(printf PWNED)/a b`whoami`"q"\'s';
-
-let tempCounter = 0;
-
-function tempDir(): string {
-	const dir = path.join(
-		os.tmpdir(),
-		`pappardelle-ide-launch-${process.pid}-${Date.now()}-${tempCounter++}`,
-	);
-	fs.mkdirSync(dir, {recursive: true});
-	return dir;
-}
 
 /**
  * Write a stand-in editor that appends each argv element it receives to a file,
@@ -69,7 +58,7 @@ function readArgs(argsFile: string): string[] {
 }
 
 test('env-supplied WORKTREE_PATH reaches the editor as one literal argument', async t => {
-	const dir = tempDir();
+	const dir = tempDir(t, 'pappardelle-ide-launch-');
 	const {bin, argsFile} = makeFakeEditor(dir);
 
 	await runIdeCommand(`${JSON.stringify(bin)} "\${WORKTREE_PATH}"`, {
@@ -80,7 +69,7 @@ test('env-supplied WORKTREE_PATH reaches the editor as one literal argument', as
 });
 
 test('interpolating the path into the command string executes it instead', async t => {
-	const dir = tempDir();
+	const dir = tempDir(t, 'pappardelle-ide-launch-');
 	const {bin, argsFile} = makeFakeEditor(dir);
 
 	// The rejected implementation: expandTemplate pastes the value into the
@@ -104,7 +93,7 @@ test('interpolating the path into the command string executes it instead', async
 });
 
 test('the built-in default survives a worktree path containing spaces', async t => {
-	const dir = tempDir();
+	const dir = tempDir(t, 'pappardelle-ide-launch-');
 	const {bin, argsFile} = makeFakeEditor(dir);
 	const spacey = path.join(dir, 'a b', 'c');
 

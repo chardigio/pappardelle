@@ -1,4 +1,4 @@
-// Loaded into every test process (package.json, ava.require).
+// Loaded into every test process (ava.config.js, require).
 //
 // A test run chooses its state mode with PAPPARDELLE_SQLITE_STATE. Without
 // this, a run would follow the developer's own home config, and with the flag

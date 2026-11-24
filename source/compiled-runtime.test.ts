@@ -53,6 +53,9 @@ test.serial(
 			HOME: home,
 			PATH: bin,
 			SHELL: '/bin/sh',
+			// The executable unpacks its native libraries here and never removes
+			// them.
+			TMPDIR: root,
 			TERM: 'xterm-256color',
 		};
 		delete env.TMUX;

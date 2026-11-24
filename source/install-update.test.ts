@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'ava';
 import {updateShellScript} from './update-check.ts';
+import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
+
+const testDir = (t: Teardown) => tempDir(t, 'install-update-test-');
 
 // A coworker who presses `U` on an unsupported runtime used to see Pappardelle quit with
 // no message: the installer stopped at its Bun check, and the TUI killed its
@@ -15,16 +17,6 @@ import {updateShellScript} from './update-check.ts';
 
 const root = path.join(import.meta.dirname, '..');
 const installSh = path.join(root, 'install.sh');
-
-let counter = 0;
-function temporaryDir(): string {
-	const dir = path.join(
-		os.tmpdir(),
-		`install-update-test-${process.pid}-${Date.now()}-${counter++}`,
-	);
-	fs.mkdirSync(dir, {recursive: true});
-	return dir;
-}
 
 // Only these tools are on PATH, so a real bun on the test machine (or the CI
 // runner) can never satisfy find_bun by accident.
@@ -59,8 +51,8 @@ const TOOLS = [
 	'env',
 ];
 
-function toolsDir(): string {
-	const dir = temporaryDir();
+function toolsDir(t: Teardown): string {
+	const dir = testDir(t);
 	for (const tool of TOOLS) {
 		const found = spawnSync('/bin/sh', ['-c', `command -v ${tool}`], {
 			encoding: 'utf8',
@@ -90,6 +82,7 @@ function writeFakeBun(dir: string, version: string): string {
 }
 
 function runInstallFunction(
+	t: Teardown,
 	call: string,
 	env: Record<string, string>,
 ): {status: number | null; stdout: string; stderr: string} {
@@ -100,7 +93,7 @@ function runInstallFunction(
 			encoding: 'utf8',
 			env: {
 				PAPPARDELLE_INSTALL_SOURCE_ONLY: '1',
-				PATH: env['PATH'] ?? toolsDir(),
+				PATH: env['PATH'] ?? toolsDir(t),
 				...env,
 			},
 		},
@@ -120,10 +113,13 @@ function platformSuffix(): string {
 
 // A local stand-in for the pinned official Bun release, served over
 // file:// so the test never touches the network.
-function fakeBunDist(options: {corruptChecksum?: boolean} = {}): string {
-	const dist = temporaryDir();
+function fakeBunDist(
+	t: Teardown,
+	options: {corruptChecksum?: boolean} = {},
+): string {
+	const dist = testDir(t);
 	const name = `bun-${platformSuffix()}`;
-	const build = temporaryDir();
+	const build = testDir(t);
 	writeFakeBun(path.join(build, name), '1.4.4');
 	const tarball = `${name}.zip`;
 	spawnSync('zip', ['-qr', path.join(dist, tarball), name], {cwd: build});
@@ -145,12 +141,12 @@ function fakeBunDist(options: {corruptChecksum?: boolean} = {}): string {
 // ============================================================================
 
 test('find_bun prefers the bun the TUI passes over a stale PATH bun', t => {
-	const home = temporaryDir();
-	const tools = toolsDir();
+	const home = testDir(t);
+	const tools = toolsDir(t);
 	writeFakeBun(tools, '1.3.0');
-	const tuiBun = writeFakeBun(path.join(temporaryDir(), 'bin'), '1.4.4');
+	const tuiBun = writeFakeBun(path.join(testDir(t), 'bin'), '1.4.4');
 
-	const result = runInstallFunction('find_bun', {
+	const result = runInstallFunction(t, 'find_bun', {
 		HOME: home,
 		PATH: tools,
 		PAPPARDELLE_BUN: tuiBun,
@@ -161,17 +157,17 @@ test('find_bun prefers the bun the TUI passes over a stale PATH bun', t => {
 });
 
 test('find_bun finds the standard user install after a stale PATH runtime', t => {
-	const home = temporaryDir();
-	const tools = toolsDir();
+	const home = testDir(t);
+	const tools = toolsDir(t);
 	writeFakeBun(tools, '1.3.0');
 	const installed = writeFakeBun(path.join(home, '.bun', 'bin'), '1.4.4');
-	const result = runInstallFunction('find_bun', {HOME: home, PATH: tools});
+	const result = runInstallFunction(t, 'find_bun', {HOME: home, PATH: tools});
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
 	t.is(result.stdout.trim(), installed);
 });
 
 test('find_bun ignores the bunfig.toml preload of the directory it runs from', t => {
-	const workspace = temporaryDir();
+	const workspace = testDir(t);
 	fs.writeFileSync(
 		path.join(workspace, 'bunfig.toml'),
 		'preload = ["./preload.ts"]\n',
@@ -189,8 +185,8 @@ test('find_bun ignores the bunfig.toml preload of the directory it runs from', t
 			encoding: 'utf8',
 			env: {
 				PAPPARDELLE_INSTALL_SOURCE_ONLY: '1',
-				HOME: temporaryDir(),
-				PATH: toolsDir(),
+				HOME: testDir(t),
+				PATH: toolsDir(t),
 				PAPPARDELLE_BUN: process.execPath,
 			},
 		},
@@ -201,11 +197,11 @@ test('find_bun ignores the bunfig.toml preload of the directory it runs from', t
 });
 
 test('find_bun fails when no bun meets the floor', t => {
-	const home = temporaryDir();
-	const tools = toolsDir();
+	const home = testDir(t);
+	const tools = toolsDir(t);
 	writeFakeBun(tools, '1.3.0');
 
-	const result = runInstallFunction('find_bun', {HOME: home, PATH: tools});
+	const result = runInstallFunction(t, 'find_bun', {HOME: home, PATH: tools});
 
 	t.not(result.status, 0);
 	t.is(result.stdout.trim(), '');
@@ -216,43 +212,43 @@ test('find_bun fails when no bun meets the floor', t => {
 // ============================================================================
 
 test('install_private_bun installs a verified bun that find_bun then uses', t => {
-	const home = temporaryDir();
-	const tools = toolsDir();
+	const home = testDir(t);
+	const tools = toolsDir(t);
 	writeFakeBun(tools, '1.3.0');
 	const env = {
 		HOME: home,
 		PATH: tools,
-		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(),
+		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(t),
 	};
 
-	const installed = runInstallFunction('install_private_bun', env);
+	const installed = runInstallFunction(t, 'install_private_bun', env);
 	t.is(installed.status, 0, `stderr: ${installed.stderr}`);
 	const privateBun = path.join(home, '.pappardelle', 'bun', 'current', 'bun');
 	t.is(installed.stdout.trim(), privateBun);
 	t.true(installed.stderr.includes('your own Bun is not changed'));
 
-	const found = runInstallFunction('find_bun', env);
+	const found = runInstallFunction(t, 'find_bun', env);
 	t.is(found.status, 0, `stderr: ${found.stderr}`);
 	t.true(found.stdout.trim().endsWith('/bun'));
 	t.true(found.stdout.trim().startsWith(path.join(home, '.pappardelle')));
 });
 
 test('install_private_bun refuses a checksum mismatch and keeps an earlier private bun', t => {
-	const home = temporaryDir();
-	const tools = toolsDir();
-	const good = runInstallFunction('install_private_bun', {
+	const home = testDir(t);
+	const tools = toolsDir(t);
+	const good = runInstallFunction(t, 'install_private_bun', {
 		HOME: home,
 		PATH: tools,
-		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(),
+		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(t),
 	});
 	t.is(good.status, 0, `stderr: ${good.stderr}`);
 	const current = path.join(home, '.pappardelle', 'bun', 'current');
 	const before = fs.readlinkSync(current);
 
-	const bad = runInstallFunction('install_private_bun', {
+	const bad = runInstallFunction(t, 'install_private_bun', {
 		HOME: home,
 		PATH: tools,
-		PAPPARDELLE_BUN_DIST_URL: fakeBunDist({corruptChecksum: true}),
+		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(t, {corruptChecksum: true}),
 	});
 
 	t.not(bad.status, 0);
@@ -261,14 +257,14 @@ test('install_private_bun refuses a checksum mismatch and keeps an earlier priva
 });
 
 test('install_private_bun removes the private bun it replaces', t => {
-	const home = temporaryDir();
+	const home = testDir(t);
 	const env = {
 		HOME: home,
-		PATH: toolsDir(),
-		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(),
+		PATH: toolsDir(t),
+		PAPPARDELLE_BUN_DIST_URL: fakeBunDist(t),
 	};
 	for (let run = 0; run < 2; run++) {
-		const result = runInstallFunction('install_private_bun', env);
+		const result = runInstallFunction(t, 'install_private_bun', env);
 		t.is(result.status, 0, `stderr: ${result.stderr}`);
 	}
 
@@ -282,11 +278,11 @@ test('install_private_bun removes the private bun it replaces', t => {
 });
 
 test('install_private_bun names the archive URL when its download fails', t => {
-	const dist = fakeBunDist();
+	const dist = fakeBunDist(t);
 	fs.rmSync(new URL(`${dist}/bun-${platformSuffix()}.zip`));
-	const result = runInstallFunction('install_private_bun', {
-		HOME: temporaryDir(),
-		PATH: toolsDir(),
+	const result = runInstallFunction(t, 'install_private_bun', {
+		HOME: testDir(t),
+		PATH: toolsDir(t),
 		PAPPARDELLE_BUN_DIST_URL: dist,
 	});
 
@@ -300,8 +296,12 @@ test('install_private_bun names the archive URL when its download fails', t => {
 
 // A git repo whose `bun run build` runs build.sh and `bun run typecheck`
 // runs typecheck.sh, with a fake bun on PATH so the test needs no registry.
-function sourceRepo(buildScript: string, typecheckScript = 'exit 0\n'): string {
-	const repo = temporaryDir();
+function sourceRepo(
+	t: Teardown,
+	buildScript: string,
+	typecheckScript = 'exit 0\n',
+): string {
+	const repo = testDir(t);
 	fs.writeFileSync(path.join(repo, 'build.sh'), buildScript);
 	fs.writeFileSync(path.join(repo, 'typecheck.sh'), typecheckScript);
 	const git = (...args: string[]) =>
@@ -321,8 +321,8 @@ function sourceRepo(buildScript: string, typecheckScript = 'exit 0\n'): string {
 	return repo;
 }
 
-function toolsWithFakeBun(): string {
-	const tools = toolsDir();
+function toolsWithFakeBun(t: Teardown): string {
+	const tools = toolsDir(t);
 	fs.writeFileSync(
 		path.join(tools, 'bun'),
 		'#!/bin/bash\ncase "$1 $2" in\n\t"run typecheck") bash typecheck.sh ;;\n\t"run build") bash build.sh ;;\nesac\n',
@@ -339,13 +339,13 @@ function existingInstall(home: string): string {
 }
 
 test('a failed build leaves the current install in place', t => {
-	const home = temporaryDir();
+	const home = testDir(t);
 	const repoDir = existingInstall(home);
 
-	const result = runInstallFunction('install_repo_atomically', {
+	const result = runInstallFunction(t, 'install_repo_atomically', {
 		HOME: home,
-		PATH: toolsWithFakeBun(),
-		PAPPARDELLE_REPO_URL: sourceRepo('exit 1\n'),
+		PATH: toolsWithFakeBun(t),
+		PAPPARDELLE_REPO_URL: sourceRepo(t, 'exit 1\n'),
 	});
 
 	t.not(result.status, 0);
@@ -360,13 +360,14 @@ test('a failed build leaves the current install in place', t => {
 });
 
 test('a clone that does not typecheck is never built and leaves the current install in place', t => {
-	const home = temporaryDir();
+	const home = testDir(t);
 	const repoDir = existingInstall(home);
 
-	const result = runInstallFunction('install_repo_atomically', {
+	const result = runInstallFunction(t, 'install_repo_atomically', {
 		HOME: home,
-		PATH: toolsWithFakeBun(),
+		PATH: toolsWithFakeBun(t),
 		PAPPARDELLE_REPO_URL: sourceRepo(
+			t,
 			'mkdir -p dist && echo new build > dist/cli.js\n',
 			'exit 2\n',
 		),
@@ -380,13 +381,13 @@ test('a clone that does not typecheck is never built and leaves the current inst
 });
 
 test('a clone failure leaves the current install in place', t => {
-	const home = temporaryDir();
+	const home = testDir(t);
 	const repoDir = existingInstall(home);
 
-	const result = runInstallFunction('install_repo_atomically', {
+	const result = runInstallFunction(t, 'install_repo_atomically', {
 		HOME: home,
-		PATH: toolsWithFakeBun(),
-		PAPPARDELLE_REPO_URL: path.join(temporaryDir(), 'missing'),
+		PATH: toolsWithFakeBun(t),
+		PAPPARDELLE_REPO_URL: path.join(testDir(t), 'missing'),
 	});
 
 	t.not(result.status, 0);
@@ -397,13 +398,14 @@ test('a clone failure leaves the current install in place', t => {
 });
 
 test('a successful build replaces the install and keeps the old one as a rollback', t => {
-	const home = temporaryDir();
+	const home = testDir(t);
 	const repoDir = existingInstall(home);
 
-	const result = runInstallFunction('install_repo_atomically', {
+	const result = runInstallFunction(t, 'install_repo_atomically', {
 		HOME: home,
-		PATH: toolsWithFakeBun(),
+		PATH: toolsWithFakeBun(t),
 		PAPPARDELLE_REPO_URL: sourceRepo(
+			t,
 			'mkdir -p dist && echo new build > dist/cli.js\n',
 		),
 	});
@@ -428,8 +430,8 @@ const buildCheckout = (marker: string) =>
 
 // A built pappardelle checkout, committed, with what install.sh copies and a
 // node_modules it must leave behind.
-function builtCheckout(marker = 'first build'): string {
-	const repo = sourceRepo(buildCheckout(marker));
+function builtCheckout(t: Teardown, marker = 'first build'): string {
+	const repo = sourceRepo(t, buildCheckout(marker));
 	for (const file of [
 		'package.json',
 		'scripts/idow',
@@ -467,11 +469,12 @@ function headSha(repo: string): string {
 
 // install.sh sets REPO_DIR when sourced, so the checkout goes in after it.
 function runWithRepo(
+	t: Teardown,
 	call: string,
 	repo: string,
 	env: Record<string, string>,
 ): ReturnType<typeof runInstallFunction> {
-	return runInstallFunction(`REPO_DIR="$TEST_REPO"; ${call}`, {
+	return runInstallFunction(t, `REPO_DIR="$TEST_REPO"; ${call}`, {
 		...env,
 		TEST_REPO: repo,
 	});
@@ -484,10 +487,10 @@ const installedBinary = (home: string) =>
 	);
 
 test('install_local_snapshot installs a copy, so a later build in the checkout does not go live', t => {
-	const home = temporaryDir();
-	const repo = builtCheckout('first build');
+	const home = testDir(t);
+	const repo = builtCheckout(t, 'first build');
 
-	const result = runWithRepo(`install_local_snapshot`, repo, {HOME: home});
+	const result = runWithRepo(t, `install_local_snapshot`, repo, {HOME: home});
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
 	spawnSync('bash', ['-c', buildCheckout('second build')], {cwd: repo});
 
@@ -510,13 +513,13 @@ test('install_local_snapshot installs a copy, so a later build in the checkout d
 });
 
 test('install_local_snapshot keeps the replaced snapshot and marks a build with uncommitted changes', t => {
-	const home = temporaryDir();
-	const first = builtCheckout('first build');
-	const second = builtCheckout('second build');
+	const home = testDir(t);
+	const first = builtCheckout(t, 'first build');
+	const second = builtCheckout(t, 'second build');
 	fs.writeFileSync(path.join(second, 'package.json'), 'edited');
 
 	for (const repo of [first, second]) {
-		const result = runWithRepo(`install_local_snapshot`, repo, {HOME: home});
+		const result = runWithRepo(t, `install_local_snapshot`, repo, {HOME: home});
 		t.is(result.status, 0, `stderr: ${result.stderr}`);
 	}
 
@@ -537,13 +540,14 @@ test('install_local_snapshot keeps the replaced snapshot and marks a build with 
 });
 
 test('install_local_clone links the snapshot of a checkout', t => {
-	const home = temporaryDir();
-	const repo = builtCheckout();
+	const home = testDir(t);
+	const repo = builtCheckout(t);
 
 	const result = runWithRepo(
+		t,
 		`install_local_clone && echo "linking $INSTALL_DIR"`,
 		repo,
-		{HOME: home, PATH: toolsWithFakeBun()},
+		{HOME: home, PATH: toolsWithFakeBun(t)},
 	);
 
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
@@ -555,15 +559,16 @@ test('install_local_clone links the snapshot of a checkout', t => {
 });
 
 test('install_local_clone runs the release clone in place', t => {
-	const home = temporaryDir();
+	const home = testDir(t);
 	const repo = path.join(home, '.pappardelle', 'repo');
 	fs.mkdirSync(path.dirname(repo), {recursive: true});
-	fs.renameSync(builtCheckout(), repo);
+	fs.renameSync(builtCheckout(t), repo);
 
 	const result = runWithRepo(
+		t,
 		`install_local_clone && echo "linking $INSTALL_DIR"`,
 		repo,
-		{HOME: home, PATH: toolsWithFakeBun()},
+		{HOME: home, PATH: toolsWithFakeBun(t)},
 	);
 
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
@@ -575,13 +580,13 @@ test('install_local_clone runs the release clone in place', t => {
 });
 
 test('install_local_clone stops before installing a checkout that does not typecheck', t => {
-	const home = temporaryDir();
-	const repo = builtCheckout();
+	const home = testDir(t);
+	const repo = builtCheckout(t);
 	fs.writeFileSync(path.join(repo, 'typecheck.sh'), 'exit 2\n');
 
-	const result = runWithRepo(`install_local_clone`, repo, {
+	const result = runWithRepo(t, `install_local_clone`, repo, {
 		HOME: home,
-		PATH: toolsWithFakeBun(),
+		PATH: toolsWithFakeBun(t),
 	});
 
 	t.not(result.status, 0);
@@ -592,8 +597,12 @@ test('install_local_clone stops before installing a checkout that does not typec
 // updateShellScript (the `U` wrapper)
 // ============================================================================
 
-function runUpdateScript(installCommand: string, waitOnFailure?: boolean) {
-	const home = temporaryDir();
+function runUpdateScript(
+	t: Teardown,
+	installCommand: string,
+	waitOnFailure?: boolean,
+) {
+	const home = testDir(t);
 	const result = spawnSync(
 		'/bin/bash',
 		['-c', updateShellScript({installCommand, waitOnFailure})],
@@ -604,7 +613,7 @@ function runUpdateScript(installCommand: string, waitOnFailure?: boolean) {
 }
 
 test('a failed update keeps its exit status, explains it, and writes a log', t => {
-	const {result, log} = runUpdateScript('echo installer ran; exit 3');
+	const {result, log} = runUpdateScript(t, 'echo installer ran; exit 3');
 
 	t.is(result.status, 3);
 	t.true(result.stdout.includes('The Pappardelle update failed (exit 3)'));
@@ -613,7 +622,7 @@ test('a failed update keeps its exit status, explains it, and writes a log', t =
 });
 
 test('a failed update run from the shell reports the log without waiting for a key', t => {
-	const {result, log} = runUpdateScript('echo installer ran; exit 3', false);
+	const {result, log} = runUpdateScript(t, 'echo installer ran; exit 3', false);
 
 	t.is(result.status, 3);
 	t.true(result.stdout.includes('The Pappardelle update failed (exit 3)'));
@@ -622,7 +631,7 @@ test('a failed update run from the shell reports the log without waiting for a k
 });
 
 test('a successful update exits 0 without a failure message', t => {
-	const {result, log} = runUpdateScript('echo all good');
+	const {result, log} = runUpdateScript(t, 'echo all good');
 
 	t.is(result.status, 0);
 	t.false(result.stdout.includes('failed'));
@@ -641,8 +650,8 @@ test('the default update script runs the published installer', t => {
 // local_clone_dir
 // ============================================================================
 
-function pappardelleCheckout(): string {
-	const dir = temporaryDir();
+function pappardelleCheckout(t: Teardown): string {
+	const dir = testDir(t);
 	fs.writeFileSync(
 		path.join(dir, 'package.json'),
 		JSON.stringify({name: 'pappardelle'}),
@@ -652,8 +661,9 @@ function pappardelleCheckout(): string {
 }
 
 test('a piped install run from inside a pappardelle checkout is not a local install', t => {
-	const checkout = pappardelleCheckout();
+	const checkout = pappardelleCheckout(t);
 	const result = runInstallFunction(
+		t,
 		`cd "${checkout}" && local_clone_dir ""`,
 		{},
 	);
@@ -662,9 +672,10 @@ test('a piped install run from inside a pappardelle checkout is not a local inst
 });
 
 test('an install script run from a pappardelle checkout installs from that checkout', t => {
-	const checkout = pappardelleCheckout();
-	const elsewhere = temporaryDir();
+	const checkout = pappardelleCheckout(t);
+	const elsewhere = testDir(t);
 	const result = runInstallFunction(
+		t,
 		`cd "${elsewhere}" && local_clone_dir "${path.join(checkout, 'install.sh')}"`,
 		{},
 	);
@@ -677,8 +688,8 @@ test('an install script run from a pappardelle checkout installs from that check
 // ============================================================================
 
 test('install_skill_scripts replaces the installed scripts with the checkout ones', t => {
-	const home = temporaryDir();
-	const repo = temporaryDir();
+	const home = testDir(t);
+	const repo = testDir(t);
 	const shipped = path.join(
 		repo,
 		'plugins/pappardelle/skills/init-pappardelle/scripts',
@@ -697,6 +708,7 @@ test('install_skill_scripts replaces the installed scripts with the checkout one
 	}
 
 	const result = runInstallFunction(
+		t,
 		'INSTALL_DIR="$TEST_REPO"; install_skill_scripts',
 		{HOME: home, PATH: process.env['PATH'] ?? '', TEST_REPO: repo},
 	);

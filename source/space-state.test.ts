@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
@@ -11,17 +10,7 @@ import {
 	type SpaceState,
 	type SpacePrLink,
 } from './space-state.ts';
-
-let tempCounter = 0;
-
-function tempDir(): string {
-	const dir = path.join(
-		os.tmpdir(),
-		`pappardelle-space-state-${process.pid}-${Date.now()}-${tempCounter++}`,
-	);
-	fs.mkdirSync(dir, {recursive: true});
-	return dir;
-}
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
 // ============================================================================
 // SpaceStateDao
@@ -475,18 +464,17 @@ function writeJsonl(filePath: string, entries: unknown[]): void {
 }
 
 test('extractRecapFromJsonl returns null when file does not exist', async t => {
-	const d = tempDir();
+	const d = tempDir(t, 'pappardelle-space-state-');
 	t.is(await extractRecapFromJsonl(path.join(d, 'nope.jsonl')), null);
 });
 
 test('transcript stream errors return without hanging the rail poll', async t => {
-	const dir = tempDir();
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const dir = tempDir(t, 'pappardelle-space-state-');
 	t.is(await extractRecapFromJsonl(dir), null);
 });
 
 test('extractRecapFromJsonl pulls custom-title and last-prompt', async t => {
-	const d = tempDir();
+	const d = tempDir(t, 'pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
 		{
@@ -508,7 +496,7 @@ test('extractRecapFromJsonl pulls custom-title and last-prompt', async t => {
 });
 
 test('extractRecapFromJsonl takes the most recent custom-title when duplicated', async t => {
-	const d = tempDir();
+	const d = tempDir(t, 'pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
 		{type: 'custom-title', customTitle: 'old title'},
@@ -520,7 +508,7 @@ test('extractRecapFromJsonl takes the most recent custom-title when duplicated',
 });
 
 test('extractRecapFromJsonl captures the last assistant text snippet', async t => {
-	const d = tempDir();
+	const d = tempDir(t, 'pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
 		{
@@ -543,7 +531,7 @@ test('extractRecapFromJsonl captures the last assistant text snippet', async t =
 });
 
 test('extractRecapFromJsonl truncates long assistant excerpts', async t => {
-	const d = tempDir();
+	const d = tempDir(t, 'pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	const longText = 'x'.repeat(1000);
 	writeJsonl(p, [
@@ -554,7 +542,7 @@ test('extractRecapFromJsonl truncates long assistant excerpts', async t => {
 });
 
 test('extractRecapFromJsonl skips malformed lines without crashing', async t => {
-	const d = tempDir();
+	const d = tempDir(t, 'pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	fs.writeFileSync(
 		p,
@@ -573,13 +561,13 @@ test('extractRecapFromJsonl skips malformed lines without crashing', async t => 
 // ============================================================================
 
 test('findLatestSessionJsonl returns null when project dir is missing', async t => {
-	const projectsDir = tempDir();
+	const projectsDir = tempDir(t, 'pappardelle-space-state-');
 	const worktree = path.join('/Users/x', '.worktrees', 'repo', 'STA-111');
 	t.is(await findLatestSessionJsonl(worktree, projectsDir), null);
 });
 
 test('findLatestSessionJsonl returns the newest top-level jsonl', async t => {
-	const projectsDir = tempDir();
+	const projectsDir = tempDir(t, 'pappardelle-space-state-');
 	const worktree = '/Users/x/.worktrees/repo/STA-222';
 	const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
 	const projectDir = path.join(projectsDir, encoded);
@@ -598,7 +586,7 @@ test('findLatestSessionJsonl returns the newest top-level jsonl', async t => {
 });
 
 test('findLatestSessionJsonl ignores subagent jsonls in nested dirs', async t => {
-	const projectsDir = tempDir();
+	const projectsDir = tempDir(t, 'pappardelle-space-state-');
 	const worktree = '/Users/x/.worktrees/repo/STA-333';
 	const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
 	const projectDir = path.join(projectsDir, encoded);
@@ -611,7 +599,7 @@ test('findLatestSessionJsonl ignores subagent jsonls in nested dirs', async t =>
 });
 
 test('extractRecapFromJsonl returns null when no recap-worthy entries exist', async t => {
-	const d = tempDir();
+	const d = tempDir(t, 'pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
 		{type: 'agent-setting', agentSetting: {}},
@@ -621,8 +609,7 @@ test('extractRecapFromJsonl returns null when no recap-worthy entries exist', as
 });
 
 test('recaps reuse unchanged snapshots and refresh after append, rewrite, and replacement', async t => {
-	const dir = tempDir();
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const dir = tempDir(t, 'pappardelle-space-state-');
 	const file = path.join(dir, 'session.jsonl');
 	writeJsonl(file, [{type: 'custom-title', customTitle: 'first'}]);
 	const first = await extractRecapFromJsonl(file);
@@ -648,8 +635,7 @@ test('recaps reuse unchanged snapshots and refresh after append, rewrite, and re
 });
 
 test('an incomplete last line is picked up when the writer finishes it', async t => {
-	const dir = tempDir();
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const dir = tempDir(t, 'pappardelle-space-state-');
 	const file = path.join(dir, 'session.jsonl');
 	fs.writeFileSync(file, '{"type":"last-prompt","lastPrompt":"keep');
 	t.is(await extractRecapFromJsonl(file), null);
@@ -658,8 +644,7 @@ test('an incomplete last line is picked up when the writer finishes it', async t
 });
 
 test('large transcript scans service UI timers before completing', async t => {
-	const dir = tempDir();
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const dir = tempDir(t, 'pappardelle-space-state-');
 	const file = path.join(dir, 'session.jsonl');
 	const line =
 		JSON.stringify({type: 'assistant', message: {content: 'x'.repeat(1024)}}) +
@@ -682,8 +667,7 @@ test('large transcript scans service UI timers before completing', async t => {
 });
 
 test('a 20 MiB line spanning chunks preserves its recap and following lines', async t => {
-	const dir = tempDir();
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const dir = tempDir(t, 'pappardelle-space-state-');
 	const file = path.join(dir, 'long-line.jsonl');
 	fs.writeFileSync(
 		file,

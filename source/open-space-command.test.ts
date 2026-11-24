@@ -1,7 +1,6 @@
 import {spawn, execFileSync} from 'node:child_process';
 import {once} from 'node:events';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
@@ -12,6 +11,7 @@ import {gatherSpaces} from './spaces-command.ts';
 import {createStateDaos} from './state-daos.ts';
 import {closeStateDb, stateDbPath, statusSocketPath} from './state-db.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {sendHookEvent, serveTestDaemon} from '../test/helpers/status-daemon.ts';
 import {waitUntil} from '../test/helpers/wait.ts';
 
@@ -24,10 +24,7 @@ const useBuiltCli =
 	useStandalone || process.env['PAPPARDELLE_TEST_BUILT_CLI'] === '1';
 
 function fixture(t: ExecutionContext, provider = 'jira') {
-	const root = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-cli-space-')),
-	);
-	t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+	const root = tempDir(t, 'papp-cli-space-');
 	const repo = path.join(root, 'project');
 	const home = path.join(root, 'home');
 	const install = path.join(root, 'install');
@@ -118,6 +115,9 @@ setTimeout(() => {
 	const env = {
 		...process.env,
 		HOME: home,
+		// The standalone executable unpacks its native libraries here and never
+		// removes them.
+		TMPDIR: root,
 		PAPPARDELLE_PROJECT_ROOT: repo,
 		PAPPARDELLE_MAIN_REPO_ROOT: repo,
 		IDOW_TEST_RECORD: record,

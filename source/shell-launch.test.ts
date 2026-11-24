@@ -2,11 +2,11 @@
 // These run it for real against a stub shell that logs each invocation, so
 // they check what the user's shell actually receives.
 import {execFileSync} from 'node:child_process';
-import {chmodSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {chmodSync, readFileSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import test from 'ava';
 import {buildShellLaunchArgs} from './tmux.ts';
+import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
 
 function restoreShell(value: string | undefined): void {
 	if (value === undefined) {
@@ -16,8 +16,8 @@ function restoreShell(value: string | undefined): void {
 	}
 }
 
-function runWithStubShell(command: string): string[] {
-	const dir = mkdtempSync(join(tmpdir(), 'shell-launch-'));
+function runWithStubShell(t: Teardown, command: string): string[] {
+	const dir = tempDir(t, 'shell-launch-');
 	const log = join(dir, 'log');
 	const stub = join(dir, 'stub-shell');
 	writeFileSync(
@@ -40,11 +40,11 @@ function runWithStubShell(command: string): string[] {
 
 test('runs the command in an interactive shell, then a login shell', t => {
 	const command = `claude --model 'claude-opus-5[1m]' --continue || { printf '\\033[A'; false; }`;
-	t.deepEqual(runWithStubShell(command), [`<-ic><${command}\n:>`, '<-l>']);
+	t.deepEqual(runWithStubShell(t, command), [`<-ic><${command}\n:>`, '<-l>']);
 });
 
 test('a trailing comment in the command does not swallow the login shell', t => {
-	t.deepEqual(runWithStubShell('gitui # my note'), [
+	t.deepEqual(runWithStubShell(t, 'gitui # my note'), [
 		'<-ic><gitui # my note\n:>',
 		'<-l>',
 	]);

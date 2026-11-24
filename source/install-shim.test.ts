@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'ava';
+import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
 
 // The installer pins Bun across non-interactive tmux environments.
 const root = path.join(import.meta.dirname, '..');
@@ -10,17 +10,6 @@ const templatePath = path.join(root, 'scripts', 'pappardelle-shim-template.sh');
 const installShPath = path.join(root, 'install.sh');
 
 const placeholders = ['__BUN_BIN__', '__CLI_JS__', '__MIN_BUN_VERSION__'];
-
-let temporaryCounter = 0;
-
-function createTemporaryDir(suffix = ''): string {
-	const dir = path.join(
-		os.tmpdir(),
-		`install-shim-test-${process.pid}-${Date.now()}-${temporaryCounter++}${suffix}`,
-	);
-	fs.mkdirSync(dir, {recursive: true});
-	return dir;
-}
 
 // Mirrors the `${SHIM_CONTENT//__PLACEHOLDER__/$value}` substitutions in
 // install.sh — both are global replaces.
@@ -65,8 +54,8 @@ esac
 	return fakePath;
 }
 
-function writeShim(shim: string): string {
-	const dir = createTemporaryDir();
+function writeShim(t: Teardown, shim: string): string {
+	const dir = tempDir(t, 'install-shim-test-');
 	const shimPath = path.join(dir, 'pappardelle');
 	fs.writeFileSync(shimPath, shim, {mode: 0o755});
 	return shimPath;
@@ -131,12 +120,13 @@ test('install.sh no longer writes an unpinned `exec bun` shim', t => {
 // ============================================================================
 
 test('shim execs the pinned bun even when PATH resolves to a stale bun', t => {
-	const pinnedDir = createTemporaryDir();
-	const staleDir = createTemporaryDir();
+	const pinnedDir = tempDir(t, 'install-shim-test-');
+	const staleDir = tempDir(t, 'install-shim-test-');
 	const pinnedBun = writeFakeBun(pinnedDir, '1.4.4');
 	writeFakeBun(staleDir, '1.3.0'); // The trap that bit on master.
 	const cliJs = path.join(pinnedDir, 'cli.js');
 	const shimPath = writeShim(
+		t,
 		renderShim({bunBin: pinnedBun, cliJs, minBunVersion: '1.4.0'}),
 	);
 
@@ -151,9 +141,10 @@ test('shim execs the pinned bun even when PATH resolves to a stale bun', t => {
 });
 
 test('shim accepts a pinned bun exactly at the floor', t => {
-	const dir = createTemporaryDir();
+	const dir = tempDir(t, 'install-shim-test-');
 	const pinnedBun = writeFakeBun(dir, '1.4.0');
 	const shimPath = writeShim(
+		t,
 		renderShim({
 			bunBin: pinnedBun,
 			cliJs: path.join(dir, 'cli.js'),
@@ -168,9 +159,10 @@ test('shim accepts a pinned bun exactly at the floor', t => {
 });
 
 test('shim rejects a pinned bun below the floor with an actionable message', t => {
-	const dir = createTemporaryDir();
+	const dir = tempDir(t, 'install-shim-test-');
 	const pinnedBun = writeFakeBun(dir, '1.3.0');
 	const shimPath = writeShim(
+		t,
 		renderShim({
 			bunBin: pinnedBun,
 			cliJs: path.join(dir, 'cli.js'),
@@ -191,9 +183,10 @@ test('shim rejects a pinned bun below the floor with an actionable message', t =
 });
 
 test('shim rejects a bun reporting a garbage version instead of half-running', t => {
-	const dir = createTemporaryDir();
+	const dir = tempDir(t, 'install-shim-test-');
 	const pinnedBun = writeFakeBun(dir, 'garbage');
 	const shimPath = writeShim(
+		t,
 		renderShim({
 			bunBin: pinnedBun,
 			cliJs: path.join(dir, 'cli.js'),
@@ -208,10 +201,11 @@ test('shim rejects a bun reporting a garbage version instead of half-running', t
 });
 
 test('shim handles install paths containing spaces', t => {
-	const dir = createTemporaryDir(' with spaces');
+	const dir = tempDir(t, 'install-shim-test with spaces-');
 	const pinnedBun = writeFakeBun(dir, '1.4.4');
 	const cliJs = path.join(dir, 'cli.js');
 	const shimPath = writeShim(
+		t,
 		renderShim({bunBin: pinnedBun, cliJs, minBunVersion: '1.4.0'}),
 	);
 
@@ -222,9 +216,10 @@ test('shim handles install paths containing spaces', t => {
 });
 
 test('shim passes arguments through untouched, including spaces', t => {
-	const dir = createTemporaryDir();
+	const dir = tempDir(t, 'install-shim-test-');
 	const pinnedBun = writeFakeBun(dir, '1.4.4');
 	const shimPath = writeShim(
+		t,
 		renderShim({
 			bunBin: pinnedBun,
 			cliJs: path.join(dir, 'cli.js'),
@@ -247,10 +242,11 @@ test('shim passes arguments through untouched, including spaces', t => {
 // ============================================================================
 
 test('shim falls back to a good PATH bun when the pinned binary is gone', t => {
-	const dir = createTemporaryDir();
-	const pathDir = createTemporaryDir();
+	const dir = tempDir(t, 'install-shim-test-');
+	const pathDir = tempDir(t, 'install-shim-test-');
 	writeFakeBun(pathDir, '1.4.4');
 	const shimPath = writeShim(
+		t,
 		renderShim({
 			bunBin: path.join(dir, 'gone', 'bun'),
 			cliJs: path.join(dir, 'cli.js'),
@@ -265,10 +261,11 @@ test('shim falls back to a good PATH bun when the pinned binary is gone', t => {
 });
 
 test('shim fails loud when the pin is gone and the PATH bun is stale', t => {
-	const dir = createTemporaryDir();
-	const staleDir = createTemporaryDir();
+	const dir = tempDir(t, 'install-shim-test-');
+	const staleDir = tempDir(t, 'install-shim-test-');
 	writeFakeBun(staleDir, '1.3.0');
 	const shimPath = writeShim(
+		t,
 		renderShim({
 			bunBin: path.join(dir, 'gone', 'bun'),
 			cliJs: path.join(dir, 'cli.js'),
@@ -288,10 +285,11 @@ test('shim fails loud when the pin is gone and the PATH bun is stale', t => {
 });
 
 test('shim fails loud when the pin is gone and no bun is on PATH', t => {
-	const dir = createTemporaryDir();
-	const emptyDir = createTemporaryDir();
+	const dir = tempDir(t, 'install-shim-test-');
+	const emptyDir = tempDir(t, 'install-shim-test-');
 	const goneBun = path.join(dir, 'gone', 'bun');
 	const shimPath = writeShim(
+		t,
 		renderShim({
 			bunBin: goneBun,
 			cliJs: path.join(dir, 'cli.js'),

@@ -57,6 +57,7 @@ import {
 	isClaudeCommand,
 	renderAgentLaunchFlags,
 } from './config.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
 // Helper to create a minimal profile
 function createProfile(keywords: string[], displayName: string): Profile {
@@ -4853,7 +4854,7 @@ test('getBeadsPrefixes lowercases and dedupes the database issue-prefix', t => {
 });
 
 test('readBeadsIssuePrefix reads issue-prefix from .beads/config.yaml', t => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	const dir = tempDir(t, 'beads-prefix-');
 	fs.mkdirSync(path.join(dir, '.beads'));
 	fs.writeFileSync(
 		path.join(dir, '.beads', 'config.yaml'),
@@ -4864,7 +4865,7 @@ test('readBeadsIssuePrefix reads issue-prefix from .beads/config.yaml', t => {
 
 test('readBeadsIssuePrefix is undefined when the file or key is absent', t => {
 	const noDatabasePrefix = () => undefined;
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	const dir = tempDir(t, 'beads-prefix-');
 	t.is(readBeadsIssuePrefix(dir, noDatabasePrefix), undefined);
 
 	fs.mkdirSync(path.join(dir, '.beads'));
@@ -4874,7 +4875,7 @@ test('readBeadsIssuePrefix is undefined when the file or key is absent', t => {
 });
 
 test('readBeadsIssuePrefix falls back to the bd database without a config.yaml prefix', t => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	const dir = tempDir(t, 'beads-prefix-');
 	fs.mkdirSync(path.join(dir, '.beads'));
 	fs.writeFileSync(
 		path.join(dir, '.beads', 'config.yaml'),
@@ -4898,7 +4899,7 @@ test('parseBdIssuePrefix reads plain and enveloped bd config output', t => {
 });
 
 test('readBeadsIssuePrefix asks bd only in a beads repo', t => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	const dir = tempDir(t, 'beads-prefix-');
 	t.is(
 		readBeadsIssuePrefix(dir, () => 'qa'),
 		undefined,
@@ -4909,7 +4910,7 @@ test('readBeadsIssuePrefix asks bd only in a beads repo', t => {
 // so this has to stay a cache hit — an uncached read puts a blocking
 // readFileSync and a YAML parse on the TUI's render path per character.
 test('readBeadsIssuePrefix parses .beads/config.yaml at most once per root', t => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	const dir = tempDir(t, 'beads-prefix-');
 	fs.mkdirSync(path.join(dir, '.beads'));
 	const configPath = path.join(dir, '.beads', 'config.yaml');
 	fs.writeFileSync(configPath, 'issue-prefix: first\n');
@@ -4923,7 +4924,7 @@ test('readBeadsIssuePrefix parses .beads/config.yaml at most once per root', t =
 	t.is(readBeadsIssuePrefix(dir), 'first');
 
 	// The cache is keyed per root, so a different repo still resolves on its own.
-	const other = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	const other = tempDir(t, 'beads-prefix-');
 	fs.mkdirSync(path.join(other, '.beads'));
 	fs.writeFileSync(
 		path.join(other, '.beads', 'config.yaml'),
@@ -4936,7 +4937,7 @@ test('readBeadsIssuePrefix parses .beads/config.yaml at most once per root', t =
 // A repo with no beads config is the case that would otherwise re-stat a
 // missing file on every keystroke, so the negative result has to cache too.
 test('readBeadsIssuePrefix caches a missing .beads/config.yaml', t => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beads-prefix-'));
+	const dir = tempDir(t, 'beads-prefix-');
 
 	clearBeadsIssuePrefixCache();
 	t.is(readBeadsIssuePrefix(dir), undefined);

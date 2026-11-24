@@ -19,12 +19,10 @@ import {
 } from '../../source/state-db.ts';
 import {initTmuxState} from '../../source/tmux.ts';
 import {sendHookEvent, serveTestHub} from './status-daemon.ts';
+import type {Teardown} from './temp-dir.ts';
 
 /** Whether this test run keeps state in SQLite (PAPPARDELLE_SQLITE_STATE=1). */
 export const sqliteRun = process.env['PAPPARDELLE_SQLITE_STATE'] === '1';
-
-/** The part of an ava test context these helpers use. */
-type Teardown = {teardown(fn: () => void): unknown};
 
 export type TestState = {
 	daos: StateDaos;
