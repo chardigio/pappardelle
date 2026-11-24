@@ -58,8 +58,6 @@ test.serial(
 			TMPDIR: root,
 			TERM: 'xterm-256color',
 		};
-		delete env.TMUX;
-		delete env.TMUX_PANE;
 		const socket = path.join(root, 'socket');
 		const runTmux = (...args: string[]) =>
 			execFileSync(tmux, ['-S', socket, ...args], {

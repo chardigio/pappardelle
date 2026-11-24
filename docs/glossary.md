@@ -6,6 +6,8 @@
 - **Local install**: `install.sh` run from a Pappardelle clone or worktree (`LOCAL_MODE`), as opposed to the curl install, which clones a release to `~/.pappardelle/repo`
 - **Snapshot**: the copy of a local install's build, scripts and plugin at `~/.pappardelle/local` that the `pappardelle` shim, `idow` and the agents' plugin run from. Only the next `install.sh` replaces it; the one it replaces is kept at `~/.pappardelle/local.previous`
 - **Inner server**: the `pappardelle_inner` tmux server that holds every space's agent and companion sessions. It runs with exit-empty, exit-unattached and destroy-unattached off, so it stays up when no space is open
+- **Live tmux directory**: the directory the user's own tmux servers keep their sockets in, `${TMUX_TMPDIR:-/tmp}/tmux-<uid>` as a test run found it. The inner server and the default server live here
+- **Test tmux guard**: the `tmux` wrapper a test run puts first on PATH (`test/helpers/tmux-guard.sh`, installed by `test/helpers/tmux-guard-env.sh`). It runs the real tmux unless the command addresses a socket in the live tmux directory, which it refuses. Each refusal fails the run
 - **Status snapshot**: a pane monitor's latest program status for one pane generation (`ProgramStatusSnapshot`). Not the install **Snapshot**
 - **Pane generation**: the id of one monitor attach to one agent pane, a hash of the socket, pane id, pid and marker. Status snapshots and leases are filed under it
 - **Forgotten generation**: a pane generation the status daemon was told to forget when its space closed or its pane was replaced. The daemon ignores status snapshots that arrive for it later

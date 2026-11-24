@@ -91,8 +91,6 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 		PAPPARDELLE_CLAUDE_CONFIG_PATH: path.join(root, 'claude-config.json'),
 		PAPPARDELLE_BUN: '/stale/inherited/bun',
 	};
-	delete env['TMUX'];
-	delete env['TMUX_PANE'];
 	const tmux = (...args: string[]) =>
 		execFileSync('tmux', ['-L', socket, ...args], {
 			env,

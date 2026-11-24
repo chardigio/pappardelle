@@ -62,6 +62,8 @@ An ava run gets a **run tmpdir** of its own (`/tmp/ptr-*`, set up in `ava.config
 
 The run also gets a **throwaway HOME** (`/tmp/ph-*`), so nothing a test starts writes to your `~/.pappardelle` or `~/.claude.json`. Bun reads `HOME` once at startup, so it is set in `ava.config.js` before the workers start, and `test/helpers/test-home-guard.ts` fails any test process that still has another HOME. `scripts/test-start-agent-session.sh` runs under a throwaway HOME of its own, with a `claude` shim in place of the real one.
 
+Every run also gets the [test tmux guard](docs/glossary.md): ava and the shell tests that start tmux run with a private `TMUX_TMPDIR`, no `TMUX`, and a `tmux` on PATH that refuses any socket in your [live tmux directory](docs/glossary.md), where the inner server holding every agent session lives. A refused call fails the run and is listed at the end, even when the test swallowed the error. Fix such a test by giving it the run's `TMUX_TMPDIR` or a `-S` socket of its own.
+
 ## Code style
 
 - TypeScript source lives in `source/`

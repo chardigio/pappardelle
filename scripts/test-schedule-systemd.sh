@@ -25,6 +25,10 @@ if [[ -z "${XDG_RUNTIME_DIR:-}" ]] || ! command -v systemd-run >/dev/null || ! c
     exit 0
 fi
 
+TMUX_GUARD_ENV=$("$SCRIPT_DIR/../test/helpers/tmux-guard-env.sh") || exit 1
+eval "$TMUX_GUARD_ENV"
+TMUX_REFUSALS=${PAPPARDELLE_TEST_TMUX_REFUSALS:-}
+
 ROOT="$(mktemp -d /tmp/pq-XXXXXX)"
 REPO_NAME="pappardelle-qa-$(basename "$ROOT" | cut -d- -f2 | tr '[:upper:]' '[:lower:]')"
 REPO="$ROOT/$REPO_NAME"
@@ -35,6 +39,7 @@ SOCKET=""
 T() { env -u TMUX -u TMUX_PANE tmux -L pappardelle_inner "$@"; }
 
 cleanup() {
+    local status=$?
     for unit in $(systemctl --user list-units --all --plain --no-legend "pappardelle-$REPO_NAME-*" | awk '{print $1}'); do
         systemctl --user stop "$unit" 2>/dev/null
     done
@@ -43,6 +48,13 @@ cleanup() {
         env -u TMUX -u TMUX_PANE tmux -S "$SOCKET" kill-server 2>/dev/null
     fi
     rm -rf "$ROOT" "$HOME/.pappardelle/repos/$REPO_NAME"
+    if [[ -s "$TMUX_REFUSALS" ]]; then
+        echo "The test tmux guard refused tmux calls against the live tmux directory (docs/glossary.md):"
+        cat "$TMUX_REFUSALS"
+        status=1
+    fi
+    [[ -z "$TMUX_REFUSALS" ]] || rm -rf "${TMUX_REFUSALS%/*}"
+    exit "$status"
 }
 trap cleanup EXIT
 
@@ -63,7 +75,7 @@ fi
 # This may itself run inside a space, whose PAPPARDELLE_* would point the
 # timer at that space's repo.
 SQLITE_STATE="${PAPPARDELLE_SQLITE_STATE:-}"
-for name in $(compgen -e | grep '^PAPPARDELLE_'); do unset "$name"; done
+for name in $(compgen -e | grep '^PAPPARDELLE_' | grep -v '^PAPPARDELLE_TEST_'); do unset "$name"; done
 # The run keeps its state mode. This test runs under the real $HOME, so the
 # database and the status daemon's socket are its own, and the timer it starts
 # is handed all three.

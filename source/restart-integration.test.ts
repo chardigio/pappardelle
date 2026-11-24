@@ -58,19 +58,14 @@ tmuxTest(
 	'restart from a claude pane keeps the server up and the terminal attached',
 	async t => {
 		const dir = mkdtempSync(join(tmpdir(), 'pappardelle-restart-'));
-		const saved = {
-			tmux: process.env['TMUX'],
-			tmpdir: process.env['TMUX_TMPDIR'],
-		};
-		delete process.env['TMUX'];
+		const savedTmpdir = process.env['TMUX_TMPDIR'];
 		process.env['TMUX_TMPDIR'] = dir;
 		t.teardown(() => {
 			delete process.env['TMUX'];
 			spawnSync('tmux', ['-L', 'host', 'kill-server'], {stdio: 'ignore'});
 			spawnSync('tmux', ['kill-server'], {stdio: 'ignore'});
-			if (saved.tmux !== undefined) process.env['TMUX'] = saved.tmux;
-			if (saved.tmpdir === undefined) delete process.env['TMUX_TMPDIR'];
-			else process.env['TMUX_TMPDIR'] = saved.tmpdir;
+			if (savedTmpdir === undefined) delete process.env['TMUX_TMPDIR'];
+			else process.env['TMUX_TMPDIR'] = savedTmpdir;
 			closeStateDb(stateDbPath(dir));
 			rmSync(dir, {recursive: true, force: true});
 		});

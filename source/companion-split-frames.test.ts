@@ -29,8 +29,7 @@ const tmuxTest =
 const dir = fs.realpathSync(fs.mkdtempSync('/tmp/pcs-'));
 const outer = `${dir}/o`;
 const inner = `${dir}/i`;
-const {TMUX: _tmux, TMUX_PANE: _pane, ...inherited} = process.env;
-const env = {...inherited, SHELL: '/bin/sh', PAPPARDELLE_TMUX_SOCKET: inner};
+const env = {...process.env, SHELL: '/bin/sh', PAPPARDELLE_TMUX_SOCKET: inner};
 Object.assign(process.env, {SHELL: '/bin/sh', PAPPARDELLE_TMUX_SOCKET: inner});
 
 // Inner calls already carry `-S inner` from innerTmuxArgs, which wins over

@@ -684,14 +684,8 @@ test('createComment gives up immediately when bd is missing', async t => {
 // Misc surface
 
 test('openIssue reports failure outside tmux', async t => {
-	const previous = process.env['TMUX'];
-	delete process.env['TMUX'];
-	try {
-		const {provider} = providerReturning('[]');
-		t.false(await provider.openIssue('bd-a1b2'));
-	} finally {
-		if (previous !== undefined) process.env['TMUX'] = previous;
-	}
+	const {provider} = providerReturning('[]');
+	t.false(await provider.openIssue('bd-a1b2'));
 });
 
 test('openIssue popup is pinned to the main repo root', t => {

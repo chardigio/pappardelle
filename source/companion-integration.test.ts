@@ -22,8 +22,7 @@ const tmuxTest =
 
 const dir = realpathSync(mkdtempSync('/tmp/pc-'));
 const socket = `${dir}/s`;
-const {TMUX: _tmux, TMUX_PANE: _pane, ...inherited} = process.env;
-const env = {...inherited, SHELL: '/bin/sh'};
+const env = {...process.env, SHELL: '/bin/sh'};
 
 // The launch wrapper starts $SHELL -ic; keep it from sourcing the user's zshrc.
 process.env['SHELL'] = '/bin/sh';
