@@ -1,6 +1,6 @@
 import {spawnSync} from 'node:child_process';
 import {setImmediate as nextTurn} from 'node:timers/promises';
-import {mkdtempSync, rmSync} from 'node:fs';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {sessionNamesFor} from './space-identity.ts';
@@ -1246,5 +1246,199 @@ test.serial(
 		t.true(await attach('TEST-AFTER'));
 		const switched = calls.find(args => isSwitchBatch(args))!;
 		t.is(switched[switched.indexOf('-c') + 1], '/dev/late');
+	},
+);
+
+// A config that fails validation while the TUI runs must not bring a space's
+// programs back with built-in commands: its agent profile, model and env would
+// be lost.
+const INVALID_AGENT_PROFILE =
+	'agent_profiles:\n  opus:\n    command: claude\n    model: 7\n';
+const VALID_CONFIG = 'version: 1\nprofiles: {}\n';
+const projectConfig = () => join(emptyRepository, '.pappardelle.yml');
+
+function withInvalidConfig(t: ExecutionContext): void {
+	isolatedHome(t);
+	writeFileSync(projectConfig(), INVALID_AGENT_PROFILE);
+	t.teardown(() => {
+		rmSync(projectConfig(), {force: true});
+	});
+}
+
+function tmuxMissingSessions(...missing: string[]) {
+	const fake = fakeTmux();
+	const run: AsyncTmuxRunner = async args => {
+		if (
+			args.includes('has-session') &&
+			args.some(arg => missing.some(session => arg.includes(session)))
+		)
+			throw Object.assign(new Error('no session'), {code: 1});
+		return fake.run(args);
+	};
+	return {calls: fake.calls, run};
+}
+
+const createsSession = (calls: string[][], session: string) =>
+	calls.some(
+		args =>
+			args.includes('new-session') && args.some(arg => arg.includes(session)),
+	);
+
+const showsNoProgram = (
+	calls: string[][],
+	issueKey: string,
+	program: 'agent' | 'companion',
+) =>
+	calls.some(args =>
+		args.some(
+			arg =>
+				arg.includes(`has no ${program} running`) && arg.includes(issueKey),
+		),
+	);
+
+const invalidConfigErrors = (issueKey: string) =>
+	getRecentErrors().filter(error =>
+		error.message.startsWith(`Sessions of ${issueKey} not started`),
+	);
+
+test.serial(
+	'an invalid config holds back dead sessions and says why, once',
+	async t => {
+		withInvalidConfig(t);
+		const {agent, companion} = sessionNamesFor('TEST-INVALID', getRepoName());
+		const {calls, run} = tmuxMissingSessions(agent, companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.false(createsSession(calls, agent));
+		t.false(createsSession(calls, companion));
+		t.true(showsNoProgram(calls, 'TEST-INVALID', 'agent'));
+		t.true(showsNoProgram(calls, 'TEST-INVALID', 'companion'));
+		const [reported, ...more] = invalidConfigErrors('TEST-INVALID');
+		t.deepEqual(more, []);
+		t.true(reported?.message.includes('agent_profiles.opus.model'));
+		t.is(derived.daos.spaceState.read('TEST-INVALID')?.agentProfile, undefined);
+
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.is(invalidConfigErrors('TEST-INVALID').length, 1);
+		clearCurrentlyViewingSpace();
+	},
+);
+
+test.serial(
+	'an invalid config reports again once the rail has dropped the error',
+	async t => {
+		withInvalidConfig(t);
+		const {agent, companion} = sessionNamesFor('TEST-AGAIN', getRepoName());
+		const {run} = tmuxMissingSessions(agent, companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
+			run,
+		});
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.is(invalidConfigErrors('TEST-AGAIN').length, 1);
+		clearCurrentlyViewingSpace();
+	},
+);
+
+test.serial(
+	'an invalid config still attaches sessions that are running',
+	async t => {
+		withInvalidConfig(t);
+		const {agent, companion} = sessionNamesFor('TEST-LIVE', getRepoName());
+		const {calls, run} = tmuxMissingSessions();
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-LIVE', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.false(createsSession(calls, agent));
+		t.false(createsSession(calls, companion));
+		t.false(showsNoProgram(calls, 'TEST-LIVE', 'agent'));
+		t.deepEqual(invalidConfigErrors('TEST-LIVE'), []);
+		clearCurrentlyViewingSpace();
+	},
+);
+
+for (const [recovery, recover] of [
+	['fixed', () => writeFileSync(projectConfig(), VALID_CONFIG)],
+	['removed', () => rmSync(projectConfig())],
+] as const) {
+	test.serial(
+		`a ${recovery} config starts the held-back sessions and clears the error`,
+		async t => {
+			withInvalidConfig(t);
+			const {agent, companion} = sessionNamesFor('TEST-FIXED', getRepoName());
+			const {calls, run} = tmuxMissingSessions(agent, companion);
+			clearRecentErrors();
+			clearCurrentlyViewingSpace();
+			await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+				run,
+			});
+			t.is(invalidConfigErrors('TEST-FIXED').length, 1);
+
+			recover();
+			clearCurrentlyViewingSpace();
+			await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+				run,
+			});
+			t.true(createsSession(calls, agent));
+			t.true(createsSession(calls, companion));
+			t.deepEqual(invalidConfigErrors('TEST-FIXED'), []);
+			clearCurrentlyViewingSpace();
+		},
+	);
+}
+
+test.serial(
+	'an invalid config explains a held-back companion whose agent is running',
+	async t => {
+		withInvalidConfig(t);
+		const {companion} = sessionNamesFor('TEST-COMPANION', getRepoName());
+		const {calls, run} = tmuxMissingSessions(companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-COMPANION', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.false(createsSession(calls, companion));
+		t.is(invalidConfigErrors('TEST-COMPANION').length, 1);
+		clearCurrentlyViewingSpace();
+	},
+);
+
+test.serial(
+	'a config that is still invalid in another way replaces the earlier report',
+	async t => {
+		withInvalidConfig(t);
+		const {agent, companion} = sessionNamesFor('TEST-EDITED', getRepoName());
+		const {run} = tmuxMissingSessions(agent, companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
+			run,
+		});
+		writeFileSync(
+			projectConfig(),
+			'agent_profiles:\n  opus:\n    command: claude\n    effort: 7\n',
+		);
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
+			run,
+		});
+		const [reported, ...more] = invalidConfigErrors('TEST-EDITED');
+		t.deepEqual(more, []);
+		t.true(reported?.message.includes('agent_profiles.opus.effort'));
+		clearCurrentlyViewingSpace();
 	},
 );
