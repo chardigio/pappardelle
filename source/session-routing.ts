@@ -96,12 +96,13 @@ export interface PendingSession {
  * Count all real spaces (main worktree + issue worktrees).
  * Pending placeholder rows are not included in the spaces array,
  * so this is simply the array length — importantly, the main
- * worktree IS counted (fixing the previous off-by-one).
+ * worktree IS counted (fixing the previous off-by-one). Partner agents
+ * share the rail but are not spaces, so the header leaves them out.
  */
 export function getSpaceCount(
-	spaces: ReadonlyArray<{isMainWorktree?: boolean}>,
+	spaces: ReadonlyArray<{isMainWorktree?: boolean; isPartnerAgent?: boolean}>,
 ): number {
-	return spaces.length;
+	return spaces.filter(space => !space.isPartnerAgent).length;
 }
 
 /**

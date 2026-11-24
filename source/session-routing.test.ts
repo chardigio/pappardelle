@@ -111,6 +111,16 @@ test('getSpaceCount returns 1 for main worktree only', t => {
 	t.is(getSpaceCount(spaces), 1);
 });
 
+test('getSpaceCount leaves out partner agents, which are not spaces', t => {
+	const spaces = [
+		{isMainWorktree: true},
+		{isPartnerAgent: true},
+		{isPartnerAgent: true},
+		{isMainWorktree: false},
+	];
+	t.is(getSpaceCount(spaces), 2);
+});
+
 test('getSpaceCount returns 0 for empty list', t => {
 	t.is(getSpaceCount([]), 0);
 });
