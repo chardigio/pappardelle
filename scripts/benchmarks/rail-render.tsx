@@ -25,10 +25,14 @@ import {useKeyboard} from '@opentui/react';
 import type {CliRenderer, CliRendererStats} from '@opentui/core';
 import {renderTui, tmuxRendererEnvironment} from '../../source/render-tui.ts';
 import PaneFrame, {
-	PANE_FRAME_SIZE,
 	PANE_FRAME_STYLE,
 } from '../../source/components/PaneFrame.tsx';
 import SpaceListItem from '../../source/components/SpaceListItem.tsx';
+
+// The fixture is copied into older checkouts for --checkout, and the frame
+// size constant has lived in different modules over time, so the fixture
+// keeps its own copy: one border cell on each side.
+const PANE_FRAME_SIZE = 2;
 import type {SpaceData} from '../../source/types.ts';
 
 const COLUMNS = 40;

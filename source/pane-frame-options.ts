@@ -1,5 +1,8 @@
-// tmux user options on a viewer pane, shared by the rail and the frame host
-// running in that pane.
+// A viewer pane's tmux user options and its frame's size, shared by the rail
+// and the frame host running in that pane.
+
+/** Rows and columns the frame's border takes from the pane. */
+export const PANE_FRAME_SIZE = 2;
 
 /** The frame's title until the nested session names itself. */
 export const PANE_TITLE_OPTION = '@pappardelle_title';

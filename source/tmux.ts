@@ -173,6 +173,7 @@ import {
 import {
 	CLIENT_TTY_OPTION,
 	FRAME_COMMAND_OPTION,
+	PANE_FRAME_SIZE,
 	PANE_TITLE_OPTION,
 	frameReadyChannel,
 	frameStartedChannel,
@@ -1404,6 +1405,30 @@ export async function enableInnerSynchronizedOutput(
 	}
 }
 
+// A session created while nobody views it, by the TUI or by idow, starts at
+// the inner server's default-size, tmux's 80x24 unless set, and Claude Code
+// hard-wraps its output to the width it started at. Setting it never resizes
+// windows that already exist.
+async function setInnerDefaultSize(
+	geometry: WindowGeometry,
+	agentViewerPaneId: string,
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	try {
+		const {cols, rows} = paneGeometry(geometry, agentViewerPaneId);
+		await run(
+			innerTmuxArgs([
+				'set-option',
+				'-g',
+				'default-size',
+				`${cols - PANE_FRAME_SIZE}x${rows - PANE_FRAME_SIZE}`,
+			]),
+		);
+	} catch {
+		log.debug('Could not set the default size on the inner socket');
+	}
+}
+
 /**
  * Pane frames dim when their pane loses focus, and they learn that from the
  * focus reports tmux sends only while `focus-events` is on. The option is
@@ -2382,11 +2407,13 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 		);
 
 		try {
-			recordGeometry(parseWindowGeometry(geometry), {
+			const snapshot = parseWindowGeometry(geometry);
+			recordGeometry(snapshot, {
 				listPaneId,
 				agentViewerPaneId,
 				companionViewerPaneId,
 			});
+			await setInnerDefaultSize(snapshot, agentViewerPaneId, runTmux);
 		} catch {
 			lastWindowSize = null;
 			lastRailWidth = null;
@@ -3857,6 +3884,8 @@ export async function reconcilePaneLayout(
 			if (!measured) throw new Error('Failed to resize pane layout');
 			geometry = measured;
 		}
+
+		await setInnerDefaultSize(geometry, layout.agentViewerPaneId, run);
 	}
 	const {cols, rows} = paneGeometry(geometry, layout.listPaneId);
 	return {layout, dimensions: {cols, rows}, stacked};

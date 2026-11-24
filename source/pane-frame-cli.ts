@@ -24,6 +24,7 @@ import {
 import {
 	CLIENT_TTY_OPTION,
 	FRAME_COMMAND_OPTION,
+	PANE_FRAME_SIZE,
 	PANE_TITLE_OPTION,
 	frameReadyChannel,
 	frameStartedChannel,
@@ -90,8 +91,8 @@ renderer.root.add(frame);
 // Filled once the child starts; the terminal's callbacks need it first.
 const childPty: {current?: Bun.Terminal} = {};
 const childSize = {
-	cols: Math.max(1, renderer.width - 2),
-	rows: Math.max(1, renderer.height - 2),
+	cols: Math.max(1, renderer.width - PANE_FRAME_SIZE),
+	rows: Math.max(1, renderer.height - PANE_FRAME_SIZE),
 };
 const terminal = new EmbeddedTerminalRenderable(renderer, {
 	id: 'terminal',

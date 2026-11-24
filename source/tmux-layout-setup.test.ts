@@ -4,9 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import test from 'ava';
-import {PANE_TITLE_OPTION} from './pane-frame-options.ts';
+import {PANE_FRAME_SIZE, PANE_TITLE_OPTION} from './pane-frame-options.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
-import {SYNC_TERMINAL_FEATURE, setupPappardellLayout} from './tmux.ts';
+import {
+	SYNC_TERMINAL_FEATURE,
+	reconcilePaneLayout,
+	setupPappardellLayout,
+} from './tmux.ts';
 
 const exec = promisify(execFile);
 
@@ -66,6 +70,55 @@ async function isolatedPane(
 	// The inner socket is addressed by name, which resolves under this directory.
 	process.env['TMUX_TMPDIR'] = dir;
 	return {run, listPaneId};
+}
+
+// Unit tests run without the TUI's control clients, which start the inner
+// server, so a held session stands in for them.
+async function innerServer(t: {
+	teardown(fn: () => Promise<void> | void): void;
+}) {
+	const env = {...process.env, TMUX: ''};
+	const run = async (args: string[]) => {
+		const {stdout} = await exec('tmux', ['-L', 'pappardelle_inner', ...args], {
+			env,
+			timeout: 5000,
+		});
+		return stdout.trim();
+	};
+	t.teardown(async () => {
+		try {
+			await run(['kill-server']);
+		} catch {}
+	});
+	await run(['-f', '/dev/null', 'new-session', '-d', '-s', 'held']);
+	// Created detached, as idow's start-agent-session.sh creates a space's
+	// sessions for a space nobody is viewing.
+	const sizeOfNewSession = async (name: string) => {
+		await run(['new-session', '-d', '-s', name]);
+		return run([
+			'display-message',
+			'-p',
+			'-t',
+			`=${name}:`,
+			'#{window_width}x#{window_height}',
+		]);
+	};
+	return sizeOfNewSession;
+}
+
+async function viewerInnerSize(
+	run: (args: string[]) => Promise<string>,
+	paneId: string,
+) {
+	const size = await run([
+		'display-message',
+		'-p',
+		'-t',
+		paneId,
+		'#{pane_width} #{pane_height}',
+	]);
+	const [cols, rows] = size.split(' ').map(Number);
+	return `${cols! - PANE_FRAME_SIZE}x${rows! - PANE_FRAME_SIZE}`;
 }
 
 async function tmuxAvailable() {
@@ -148,5 +201,43 @@ test.serial(
 			`${listPaneId} 80 1 rail`,
 			`${layout!.agentViewerPaneId} 80 0 agent`,
 		]);
+	},
+);
+
+test.serial(
+	"a session created after layout while not viewed starts at the agent viewer's inner size",
+	async t => {
+		if (!(await tmuxAvailable())) {
+			t.pass('tmux unavailable');
+			return;
+		}
+
+		const {run} = await isolatedPane(t, 200);
+		const sizeOfNewSession = await innerServer(t);
+		const layout = await setupPappardellLayout();
+		t.is(
+			await sizeOfNewSession('unviewed'),
+			await viewerInnerSize(run, layout!.agentViewerPaneId),
+		);
+	},
+);
+
+test.serial(
+	'a relayout moves later sessions to the new viewer size',
+	async t => {
+		if (!(await tmuxAvailable())) {
+			t.pass('tmux unavailable');
+			return;
+		}
+
+		const {run} = await isolatedPane(t, 200);
+		const sizeOfNewSession = await innerServer(t);
+		const layout = await setupPappardellLayout();
+		const before = await viewerInnerSize(run, layout!.agentViewerPaneId);
+		await run(['resize-window', '-t', 'fixture', '-x', '240', '-y', '60']);
+		await reconcilePaneLayout(layout!, false);
+		const after = await viewerInnerSize(run, layout!.agentViewerPaneId);
+		t.not(after, before);
+		t.is(await sizeOfNewSession('unviewed'), after);
 	},
 );

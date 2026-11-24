@@ -8,13 +8,14 @@ import {textAttributes, terminalColor, dimText} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
 
 import TextInput from './components/TextInput.tsx';
-import PaneFrame, {PANE_FRAME_SIZE} from './components/PaneFrame.tsx';
+import PaneFrame from './components/PaneFrame.tsx';
 import {spawn, spawnSync} from 'node:child_process';
 import {spawnQuietCommand} from './quiet-command.ts';
 import {once} from 'node:events';
 import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
+import {PANE_FRAME_SIZE} from './pane-frame-options.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {scriptsDir, cliFilePath} from './runtime.ts';
 import {homedir} from 'node:os';
