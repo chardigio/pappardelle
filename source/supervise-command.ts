@@ -780,15 +780,29 @@ async function holdPrompt(
 		[
 			`Held ${hold.id}: ${reason}`,
 			prompt.command,
-			...(sent === 'sent'
-				? []
-				: [
-						`The message didn't reach ${key} (${sent}). Send it with space_send once the space is free:`,
-						message,
-					]),
+			...holdDelivery(key, sent, message),
 		].join('\n'),
 	);
 	return 0;
+}
+
+/** What the sous-chef must still do to get the hold message to the space. */
+function holdDelivery(
+	key: string,
+	sent: SendOutcome,
+	message: string,
+): string[] {
+	if (sent === 'sent') return [];
+	// Resent, the text in the box would read as a draft and block the send.
+	if (sent === 'unsubmitted')
+		return [
+			`The message is in ${key}'s input box but didn't send. Check it with space_screen; space_press_keys with Enter submits it:`,
+			message,
+		];
+	return [
+		`The message didn't reach ${key} (${sent}). Send it with space_send once the space is free:`,
+		message,
+	];
 }
 
 async function newJob(
