@@ -1,10 +1,11 @@
 // Tests for `pappardelle send` (pappardelle-tqq): resolving a space's agent
 // session on the inner socket and submitting a prompt to it.
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
+import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
 import {
 	sqliteRun,
 	testTmuxSpaces,
@@ -161,17 +162,7 @@ test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced'
 });
 
 test("sendToSpaceAgent leaves a command typed in Claude's shell mode alone unless forced", async t => {
-	const screen = readFileSync(
-		path.join(
-			import.meta.dirname,
-			'..',
-			'test',
-			'fixtures',
-			'agent-screens',
-			'claude-shell-draft.txt',
-		),
-		'utf8',
-	);
+	const screen = agentScreenFixture('claude-shell-draft');
 	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1'], screen});
 	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'draft');
 	t.deepEqual(calls, []);

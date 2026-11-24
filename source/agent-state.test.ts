@@ -1,5 +1,4 @@
-import fs from 'node:fs';
-import path from 'node:path';
+import {agentScreenFixture as fixture} from '../test/helpers/agent-screens.ts';
 import {idowIdentities} from '../test/helpers/state.ts';
 import test from 'ava';
 import {readAgentState, WAIT_TARGETS} from './agent-state.ts';
@@ -9,16 +8,6 @@ import {
 	supervisedServerTmuxRunner,
 	type OuterTmuxRunner,
 } from './tmux.ts';
-
-const fixtures = path.join(
-	import.meta.dirname,
-	'..',
-	'test',
-	'fixtures',
-	'agent-screens',
-);
-const fixture = (name: string) =>
-	fs.readFileSync(path.join(fixtures, `${name}.txt`), 'utf8');
 
 /** One live agent session, `agent-repo-STA-1`, showing `screen`. */
 function runner(screen: string | null): OuterTmuxRunner {
