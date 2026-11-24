@@ -1,8 +1,8 @@
 // Loaded into every test process (ava.config.js, require).
 //
-// A test run chooses its state mode with PAPPARDELLE_SQLITE_STATE. Without
-// this, a run would follow the developer's own home config, and with the flag
-// on there it would write to their real database.
+// A test run chooses its state mode with PAPPARDELLE_SQLITE_STATE, not the
+// home config. With the flag on, each test process also gets a database of its
+// own: the workers share one throwaway HOME (ava.config.js).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

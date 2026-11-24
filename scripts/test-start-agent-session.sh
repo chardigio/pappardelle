@@ -15,6 +15,11 @@ GREEN='\033[0;32m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
+# A run inside a space inherits that space's PAPPARDELLE_*, and the state ones
+# (PAPPARDELLE_STATE_DB, PAPPARDELLE_STATUS_SOCKET, PAPPARDELLE_STATUS_DIR)
+# would point the hooks past the throwaway HOME below.
+for name in $(compgen -e | grep '^PAPPARDELLE_' | grep -v '^PAPPARDELLE_SQLITE_STATE$'); do unset "$name"; done
+
 # Unique prefix to avoid collisions with real sessions
 TEST_PREFIX="test-$$"
 TEST_REPO="testrepo-$$"
@@ -25,15 +30,14 @@ TEST_REPO="testrepo-$$"
 PAPPARDELLE_TMUX_SOCKET="pappardelle_inner_test_$$"
 export PAPPARDELLE_TMUX_SOCKET
 
-# Every server the run starts, on any -L name, lands in this directory, so the
-# exit trap can find them all: a test that aborts under `set -e` skips its own
-# kill-server. Kept short because tmux socket paths are limited to ~104 bytes.
-TMUX_TMPDIR=$(mktemp -d /tmp/pappardelle-test-tmux.XXXXXX)
-export TMUX_TMPDIR
-
+# The traps go in before the first mktemp so a signal at any point removes what
+# the run made. Both dirs start empty here, never inherited from the caller.
+TMUX_TMPDIR=""
+TMPDIR_ROOT=""
 # shellcheck disable=SC2329  # invoked via trap
 cleanup() {
     local socket pids pid
+    [[ -n "$TMUX_TMPDIR" ]] || return 0
     for socket in "$TMUX_TMPDIR"/tmux-*/*; do
         [[ -S "$socket" ]] || continue
         pids=$(tmux -S "$socket" list-panes -a -F '#{pane_pid}' 2>/dev/null || true)
@@ -46,7 +50,7 @@ cleanup() {
         done
     done
     rm -rf "$TMUX_TMPDIR"
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
+    if [[ -n "$TMPDIR_ROOT" ]]; then
         rm -rf "$TMPDIR_ROOT"
     fi
 }
@@ -54,6 +58,40 @@ trap cleanup EXIT
 # bash skips the EXIT trap when a signal kills it.
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# Every server the run starts, on any -L name, lands in this directory, so the
+# exit trap can find them all: a test that aborts under `set -e` skips its own
+# kill-server. Kept short because tmux socket paths are limited to ~104 bytes.
+TMUX_TMPDIR=$(mktemp -d /tmp/pappardelle-test-tmux.XXXXXX)
+export TMUX_TMPDIR
+
+TMPDIR_ROOT=$(mktemp -d)
+
+# The sessions' hooks and the pre-trust step write under HOME
+# (~/.pappardelle/repos, ~/.claude.json), so the run gets a HOME of its own.
+# An empty rc keeps zsh's first-run wizard from taking over the shells tmux
+# starts. Cases that need another HOME set it on the command.
+export HOME="$TMPDIR_ROOT/home"
+mkdir -p "$HOME"
+touch "$HOME/.zshrc"
+
+# Every case that launches an agent without a shim of its own gets this
+# claude, never the real one. With no conversation to continue it fails the way
+# claude does, so the erase of that message is exercised.
+CLAUDE_SHIM_DIR="$TMPDIR_ROOT/claude-shim"
+CLAUDE_SHIM_LOG="$TMPDIR_ROOT/claude-shim-argv.log"
+mkdir -p "$CLAUDE_SHIM_DIR"
+cat > "$CLAUDE_SHIM_DIR/claude" <<SHIM
+#!/bin/bash
+printf '%s\n' "\$*" >> "$CLAUDE_SHIM_LOG"
+if [[ " \$* " == *" --continue "* ]]; then
+    echo "No conversation found to continue."
+    exit 1
+fi
+exec sleep 600
+SHIM
+chmod +x "$CLAUDE_SHIM_DIR/claude"
+export PATH="$CLAUDE_SHIM_DIR:$PATH"
 
 # Cases kill the last sessions on the shared server and then create the next
 # one straight away. A new-session that reaches the server while it is exiting
@@ -110,7 +148,6 @@ start_session() {
 # ==========================================================================
 
 echo -e "${BOLD}Test: creates repo-qualified claude tmux session${RESET}"
-TMPDIR_ROOT=$(mktemp -d)
 ISSUE_KEY="${TEST_PREFIX}-100"
 WORKTREE_PATH="$TMPDIR_ROOT/worktree"
 mkdir -p "$WORKTREE_PATH"
@@ -356,8 +393,24 @@ mkdir -p "$WORKTREE_PATH5"
 # claude --continue should fail, but the error message should be erased from the pane.
 start_session --issue-key "$ISSUE_KEY5" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH5" 2>/dev/null
 
-# Wait for claude --continue to fail and the cleanup to execute
-sleep 3
+# The fresh launch runs only after --continue failed and the erase ran.
+shim_calls_for_key5() { grep -F -- "$ISSUE_KEY5" "$CLAUDE_SHIM_LOG" 2>/dev/null || true; }
+for _ in $(seq 1 150); do
+    shim_calls_for_key5 | grep -qv -- '--continue' && break
+    sleep 0.1
+done
+# The erase was printed before the fresh launch; give tmux time to draw it.
+sleep 0.3
+RESUME_CALL5=$(shim_calls_for_key5 | tail -2 | head -1)
+FRESH_CALL5=$(shim_calls_for_key5 | tail -1)
+if [[ "$RESUME_CALL5" == *" --continue"* && "$FRESH_CALL5" != *"--continue"* ]]; then
+    echo -e "  ${GREEN}PASS${RESET} claude --continue failed, then the fresh launch ran"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${RESET} claude --continue failed, then the fresh launch ran"
+    echo "    claude calls: $(cat "$CLAUDE_SHIM_LOG" 2>/dev/null)"
+    FAIL=$((FAIL + 1))
+fi
 
 PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -t "agent-${TEST_REPO}-${ISSUE_KEY5}" -p -S - 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "No conversation found to continue"; then
@@ -411,10 +464,9 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISS
 # actual command line claude was launched with rather than a pane transcript.
 # The shim exits 0, so the `--continue` branch succeeds and runs exactly once.
 #
-# HOME is redirected to a throwaway dir for these two cases: the interactive
-# shell tmux spawns would otherwise source the developer's ~/.zshrc and put the
-# real claude ahead of the shim on PATH. It also keeps the pre-trust step out of
-# the real ~/.claude.json.
+# These two cases get a HOME of their own, apart from the run's: the pre-trust
+# check further down reads $SHIM_HOME/.claude.json to see that only the claude
+# launch wrote one.
 echo -e "\n${BOLD}Test: launch flags reach the claude command line${RESET}"
 ISSUE_KEY7="${TEST_PREFIX}-700"
 WORKTREE_PATH7="$TMPDIR_ROOT/worktree7"
