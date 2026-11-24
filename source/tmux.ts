@@ -1309,6 +1309,23 @@ export const supervisedServerTmuxRunner = supervisionRunner(
 );
 
 /**
+ * Where a space's agent runs when that isn't `agent-{repo}-{key}` on the
+ * inner server: an attach partner agent's session, on its own tmux server.
+ */
+export type AgentSessionTarget = {session: string; runner: OuterTmuxRunner};
+
+/**
+ * Supervision runner for another tmux server, named by a `-L` socket name or
+ * a socket path. Pappardelle never started what runs there (an iMessage bot,
+ * say), so it refuses to end anything, like every supervision runner.
+ */
+export function supervisedSocketTmuxRunner(socket: string): OuterTmuxRunner {
+	return supervisionRunner(
+		spawnTmuxRunner(args => statusTmuxArgs([...args], socket)),
+	);
+}
+
+/**
  * DEC 2026 "synchronized output": the terminal buffers everything between
  * `ESC [ ? 2026 h` and `ESC [ ? 2026 l` and presents it as one frame.
  */
@@ -1660,6 +1677,11 @@ function spawnTmuxRunnerAsync(
 
 const defaultInnerSendRunner = spawnTmuxRunnerAsync(innerTmuxArgs);
 
+/** `pappardelle send` to an agent on another tmux server; see AgentSessionTarget. */
+export function socketSendRunner(socket: string): SendTmuxRunner {
+	return spawnTmuxRunnerAsync(args => statusTmuxArgs([...args], socket));
+}
+
 // Claude Code, Codex and agy have no key that empties the whole composer, and
 // C-u alone clears only from the cursor to the start of its line, so a draft
 // left behind (say after an agent rejected a command) was submitted with the
@@ -1784,11 +1806,20 @@ export async function sendToSpaceAgent(
 		lockTimeoutMs?: number;
 		/** Send over a draft in the input box. Never over a prompt. */
 		force?: boolean;
+		/**
+		 * The agent's session on `runner`'s server, for one that isn't the
+		 * space's inner session (an attach partner). Sends still lock on the
+		 * space's own session name, which is unique to the key.
+		 */
+		session?: string;
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
 	const session = getSessionNames(issueKey, options.repoName).agent;
-	const target = await resolveInnerSessionTarget(session, runner);
+	const target = await resolveInnerSessionTarget(
+		options.session ?? session,
+		runner,
+	);
 	if (!target) return 'no-session';
 	try {
 		return await withSendLock(
@@ -1828,11 +1859,13 @@ export function sendKeysToSpaceAgent(
 		answering?: boolean;
 		/** Type each entry as text rather than as a key name such as Enter. */
 		literal?: boolean;
+		/** The agent's session on `runner`'s server; see sendToSpaceAgent. */
+		session?: string;
 	} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const target = resolveInnerSessionTargetSync(
-		getSessionNames(issueKey, options.repoName).agent,
+		options.session ?? getSessionNames(issueKey, options.repoName).agent,
 		runner,
 	);
 	if (!target) return 'no-session';

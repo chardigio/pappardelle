@@ -15,6 +15,7 @@ import {
 	STABLE_STATUSES,
 	ACTIVE_STATUSES,
 	ACTIVE_STATUS_TIMEOUT,
+	readHookSession,
 } from './claude-status.ts';
 import {
 	findSpaceByStatusKey,
@@ -428,3 +429,31 @@ test.serial(
 		t.is(readableHookStatusKey('repo', 'STA-1'), 'repo-STA-1');
 	},
 );
+
+test('readHookSession returns the session fields of a status file', t => {
+	const dir = mkdtempSync(path.join(tmpdir(), 'papp-hook-session-'));
+	t.teardown(() => {
+		rmSync(dir, {recursive: true, force: true});
+	});
+	writeFileSync(
+		path.join(dir, 'repo-trotbot.json'),
+		JSON.stringify({
+			status: 'processing',
+			currentTool: 'Bash',
+			lastUpdate: 5,
+			sessionId: 's-1',
+			cwd: '/repo',
+			workspaceName: 'trotbot',
+		}),
+	);
+	writeFileSync(path.join(dir, 'broken.json'), '{');
+	t.deepEqual(readHookSession('repo-trotbot', dir), {
+		status: 'processing',
+		currentTool: 'Bash',
+		lastUpdate: 5,
+		sessionId: 's-1',
+		cwd: '/repo',
+	});
+	t.is(readHookSession('broken', dir), null);
+	t.is(readHookSession('missing', dir), null);
+});

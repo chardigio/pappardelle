@@ -3,8 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 import {
+	attachedPartnerSessions,
 	buildAttachCommand,
 	buildPartnerLaunchCommand,
+	describePartners,
 	isPartnerAgentName,
 	keptSessionKeys,
 	listPartnerAgents,
@@ -341,4 +343,116 @@ test('a launched partner gets the companion rules when workspace_aware_agents is
 	)!;
 	t.true(on.command.includes('developer_instructions='));
 	t.false(off.command.includes('developer_instructions='));
+});
+
+test('validatePartnerAgents takes a one-line description only', t => {
+	t.deepEqual(
+		validatePartnerAgents({scribe: {description: 'Keeps notes'}}, PROFILES),
+		[],
+	);
+	t.deepEqual(
+		validatePartnerAgents({scribe: {description: 'one\ntwo'}}, PROFILES),
+		['agents.scribe.description: must be a single line'],
+	);
+	t.deepEqual(validatePartnerAgents({scribe: {description: 3}}, PROFILES), [
+		'agents.scribe.description: must be a string',
+	]);
+});
+
+test('attachedPartnerSessions lists only the attach partners', t => {
+	t.deepEqual(
+		[
+			...attachedPartnerSessions({
+				agents: {
+					trotbot: {attach: {socket: 'trotbot', session: 'bot'}},
+					reviewer: {agent_profile: 'codex'},
+				},
+			}),
+		],
+		[['trotbot', {socket: 'trotbot', session: 'bot'}]],
+	);
+	t.is(attachedPartnerSessions(null).size, 0);
+});
+
+test('describePartners reads status, session and last exchange from each partner own files', t => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'partner-board-'));
+	t.teardown(() => {
+		fs.rmSync(root, {recursive: true, force: true});
+	});
+	const status = path.join(root, 'status');
+	const projects = path.join(root, 'projects');
+	const mainRoot = '/home/u/repo';
+	fs.mkdirSync(status);
+	const now = new Date(2026, 10, 9, 12, 0).getTime();
+	fs.writeFileSync(
+		path.join(status, 'repo-trotbot.json'),
+		JSON.stringify({
+			status: 'waiting_for_input',
+			lastUpdate: now - 3 * 60_000,
+			sessionId: 'bot-session',
+			cwd: mainRoot,
+		}),
+	);
+	// Another agent in the same folder wrote last; its log must not be read.
+	const folder = path.join(projects, '-home-u-repo');
+	fs.mkdirSync(folder, {recursive: true});
+	const line = (entry: unknown) => JSON.stringify(entry);
+	fs.writeFileSync(
+		path.join(folder, 'bot-session.jsonl'),
+		[
+			line({type: 'user', message: {content: 'text the group'}}),
+			line({type: 'assistant', message: {content: 'Sent.'}}),
+		].join('\n'),
+	);
+	fs.writeFileSync(
+		path.join(folder, 'sous-chef.jsonl'),
+		line({type: 'user', message: {content: 'board'}}),
+	);
+
+	const config = {
+		version: 1,
+		profiles: {},
+		agent_profile: 'claude',
+		agents: {
+			trotbot: {
+				emoji: '🐴',
+				description: 'iMessage bot',
+				attach: {socket: 'trotbot', session: 'bot'},
+			},
+			reviewer: {agent_profile: 'codex'},
+		},
+	};
+	const running = new Set(['trotbot/bot']);
+	const partners = describePartners(config, 'repo', {
+		innerSocket: 'pappardelle_inner',
+		agentSessionName: name => `agent-repo-${name}`,
+		sessionExists: (socket, session) => running.has(`${socket}/${session}`),
+		now,
+		statusDir: status,
+		projectsDir: projects,
+	});
+	t.deepEqual(partners, [
+		{
+			name: 'trotbot',
+			kind: 'attached',
+			emoji: '🐴',
+			description: 'iMessage bot',
+			status: 'waiting_for_input',
+			running: true,
+			tmux: {socket: 'trotbot', session: 'bot'},
+			currentTool: null,
+			lastUpdate: now - 3 * 60_000,
+			minutesAgo: 3,
+			sessionId: 'bot-session',
+			lastTurn: {prompt: 'text the group', reply: 'Sent.'},
+		},
+		{
+			name: 'reviewer',
+			kind: 'launched',
+			agentProfile: 'codex',
+			status: 'no_status',
+			running: false,
+			tmux: {socket: 'pappardelle_inner', session: 'agent-repo-reviewer'},
+		},
+	]);
 });

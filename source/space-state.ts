@@ -61,6 +61,26 @@ export function claudeProjectDir(
 }
 
 /**
+ * The transcript of the session a status file names. Agents that share a
+ * directory share its project folder: the main checkout holds the sous-chef
+ * and every partner agent. The newest transcript there can be any of theirs,
+ * so an agent in a shared directory is read by its session id instead.
+ */
+export function sessionTranscript(
+	session: {sessionId?: string; cwd?: string} | null | undefined,
+	projectsDir?: string,
+): string | null {
+	const id = session?.sessionId;
+	// The id names a file, so it may not climb out of the folder.
+	if (!id || !session.cwd || !/^[\w-]+$/.test(id)) return null;
+	const file = path.join(
+		claudeProjectDir(session.cwd, projectsDir),
+		`${id}.jsonl`,
+	);
+	return fs.existsSync(file) ? file : null;
+}
+
+/**
  * Locate the most recently modified Claude Code session jsonl for a worktree.
  *
  * Claude Code stores transcripts under `~/.claude/projects/<encoded-cwd>/`,

@@ -26,7 +26,9 @@ import {
 	getSessionNames,
 	getWorktreePath,
 	getMainWorktreeInfo,
+	defaultInnerTmuxRunner,
 	INNER_SOCKET,
+	supervisedSocketTmuxRunner,
 } from './tmux.ts';
 import type {PaneLayout} from './types.ts';
 import {
@@ -42,6 +44,8 @@ import {
 	getProfileTeamPrefix,
 	ConfigNotFoundError,
 	ConfigValidationError,
+	getDangerouslySkipPermissions,
+	workspaceAwareAgents,
 	type PappardelleConfig,
 } from './config.ts';
 import {
@@ -57,7 +61,11 @@ import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
-import {findPartnerAgent, keptSessionKeys} from './partner-agents.ts';
+import {
+	findPartnerAgent,
+	keptSessionKeys,
+	listPartnerAgents,
+} from './partner-agents.ts';
 import {
 	getRegisteredSpaces,
 	getRegisteredSpacesAsync,
@@ -75,7 +83,12 @@ import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {isSuperviseVerb} from './supervise-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {waitForAgentStart} from './agent-start.ts';
-import {hookStatusFile, hookStatusKey} from './claude-status.ts';
+import {
+	hookStatusFile,
+	hookStatusKey,
+	readableHookStatusKey,
+	readHookSession,
+} from './claude-status.ts';
 import {tuiLaunchCommand} from './tui-sessions.ts';
 import {
 	readTmuxVersion,
@@ -373,10 +386,17 @@ if (cli.input[0] === 'send') {
 
 	const issueKey = resolveCliSpaceKey(rawKey);
 	migrateLegacyAgentSessions();
+	// Subcommand modules load only when their subcommand runs.
+	const {agentKeysTarget, agentSendTarget} =
+		await import('./supervise-runtime.ts');
+	const keysTarget = agentKeysTarget(issueKey, defaultInnerTmuxRunner);
 	const result =
 		keys.length > 0
-			? sendKeysToSpaceAgent(issueKey, keys)
-			: await sendToSpaceAgent(issueKey, text, {force});
+			? sendKeysToSpaceAgent(issueKey, keys, keysTarget)
+			: await sendToSpaceAgent(issueKey, text, {
+					...agentSendTarget(issueKey),
+					force,
+				});
 	recordSupervision(
 		getRepoName(),
 		callerFromEnv(process.env),
@@ -403,9 +423,10 @@ if (cli.input[0] === 'send') {
 	}
 
 	if (result === 'no-session') {
-		const session = getSessionNames(issueKey).agent;
 		console.error(
-			`No active session for ${issueKey} (${session} on ${INNER_SOCKET})`,
+			keysTarget.session
+				? `No active session for ${issueKey}: the partner agent's session ${keysTarget.session} isn't running on its own tmux server. Pappardelle doesn't start it`
+				: `No active session for ${issueKey} (${getSessionNames(issueKey).agent} on ${INNER_SOCKET})`,
 		);
 		process.exit(1);
 	}
@@ -442,13 +463,37 @@ if (cli.input[0] === 'close') {
 }
 
 if (cli.input[0] === 'spaces') {
-	const {runSpacesCommand} = await import('./spaces-command.ts');
+	const [{runSpacesCommand}, {describePartners}, {statusSocket}] =
+		await Promise.all([
+			import('./spaces-command.ts'),
+			import('./partner-agents.ts'),
+			import('./program-status-monitor.ts'),
+		]);
+	let spacesConfig: PappardelleConfig | null = null;
+	try {
+		spacesConfig = loadConfig();
+	} catch {
+		// Without a config there are no partner agents.
+	}
+
 	await exitAfterFlush(
 		await runSpacesCommand({
 			repoName,
 			home: homedir(),
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),
+			partners: () =>
+				describePartners(spacesConfig, repoName, {
+					innerSocket: statusSocket(),
+					agentSessionName: name => getSessionNames(name).agent,
+					sessionExists: (socket, session) =>
+						supervisedSocketTmuxRunner(socket)([
+							'has-session',
+							'-t',
+							exactSessionTarget(session),
+						]).status === 0,
+					now: Date.now(),
+				}),
 		}),
 	);
 }
@@ -461,12 +506,34 @@ if (cli.input[0] === 'read') {
 	}
 
 	const issueKey = resolveCliSpaceKey(rawKey);
-	const {runReadCommand} = await import('./read-command.ts');
+	const [{runReadCommand}, {sessionTranscript}] = await Promise.all([
+		import('./read-command.ts'),
+		import('./space-state.ts'),
+	]);
+	let readConfig: PappardelleConfig | null = null;
+	try {
+		readConfig = loadConfig();
+	} catch {
+		// Without a config there are no partner agents.
+	}
+
+	const isMain = issueKey === MAIN_WORKTREE_KEY;
+	const mainWorktree = isMain ? await getMainWorktreeInfo() : null;
+	const statusKey = isMain
+		? hookStatusKey(repoName, mainWorktree?.branch ?? MAIN_WORKTREE_KEY)
+		: readableHookStatusKey(repoName, issueKey);
+	// Partner agents share the main checkout with the sous-chef, so the newest
+	// transcript there can be any of theirs: those are read by session only.
+	const sharesMainCheckout =
+		findPartnerAgent(readConfig, issueKey) !== undefined ||
+		(isMain && listPartnerAgents(readConfig).length > 0);
 	await exitAfterFlush(
 		await runReadCommand({
 			issueKey,
-			worktree:
-				issueKey === MAIN_WORKTREE_KEY
+			log: sessionTranscript(readHookSession(statusKey)),
+			worktree: sharesMainCheckout
+				? null
+				: isMain
 					? getMainRepoRoot()
 					: getWorktreePath(issueKey),
 			turns: cli.flags.turns,
@@ -487,6 +554,69 @@ if (cli.input.length > 0) {
 		config = loadConfig();
 	} catch {
 		config = null;
+	}
+
+	const partner = findPartnerAgent(config, prompt.trim());
+	if (config && partner) {
+		const partnerConfig = config;
+		const [{runOpenPartnerCommand}, tmux, {waitForAgentStart}, partners] =
+			await Promise.all([
+				import('./open-partner-command.ts'),
+				import('./tmux.ts'),
+				import('./agent-start.ts'),
+				import('./partner-agents.ts'),
+			]);
+		const mainRoot = getMainRepoRoot();
+		process.exit(
+			await runOpenPartnerCommand(
+				partner,
+				{resume: cli.flags.resume, wait: cli.flags.wait ?? false},
+				{
+					running: () =>
+						partner.attach
+							? tmux.supervisedSocketTmuxRunner(partner.attach.socket)([
+									'has-session',
+									'-t',
+									tmux.exactSessionTarget(partner.attach.session),
+								]).status === 0
+							: tmux.innerSessionExists(getSessionNames(partner.name).agent),
+					async start(fresh) {
+						const launch = partners.resolvePartnerSessionLaunch(
+							partnerConfig,
+							partner.name,
+							getDangerouslySkipPermissions(partnerConfig),
+							fresh
+								? {mainRepoRoot: mainRoot, readSessionId: () => undefined}
+								: undefined,
+						);
+						if (!launch) return false;
+						return tmux.ensureAgentSession(
+							partner.name,
+							launch.worktreePath,
+							getDangerouslySkipPermissions(partnerConfig),
+							undefined,
+							launch.agentProfile,
+							undefined,
+							{rules: workspaceAwareAgents(partnerConfig)},
+							launch,
+						);
+					},
+					async waitForAgent(since) {
+						return waitForAgentStart({
+							statusFile: hookStatusFile(
+								hookStatusKey(getRepoName(), partner.name),
+							),
+							worktree: mainRoot,
+							since,
+							timeoutMs: 60_000,
+						});
+					},
+					now: Date.now,
+					print: line => console.log(line),
+					printError: line => console.error(line),
+				},
+			),
+		);
 	}
 
 	let teamPrefix = config ? getTeamPrefix(config) : 'STA';

@@ -64,7 +64,55 @@ test('a repo with no open-spaces file reports the error', async t => {
 			fetchTitles: async () => new Map(),
 			gitSummary: async () => null,
 		}),
-		{error: 'No open spaces file found', spaces: []},
+		{error: 'No open spaces file found', spaces: [], partners: []},
+	);
+});
+
+const trotbot = {
+	name: 'trotbot',
+	kind: 'attached' as const,
+	description: 'iMessage bot for the racing group',
+	status: 'waiting_for_input',
+	minutesAgo: 3,
+	running: true,
+	tmux: {socket: 'trotbot', session: 'trotbot'},
+};
+
+test('partner agents are listed apart from the spaces, with or without open spaces', async t => {
+	const home = tempHome(t);
+	const partners = () => [trotbot];
+	const deps = {
+		repoName: REPO,
+		home,
+		fetchTitles: async () => new Map<string, string | null>(),
+		gitSummary: async () => null,
+		partners,
+	};
+	t.like(await gatherSpaces(deps), {spaces: [], partners: [trotbot]});
+	openSpaces(home, ['STA-1']);
+	const report = await gatherSpaces(deps);
+	t.like(report, {totalSpaces: 1, partners: [trotbot]});
+	t.deepEqual(
+		report.spaces.map(space => space.name),
+		['STA-1'],
+	);
+});
+
+test('text output lists the partner agents after the spaces', t => {
+	t.is(
+		formatSpaces({
+			totalSpaces: 0,
+			timestamp: 0,
+			spaces: [],
+			partners: [trotbot, {...trotbot, name: 'tradbot', running: false}],
+		}),
+		[
+			'No open spaces',
+			'',
+			'Partner agents:',
+			'  trotbot  waiting_for_input  3m ago  iMessage bot for the racing group',
+			'  tradbot  not running  iMessage bot for the racing group',
+		].join('\n'),
 	);
 });
 
@@ -297,6 +345,7 @@ test('text output puts one space per line with its flags', t => {
 	const text = formatSpaces({
 		totalSpaces: 1,
 		timestamp: 0,
+		partners: [],
 		spaces: [
 			{
 				name: 'STA-1',

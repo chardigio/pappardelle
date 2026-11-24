@@ -10,7 +10,11 @@ import {
 	hookStatusKey,
 	readableHookStatusKey,
 } from './claude-status.ts';
-import {getMainRepoRoot, getRepoName} from './config.ts';
+import {getMainRepoRoot, getRepoName, loadConfig} from './config.ts';
+import {
+	attachedPartnerSessions,
+	type PartnerAgentAttach,
+} from './partner-agents.ts';
 import {waitForDirChange} from './file-watch.ts';
 import {programStatusDir} from './program-status-monitor.ts';
 import {selfLaunchArgs} from './runtime.ts';
@@ -25,14 +29,20 @@ import {defaultReadStdin, type SuperviseDeps} from './supervise-command.ts';
 import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {createLogger} from './logger.ts';
 import {
+	exactSessionTarget,
 	getMainWorktreeInfo,
 	getSessionNames,
 	resolveInnerSessionTargetSync,
 	sendKeysToSpaceAgent,
+	type AgentSessionTarget,
+	type OuterTmuxRunner,
+	type SendTmuxRunner,
 	type SendToSpaceAgentResult,
 	sendToSpaceAgent,
+	socketSendRunner,
 	supervisedInnerTmuxRunner,
 	supervisedServerTmuxRunner,
+	supervisedSocketTmuxRunner,
 } from './tmux.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
@@ -76,13 +86,78 @@ function timerBackend(): TimerBackend {
 	throw new Error(`Scheduling isn't supported on ${process.platform}`);
 }
 
+let attachedSessions: Map<string, PartnerAgentAttach> | undefined;
+
+/**
+ * The attach partner agents, read from the config once per command. A config
+ * that doesn't load leaves none, so every key is a space as before.
+ */
+function attachedPartners(): Map<string, PartnerAgentAttach> {
+	if (!attachedSessions) {
+		try {
+			attachedSessions = attachedPartnerSessions(loadConfig());
+		} catch {
+			attachedSessions = new Map();
+		}
+	}
+
+	return attachedSessions;
+}
+
+/**
+ * Where an attach partner's agent runs: its session on its own tmux server.
+ * Undefined for every other key, whose agent is its inner session.
+ */
+export function locateAgent(key: string): AgentSessionTarget | undefined {
+	const attach = attachedPartners().get(key);
+	return attach
+		? {
+				session: attach.session,
+				runner: supervisedSocketTmuxRunner(attach.socket),
+			}
+		: undefined;
+}
+
+/** The attach partners whose sessions are up, for watching every space. */
+function runningAttachedKeys(): string[] {
+	return [...attachedPartners()].flatMap(([key, attach]) =>
+		supervisedSocketTmuxRunner(attach.socket)([
+			'has-session',
+			'-t',
+			exactSessionTarget(attach.session),
+		]).status === 0
+			? [key]
+			: [],
+	);
+}
+
+/** `pappardelle send`'s runner and session for a key's agent. */
+export function agentSendTarget(key: string): {
+	runner?: SendTmuxRunner;
+	session?: string;
+} {
+	const attach = attachedPartners().get(key);
+	return attach
+		? {runner: socketSendRunner(attach.socket), session: attach.session}
+		: {};
+}
+
+/** `pappardelle send --keys`'s runner and session for a key's agent. */
+export function agentKeysTarget(
+	key: string,
+	fallback: OuterTmuxRunner,
+): {runner: OuterTmuxRunner; session?: string} {
+	return locateAgent(key) ?? {runner: fallback};
+}
+
 function agentCwd(key: string): string | null {
+	const {runner, session} = agentKeysTarget(key, supervisedInnerTmuxRunner);
 	const target = resolveInnerSessionTargetSync(
-		getSessionNames(key).agent,
-		supervisedInnerTmuxRunner,
+		session ?? getSessionNames(key).agent,
+		runner,
 	);
 	if (!target) return null;
-	const result = supervisedInnerTmuxRunner([
+	const result = runner([
 		'display-message',
 		'-p',
 		'-t',
@@ -154,23 +229,25 @@ export function defaultSuperviseDeps(
 			);
 		},
 		async send(key, text) {
-			return sendToSpaceAgent(key, text);
+			return sendToSpaceAgent(key, text, agentSendTarget(key));
 		},
 		sendKeys(key, keys) {
 			const result = sendKeysToSpaceAgent(key, keys, {
-				runner: supervisedInnerTmuxRunner,
+				...agentKeysTarget(key, supervisedInnerTmuxRunner),
 				answering: true,
 			});
 			return keyOutcome(result);
 		},
 		typeText(key, text) {
 			const result = sendKeysToSpaceAgent(key, [text], {
-				runner: supervisedInnerTmuxRunner,
+				...agentKeysTarget(key, supervisedInnerTmuxRunner),
 				answering: true,
 				literal: true,
 			});
 			return keyOutcome(result);
 		},
+		locate: locateAgent,
+		externalAgentKeys: runningAttachedKeys,
 		async classify(key, command) {
 			return classifyCommand(
 				{command, cwd: agentCwd(key), scratchRoots: scratchRoots()},

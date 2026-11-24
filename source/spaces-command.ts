@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {readableHookStatusKey} from './claude-status.ts';
+import type {PartnerEntry} from './partner-agents.ts';
 import {claudeProjectDir} from './space-state.ts';
 import {getSessionNames} from './tmux.ts';
 import {getIssues} from './tracker.ts';
@@ -49,8 +50,13 @@ export type SpaceEntry = {
 };
 
 export type SpacesReport =
-	| {totalSpaces: number; spaces: SpaceEntry[]; timestamp: number}
-	| {error: string; spaces: []};
+	| {
+			totalSpaces: number;
+			spaces: SpaceEntry[];
+			partners: PartnerEntry[];
+			timestamp: number;
+	  }
+	| {error: string; spaces: []; partners: PartnerEntry[]};
 
 export interface SpacesDeps {
 	repoName: string;
@@ -59,6 +65,8 @@ export interface SpacesDeps {
 	fetchTitles: (keys: string[]) => Promise<Map<string, string | null>>;
 	gitSummary: (worktreePath: string) => Promise<GitSummary | null>;
 	titleTimeoutMs?: number;
+	/** The partner agents (agents: in the config), listed beside the spaces. */
+	partners?: () => PartnerEntry[];
 }
 
 function readJson(file: string): unknown {
@@ -169,7 +177,11 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 			? parsed.filter((key): key is string => typeof key === 'string')
 			: [];
 	} catch {
-		return {error: 'No open spaces file found', spaces: []};
+		return {
+			error: 'No open spaces file found',
+			spaces: [],
+			partners: deps.partners?.() ?? [],
+		};
 	}
 
 	const sessions = sessionsByWorktree(home, repoName);
@@ -272,7 +284,12 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 	);
 
 	entries.sort((a, b) => (b.lastUpdate ?? 0) - (a.lastUpdate ?? 0));
-	return {totalSpaces: keys.length, spaces: entries, timestamp: now};
+	return {
+		totalSpaces: keys.length,
+		spaces: entries,
+		partners: deps.partners?.() ?? [],
+		timestamp: now,
+	};
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
@@ -346,10 +363,30 @@ function age(minutes: number | undefined): string {
 	return `${Math.round(minutes / (60 * 24))}d ago`;
 }
 
+function formatPartners(partners: PartnerEntry[]): string[] {
+	if (partners.length === 0) return [];
+	return [
+		'',
+		'Partner agents:',
+		...partners.map(partner =>
+			[
+				`  ${partner.name}`,
+				partner.running ? partner.status : 'not running',
+				partner.running ? age(partner.minutesAgo) : '',
+				partner.description ?? '',
+			]
+				.filter(Boolean)
+				.join('  '),
+		),
+	];
+}
+
 export function formatSpaces(report: SpacesReport): string {
-	if ('error' in report) return report.error;
-	if (report.spaces.length === 0) return 'No open spaces';
-	return report.spaces
+	const partners = formatPartners(report.partners);
+	if ('error' in report) return [report.error, ...partners].join('\n');
+	if (report.spaces.length === 0)
+		return ['No open spaces', ...partners].join('\n');
+	const spaces = report.spaces
 		.map(space => {
 			const recap = isRecord(space.recap) ? space.recap : {};
 			const title =
@@ -371,6 +408,7 @@ export function formatSpaces(report: SpacesReport): string {
 				.join('  ');
 		})
 		.join('\n');
+	return [spaces, ...partners].join('\n');
 }
 
 export async function runSpacesCommand(options: {
@@ -378,10 +416,12 @@ export async function runSpacesCommand(options: {
 	home: string;
 	json: boolean;
 	out: (text: string) => void;
+	partners?: () => PartnerEntry[];
 }): Promise<number> {
 	const report = await gatherSpaces({
 		repoName: options.repoName,
 		home: options.home,
+		partners: options.partners,
 		async fetchTitles(keys) {
 			const issues = await getIssues(keys);
 			return new Map(

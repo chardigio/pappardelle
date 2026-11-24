@@ -360,3 +360,32 @@ test('the keys sent before a prompt empty a multi-line draft wherever the cursor
 		t.is(box.value, '', `cursor at line ${row}, column ${col}`);
 	}
 });
+
+test("sendToSpaceAgent sends to an attach partner's own session on the runner it is given", async t => {
+	const {runner, calls} = makeRunner({sessions: ['trotbot']});
+	t.is(
+		await sendToSpaceAgent('trotbot', 'hi', {
+			repoName: 'r',
+			runner,
+			lockDir,
+			session: 'trotbot',
+		}),
+		'sent',
+	);
+	t.deepEqual(calls.at(-1), ['send-keys', '-t', '=trotbot:', 'Enter']);
+	t.false(calls.some(call => call.includes('=agent-r-trotbot:')));
+});
+
+test('sendToSpaceAgent reports no session when the partner session is down', async t => {
+	const {runner, calls} = makeRunner({sessions: ['agent-r-trotbot']});
+	t.is(
+		await sendToSpaceAgent('trotbot', 'hi', {
+			repoName: 'r',
+			runner,
+			lockDir,
+			session: 'trotbot',
+		}),
+		'no-session',
+	);
+	t.deepEqual(calls, []);
+});

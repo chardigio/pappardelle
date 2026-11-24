@@ -88,6 +88,13 @@ export type SuperviseDeps = {
 	out: (text: string) => void;
 	err: (text: string) => void;
 	log?: typeof recordSupervision;
+	/** Where a key's agent runs off the inner server; see AgentStateDeps. */
+	locate?: AgentStateDeps['locate'];
+	/**
+	 * Keys of the agents running off the inner server, which watching every
+	 * space includes beside the inner sessions: the attach partners that are up.
+	 */
+	externalAgentKeys?: () => string[];
 };
 
 const SCREEN_POLL_MS = 2000;
@@ -102,6 +109,7 @@ async function readState(key: string, deps: SuperviseDeps) {
 		now: deps.now,
 		sleep: deps.sleep,
 		hookKey: await deps.hookKey(key),
+		locate: deps.locate,
 	};
 	return readAgentState(key, stateDeps);
 }
@@ -206,6 +214,7 @@ async function readQuestionTabs(
 			repo: deps.repo(),
 			runner: deps.runner,
 			sleep: deps.sleep,
+			locate: deps.locate,
 		});
 		return capture ? parseAgentScreen(capture, deps.now()).question : null;
 	};
@@ -322,6 +331,7 @@ async function watchSpaces(
 		// A space in the cursor that has since closed still reports, as no_session.
 		const all = new Set([
 			...listAgentKeys(deps.repo(), deps.runner),
+			...(deps.externalAgentKeys?.() ?? []),
 			...Object.keys(command.since ?? {}),
 		]);
 		if (own) all.delete(own);
@@ -986,6 +996,7 @@ async function execute(
 						repo: deps.repo(),
 						runner: deps.runner,
 						sleep: deps.sleep,
+						locate: deps.locate,
 					});
 			if (text === null) {
 				deps.err(`No agent session for ${key}`);

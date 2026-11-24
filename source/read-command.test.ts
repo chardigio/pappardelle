@@ -1,5 +1,14 @@
-import test from 'ava';
-import {formatTurns, parseTurns, turnsJson} from './read-command.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test, {type ExecutionContext} from 'ava';
+import {
+	formatTurns,
+	parseTurns,
+	readRecentTurns,
+	runReadCommand,
+	turnsJson,
+} from './read-command.ts';
 
 const jsonl = (...entries: unknown[]) =>
 	entries.map(entry => JSON.stringify(entry)).join('\n');
@@ -79,4 +88,86 @@ test('text and JSON output keep only the last N turns', t => {
 		totalTurns: 2,
 		turns: [turns[1]],
 	});
+});
+
+function tempFile(t: ExecutionContext, name: string, text: string): string {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-read-'));
+	t.teardown(() => {
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+	const file = path.join(dir, name);
+	fs.writeFileSync(file, text);
+	return file;
+}
+
+test('a long transcript is read back from its end, and says it is partial', t => {
+	// About 3 MB, so the first 1 MB window holds the last turns only.
+	const filler = 'x'.repeat(400);
+	const entries = Array.from({length: 4000}, (_, index) => [
+		user(`prompt ${index} ${filler}`),
+		assistant(`reply ${index}`),
+	]).flat();
+	const file = tempFile(t, 'long.jsonl', jsonl(...entries));
+	const {turns, complete} = readRecentTurns(file, 3);
+	t.false(complete);
+	t.true(turns.length >= 3);
+	t.true(turns.length < 4000);
+	t.true(turns.at(-1)!.prompt.startsWith('prompt 3999 '));
+	t.deepEqual(turns.at(-1)!.replies, ['reply 3999']);
+	t.true(turns[0]!.prompt.startsWith('prompt '));
+	t.deepEqual(turnsJson('trotbot', turns, 1, complete), {
+		issueKey: 'trotbot',
+		turns: [turns.at(-1)],
+	});
+	t.true(
+		formatTurns('trotbot', turns, 1, complete).startsWith(
+			'trotbot: last 1 turns',
+		),
+	);
+});
+
+test('a short transcript is read whole', t => {
+	const file = tempFile(
+		t,
+		'short.jsonl',
+		jsonl(user('one'), assistant('a'), user('two'), assistant('b')),
+	);
+	const {turns, complete} = readRecentTurns(file, 5);
+	t.true(complete);
+	t.is(turns.length, 2);
+});
+
+test('the session log given is read instead of the newest one in the folder', async t => {
+	const own = tempFile(t, 'own.jsonl', jsonl(user('mine'), assistant('ok')));
+	const out: string[] = [];
+	t.is(
+		await runReadCommand({
+			issueKey: 'trotbot',
+			log: own,
+			worktree: null,
+			turns: 5,
+			json: true,
+			out: text => out.push(text),
+			err() {},
+		}),
+		0,
+	);
+	t.like(JSON.parse(out[0]!), {totalTurns: 1, turns: [{prompt: 'mine'}]});
+});
+
+test('a shared folder with no session log reads nothing', async t => {
+	const err: string[] = [];
+	t.is(
+		await runReadCommand({
+			issueKey: 'trotbot',
+			log: null,
+			worktree: null,
+			turns: 5,
+			json: false,
+			out() {},
+			err: text => err.push(text),
+		}),
+		1,
+	);
+	t.deepEqual(err, ['No conversation log for trotbot']);
 });

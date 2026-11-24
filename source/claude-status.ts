@@ -94,6 +94,49 @@ export function readableHookStatusKey(
 	return existsSync(path.join(dir, `${name}.json`)) ? name : qualified;
 }
 
+/**
+ * What a hook status file says about the agent behind it, beyond its status:
+ * the session id and directory name its transcript.
+ */
+export interface HookSession {
+	status?: string;
+	currentTool?: string;
+	lastUpdate?: number;
+	sessionId?: string;
+	cwd?: string;
+}
+
+/** Null when the file is missing or isn't a status file. */
+export function readHookSession(
+	statusKey: string,
+	dir = getHookStatusDir(),
+): HookSession | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(
+			readFileSync(path.join(dir, `${statusKey}.json`), 'utf8'),
+		);
+	} catch {
+		return null;
+	}
+
+	if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+		return null;
+	const record = parsed as Record<string, unknown>;
+	const text = (field: string) =>
+		typeof record[field] === 'string' ? (record[field] as string) : undefined;
+	return {
+		status: text('status'),
+		currentTool: text('currentTool'),
+		lastUpdate:
+			typeof record['lastUpdate'] === 'number'
+				? record['lastUpdate']
+				: undefined,
+		sessionId: text('sessionId'),
+		cwd: text('cwd'),
+	};
+}
+
 export interface ClaudeStatusInfo {
 	status: ClaudeStatus;
 	tool?: string;

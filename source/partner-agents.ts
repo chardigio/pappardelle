@@ -11,10 +11,11 @@ import {
 	type PappardelleConfig,
 	type ResolvedAgentProfile,
 } from './config.ts';
-import {readableHookStatusKey} from './claude-status.ts';
+import {readableHookStatusKey, readHookSession} from './claude-status.ts';
 import {agentRulesFlags} from './companion-rules.ts';
+import {readRecentTurns} from './read-command.ts';
 import {shellQuote} from './shell-quote.ts';
-import {readAgentSession} from './space-state.ts';
+import {readAgentSession, sessionTranscript} from './space-state.ts';
 
 /**
  * A session that runs outside Pappardelle, on its own tmux server. The
@@ -37,6 +38,12 @@ export interface PartnerAgentAttach {
 export interface PartnerAgentConfig {
 	/** Shown left of the status icon. Falls back to the top-level `default_emoji`. */
 	emoji?: string;
+	/**
+	 * What the partner is for, in a line. The sous-chef reads it on the board
+	 * to know what to route to the partner, and the partner reads it as its
+	 * role.
+	 */
+	description?: string;
 	/** Agent profile to launch. Falls back to the top-level `agent_profile`. */
 	agent_profile?: string;
 	/** Prompt for the first launch only; a resume does not run it again. */
@@ -90,6 +97,21 @@ export function partnerAgentStatusKey(
 	return readableHookStatusKey(repoName, name, statusDir);
 }
 
+/**
+ * The attach partners, by key, with the tmux server and session each runs
+ * in. The supervision verbs read and type into these sessions there, since
+ * they aren't on the inner server.
+ */
+export function attachedPartnerSessions(
+	config: Pick<PappardelleConfig, 'agents'> | null | undefined,
+): Map<string, PartnerAgentAttach> {
+	return new Map(
+		listPartnerAgents(config).flatMap(agent =>
+			agent.attach ? [[agent.name, agent.attach] as const] : [],
+		),
+	);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -118,12 +140,17 @@ export function validatePartnerAgents(
 
 		for (const field of [
 			'emoji',
+			'description',
 			'agent_profile',
 			'initialization_command',
 		] as const) {
 			if (raw[field] !== undefined && typeof raw[field] !== 'string')
 				errors.push(`${prefix}.${field}: must be a string`);
 		}
+
+		const {description} = raw;
+		if (typeof description === 'string' && /[\r\n]/.test(description.trim()))
+			errors.push(`${prefix}.description: must be a single line`);
 
 		const profile = raw['agent_profile'];
 		if (
@@ -329,4 +356,100 @@ export function partnerAgentRows(
 			...(emoji === undefined ? {} : {emoji}),
 		};
 	});
+}
+
+/**
+ * A partner agent on the board that `pappardelle spaces` (spaces_list) shows
+ * beside the spaces, so a coordinator sees every agent in the kitchen in one
+ * call and can tell partners from spaces: a partner has no issue, worktree or
+ * PR, and is never opened or closed.
+ */
+export interface PartnerEntry {
+	name: string;
+	/** launched: Pappardelle runs it. attached: it runs on its own tmux server. */
+	kind: 'launched' | 'attached';
+	emoji?: string;
+	description?: string;
+	/** The agent profile a launched partner runs. */
+	agentProfile?: string;
+	/** From the hook status file, as for a space; no_status when there is none. */
+	status: string;
+	currentTool?: string | null;
+	lastUpdate?: number | null;
+	minutesAgo?: number;
+	sessionId?: string | null;
+	/** Whether its agent's tmux session is up. */
+	running: boolean;
+	tmux: {socket: string; session: string};
+	/** Its latest prompt and the last reply to it, from its own transcript. */
+	lastTurn?: {prompt: string; ts?: string; reply?: string};
+}
+
+export function describePartners(
+	config: PappardelleConfig | null,
+	repoName: string,
+	deps: {
+		innerSocket: string;
+		agentSessionName: (name: string) => string;
+		sessionExists: (socket: string, session: string) => boolean;
+		now: number;
+		statusDir?: string;
+		projectsDir?: string;
+	},
+): PartnerEntry[] {
+	return listPartnerAgents(config).map(agent => {
+		const statusKey = readableHookStatusKey(
+			repoName,
+			agent.name,
+			deps.statusDir,
+		);
+		const session = readHookSession(statusKey, deps.statusDir);
+		const tmux = agent.attach
+			? {socket: agent.attach.socket, session: agent.attach.session}
+			: {socket: deps.innerSocket, session: deps.agentSessionName(agent.name)};
+		const emoji = agent.emoji ?? config?.default_emoji;
+		const entry: PartnerEntry = {
+			name: agent.name,
+			kind: agent.attach ? 'attached' : 'launched',
+			...(emoji ? {emoji} : {}),
+			...(agent.description ? {description: agent.description} : {}),
+			...(agent.attach || !config
+				? {}
+				: {
+						agentProfile:
+							agent.agent_profile || resolveAgentProfileName(config),
+					}),
+			status: session ? (session.status ?? 'unknown') : 'no_status',
+			running: deps.sessionExists(tmux.socket, tmux.session),
+			tmux,
+		};
+		if (session) {
+			entry.currentTool = session.currentTool ?? null;
+			entry.lastUpdate = session.lastUpdate ?? null;
+			if (session.lastUpdate !== undefined)
+				entry.minutesAgo =
+					Math.round(((deps.now - session.lastUpdate) / 60_000) * 10) / 10;
+			entry.sessionId = session.sessionId ?? null;
+		}
+
+		const log = sessionTranscript(session, deps.projectsDir);
+		const turn = log ? lastTurn(log) : undefined;
+		if (turn) entry.lastTurn = turn;
+		return entry;
+	});
+}
+
+function lastTurn(log: string): PartnerEntry['lastTurn'] {
+	try {
+		const turn = readRecentTurns(log, 1).turns.at(-1);
+		if (!turn) return undefined;
+		const reply = turn.replies.at(-1);
+		return {
+			prompt: turn.prompt,
+			...(turn.ts ? {ts: turn.ts} : {}),
+			...(reply ? {reply} : {}),
+		};
+	} catch {
+		return undefined;
+	}
 }

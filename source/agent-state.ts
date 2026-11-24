@@ -31,6 +31,7 @@ import {
 	getSessionNames,
 	getSessionPrefix,
 	resolveInnerSessionTargetSync,
+	type AgentSessionTarget,
 	type OuterTmuxRunner,
 } from './tmux.ts';
 import {mergeProgramStatus} from './workspace-status.ts';
@@ -118,7 +119,27 @@ export type AgentStateDeps = {
 		key: string,
 		pane: StatusPane,
 	) => ProgramStatusSnapshot | null;
+	/**
+	 * Where a key's agent runs when it isn't its inner session (an attach
+	 * partner agent, on its own tmux server). Undefined for every other key.
+	 */
+	locate?: (key: string) => AgentSessionTarget | undefined;
 };
+
+/** The agent's tmux session for `key`, and the runner that reaches it. */
+function agentTarget(
+	key: string,
+	deps: Pick<AgentStateDeps, 'repo' | 'runner' | 'locate'>,
+): AgentSessionTarget & {external: boolean} {
+	const located = deps.locate?.(key);
+	return located
+		? {...located, external: true}
+		: {
+				session: getSessionNames(key, deps.repo).agent,
+				runner: deps.runner,
+				external: false,
+			};
+}
 
 const SCREEN_TAIL_LINES = 40;
 
@@ -218,15 +239,13 @@ async function growUnviewedWindow(
 export async function captureAgentScreen(
 	key: string,
 	lines: number,
-	deps: Pick<AgentStateDeps, 'repo' | 'runner' | 'sleep'>,
+	deps: Pick<AgentStateDeps, 'repo' | 'runner' | 'sleep' | 'locate'>,
 ): Promise<string | null> {
-	const target = resolveInnerSessionTargetSync(
-		getSessionNames(key, deps.repo).agent,
-		deps.runner,
-	);
+	const {session, runner} = agentTarget(key, deps);
+	const target = resolveInnerSessionTargetSync(session, runner);
 	if (!target) return null;
-	await growUnviewedWindow(target, deps);
-	return tmuxOut(deps.runner, [
+	await growUnviewedWindow(target, {runner, sleep: deps.sleep});
+	return tmuxOut(runner, [
 		'capture-pane',
 		'-p',
 		'-e',
@@ -242,13 +261,13 @@ export async function readAgentState(
 	key: string,
 	deps: AgentStateDeps,
 ): Promise<AgentStateReport> {
-	const {repo, runner} = deps;
+	const {repo} = deps;
+	const {session, runner, external} = agentTarget(key, deps);
 	const capture = await captureAgentScreen(key, SCREEN_TAIL_LINES, deps);
 	const screen =
 		capture === null ? null : parseAgentScreen(capture, deps.now());
-	const pane = screen
-		? pinnedStatusPane(getSessionNames(key, repo).agent, runner)
-		: null;
+	// Program status monitors run only on the inner server.
+	const pane = screen && !external ? pinnedStatusPane(session, runner) : null;
 	const status = mergeProgramStatus(
 		await (deps.readHook ?? getClaudeStatusInfoAsync)(deps.hookKey),
 		pane ? (deps.readSnapshot ?? readProgramSnapshot)(repo, key, pane) : null,

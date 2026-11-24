@@ -86,6 +86,16 @@ test('an unregistered key or main closes nothing', async t => {
 	}
 });
 
+test('a partner agent is refused with how to remove its row', async t => {
+	const {deps, events} = fakeDeps({
+		isPartnerAgent: key => key === 'trotbot',
+	});
+	t.is(await runCloseCommand({key: 'trotbot', yes: true}, deps), 1);
+	t.is(events.length, 1);
+	t.regex(events[0]!, /^print trotbot is a partner agent/);
+	t.regex(events[0]!, /agents: in the config/);
+});
+
 test('without --yes off a terminal it refuses and closes nothing', async t => {
 	const {deps, events} = fakeDeps();
 	t.is(await runCloseCommand({key: 'STA-1', yes: false}, deps), 1);

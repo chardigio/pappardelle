@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process';
 import {selfLaunchArgs} from './runtime.ts';
-import {getMainRepoRoot, getRepoName} from './config.ts';
+import {getMainRepoRoot, getRepoName, loadConfig} from './config.ts';
+import {findPartnerAgent} from './partner-agents.ts';
 import {removeProgramSnapshots} from './program-status-monitor.ts';
 import {confirm} from './confirm.ts';
 import {runCloseHooks, type ClosingSpace} from './close-space.ts';
@@ -46,6 +47,8 @@ export type CloseCommandDeps = {
 	confirm: (question: string) => Promise<boolean>;
 	print: (line: string) => void;
 	logError: (message: string) => void;
+	/** Whether a key names a partner agent (agents: in the config). */
+	isPartnerAgent?: (key: string) => boolean;
 };
 
 export async function runCloseCommand(
@@ -53,6 +56,13 @@ export async function runCloseCommand(
 	deps: CloseCommandDeps,
 ): Promise<number> {
 	const {key} = options;
+	if (deps.isPartnerAgent?.(key)) {
+		deps.print(
+			`${key} is a partner agent, and partner agents are never closed. Remove it from agents: in the config to remove its row`,
+		);
+		return 1;
+	}
+
 	if (!isOpenSpace(key, deps)) {
 		deps.print(`No open space ${key}`);
 		return 1;
@@ -168,6 +178,13 @@ export function defaultCloseCommandDeps(): CloseCommandDeps {
 				[...selfLaunchArgs(), 'close', key, '--yes', '--teardown-only'],
 				{cwd, detached: true, stdio: 'ignore'},
 			).unref();
+		},
+		isPartnerAgent(key) {
+			try {
+				return findPartnerAgent(loadConfig(), key) !== undefined;
+			} catch {
+				return false;
+			}
 		},
 		isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
 		async confirm(question) {

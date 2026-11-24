@@ -3,10 +3,12 @@
 // it. Tool results and the text Claude Code injects (isMeta: skill bodies,
 // reminders) arrive as user entries too, and are skipped.
 
-import {readFileSync} from 'node:fs';
+import {Buffer} from 'node:buffer';
+import {closeSync, fstatSync, openSync, readFileSync, readSync} from 'node:fs';
 import {extractAssistantText, findLatestSessionJsonl} from './space-state.ts';
 
 const MAX_TEXT = 500;
+const FIRST_TAIL_BYTES = 1024 * 1024;
 
 export interface Turn {
 	prompt: string;
@@ -59,6 +61,39 @@ export function readTurns(jsonlPath: string): Turn[] {
 	return parseTurns(readFileSync(jsonlPath, 'utf8'));
 }
 
+/**
+ * The last `count` turns of a transcript, read back from its end. A partner
+ * agent's conversation runs for weeks and its transcript can pass 100 MB, so
+ * reading all of it for a few turns is too slow. The window doubles until it
+ * holds `count` prompts or the whole file. Every turn in a window is whole: a
+ * window starts at a line, and replies before its first prompt are dropped.
+ * `complete` says whether the whole file was read, so the turn count is exact.
+ */
+export function readRecentTurns(
+	jsonlPath: string,
+	count: number,
+): {turns: Turn[]; complete: boolean} {
+	const fd = openSync(jsonlPath, 'r');
+	try {
+		const {size} = fstatSync(fd);
+		let window = Math.min(size, FIRST_TAIL_BYTES);
+		for (;;) {
+			const start = size - window;
+			const buffer = Buffer.alloc(window);
+			readSync(fd, buffer, 0, window, start);
+			let text = buffer.toString('utf8');
+			// Drop the line the window starts inside of.
+			if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+			const turns = parseTurns(text);
+			if (start === 0 || turns.length >= count)
+				return {turns, complete: start === 0};
+			window = Math.min(size, window * 2);
+		}
+	} finally {
+		closeSync(fd);
+	}
+}
+
 function clock(ts: string | undefined): string {
 	if (!ts) return '';
 	const date = new Date(ts);
@@ -80,9 +115,14 @@ export function formatTurns(
 	issueKey: string,
 	turns: Turn[],
 	count: number,
+	complete = true,
 ): string {
 	const recent = turns.slice(-count);
-	const lines = [`${issueKey}: ${turns.length} turns, last ${recent.length}`];
+	const lines = [
+		complete
+			? `${issueKey}: ${turns.length} turns, last ${recent.length}`
+			: `${issueKey}: last ${recent.length} turns`,
+	];
 	for (const turn of recent) {
 		const userPrefix = `${clock(turn.ts)}user: `;
 		lines.push('', userPrefix + indent(turn.prompt, userPrefix));
@@ -95,13 +135,29 @@ export function formatTurns(
 	return lines.join('\n');
 }
 
-export function turnsJson(issueKey: string, turns: Turn[], count: number) {
-	return {issueKey, totalTurns: turns.length, turns: turns.slice(-count)};
+export function turnsJson(
+	issueKey: string,
+	turns: Turn[],
+	count: number,
+	complete = true,
+) {
+	return {
+		issueKey,
+		...(complete ? {totalTurns: turns.length} : {}),
+		turns: turns.slice(-count),
+	};
 }
 
 export async function runReadCommand(options: {
 	issueKey: string;
-	/** The space's checkout, or null when it has none. */
+	/** The transcript of the session the space's status file names, if known. */
+	log?: string | null;
+	/**
+	 * The space's checkout, whose newest transcript is read when `log` isn't
+	 * known. Null when it has none, or when other agents share its directory
+	 * (the main checkout with partner agents), since the newest transcript
+	 * there can be another agent's.
+	 */
 	worktree: string | null;
 	turns: number | undefined;
 	json: boolean;
@@ -114,19 +170,23 @@ export async function runReadCommand(options: {
 		return 1;
 	}
 
-	const log = options.worktree
-		? await findLatestSessionJsonl(options.worktree)
-		: null;
+	const log =
+		options.log ??
+		(options.worktree ? await findLatestSessionJsonl(options.worktree) : null);
 	if (!log) {
 		options.err(`No conversation log for ${options.issueKey}`);
 		return 1;
 	}
 
-	const turns = readTurns(log);
+	const {turns, complete} = readRecentTurns(log, count);
 	options.out(
 		options.json
-			? JSON.stringify(turnsJson(options.issueKey, turns, count), null, 2)
-			: formatTurns(options.issueKey, turns, count),
+			? JSON.stringify(
+					turnsJson(options.issueKey, turns, count, complete),
+					null,
+					2,
+				)
+			: formatTurns(options.issueKey, turns, count, complete),
 	);
 	return 0;
 }

@@ -61,7 +61,7 @@ const splitSize = z
 const key = z
 	.string()
 	.describe(
-		'Space key, such as STA-696. main is the main checkout. A bare number takes the team prefix',
+		"Space key, such as STA-696. main is the main checkout, and a partner agent's name (trotbot) is its key. A bare number takes the team prefix",
 	);
 const tmuxKeys = z
 	.array(z.string())
@@ -232,7 +232,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'spaces_list',
 		description:
-			'List every open space: agent status, minutes since the last update, issue title, PR, commits ahead and diff size against the base branch, pipeline, unresolved comments, recap',
+			"List every open space: agent status, minutes since the last update, issue title, PR, commits ahead and diff size against the base branch, pipeline, unresolved comments, recap. partners lists the partner agents apart from the spaces: permanent agents beside the main checkout's, with no issue, worktree or PR, each with its role, status, whether it is running and its last exchange. The space tools take a partner's name as its key",
 		readOnly: true,
 		inputSchema: {},
 		toCli: () => ({args: ['spaces', '--json']}),
@@ -381,7 +381,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				.array(z.string())
 				.optional()
 				.describe(
-					'Spaces to watch. Defaults to every space with an agent except your own',
+					'Spaces to watch. Defaults to every space with an agent, and every running partner agent, except your own',
 				),
 			until: z
 				.array(z.enum(WATCH_TARGETS as [WatchTarget, ...WatchTarget[]]))
@@ -518,7 +518,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_open',
 		description:
-			'Open a space, or reopen one whose session is gone, and save it on the board. An issue key opens or resumes that issue. A description files a new issue, and the output names its key: never rerun one, since a rerun files a duplicate. A failure means setup or registration failed; if setup finished, the worktree may exist without showing on the board',
+			"Open a space, or reopen one whose session is gone, and save it on the board. An issue key opens or resumes that issue. A description files a new issue, and the output names its key: never rerun one, since a rerun files a duplicate. A failure means setup or registration failed; if setup finished, the worktree may exist without showing on the board. A partner agent's name starts that partner if Pappardelle launches it, and files nothing; a partner on its own tmux server is never started here",
 		inputSchema: {
 			input: z
 				.string()
@@ -557,7 +557,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_close',
 		description:
-			"Close a space like x in the TUI: runs its deinit hooks, ends its agent and companion sessions, removes it from the board. The worktree stays unless a hook removes it, and the issue's state doesn't change. Closing your own space ends this session, so say so and wait for the go first",
+			"Close a space like x in the TUI: runs its deinit hooks, ends its agent and companion sessions, removes it from the board. The worktree stays unless a hook removes it, and the issue's state doesn't change. Closing your own space ends this session, so say so and wait for the go first. Partner agents are never closed",
 		destructive: true,
 		inputSchema: {key},
 		toCli: ({key}) => ({args: ['close', key, '--yes']}),

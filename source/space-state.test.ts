@@ -10,6 +10,7 @@ import {
 	writeSpaceState,
 	extractRecapFromJsonl,
 	findLatestSessionJsonl,
+	sessionTranscript,
 	type SpaceState,
 } from './space-state.ts';
 
@@ -432,4 +433,26 @@ test('the agent running in a space is the one that started last', t => {
 	);
 
 	t.is(latestAgentProfile('repo', 'STA-1', base), 'codex');
+});
+
+test('sessionTranscript finds the session by id in its directory project folder', t => {
+	const projects = tempDir();
+	const folder = path.join(projects, '-home-u-repo');
+	fs.mkdirSync(folder, {recursive: true});
+	fs.writeFileSync(path.join(folder, 'abc-123.jsonl'), '');
+	fs.writeFileSync(path.join(folder, 'newer.jsonl'), '');
+	t.is(
+		sessionTranscript({sessionId: 'abc-123', cwd: '/home/u/repo'}, projects),
+		path.join(folder, 'abc-123.jsonl'),
+	);
+	t.is(
+		sessionTranscript({sessionId: 'gone', cwd: '/home/u/repo'}, projects),
+		null,
+	);
+	t.is(
+		sessionTranscript({sessionId: '../newer', cwd: '/home/u/repo'}, projects),
+		null,
+	);
+	t.is(sessionTranscript({cwd: '/home/u/repo'}, projects), null);
+	t.is(sessionTranscript(null, projects), null);
 });

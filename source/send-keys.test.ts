@@ -84,3 +84,18 @@ test('--keys never touches a Codex dialog, where Escape can quit Codex', t => {
 		'prompt',
 	);
 });
+
+test("--keys presses keys in an attach partner's own session", t => {
+	const {runner, calls} = recorder(['trotbot']);
+	t.is(
+		sendKeysToSpaceAgent('trotbot', ['Escape'], {
+			repoName: 'repo',
+			runner,
+			session: 'trotbot',
+		}),
+		'sent',
+	);
+	t.deepEqual(calls.slice(1), [
+		['send-keys', '-t', '=trotbot:', '--', 'Escape'],
+	]);
+});
