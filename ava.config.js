@@ -36,7 +36,9 @@ if (isMainThread) {
 	const refusals = () => {
 		if (!guardedTmuxTmpdir) return [];
 		const read = (file, start) =>
-			fs.existsSync(file) ? fs.readFileSync(file, 'utf8').slice(start) : '';
+			fs.existsSync(file)
+				? fs.readFileSync(file).subarray(start).toString('utf8')
+				: '';
 		return [
 			read(process.env.PAPPARDELLE_TEST_TMUX_REFUSALS, 0),
 			read(sharedRefusals, sharedRefusalsStart),

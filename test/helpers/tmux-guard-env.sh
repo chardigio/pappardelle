@@ -54,14 +54,14 @@ while IFS= read -r candidate; do
 done < <(type -ap tmux)
 [[ $base != "$private_prefix"* && $base != /private"$private_prefix"* ]] || nested=1
 if [[ -n $nested && ! -x $wrapper ]]; then
-	echo "TMUX_TMPDIR=$TMUX_TMPDIR is a test run's private directory, but there is no tmux guard at $wrapper to keep this run in it; unset TMUX_TMPDIR" >&2
+	echo "TMUX_TMPDIR=${TMUX_TMPDIR:-} is a test run's private directory, but there is no tmux guard at $wrapper to keep this run in it; unset TMUX_TMPDIR" >&2
 	exit 1
 fi
 if [[ -z $nested ]]; then
 	mkdir -m 700 "$guard_home" 2>/dev/null || true
 	# Anyone can create a directory in /tmp, and this one holds code tests run.
-	if [[ ! -O $guard_home ]]; then
-		echo "$guard_home belongs to another user; remove it" >&2
+	if [[ -L $guard_home || ! -O $guard_home ]]; then
+		echo "$guard_home is a symlink or belongs to another user; remove it" >&2
 		exit 1
 	fi
 	mkdir -p "$guard_home/bin"
