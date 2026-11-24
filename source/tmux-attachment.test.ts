@@ -1,6 +1,6 @@
 import {spawnSync} from 'node:child_process';
 import {setImmediate as nextTurn} from 'node:timers/promises';
-import {mkdtempSync, rmSync} from 'node:fs';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {sessionNamesFor} from './space-identity.ts';
@@ -1246,5 +1246,125 @@ test.serial(
 		t.true(await attach('TEST-AFTER'));
 		const switched = calls.find(args => isSwitchBatch(args))!;
 		t.is(switched[switched.indexOf('-c') + 1], '/dev/late');
+	},
+);
+
+// A config that fails validation while the TUI runs must not bring a space's
+// agent back as built-in claude: its agent profile, model and env would be lost.
+const INVALID_AGENT_PROFILE =
+	'agent_profiles:\n  opus:\n    command: claude\n    model: 7\n';
+
+function withInvalidConfig(t: ExecutionContext): void {
+	const configPath = join(process.cwd(), '.pappardelle.yml');
+	writeFileSync(configPath, INVALID_AGENT_PROFILE);
+	t.teardown(() => {
+		rmSync(configPath, {force: true});
+	});
+}
+
+// Answers has-session as missing for the sessions in `missing`.
+function tmuxWithout(...missing: string[]) {
+	const fake = fakeTmux();
+	const run: AsyncTmuxRunner = async args => {
+		if (
+			args.includes('has-session') &&
+			args.some(arg => missing.some(session => arg.includes(session)))
+		)
+			throw Object.assign(new Error('no session'), {code: 1});
+		return fake.run(args);
+	};
+	return {calls: fake.calls, run};
+}
+
+const createsSession = (calls: string[][], session: string) =>
+	calls.some(
+		args =>
+			args.includes('new-session') && args.some(arg => arg.includes(session)),
+	);
+
+const invalidConfigErrors = (issueKey: string) =>
+	getRecentErrors().filter(error =>
+		error.message.includes(`Not starting the agent of ${issueKey}`),
+	);
+
+test.serial(
+	'an invalid config holds back a dead agent session and says why, once',
+	async t => {
+		withInvalidConfig(t);
+		const {agent, companion} = sessionNamesFor('TEST-INVALID', getRepoName());
+		const {calls, run} = tmuxWithout(agent, companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.false(createsSession(calls, agent));
+		t.true(createsSession(calls, companion));
+		t.true(
+			calls.some(args =>
+				args.some(
+					arg =>
+						arg.includes('has no agent running') &&
+						arg.includes('TEST-INVALID'),
+				),
+			),
+		);
+		const [reported, ...more] = invalidConfigErrors('TEST-INVALID');
+		t.deepEqual(more, []);
+		t.true(reported?.message.includes('agent_profiles.opus.model'));
+		t.is(derived.daos.spaceState.read('TEST-INVALID')?.agentProfile, undefined);
+
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.is(invalidConfigErrors('TEST-INVALID').length, 1);
+		clearCurrentlyViewingSpace();
+	},
+);
+
+test.serial(
+	'an invalid config still attaches an agent session that is running',
+	async t => {
+		withInvalidConfig(t);
+		const {agent, companion} = sessionNamesFor('TEST-LIVE', getRepoName());
+		const {calls, run} = tmuxWithout(companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-LIVE', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.false(createsSession(calls, agent));
+		t.false(
+			calls.some(args =>
+				args.some(arg => arg.includes('has no agent running')),
+			),
+		);
+		t.deepEqual(invalidConfigErrors('TEST-LIVE'), []);
+		clearCurrentlyViewingSpace();
+	},
+);
+
+test.serial(
+	'a fixed config starts the held-back agent and clears its error',
+	async t => {
+		withInvalidConfig(t);
+		const {agent, companion} = sessionNamesFor('TEST-FIXED', getRepoName());
+		const {calls, run} = tmuxWithout(agent, companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.is(invalidConfigErrors('TEST-FIXED').length, 1);
+
+		rmSync(join(process.cwd(), '.pappardelle.yml'));
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.true(createsSession(calls, agent));
+		t.deepEqual(invalidConfigErrors('TEST-FIXED'), []);
+		clearCurrentlyViewingSpace();
 	},
 );

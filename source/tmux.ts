@@ -133,6 +133,8 @@ import {
 	getCompanionCommand,
 	getCompanionSplits,
 	quoteLaunchValue,
+	ConfigNotFoundError,
+	ConfigValidationError,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
 	getListLayout,
@@ -160,7 +162,7 @@ import {
 	type CompanionSplit,
 	type SplitDirection,
 } from './companion-splits.ts';
-import {createLogger} from './logger.ts';
+import {createLogger, dismissRecentErrors} from './logger.ts';
 import {
 	ControlClientNeverStarted,
 	TmuxControlClient,
@@ -297,6 +299,26 @@ export function storedIdentity(issueKey: string): SpaceIdentity | null {
 			lookup.error instanceof Error ? lookup.error : undefined,
 		);
 	return null;
+}
+
+// The TUI loads the config on every selection, and the rail keeps only the
+// last few errors.
+const reportedInvalidConfig = new Set<string>();
+
+function reportInvalidConfig(
+	issueKey: string,
+	error: ConfigValidationError,
+): void {
+	const message = `Not starting the agent of ${issueKey}: the config is invalid: ${error.errors.join('; ')}`;
+	if (reportedInvalidConfig.has(message)) return;
+	reportedInvalidConfig.add(message);
+	log.error(message);
+}
+
+function dismissInvalidConfigErrors(): void {
+	if (reportedInvalidConfig.size === 0) return;
+	dismissRecentErrors(entry => reportedInvalidConfig.has(entry.message));
+	reportedInvalidConfig.clear();
 }
 
 function sessionNamesOf(identity: SpaceIdentity): SpaceSessionNames {
@@ -2527,6 +2549,8 @@ async function attachViewers(
 			);
 		} catch (err) {
 			if (signal?.aborted) return false;
+			// The splits are seeded once the config is fixed.
+			if (err instanceof ConfigValidationError) return true;
 			log.warn(
 				`Failed to show the companion splits of ${issueKey}`,
 				err instanceof Error ? err : undefined,
@@ -2604,27 +2628,41 @@ async function attachViewers(
 	let sessionId: string | undefined;
 	let launch: AgentLaunch = {rules: false};
 	let splitListing: string | undefined;
+	let invalidConfig: ConfigValidationError | undefined;
+	const profileName = savedSpaceProfile(issueKey);
 	try {
 		const config = loadConfig();
+		dismissInvalidConfigErrors();
 		launch = {
 			rules: workspaceAwareAgents(config),
 			...(issueKey === MAIN_WORKTREE_KEY ? sousChefLaunch(config) : {}),
 		};
-		const profileName = savedSpaceProfile(issueKey);
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
 		configuredSplits = getCompanionSplits(config, issueTitle, profileName);
 		agentProfile = getAgentProfile(config, issueTitle, profileName);
-		sessionId = agentSessions().read(issueKey, agentProfile.name);
-	} catch {
-		// Config load failed — use safe defaults.
+	} catch (error) {
+		// Without a config there is no agent profile to lose, so the built-in
+		// one is right. A broken config would replace the space's own.
+		if (error instanceof ConfigValidationError) invalidConfig = error;
+		else if (!(error instanceof ConfigNotFoundError))
+			log.warn(
+				`Could not load the config for ${issueKey}; starting with the built-in defaults`,
+				error instanceof Error ? error : undefined,
+			);
 	}
 
-	try {
-		// Complete session creation and command launch together so a superseded
-		// selection can't leave an existing session with no agent running.
-		const prepared = await Promise.allSettled([
-			ensureAgentSession(
+	if (agentProfile)
+		sessionId = agentSessions().read(issueKey, agentProfile.name);
+	const heldBack = invalidConfig;
+	const prepareAgent = heldBack
+		? resumeAgentSession(issueKey, sessions.agent, options.run ?? runTmux).then(
+				resumed => {
+					if (resumed === 'absent') reportInvalidConfig(issueKey, heldBack);
+					return resumed === 'resumed';
+				},
+			)
+		: ensureAgentSession(
 				issueKey,
 				mainWorktreePath,
 				skipPermissions,
@@ -2632,7 +2670,13 @@ async function attachViewers(
 				agentProfile,
 				sessionId,
 				launch,
-			),
+			);
+
+	try {
+		// Complete session creation and command launch together so a superseded
+		// selection can't leave an existing session with no agent running.
+		const prepared = await Promise.allSettled([
+			prepareAgent,
 			companionViewerPaneId
 				? ensureCompanionSession(
 						issueKey,
@@ -3947,6 +3991,26 @@ async function releaseStartupGate(
 	);
 }
 
+/** Picks up an agent session that is already on the inner socket. */
+async function resumeAgentSession(
+	issueKey: string,
+	sessionName: string,
+	run: AsyncTmuxRunner,
+): Promise<'resumed' | 'failed' | 'absent'> {
+	if (!(await innerSessionExistsAsync(sessionName, run))) return 'absent';
+	try {
+		await attachStartupMonitor(issueKey, sessionName, run);
+		await releaseStartupGate(sessionName, run);
+		return 'resumed';
+	} catch (err) {
+		log.error(
+			`Failed to resume agent startup for ${issueKey}`,
+			err instanceof Error ? err : undefined,
+		);
+		return 'failed';
+	}
+}
+
 /**
  * Create an agent session for an issue if it doesn't exist
  * Returns true if session exists or was created successfully
@@ -3971,22 +4035,10 @@ export async function ensureAgentSession(
 	}
 
 	const sessionName = identity.tmux.agentSession;
-
-	// Already exists on the inner socket?
-	if (await innerSessionExistsAsync(sessionName, run)) {
-		try {
-			await attachStartupMonitor(issueKey, sessionName, run);
-			await releaseStartupGate(sessionName, run);
-			traceDone?.();
-			return true;
-		} catch (err) {
-			log.error(
-				`Failed to resume agent startup for ${issueKey}`,
-				err instanceof Error ? err : undefined,
-			);
-			traceDone?.('failed');
-			return false;
-		}
+	const resumed = await resumeAgentSession(issueKey, sessionName, run);
+	if (resumed !== 'absent') {
+		traceDone?.(resumed === 'failed' ? 'failed' : undefined);
+		return resumed === 'resumed';
 	}
 
 	const worktreePath = explicitWorktreePath ?? existingDirectory(identity);
