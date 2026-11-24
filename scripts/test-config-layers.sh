@@ -194,6 +194,75 @@ cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: a layer with no YAML document adds nothing to the merge${RESET}"
+# An empty file holds zero documents.
+for kind in empty whitespace-only comments-only; do
+    case "$kind" in
+        empty) local_text="" ;;
+        whitespace-only) local_text=$'\n  \n' ;;
+        comments-only) local_text=$'# only a comment\n  # and another' ;;
+    esac
+    setup_configs "version: 1
+team_prefix: KEEP
+profiles:
+  api:
+    display_name: API"
+    printf '%s' "$local_text" > "$TMPDIR_ROOT/.pappardelle.local.yml"
+    assert_eq "$kind local layer keeps team_prefix" "KEEP" "$(merged | yq -r '.team_prefix')"
+    assert_eq "$kind local layer keeps profiles" "api" "$(merged | yq -r '.profiles | keys | .[]')"
+    cleanup; unset TMPDIR_ROOT
+done
+
+setup_configs "version: 1
+team_prefix: PROJECT" "team_prefix: LOCAL"
+: > "$TMPDIR_ROOT/home/.pappardelle.yml"
+assert_eq "zero-byte home layer: local still beats project" "LOCAL" "$(merged | yq -r '.team_prefix')"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+claude:
+  initialization_command: /project"
+: > "$TMPDIR_ROOT/.pappardelle.local.yml"
+assert_eq "empty layer beside a deprecated init command spelling" "/project" "$(merged | yq -r '.initialization_command')"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs "version: 1
+defaults: &defaults
+  display_name: Shared
+profiles:
+  api:
+    <<: *defaults
+    team_prefix: API"
+: > "$TMPDIR_ROOT/.pappardelle.local.yml"
+assert_eq "empty layer beside a YAML merge key" "Shared/API" "$(merged | yq -r '.profiles.api.display_name + "/" + .profiles.api.team_prefix')"
+cleanup; unset TMPDIR_ROOT
+
+setup_configs ""
+: > "$TMPDIR_ROOT/.pappardelle.yml"
+: > "$TMPDIR_ROOT/.pappardelle.local.yml"
+: > "$TMPDIR_ROOT/home/.pappardelle.yml"
+assert_eq "every layer empty merges to an empty map" "{}" "$(merged)"
+cleanup; unset TMPDIR_ROOT
+
+echo -e "\n${BOLD}Test: resolve-agent-config.sh keeps the project config beside an empty local file${RESET}"
+setup_configs "version: 1
+workspace_aware_agents: true
+initialization_command: /init-workspace
+agent_profile: codex
+agent_profiles:
+  codex:
+    command: codex"
+: > "$TMPDIR_ROOT/.pappardelle.local.yml"
+RESOLVED=$("$SCRIPT_DIR/resolve-agent-config.sh" \
+    --config "$TMPDIR_ROOT/.pappardelle.yml" \
+    --local-config "$TMPDIR_ROOT/.pappardelle.local.yml")
+assert_eq "agent_command" "codex" "$(jq -r '.agent_command' <<<"$RESOLVED")"
+assert_eq "init_cmd" "/init-workspace" "$(jq -r '.init_cmd' <<<"$RESOLVED")"
+assert_eq "workspace_aware" "true" "$(jq -r '.workspace_aware' <<<"$RESOLVED")"
+cleanup; unset TMPDIR_ROOT
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: idow wiring${RESET}"
 IDOW="$SCRIPT_DIR/idow"
 assert_eq "idow merges the layers into CONFIG_PATH" "1" "$(grep -c 'CONFIG_PATH="\$MERGED_CONFIG_PATH"' "$IDOW" || true)"
@@ -207,11 +276,11 @@ assert_eq "resolver calls reuse the merged snapshot" "0" \
 assert_eq "terminal resolver reuses the merged snapshot" "0" \
     "$(grep 'resolve-terminal-app\.sh"' "$IDOW" | grep -vc -- '--config "$CONFIG_PATH"' || true)"
 
-# The merge is subtle enough (yq eval-all fileIndex chaining, single-file
+# The merge is subtle enough (yq eval-all ireduce, single-file
 # shortcut, missing-layer skipping) that a second copy drifts silently, which is
 # how idow and the TUI stopped agreeing on the effective config before.
 assert_eq "no resolver re-implements the merge" "" \
-    "$(grep -l 'fileIndex' "$SCRIPT_DIR"/resolve-*.sh 2>/dev/null || true)"
+    "$(grep -lE 'ireduce|fileIndex' "$SCRIPT_DIR"/resolve-*.sh 2>/dev/null || true)"
 
 # ==========================================================================
 
