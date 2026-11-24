@@ -1,6 +1,6 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execFile, spawn, spawnSync} from 'node:child_process';
+import {execFile, spawn, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
@@ -10,7 +10,6 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 export type AsyncTmuxRunner = (args: string[]) => Promise<string>;
@@ -1052,7 +1051,7 @@ export function killSession(sessionName: string): boolean {
 	]);
 	if (result.error || result.status !== 0) {
 		log.error(
-			`Failed to kill session ${sessionName}: ${result.stderr?.trim() ?? ''}`,
+			`Failed to kill session ${sessionName}: ${tmuxFailure(result)}`,
 			result.error,
 		);
 		return false;
@@ -1113,6 +1112,14 @@ export type OuterTmuxRunner = (
 	stdout: string;
 	stderr?: string;
 };
+
+export function tmuxFailure(result: ReturnType<OuterTmuxRunner>): string {
+	return (
+		result.stderr?.trim() ||
+		result.error?.message ||
+		`tmux exited ${result.status ?? 'without a status'}`
+	);
+}
 
 function spawnTmuxRunner(
 	toArgv: (args: readonly string[]) => string[],
@@ -3906,10 +3913,14 @@ export async function getMainWorktreeInfo(): Promise<{
 		//   branch refs/heads/master
 		//
 		// The first block is always the main worktree.
-		const {stdout} = await execAsync('git worktree list --porcelain', {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		const {stdout} = await execFileAsync(
+			'git',
+			['worktree', 'list', '--porcelain'],
+			{
+				encoding: 'utf-8',
+				timeout: 5000,
+			},
+		);
 
 		const lines = stdout.split('\n');
 		let path: string | null = null;
@@ -4328,7 +4339,7 @@ export function createCompanionSplit(
 ): CreateSplitResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const failure = (args: string[], result: ReturnType<OuterTmuxRunner>) =>
-		`tmux ${args[0]} failed: ${result.stderr?.trim() || result.error?.message || `exit ${result.status}`}`;
+		`tmux ${args[0]} failed: ${tmuxFailure(result)}`;
 	const main = identity.tmux.companionSession;
 	const pathArgs = [
 		'display-message',

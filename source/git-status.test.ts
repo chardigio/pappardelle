@@ -1,4 +1,8 @@
+import {execFileSync} from 'node:child_process';
+import {writeFileSync} from 'node:fs';
+import {join} from 'node:path';
 import test from 'ava';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {getMainWorktreeColor, isWorktreeDirty} from './git-status.ts';
 
 // ============================================================================
@@ -8,6 +12,14 @@ import {getMainWorktreeColor, isWorktreeDirty} from './git-status.ts';
 test('isWorktreeDirty returns unknown for nonexistent path', async t => {
 	const result = await isWorktreeDirty('/nonexistent/path');
 	t.is(result, null);
+});
+
+test('isWorktreeDirty tells a dirty worktree from a clean one', async t => {
+	const repo = tempDir(t, 'pappardelle-dirty-');
+	execFileSync('git', ['init', '--quiet', repo]);
+	t.false(await isWorktreeDirty(repo));
+	writeFileSync(join(repo, 'new.txt'), 'x');
+	t.true(await isWorktreeDirty(repo));
 });
 
 // ============================================================================

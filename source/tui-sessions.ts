@@ -8,6 +8,7 @@ import {
 	defaultServerTmuxRunner,
 	OUTER_SESSION_PREFIX,
 	outerSessionName,
+	tmuxFailure,
 	type OuterTmuxRunner,
 } from './tmux.ts';
 import {shellQuote} from './shell-quote.ts';
@@ -73,14 +74,6 @@ export function listSessionNames(tmux: OuterTmuxRunner): string[] {
 
 export function plural(count: number, word: string): string {
 	return count === 1 ? word : `${word}s`;
-}
-
-function tmuxFailure(result: ReturnType<OuterTmuxRunner>): string {
-	return (
-		result.stderr?.trim() ||
-		result.error?.message ||
-		`tmux exited ${result.status ?? 'without a status'}`
-	);
 }
 
 type PaneOutcome = {ok: true; paneId: string} | {ok: false; reason: string};

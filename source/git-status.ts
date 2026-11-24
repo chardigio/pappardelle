@@ -1,8 +1,8 @@
 // Git working tree status utilities
-import {exec} from 'node:child_process';
+import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /** The branch checked out in a working tree. git exits 1 when HEAD is detached. */
 export async function readCurrentBranch(
@@ -19,7 +19,7 @@ export async function isWorktreeDirty(
 	worktreePath: string,
 ): Promise<boolean | null> {
 	try {
-		const {stdout} = await execAsync('git status --porcelain', {
+		const {stdout} = await execFileAsync('git', ['status', '--porcelain'], {
 			cwd: worktreePath,
 			encoding: 'utf-8',
 			timeout: 5000,
