@@ -183,8 +183,10 @@ def update_status(
     session_id: Optional[str] = None,
     event: Optional[str] = None,
     cwd: Optional[str] = None,
+    pending_files: Optional[list[str]] = None,
+    workspace: Optional[str] = None,
 ) -> None:
-    workspace = get_workspace_name(cwd)
+    workspace = workspace or get_workspace_name(cwd)
     if workspace is None:
         return
     status_file = get_status_dir() / f"{workspace}.json"
@@ -202,6 +204,8 @@ def update_status(
         state["event"] = event
     if cwd:
         state["cwd"] = cwd
+    if pending_files:
+        state["pendingFiles"] = pending_files
 
     socket_path = status_socket_path()
     if socket_path is None:
@@ -210,6 +214,42 @@ def update_status(
         # A file from before the flag was turned on. Left in place, it is
         # what this space would show once the flag is turned off again.
         status_file.unlink(missing_ok=True)
+
+
+FILE_TOOLS = {"Edit", "MultiEdit", "Write", "Read", "NotebookEdit"}
+
+
+def pending_dir(workspace: str) -> Path:
+    return get_status_dir() / "pending-files" / workspace
+
+
+def track_pending_file(input_data: dict[str, Any], workspace: str) -> Optional[list[str]]:
+    """Keep the files of the file-tool calls that haven't finished yet.
+
+    A permission prompt's Notification doesn't say which file it is for, so
+    the supervisor that answers it matches the file name on screen against
+    these. One entry per call, so parallel calls never write the same file.
+    """
+    event = input_data.get("hook_event_name")
+    directory = pending_dir(workspace)
+    call = str(input_data.get("tool_use_id") or "")
+    if event == "PreToolUse" and input_data.get("tool_name") in FILE_TOOLS and call:
+        tool_input = input_data.get("tool_input")
+        target = None
+        if isinstance(tool_input, dict):
+            target = tool_input.get("file_path") or tool_input.get("notebook_path")
+        if isinstance(target, str) and target:
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / call).write_text(os.path.normpath(os.path.join(input_data.get("cwd") or "/", target)))
+    elif event in ("PostToolUse", "PostToolUseFailure") and call:
+        (directory / call).unlink(missing_ok=True)
+    # Not on Stop: background subagents keep calling tools after the main turn ends.
+    elif event in ("UserPromptSubmit", "SessionStart", "SessionEnd") and directory.exists():
+        for entry in directory.iterdir():
+            entry.unlink(missing_ok=True)
+    elif event == "Notification" and input_data.get("notification_type") == "permission_prompt" and directory.exists():
+        return sorted({entry.read_text() for entry in directory.iterdir()})
+    return None
 
 
 PERMISSION_PROMPT_TOOL = re.compile(r"permission to use (\S+)")
@@ -280,11 +320,16 @@ def main() -> None:
             status = "processing"
         elif hook_event == "PreToolUse":
             status = "running_tool"
-        elif hook_event == "PostToolUse":
+        elif hook_event in ("PostToolUse", "PostToolUseFailure"):
             status = "processing"
         elif hook_event == "Stop":
             status = "waiting_for_input"
         elif hook_event == "SubagentStop":
+            # Claude's own helper agents stop with no agent_type, often while
+            # a permission prompt is up; reporting that would replace the
+            # prompt's record, which the supervisor reads its file from.
+            if not input_data.get("agent_type"):
+                sys.exit(0)
             status = "waiting_for_input"
         elif hook_event == "SessionStart":
             status = "waiting_for_input"
@@ -311,8 +356,16 @@ def main() -> None:
     session_id = input_data.get("session_id", os.environ.get("CLAUDE_SESSION_ID"))
     event_name = input_data.get("hook_event_name")
     cwd = input_data.get("cwd")
+    pending_files = None
+    workspace = get_workspace_name(cwd)
+    if workspace is not None:
+        try:
+            pending_files = track_pending_file(input_data, workspace)
+        except OSError as e:
+            log_debug(f"Tracking pending files failed: {e}")
     log_debug(f"Setting status to: {status} (tool={tool_name})")
-    update_status(status, tool_name, session_id, event_name, cwd)
+    if workspace is not None:
+        update_status(status, tool_name, session_id, event_name, cwd, pending_files, workspace)
 
     # Exit successfully
     sys.exit(0)

@@ -1,0 +1,50 @@
+
+[38;2;215;119;87m ▐[48;2;0;0;0m▛███▛█[39m[49m   [1mClaude Code[0m [38;2;153;153;153mv2.1.330
+[38;2;215;119;87m▝▜[48;2;0;0;0m█████[49m█▀[39m  [38;2;153;153;153mHaiku 5.5 · Claude Ultra
+[38;2;215;119;87m ▝▝   ▝▝ [39m  [38;2;153;153;153m/tmp/claude-1000/-home-sddamico--worktrees-pappardelle-pappardelle-l4cy/3faba3cb-b7e7-44c2-b91f-6d5aef97dce5/scratchpad/capture/repo
+
+[38;2;255;193;7m⚠[39m [38;2;255;193;7mCode Mode (experimental) is on · this session can be resumed only with Code Mode on
+
+[38;2;153;153;153m[48;2;55;55;55m❯ [38;2;255;255;255mUse the Write tool to create a new file farewell.js containing a function farewell(name) that returns "Bye, " + name, and export it. Do not read anything first.[39m                                      
+[38;2;153;153;153m[49m  ⎿  Interrupted · What should Claude do instead?
+
+[38;2;255;107;128m●[39m [1mWrite[0m(]8;id=9pw2zs;file:///tmp/claude-1000/-home-sddamico--worktrees-pappardelle-pappardelle-l4cy/3faba3cb-b7e7-44c2-b91f-6d5aef97dce5/scratchpad/capture/repo/farewell.js\farewell.js]8;;\)   
+[38;2;153;153;153m  ⎿  Rejected write to [1m]8;id=9pw2zs;file:///tmp/claude-1000/-home-sddamico--worktrees-pappardelle-pappardelle-l4cy/3faba3cb-b7e7-44c2-b91f-6d5aef97dce5/scratchpad/capture/repo/farewell.js\farewell.js]8;;\
+[0m     [2m 1 [38;2;102;217;239mfunction[39m [38;2;166;226;46mfarewell[39m([38;2;253;151;31mname[39m) {[0m                                                                                                                                                                       
+     [2m 2   [38;2;249;38;114mreturn[39m [38;2;230;219;116m"Bye, "[39m + name;
+[0m     [2m 3 }[0m   
+     [2m 4 [0m                                                                                                                                                                                                
+     [2m 5 module.exports = { farewell };
+[0m                            
+[38;2;153;153;153m[48;2;55;55;55m❯ [38;2;255;255;255mNow use the Read tool to read /tmp/claude-1000/-home-sddamico--worktrees-pappardelle-pappardelle-l4cy/3faba3cb-b7e7-44c2-b91f-6d5aef97dce5/scratchpad/capture/outside.txt and tell me its contents.[39m   
+[49m    
+[38;2;153;153;153m [39m Reading outside.txt as requested[38;2;153;153;153m · 2s
+  ⎿  /tmp/claude-1000/-home-sddamico--worktrees-pappardelle-pappardelle-l4cy/3faba3cb-b7e7-44c2-b91f-6d5aef97dce5/scratchpad/capture/outside.txt
+[39m                                   
+[38;2;177;185;249m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;2;177;185;249mRead file[0m                                                                                                           
+[38;2;80;80;80m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m Read(]8;id=1bmwzvh;file:///tmp/claude-1000/-home-sddamico--worktrees-pappardelle-pappardelle-l4cy/3faba3cb-b7e7-44c2-b91f-6d5aef97dce5/scratchpad/capture/outside.txt\/tmp/claude-1000/-home-sddamico--worktrees-pappardelle-pappardelle-l4cy/3faba3cb-b7e7-44c2-b91f-6d5aef97dce5/scratchpad/capture/outside.txt]8;;\)
+[38;2;80;80;80m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m Do you want to proceed?
+ [38;2;177;185;249m❯[39m [38;2;153;153;153m1. [38;2;177;185;249mYes
+[39m   [38;2;153;153;153m2. [39mYes, allow reading from [1m/tmp/claude-1000/-home-sddamico--worktrees-pappardelle-pappardelle-l4cy/3faba3cb-b7e7-44c2-b91f-6d5aef97dce5/scratchpad/capture[0m during this session
+   [38;2;153;153;153m3. [39mNo
+
+ [38;2;153;153;153mEsc to cancel · Tab to amend
+
+
+
+
+
+
+
+
+
+
+
+[39m                                                                                                                                                                                                      
+
+
+
+                                                    

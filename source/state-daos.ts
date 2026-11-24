@@ -23,6 +23,8 @@ import {
 	SqliteCompanionWidthDao,
 } from './companion-width-sqlite.ts';
 import {getMainRepoRoot, readHomeSqliteState} from './config.ts';
+import {holdsDir, JsonHoldDao, type HoldDao} from './holds.ts';
+import {SqliteHoldDao} from './holds-sqlite.ts';
 import {
 	getHighlightFilePath,
 	JsonHighlightDao,
@@ -109,6 +111,7 @@ export type StateDaos = {
 	companionWidths: CompanionWidthDao;
 	companionRequests: CompanionRequestDao;
 	schedules: ScheduleDao;
+	holds: HoldDao;
 	prLinkStamp: PrLinkStampDao;
 	programStatus: ProgramStatusDao;
 	tuiMarker: TuiMarkerDao;
@@ -197,6 +200,7 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		schedulesDir(repo, stateDir),
 		queuedMessagesDir(repo, stateDir),
 	);
+	const jsonHolds = new JsonHoldDao(holdsDir(repo, stateDir));
 	const jsonPrLinkStamp = new JsonPrLinkStampDao(
 		prLinkStampPath(stateDir),
 		clock,
@@ -236,6 +240,7 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 			companionWidths: jsonCompanionWidths,
 			companionRequests: jsonCompanionRequests,
 			schedules: jsonSchedules,
+			holds: jsonHolds,
 			prLinkStamp: jsonPrLinkStamp,
 			programStatus,
 			tuiMarker: new JsonTuiMarkerDao(tuiMarkerFile),
@@ -284,6 +289,7 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 			jsonCompanionRequests,
 		),
 		schedules: new SqliteScheduleDao(openDb, repo, jsonSchedules),
+		holds: new SqliteHoldDao(openDb, repo, jsonHolds),
 		prLinkStamp: new SqlitePrLinkStampDao(openDb, jsonPrLinkStamp, clock),
 		programStatus,
 		tuiMarker: new SqliteTuiMarkerDao(openDb, repo, tuiMarkerFile),

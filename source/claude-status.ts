@@ -25,6 +25,11 @@ export interface ClaudeSessionState {
 	currentTool?: string;
 	event?: string;
 	cwd?: string;
+	/**
+	 * The files of the file-tool calls not finished when a permission prompt
+	 * came up, one of which the prompt is for.
+	 */
+	pendingFiles?: string[];
 }
 export const STABLE_STATUSES = new Set<ClaudeStatus>([
 	'waiting_for_input',
@@ -133,14 +138,16 @@ function sessionState(
 		currentTool: string | undefined;
 		event: string | undefined;
 		cwd: string | undefined;
+		pendingFiles: string[] | undefined;
 	},
 ): ClaudeSessionState {
-	const {currentTool, event, cwd} = reported;
+	const {currentTool, event, cwd, pendingFiles} = reported;
 	return {
 		...required,
 		...(currentTool === undefined ? {} : {currentTool}),
 		...(event === undefined ? {} : {event}),
 		...(cwd === undefined ? {} : {cwd}),
+		...(pendingFiles === undefined ? {} : {pendingFiles}),
 	};
 }
 
@@ -158,6 +165,7 @@ export function sessionStateOf(value: unknown): ClaudeSessionState | undefined {
 		currentTool,
 		event,
 		cwd,
+		pendingFiles,
 	} = record ?? {};
 	if (
 		typeof sessionId !== 'string' ||
@@ -166,12 +174,22 @@ export function sessionStateOf(value: unknown): ClaudeSessionState | undefined {
 		typeof lastUpdate !== 'number' ||
 		!isOptionalString(currentTool) ||
 		!isOptionalString(event) ||
-		!isOptionalString(cwd)
+		!isOptionalString(cwd) ||
+		!(
+			pendingFiles === undefined ||
+			(Array.isArray(pendingFiles) &&
+				pendingFiles.every(file => typeof file === 'string'))
+		)
 	)
 		return undefined;
 	return sessionState(
 		{sessionId, workspaceName, status: status as ClaudeStatus, lastUpdate},
-		{currentTool, event, cwd},
+		{
+			currentTool,
+			event,
+			cwd,
+			pendingFiles: pendingFiles as string[] | undefined,
+		},
 	);
 }
 

@@ -10,9 +10,12 @@ import {
 } from './approve-classifier.ts';
 
 const request = {
+	tool: 'Bash command',
+	description: 'Build the app',
 	command: 'bun run build',
+	worktree: '/home/u/.worktrees/repo/STA-1',
 	cwd: '/home/u/.worktrees/repo/STA-1',
-	scratchRoots: ['/tmp/q-'],
+	tempRoots: ['/tmp/'],
 };
 
 const answering =
@@ -28,13 +31,23 @@ test('a yes from the model approves, with its reason', async t => {
 			request,
 			answering(verdict({approve: true, reason: 'a local build'})),
 		),
-		{allow: true, reason: 'a local build'},
+		{kind: 'approve', reason: 'a local build'},
 	);
 });
 
-test('anything short of a clear yes leaves it for a person', async t => {
+test('a no from the model holds, with its reason', async t => {
+	t.deepEqual(
+		await classifyCommand(
+			request,
+			answering(verdict({approve: false, reason: 'it deploys'})),
+		),
+		{kind: 'hold', reason: 'the approval check said no: it deploys'},
+	);
+});
+
+test('a check that gives no clear answer is unavailable, not a no', async t => {
 	const runs: ClassifierRun[] = [
-		answering(verdict({approve: false, reason: 'pushes'})),
+		answering(verdict({approve: false})),
 		answering(verdict({approve: 'yes', reason: 'x'})),
 		answering(verdict(undefined)),
 		answering('not json'),
@@ -46,22 +59,47 @@ test('anything short of a clear yes leaves it for a person', async t => {
 	const verdicts = await Promise.all(
 		runs.map(async run => classifyCommand(request, run)),
 	);
-	t.true(verdicts.every(verdict => !verdict.allow));
+	t.true(verdicts.every(verdict => verdict.kind === 'unavailable'));
 });
 
-test('the model is told where the agent works and which dirs are scratch', t => {
+test('a check that fails to run is tried once more', async t => {
+	let calls = 0;
+	const flaky: ClassifierRun = async () => {
+		calls++;
+		return calls === 1
+			? {status: 1, stdout: ''}
+			: {status: 0, stdout: verdict({approve: true, reason: 'fine'})};
+	};
+	t.deepEqual(await classifyCommand(request, flaky), {
+		kind: 'approve',
+		reason: 'fine',
+	});
+	t.is(calls, 2);
+
+	let failures = 0;
+	await classifyCommand(request, async () => {
+		failures++;
+		return {status: 1, stdout: ''};
+	});
+	t.is(failures, 2);
+});
+
+test('the model is told the tool, where the agent works and which dirs are temp', t => {
 	t.is(
 		classifierInput(request),
 		[
+			'Tool: Bash command',
+			'Purpose: Build the app',
+			'Worktree: /home/u/.worktrees/repo/STA-1',
 			'Working directory: /home/u/.worktrees/repo/STA-1',
-			'Temp scratch directories: /tmp/q-',
-			'Command:',
+			'Temp directories: /tmp/',
+			'Call:',
 			'bun run build',
 		].join('\n'),
 	);
 });
 
-test('a check that outlives its deadline is refused then, even if a child keeps its output open', async t => {
+test('a check that outlives its deadline ends then, even if a child keeps its output open', async t => {
 	const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'classifier-'));
 	t.teardown(() => {
 		fs.rmSync(bin, {recursive: true, force: true});

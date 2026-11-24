@@ -24,16 +24,23 @@ import {
 } from './space-watch.ts';
 import {
 	parseAgentScreen,
-	type CodexDialog,
 	type PermissionPrompt,
 	type PromptOption,
 	type QuestionDialog,
 } from './agent-screen.ts';
 import {
-	checkApproval,
-	type ApprovalPolicy,
-	type ApprovalVerdict,
-} from './approve-policy.ts';
+	decideAnswer,
+	holdPlan,
+	optionKeys,
+	POLICY_REFUSED_EXIT,
+	type CheckRequest,
+	type HoldPlan,
+} from './answer-decision.ts';
+import type {ApprovalPolicy} from './approve-policy.ts';
+
+import type {ClassifierVerdict} from './approve-classifier.ts';
+import type {ClaudeSessionState, StoredClaudeStatus} from './claude-status.ts';
+import {holdFor, resolveHold, type Hold, type HoldDao} from './holds.ts';
 import {readCompanionPane} from './companion.ts';
 import {
 	fireJob,
@@ -55,9 +62,8 @@ import {
 	type SuperviseCommand,
 } from './supervise-args.ts';
 import {recordSupervision, type SuperviseEntry} from './supervise-log.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
-
-export const POLICY_REFUSED_EXIT = 3;
 
 export type SuperviseDeps = {
 	repo: () => string;
@@ -66,6 +72,8 @@ export type SuperviseDeps = {
 	/** The hook file's key for a space: `{repo}-{branch}` for main. */
 	hookKey: (key: string) => Promise<string>;
 	readHook: AgentStateDeps['readHook'];
+	/** The whole record the hook last wrote, with the prompt's file and cwd. */
+	readHookState: (hookKey: string) => Promise<StoredClaudeStatus>;
 	readSnapshot: AgentStateDeps['readSnapshot'];
 	runner: OuterTmuxRunner;
 	serverRunner: OuterTmuxRunner;
@@ -77,10 +85,13 @@ export type SuperviseDeps = {
 	sendKeys: (key: string, keys: string[]) => 'sent' | 'no-session' | 'failed';
 	/** Types text as it is, where sendKeys would read `Enter` as the key. */
 	typeText: (key: string, text: string) => 'sent' | 'no-session' | 'failed';
-	/** The model check a command passes after the hard refusals. */
-	classify: (key: string, command: string) => Promise<ApprovalVerdict>;
-	policy: ApprovalPolicy;
+	/** The model check a call passes after the hard stops. */
+	classify: (key: string, request: CheckRequest) => Promise<ClassifierVerdict>;
+	/** What is inside a space, read for each answer. */
+	policy: (key: string) => ApprovalPolicy;
 	store: () => ScheduleDao;
+	holds: () => HoldDao;
+	newHoldId: () => string;
 	timers: () => TimerBackend;
 	caller: string;
 	readStdin: () => string | undefined;
@@ -301,6 +312,18 @@ function describeChanges(
 	);
 }
 
+/**
+ * Why the caller may not answer prompts or resolve holds: only the chef and
+ * the sous-chef in the main checkout do, or one space could approve its way
+ * past another's hold.
+ */
+function refusedCaller(deps: SuperviseDeps): string | null {
+	const own = ownSpace(deps);
+	return own && own !== MAIN_WORKTREE_KEY
+		? `${own} is a space; only the chef or the sous-chef answers prompts and resolves holds`
+		: null;
+}
+
 /** The caller's own space, which watching every space leaves out. */
 function ownSpace(deps: SuperviseDeps): string | null {
 	if (deps.caller === 'user' || deps.caller.startsWith('timer:')) return null;
@@ -403,26 +426,6 @@ function formatChange(change: SpaceChange): string {
 // Codex redraws its composer once the dialog closes.
 const MODEL_SWITCH_SETTLE_MS = 500;
 
-type AnswerResult =
-	| {ok: true; pressed: string[]; entry: SuperviseEntry}
-	| {ok: false; exit: number; message: string; entry?: SuperviseEntry};
-
-/**
- * A digit on a Codex dialog only moves the highlight, except one that picks
- * Quit at once, so the arrows move to the option and Enter takes it.
- */
-function codexDialogKeys(
-	dialog: CodexDialog | null,
-	option: number,
-): string[] | null {
-	if (!dialog?.selected || option > dialog.options) return null;
-	const steps = option - dialog.selected;
-	return [
-		...Array.from({length: Math.abs(steps)}, () => (steps > 0 ? 'Down' : 'Up')),
-		'Enter',
-	];
-}
-
 // How long an agent gets to redraw after an answer before it counts as not taken.
 const ANSWER_SETTLE_MS = 3000;
 const ANSWER_POLL_MS = 250;
@@ -431,6 +434,9 @@ const ANSWER_POLL_MS = 250;
 function promptShown(report: AgentStateReport): string {
 	return JSON.stringify([
 		report.state,
+		report.permission?.tool,
+		report.permission?.description,
+		report.permission?.question,
 		report.permission?.command,
 		report.question?.question,
 		report.question?.options.map(option => [option.selected, option.checked]),
@@ -447,6 +453,39 @@ async function answerTaken(
 ): Promise<boolean> {
 	const shown = promptShown(before);
 	return settlesOn(key, report => promptShown(report) !== shown, deps);
+}
+
+/**
+ * Whether the agent took a press. Claude can take a digit typed right after
+ * its prompt appears as a move of its selection only, most often with a
+ * draft in the input box; then the option is selected and Enter takes it.
+ */
+async function answerSettled(
+	key: string,
+	before: AgentStateReport,
+	option: number | undefined,
+	deps: SuperviseDeps,
+): Promise<boolean> {
+	if (await answerTaken(key, before, deps)) return true;
+	const {permission} = before;
+	if (option === undefined || permission?.choose !== 'digit') return false;
+	const now = await readState(key, deps);
+	const selected = now.permission?.options.find(
+		candidate => candidate.selected,
+	);
+	// The same diff to another file reads the same command; only the very
+	// prompt that was judged may be approved.
+	const call = (prompt: typeof permission | null | undefined) =>
+		JSON.stringify([
+			prompt?.tool,
+			prompt?.description,
+			prompt?.question,
+			prompt?.command,
+		]);
+	if (call(now.permission) !== call(permission) || selected?.number !== option)
+		return false;
+	if (deps.sendKeys(key, ['Enter']) !== 'sent') return false;
+	return answerTaken(key, before, deps);
 }
 
 type AnswerStep = {
@@ -628,186 +667,128 @@ async function settlesOn(
 	return false;
 }
 
-function decideAnswer(
-	command: Extract<SuperviseCommand, {verb: 'answer'}>,
+// Claude reports a permission prompt several seconds after drawing it.
+const HOOK_REPORT_MS = 10_000;
+
+/**
+ * The hook's record of the prompt that is up, or null when Claude hasn't
+ * reported it. Only a Claude prompt being approved is waited for: Codex has
+ * no hook, and a No or a forced press doesn't read it.
+ */
+async function promptHook(
 	key: string,
 	report: AgentStateReport,
-	policy: ApprovalPolicy,
-): AnswerResult {
-	const chosen = command.options[0];
-	if (report.state === 'dialog') {
-		// Codex's dialogs decide things like trusting a folder, and Escape on
-		// one can quit Codex, so a person answers them.
-		const sent = chosen === undefined ? command.keys.join(' ') : String(chosen);
-		const entry = {
-			action: 'answer' as const,
-			key,
-			sent,
-			detail: report.codexDialog?.title ?? '',
-		};
-		if (!command.force) {
-			return {
-				ok: false,
-				exit: POLICY_REFUSED_EXIT,
-				message: `${key} shows a Codex dialog ("${report.codexDialog?.title ?? ''}"); a person answers it`,
-				entry: {...entry, verdict: 'refused: Codex dialog'},
-			};
-		}
+	command: Extract<SuperviseCommand, {verb: 'answer'}>,
+	deps: SuperviseDeps,
+): Promise<ClaudeSessionState | null> {
+	const approving =
+		report.permission?.choose === 'digit' &&
+		!command.force &&
+		command.keys.length === 0 &&
+		report.permission.options.find(
+			option => option.number === command.options[0],
+		)?.kind === 'approve_once';
+	for (let waited = 0; ; waited += ANSWER_POLL_MS) {
+		// eslint-disable-next-line no-await-in-loop
+		const stored = await deps.readHookState(await deps.hookKey(key));
+		if (
+			stored.kind === 'state' &&
+			stored.state.status === 'waiting_for_approval' &&
+			stored.state.event === 'Notification'
+		)
+			return stored.state;
+		if (!approving || waited >= HOOK_REPORT_MS) return null;
+		// eslint-disable-next-line no-await-in-loop
+		await deps.sleep(ANSWER_POLL_MS);
+	}
+}
 
-		if (chosen === undefined) {
-			return {
-				ok: true,
-				pressed: command.keys,
-				entry: {...entry, verdict: 'forced'},
-			};
-		}
+function describeHold(hold: Hold): string {
+	// A file prompt's command is its diff; the file says what it was for.
+	const call = hold.filePath ?? hold.command.split('\n')[0]!;
+	return `${hold.id}  ${hold.key}  ${hold.state}  ${hold.tool || 'prompt'}: ${call}\n    ${hold.reason}`;
+}
 
-		const pressed = codexDialogKeys(report.codexDialog, chosen);
-		if (!pressed) {
-			return {
-				ok: false,
-				exit: 1,
-				message: `${key}'s Codex dialog has no option ${chosen}; use --keys`,
-			};
-		}
+/** What the agent is told when its prompt is held. */
+export function holdMessage(id: string, reason: string): string {
+	return `Held for the chef (${id}): ${reason}. Don't retry it or work around it. Carry on with work that doesn't depend on it, and say in your summary that it's waiting on the chef.`;
+}
 
-		return {
-			ok: true,
-			pressed,
-			entry: {...entry, sent: pressed.join(' '), verdict: 'forced'},
-		};
+/**
+ * Declines a prompt for the chef: presses its No (or Escape), tells the
+ * agent to carry on, and records the hold. A retry of a prompt already held
+ * reuses its open hold.
+ */
+async function holdPrompt(
+	key: string,
+	before: AgentStateReport,
+	plan: HoldPlan,
+	deps: SuperviseDeps,
+	log: (entry: SuperviseEntry) => void,
+): Promise<number> {
+	const {reason, prompt, entry} = plan;
+	if (promptShown(await readState(key, deps)) !== promptShown(before)) {
+		log({...entry, detail: 'the prompt changed before it could be held'});
+		deps.err(
+			`${key}'s prompt changed before it could be held; nothing was pressed`,
+		);
+		return 1;
 	}
 
-	if (report.state !== 'permission' && report.state !== 'question') {
-		return {
-			ok: false,
-			exit: 1,
-			message: `${key} is ${report.state}, not at a prompt`,
-		};
+	const {permission} = before;
+	const deny = permission?.options.find(option => option.kind === 'deny');
+	const keys = (permission && deny && optionKeys(permission, deny.number)) ?? [
+		'Escape',
+	];
+	if (deps.sendKeys(key, keys) !== 'sent') {
+		deps.err(`Could not press ${keys.join(' ')} in ${key}`);
+		return 1;
 	}
 
-	const {permission} = report;
-	const base = {
-		action: 'answer' as const,
-		key,
-		...(permission ? {command: permission.command} : {}),
+	if (!(await answerSettled(key, before, deny?.number, deps))) {
+		log({...entry, sent: keys.join(' '), detail: 'the prompt did not change'});
+		deps.err(
+			`Pressed ${keys.join(' ')} in ${key} to hold its prompt, but it still shows. Check it with \`pappardelle screen ${key}\``,
+		);
+		return 1;
+	}
+
+	const store = deps.holds();
+	const hold: Hold = holdFor(store.list(), prompt, 'open') ?? {
+		...prompt,
+		id: deps.newHoldId(),
+		reason,
+		state: 'open',
+		createdAt: deps.now().toISOString(),
+		resolvedAt: null,
 	};
-	if (chosen === undefined) {
-		const onlyEscape = command.keys.every(name => name === 'Escape');
-		if (report.state === 'permission' && !onlyEscape && !command.force) {
-			return {
-				ok: false,
-				exit: POLICY_REFUSED_EXIT,
-				message: `Keys other than Escape on ${key}'s permission prompt need --force; answer it with --option`,
-				entry: {
-					...base,
-					sent: command.keys.join(' '),
-					verdict: 'refused: keys on a permission prompt',
-				},
-			};
-		}
-
-		return {
-			ok: true,
-			pressed: command.keys,
-			entry: {...base, sent: command.keys.join(' ')},
-		};
-	}
-
-	const pressed = [String(chosen)];
-	if (report.state === 'question') {
-		const label = report.question?.options.find(
-			option => option.number === chosen,
-		)?.label;
-		return {
-			ok: true,
-			pressed,
-			entry: {
-				...base,
-				sent: label ? `${chosen}. ${label}` : pressed[0],
-				...(report.question ? {detail: report.question.question} : {}),
-			},
-		};
-	}
-
-	const option = permission?.options.find(
-		candidate => candidate.number === chosen,
+	const message = holdMessage(hold.id, reason);
+	// A draft in the input box can be the user's typing, so it is left for
+	// the sous-chef to send the message over once the space is free.
+	const sent = await deps.send(key, message);
+	await store.save(hold);
+	log({
+		action: 'hold',
+		key,
+		hold: hold.id,
+		command: prompt.command,
+		reason,
+		sent: message,
+		detail: sent,
+	});
+	deps.out(
+		[
+			`Held ${hold.id}: ${reason}`,
+			prompt.command,
+			...(sent === 'sent'
+				? []
+				: [
+						`The message didn't reach ${key} (${sent}). Send it with space_send once the space is free:`,
+						message,
+					]),
+		].join('\n'),
 	);
-	if (!permission || !option) {
-		// The hook says a prompt is up but the screen shows none to check.
-		if (command.force)
-			return {
-				ok: true,
-				pressed,
-				entry: {...base, sent: pressed[0], verdict: 'forced'},
-			};
-		return {
-			ok: false,
-			exit: POLICY_REFUSED_EXIT,
-			message: `Can't read option ${chosen} on ${key}'s prompt; check it with \`pappardelle screen ${key}\``,
-		};
-	}
-
-	const entry = {...base, sent: `${option.number}. ${option.label}`};
-	if (option.kind === 'deny' || command.force) {
-		return {
-			ok: true,
-			pressed,
-			entry: {...entry, ...(command.force ? {verdict: 'forced'} : {})},
-		};
-	}
-
-	if (permission.cutOff) {
-		return {
-			ok: false,
-			exit: POLICY_REFUSED_EXIT,
-			message: `The top of ${key}'s prompt is off its screen, so what it would run can't be checked; a person decides this one. It ends:\n${permission.command}`,
-			entry: {...entry, verdict: 'refused: prompt cut off'},
-		};
-	}
-
-	// The policy reads shell commands. An edit or a write is checked by
-	// neither its path nor its content here, so a person approves it.
-	if (option.kind === 'approve_once' && permission.tool !== 'Bash command') {
-		return {
-			ok: false,
-			exit: POLICY_REFUSED_EXIT,
-			message: `Only Bash commands are approved without a person; this is "${permission.tool}"${permission.description ? ` (${permission.description})` : ''}`,
-			entry: {...entry, verdict: `refused: ${permission.tool}`},
-		};
-	}
-
-	// An option worded neither Yes nor No may approve anything; its label is
-	// all there is to go on.
-	if (option.kind === 'other') {
-		return {
-			ok: false,
-			exit: POLICY_REFUSED_EXIT,
-			message: `"${option.label}" isn't a plain yes or no; a person decides it`,
-			entry: {...entry, verdict: 'refused: unrecognised option'},
-		};
-	}
-
-	if (option.kind === 'approve_always') {
-		return {
-			ok: false,
-			exit: POLICY_REFUSED_EXIT,
-			message: `"${option.label}" approves more than this command; a person decides that`,
-			entry: {...entry, verdict: 'refused: approves more than this command'},
-		};
-	}
-
-	const verdict = checkApproval(permission.command, policy);
-	if (!verdict.allow) {
-		return {
-			ok: false,
-			exit: POLICY_REFUSED_EXIT,
-			message: `Not approved (${verdict.reason}); a person decides this one:\n${permission.command}`,
-			entry: {...entry, verdict: `refused: ${verdict.reason}`},
-		};
-	}
-
-	return {ok: true, pressed, entry: {...entry, verdict: 'allowed'}};
+	return 0;
 }
 
 async function newJob(
@@ -1056,6 +1037,12 @@ async function execute(
 		}
 
 		case 'answer': {
+			const refused = refusedCaller(deps);
+			if (refused) {
+				deps.err(refused);
+				return POLICY_REFUSED_EXIT;
+			}
+
 			const key = deps.resolveKey(command.key);
 			const before = await readState(key, deps);
 			const {question} = before;
@@ -1102,61 +1089,98 @@ async function execute(
 				return 1;
 			}
 
-			const decision = decideAnswer(command, key, before, deps.policy);
-			if (!decision.ok) {
+			const holds = deps.holds();
+			const decision = decideAnswer(command, key, before, {
+				policy: deps.policy(key),
+				hook: await promptHook(key, before, command, deps),
+				holds: holds.list(),
+			});
+			if (decision.kind === 'error') {
 				if (decision.entry) log(decision.entry);
 				deps.err(decision.message);
 				return decision.exit;
 			}
 
-			let approvedBecause: string | undefined;
-			if (decision.entry.verdict === 'allowed' && decision.entry.command) {
-				const verdict = await deps.classify(key, decision.entry.command);
-				if (!verdict.allow) {
-					log({...decision.entry, verdict: `refused: ${verdict.reason}`});
+			if (decision.kind === 'hold')
+				return holdPrompt(key, before, decision, deps, log);
+
+			const {entry, pressed} = decision;
+			let allowed = decision.kind === 'press' ? decision.allowed : undefined;
+			if (decision.kind === 'check') {
+				const verdict = await deps.classify(key, decision.request);
+				if (verdict.kind === 'unavailable') {
+					log({...entry, verdict: `unavailable: ${verdict.reason}`});
 					deps.err(
-						`Not approved (${verdict.reason}); a person decides this one:\n${decision.entry.command}`,
+						`${verdict.reason}; nothing was pressed in ${key}. Try again shortly`,
 					);
-					return POLICY_REFUSED_EXIT;
+					return 1;
+				}
+
+				if (verdict.kind === 'hold') {
+					return holdPrompt(
+						key,
+						before,
+						holdPlan(decision.prompt, entry, verdict.reason),
+						deps,
+						log,
+					);
 				}
 
 				// The check takes seconds, and the key must answer the prompt it
 				// judged, not one that replaced it meanwhile.
 				if (promptShown(await readState(key, deps)) !== promptShown(before)) {
-					log({
-						...decision.entry,
-						detail: 'the prompt changed during the check',
-					});
+					log({...entry, detail: 'the prompt changed during the check'});
 					deps.err(
 						`${key}'s prompt changed while its command was being checked; nothing was pressed`,
 					);
 					return 1;
 				}
 
-				approvedBecause = verdict.reason;
-				if (approvedBecause)
-					decision.entry.verdict = `allowed: ${approvedBecause}`;
-			}
-
-			if (deps.sendKeys(key, decision.pressed) !== 'sent') {
-				deps.err(`Could not press ${decision.pressed.join(' ')} in ${key}`);
-				return 1;
-			}
-
-			const pressed = decision.entry.sent ?? decision.pressed.join(' ');
-			if (!(await answerTaken(key, before, deps))) {
-				log({...decision.entry, detail: 'the prompt did not change'});
+				allowed = verdict.reason ?? '';
+				entry.verdict = allowed ? `allowed: ${allowed}` : 'allowed';
+			} else if (
+				// The wait for Claude's prompt record can outlast the prompt it was for.
+				promptShown(await readState(key, deps)) !== promptShown(before)
+			) {
 				deps.err(
-					`Pressed ${pressed} in ${key}, but it still shows the same prompt. Check it with \`pappardelle screen ${key}\``,
+					`${key}'s prompt changed before it was answered; nothing was pressed`,
 				);
 				return 1;
 			}
 
-			log(decision.entry);
+			if (deps.sendKeys(key, pressed) !== 'sent') {
+				deps.err(`Could not press ${pressed.join(' ')} in ${key}`);
+				return 1;
+			}
+
+			const shown = entry.sent ?? pressed.join(' ');
+			if (
+				!(await answerSettled(
+					key,
+					before,
+					before.state === 'permission' ? command.options[0] : undefined,
+					deps,
+				))
+			) {
+				log({...entry, detail: 'the prompt did not change'});
+				deps.err(
+					`Pressed ${shown} in ${key}, but it still shows the same prompt. Check it with \`pappardelle screen ${key}\``,
+				);
+				return 1;
+			}
+
+			log(entry);
+			const used = decision.kind === 'press' ? decision.hold : undefined;
+			if (used) {
+				// Only once the press is taken, so a failed one keeps the approval.
+				await holds.save(resolveHold(used, 'used', deps.now()));
+				log({action: 'hold_use', key, hold: used.id, command: used.command});
+			}
+
 			deps.out(
-				approvedBecause
-					? `Pressed ${pressed} in ${key} (allowed: ${approvedBecause})`
-					: `Pressed ${pressed} in ${key}`,
+				allowed === undefined
+					? `Pressed ${shown} in ${key}`
+					: `Pressed ${shown} in ${key} (${entry.verdict})`,
 			);
 			return 0;
 		}
@@ -1272,6 +1296,78 @@ async function execute(
 			await deps.store().delete(job.id);
 			log({action: 'unschedule', key: job.key, detail: describeJob(job)});
 			deps.out(`Cancelled ${describeJob(job)}`);
+			return 0;
+		}
+
+		case 'holds': {
+			const key = command.key ? deps.resolveKey(command.key) : undefined;
+			const holds = deps
+				.holds()
+				.list()
+				.filter(
+					hold =>
+						(!key || hold.key === key) &&
+						(command.all || hold.state === 'open'),
+				);
+			deps.out(
+				command.json
+					? JSON.stringify(holds, null, 2)
+					: holds.length > 0
+						? holds.map(hold => describeHold(hold)).join('\n')
+						: command.all
+							? 'No holds'
+							: 'No open holds',
+			);
+			return 0;
+		}
+
+		case 'hold-resolve': {
+			const refused = refusedCaller(deps);
+			if (refused) {
+				deps.err(refused);
+				return POLICY_REFUSED_EXIT;
+			}
+
+			const store = deps.holds();
+			const hold = store.load(command.id);
+			if (!hold) {
+				deps.err(`No hold ${command.id}`);
+				return 1;
+			}
+
+			if (hold.state !== 'open') {
+				deps.err(`Hold ${hold.id} is already ${hold.state}`);
+				return 1;
+			}
+
+			if (command.resolution === 'approve' && ownSpace(deps) === hold.key) {
+				deps.err(
+					`${hold.key} can't approve its own hold; the chef decides ${hold.id}`,
+				);
+				return POLICY_REFUSED_EXIT;
+			}
+
+			if (command.resolution === 'approve' && !hold.approvable) {
+				deps.err(
+					`${hold.id} is a Codex edit or a prompt cut off the screen, which an approval can't match; answer it in ${hold.key} or dismiss it`,
+				);
+				return POLICY_REFUSED_EXIT;
+			}
+
+			const state = command.resolution === 'approve' ? 'approved' : 'dismissed';
+			await store.save(resolveHold(hold, state, deps.now()));
+			log({
+				action:
+					command.resolution === 'approve' ? 'hold_approve' : 'hold_dismiss',
+				key: hold.key,
+				hold: hold.id,
+				command: hold.command,
+			});
+			deps.out(
+				command.resolution === 'approve'
+					? `Approved ${hold.id}: ${hold.key}'s retry of that prompt goes through once. Tell the agent to retry it`
+					: `Dismissed ${hold.id}`,
+			);
 			return 0;
 		}
 

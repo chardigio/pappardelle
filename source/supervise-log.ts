@@ -16,7 +16,7 @@ export type SuperviseAction =
 	| 'unschedule'
 	| 'fire';
 
-export type SuperviseEntry = {
+export type ActionEntry = {
 	action: SuperviseAction;
 	/** The target space. */
 	key: string;
@@ -27,6 +27,28 @@ export type SuperviseEntry = {
 	verdict?: string;
 	detail?: string;
 };
+
+/** A prompt declined for the chef, and the message the agent was sent. */
+export type HoldEntry = {
+	action: 'hold';
+	key: string;
+	hold: string;
+	command: string;
+	reason: string;
+	sent: string;
+	/** How the message went: sent, or why it didn't. */
+	detail: string;
+};
+
+/** The chef's decision on a hold, or the retry an approved hold let through. */
+export type HoldChangeEntry = {
+	action: 'hold_approve' | 'hold_dismiss' | 'hold_use';
+	key: string;
+	hold: string;
+	command: string;
+};
+
+export type SuperviseEntry = ActionEntry | HoldEntry | HoldChangeEntry;
 
 /** The supervising agent's space, `timer:{id}`, or `user`. */
 export type Caller = string;

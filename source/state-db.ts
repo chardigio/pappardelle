@@ -199,6 +199,21 @@ const MIGRATIONS: string[] = [
 		checked_at INTEGER NOT NULL,
 		latest_version TEXT NOT NULL
 	) STRICT`,
+	`CREATE TABLE holds (
+		repo TEXT NOT NULL,
+		id TEXT NOT NULL,
+		key TEXT NOT NULL,
+		tool TEXT NOT NULL,
+		command TEXT NOT NULL,
+		file_path TEXT,
+		cwd TEXT,
+		approvable INTEGER NOT NULL CHECK (approvable IN (0, 1)),
+		reason TEXT NOT NULL,
+		state TEXT NOT NULL CHECK (state IN ('open', 'approved', 'dismissed', 'used')),
+		created_at TEXT NOT NULL,
+		resolved_at TEXT,
+		PRIMARY KEY (repo, id)
+	) STRICT`,
 ];
 
 let defaultPathForTests: string | undefined;
