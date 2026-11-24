@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import test from 'ava';
+import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
 import {
 	sqliteRun,
 	testTmuxSpaces,
@@ -156,6 +157,17 @@ test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced'
 			lockDir,
 			force: true,
 		}),
+		'sent',
+	);
+});
+
+test("sendToSpaceAgent leaves a command typed in Claude's shell mode alone unless forced", async t => {
+	const screen = agentScreenFixture('claude-shell-draft');
+	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1'], screen});
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'draft');
+	t.deepEqual(calls, []);
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, force: true}),
 		'sent',
 	);
 });

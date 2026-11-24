@@ -79,7 +79,10 @@ export type AgentScreen = {
 	permission: PermissionPrompt | null;
 	question: QuestionDialog | null;
 	usageLimit: UsageLimit | null;
-	/** The agent's input box text, `''` when it shows only its placeholder. */
+	/**
+	 * The agent's input box text, `''` when it shows only its placeholder. A
+	 * command typed in Claude's shell mode starts with `!`.
+	 */
 	composer: string | null;
 	/** Codex's own dialogs (folder trust, model switch) that take the keyboard. */
 	codexDialog: CodexDialog | null;
@@ -383,16 +386,22 @@ function parseUsageLimit(lines: string[], now: Date): UsageLimit | null {
 	};
 }
 
-/** The input line: Codex's `›`, or Claude's `❯` boxed between two rules. */
-function composerLine(lines: string[]): {at: number; glyph: string} | null {
+/**
+ * The input line: Codex's `›`, or Claude's `❯` boxed between two rules,
+ * which Claude draws as `!` in shell mode.
+ */
+function composerLine(
+	lines: string[],
+): {at: number; glyph: '›' | '❯' | '!'} | null {
 	const codex = lastIndex(lines, line => line.startsWith('› ') || line === '›');
 	const claude = lastIndex(
 		lines,
 		(line, index) =>
-			line.startsWith('❯') && INPUT_RULE.test(lines[index - 1] ?? ''),
+			/^[❯!]/.test(line) && INPUT_RULE.test(lines[index - 1] ?? ''),
 	);
 	if (codex === -1 && claude === -1) return null;
-	return codex > claude ? {at: codex, glyph: '›'} : {at: claude, glyph: '❯'};
+	if (codex > claude) return {at: codex, glyph: '›'};
+	return {at: claude, glyph: lines[claude]!.startsWith('!') ? '!' : '❯'};
 }
 
 function parseComposer(raw: string[], lines: string[]): string | null {
@@ -406,7 +415,7 @@ function parseComposer(raw: string[], lines: string[]): string | null {
 	if (/^[ \u00A0]/.test(afterPrompt)) afterPrompt = afterPrompt.slice(1);
 	if (afterPrompt.startsWith(`${ESC}[2m`)) return '';
 	const draft = [lines[at]!.slice(lines[at]!.indexOf(glyph) + 1)];
-	if (glyph === '❯') {
+	if (glyph !== '›') {
 		// A long Claude draft wraps onto more lines inside the box.
 		for (const next of lines.slice(at + 1)) {
 			if (RULE.test(next)) break;
@@ -414,10 +423,11 @@ function parseComposer(raw: string[], lines: string[]): string | null {
 		}
 	}
 
-	return draft
+	const text = draft
 		.map(text => text.trim())
 		.filter(Boolean)
 		.join('\n');
+	return glyph === '!' && text ? `!${text}` : text;
 }
 
 function parseCodexDialog(raw: string[], lines: string[]): CodexDialog | null {

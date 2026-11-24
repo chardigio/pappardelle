@@ -1,22 +1,12 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import test from 'ava';
+import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
 import {parseAgentScreen, parseResetTime} from './agent-screen.ts';
 
-// Captured from real Claude Code (2.1.319, 2.1.327) and Codex (0.166) sessions.
-const fixtures = path.join(
-	import.meta.dirname,
-	'..',
-	'test',
-	'fixtures',
-	'agent-screens',
-);
+// Captured from real Claude Code (2.1.319, 2.1.327, 2.1.330, 2.1.331) and Codex
+// (0.166) sessions.
 const NOW = new Date(2026, 10, 9, 12, 0);
 const screen = (name: string, now = NOW) =>
-	parseAgentScreen(
-		fs.readFileSync(path.join(fixtures, `${name}.txt`), 'utf8'),
-		now,
-	);
+	parseAgentScreen(agentScreenFixture(name), now);
 
 test('a Bash prompt gives its command and which options approve once or for good', t => {
 	const {permission, question} = screen('claude-permission-bash');
@@ -214,13 +204,18 @@ test("Claude's input box is found under a rule that carries the session name", t
 	t.is(screen('claude-draft-named').composer, 'a draft I have not sent yet');
 });
 
+test("a command typed in Claude's shell mode is a draft that starts with !", t => {
+	t.is(screen('claude-shell-draft').composer, '!ls -la');
+	const empty = screen('claude-shell-empty');
+	t.is(empty.composer, '');
+	t.false(empty.lines.some(line => line.includes('Try "edit')));
+	t.is(screen('claude-shell-empty-history').composer, '');
+});
+
 test("a message echoed into Claude's transcript is not taken for Codex's composer", t => {
 	const echo =
 		'\u001B[2m\u001B[37m›\u001B[0m \u001B[2m\u001B[37mMessage from @sous-chef\u001B[3m: keep going\u001B[0m';
-	const capture = fs.readFileSync(
-		path.join(fixtures, 'claude-suggestion-named.txt'),
-		'utf8',
-	);
+	const capture = agentScreenFixture('claude-suggestion-named');
 	const {composer, lines} = parseAgentScreen(`${echo}\n${capture}`, NOW);
 	t.is(composer, '');
 	t.true(lines.some(line => line.includes('Message from @sous-chef')));
