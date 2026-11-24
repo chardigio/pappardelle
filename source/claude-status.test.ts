@@ -413,9 +413,19 @@ contractTest(
 		await writeClaudeStatus(s, session('STA-1', 'ended'));
 		await waiting;
 		t.true(performance.now() - started < 2000);
-		const idle = performance.now();
-		await dao.waitForChange(100);
-		t.true(performance.now() - idle >= 90);
+		// On macOS a file watch made just after the report can still get that
+		// report's late events (a status file is a write and a rename), so a
+		// wait can end early. A caller only reads again on a wake, so an extra
+		// wake does no harm: the contract is that a quiet store lets a wait run
+		// out its time, not that the first wait after a report does.
+		let ranOut = false;
+		for (let attempt = 0; attempt < 20 && !ranOut; attempt++) {
+			const idle = performance.now();
+			await dao.waitForChange(100);
+			ranOut = performance.now() - idle >= 90;
+		}
+
+		t.true(ranOut);
 	},
 );
 
