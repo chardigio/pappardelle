@@ -1255,7 +1255,7 @@ test.serial(
 const INVALID_AGENT_PROFILE =
 	'agent_profiles:\n  opus:\n    command: claude\n    model: 7\n';
 const VALID_CONFIG = 'version: 1\nprofiles: {}\n';
-const projectConfig = () => join(process.cwd(), '.pappardelle.yml');
+const projectConfig = () => join(emptyRepository, '.pappardelle.yml');
 
 function withInvalidConfig(t: ExecutionContext): void {
 	isolatedHome(t);
@@ -1298,7 +1298,7 @@ const showsNoProgram = (
 
 const invalidConfigErrors = (issueKey: string) =>
 	getRecentErrors().filter(error =>
-		error.message.startsWith(`Agent of ${issueKey} not started`),
+		error.message.startsWith(`Sessions of ${issueKey} not started`),
 	);
 
 test.serial(
@@ -1399,3 +1399,46 @@ for (const [recovery, recover] of [
 		},
 	);
 }
+
+test.serial(
+	'an invalid config explains a held-back companion whose agent is running',
+	async t => {
+		withInvalidConfig(t);
+		const {companion} = sessionNamesFor('TEST-COMPANION', getRepoName());
+		const {calls, run} = tmuxMissingSessions(companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-COMPANION', '%0', '/tmp', undefined, {
+			run,
+		});
+		t.false(createsSession(calls, companion));
+		t.is(invalidConfigErrors('TEST-COMPANION').length, 1);
+		clearCurrentlyViewingSpace();
+	},
+);
+
+test.serial(
+	'a config that is still invalid in another way replaces the earlier report',
+	async t => {
+		withInvalidConfig(t);
+		const {agent, companion} = sessionNamesFor('TEST-EDITED', getRepoName());
+		const {run} = tmuxMissingSessions(agent, companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
+			run,
+		});
+		writeFileSync(
+			projectConfig(),
+			'agent_profiles:\n  opus:\n    command: claude\n    effort: 7\n',
+		);
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
+			run,
+		});
+		const [reported, ...more] = invalidConfigErrors('TEST-EDITED');
+		t.deepEqual(more, []);
+		t.true(reported?.message.includes('agent_profiles.opus.effort'));
+		clearCurrentlyViewingSpace();
+	},
+);

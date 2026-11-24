@@ -309,8 +309,10 @@ function reportInvalidConfig(
 	issueKey: string,
 	error: ConfigValidationError,
 ): void {
-	const message = `Agent of ${issueKey} ${INVALID_CONFIG_REPORT} ${error.errors.join('; ')}`;
+	const report = `Sessions of ${issueKey} ${INVALID_CONFIG_REPORT}`;
+	const message = `${report} ${error.errors.join('; ')}`;
 	if (getRecentErrors().some(entry => entry.message === message)) return;
+	dismissRecentErrors(entry => entry.message.startsWith(report));
 	log.error(message);
 }
 
@@ -2677,7 +2679,12 @@ async function attachViewers(
 					),
 			companionViewerPaneId
 				? invalidConfig
-					? innerSessionExistsAsync(sessions.companion, options.run ?? runTmux)
+					? resumeHeldBackCompanion(
+							issueKey,
+							sessions.companion,
+							options.run ?? runTmux,
+							invalidConfig,
+						)
 					: ensureCompanionSession(
 							issueKey,
 							mainWorktreePath,
@@ -4020,6 +4027,17 @@ async function resumeHeldBackAgent(
 	const resumed = await resumeAgentSession(issueKey, sessionName, run);
 	if (resumed === 'absent') reportInvalidConfig(issueKey, error);
 	return resumed === 'resumed';
+}
+
+async function resumeHeldBackCompanion(
+	issueKey: string,
+	sessionName: string,
+	run: AsyncTmuxRunner,
+	error: ConfigValidationError,
+): Promise<boolean> {
+	const exists = await innerSessionExistsAsync(sessionName, run);
+	if (!exists) reportInvalidConfig(issueKey, error);
+	return exists;
 }
 
 /**
