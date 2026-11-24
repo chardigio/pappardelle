@@ -48,12 +48,7 @@ cleanup() {
         env -u TMUX -u TMUX_PANE tmux -S "$SOCKET" kill-server 2>/dev/null
     fi
     rm -rf "$ROOT" "$HOME/.pappardelle/repos/$REPO_NAME"
-    if [[ -s "$TMUX_REFUSALS" ]]; then
-        echo "The test tmux guard refused tmux calls against the live tmux directory (docs/glossary.md):"
-        cat "$TMUX_REFUSALS"
-        status=1
-    fi
-    [[ -z "$TMUX_REFUSALS" ]] || rm -rf "${TMUX_REFUSALS%/*}"
+    "$SCRIPT_DIR/../test/helpers/tmux-guard-env.sh" --finish "$TMUX_REFUSALS" || status=1
     exit "$status"
 }
 trap cleanup EXIT

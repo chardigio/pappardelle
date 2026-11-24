@@ -1,9 +1,10 @@
 # shellcheck shell=sh
 # The test tmux guard (docs/glossary.md). Sourced by the tmux wrapper that
-# tmux-guard-env.sh writes, which sets guard_real_tmux, guard_live_dirs (a file
-# listing each live tmux directory a run has found) and guard_shared_log first. Some tests run tmux with a PATH holding nothing but
-# tmux, so this uses shell builtins only, and it never cds in its own shell
-# because tmux resolves relative -S paths and start directories from the cwd.
+# tmux-guard-env.sh writes, which sets guard_real_tmux, guard_live_dirs (a
+# file listing each live tmux directory a run has found) and guard_shared_log
+# first. Some tests run tmux with a PATH holding nothing but tmux, so this uses
+# shell builtins only, and it never cds in its own shell because tmux resolves
+# relative -S paths and start directories from the cwd.
 
 if [ -z "${guard_real_tmux:-}" ] || ! [ -s "${guard_live_dirs:-}" ]; then
 	printf '%s\n' "tmux guard: the wrapper did not say which tmux to run or which directories to keep tests out of; rerun test/helpers/tmux-guard-env.sh" >&2

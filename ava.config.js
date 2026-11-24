@@ -27,7 +27,7 @@ if (isMainThread) {
 
 	const guardedTmuxTmpdir = tmuxGuardEnv ? process.env.TMUX_TMPDIR : undefined;
 	const sharedRefusals = path.join(
-		`/tmp/pappardelle-test-tmux-${process.getuid()}`,
+		process.env.PAPPARDELLE_TEST_TMUX_GUARD ?? '',
 		'refusals.log',
 	);
 	const sharedRefusalsStart = fs.existsSync(sharedRefusals)
@@ -100,7 +100,9 @@ if (isMainThread) {
 			const sockets = fs
 				.readdirSync(guardedTmuxTmpdir, {recursive: true})
 				.map(entry => path.join(guardedTmuxTmpdir, entry))
-				.filter(entry => fs.statSync(entry).isSocket());
+				.filter(entry =>
+					fs.lstatSync(entry, {throwIfNoEntry: false})?.isSocket(),
+				);
 			for (const socket of sockets) {
 				try {
 					execFileSync('tmux', ['-S', socket, 'kill-server'], {

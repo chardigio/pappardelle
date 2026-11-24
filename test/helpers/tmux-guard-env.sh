@@ -3,13 +3,30 @@
 # servers, as lines to eval: the test tmux guard (docs/glossary.md) first on
 # PATH, a private TMUX_TMPDIR and no TMUX. Prints nothing without tmux, since
 # the tmux tests then skip themselves.
+#
+# With --finish <refusal log>, at the end of a run: prints the refusals the log
+# holds, removes the run's private TMUX_TMPDIR, and fails if there were any.
 set -euo pipefail
 # cd prints the directory it found through CDPATH, which would end up in the
 # paths below.
 CDPATH=''
 
+if [[ ${1:-} == --finish ]]; then
+	refusals=${2:-}
+	[[ -n $refusals ]] || exit 0
+	status=0
+	if [[ -s $refusals ]]; then
+		echo "The test tmux guard refused tmux calls against the live tmux directory (docs/glossary.md):"
+		cat -- "$refusals"
+		status=1
+	fi
+	rm -rf -- "${refusals%/*}"
+	exit "$status"
+fi
+
 guard_home=/tmp/pappardelle-test-tmux-$(id -u)
 wrapper=$guard_home/bin/tmux
+private_prefix=/tmp/pt-
 
 real_tmux=''
 while IFS= read -r candidate; do
@@ -35,13 +52,12 @@ nested=''
 while IFS= read -r candidate; do
 	[[ ! $candidate -ef $wrapper ]] || nested=1
 done < <(type -ap tmux)
-[[ $base != /tmp/pt-* && $base != /private/tmp/pt-* ]] || nested=1
+[[ $base != "$private_prefix"* && $base != /private"$private_prefix"* ]] || nested=1
 if [[ -n $nested && ! -x $wrapper ]]; then
 	echo "TMUX_TMPDIR=$TMUX_TMPDIR is a test run's private directory, but there is no tmux guard at $wrapper to keep this run in it; unset TMUX_TMPDIR" >&2
 	exit 1
 fi
 if [[ -z $nested ]]; then
-	guard=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/tmux-guard.sh
 	mkdir -m 700 "$guard_home" 2>/dev/null || true
 	# Anyone can create a directory in /tmp, and this one holds code tests run.
 	if [[ ! -O $guard_home ]]; then
@@ -54,22 +70,26 @@ if [[ -z $nested ]]; then
 	# the directory an earlier run found.
 	live=$base/tmux-$(id -u)
 	grep -qxF -- "$live" "$guard_home/live-dirs" 2>/dev/null || echo "$live" >>"$guard_home/live-dirs"
-	# Never removed: a server or daemon a test started can outlive the run and
-	# still call tmux.
+	# Never removed, and kept apart from the checkout: a server or daemon a
+	# test started can outlive the run and its worktree and still call tmux.
+	next=$(mktemp "$guard_home/.guard.XXXXXX")
+	cp -- "$(dirname -- "${BASH_SOURCE[0]}")/tmux-guard.sh" "$next"
+	mv -f -- "$next" "$guard_home/tmux-guard.sh"
 	next=$(mktemp "$guard_home/bin/.tmux.XXXXXX")
 	{
 		echo '#!/bin/sh'
 		echo "guard_real_tmux=$(quote "$real_tmux")"
 		echo "guard_live_dirs=$(quote "$guard_home/live-dirs")"
 		echo "guard_shared_log=$(quote "$guard_home/refusals.log")"
-		echo ". $(quote "$guard")"
+		echo ". $(quote "$guard_home/tmux-guard.sh")"
 	} >"$next"
 	chmod 755 "$next"
 	mv -f "$next" "$wrapper"
 fi
 
-private=$(mktemp -d /tmp/pt-XXXXXX)
+private=$(mktemp -d "${private_prefix}XXXXXX")
 echo "export PATH=$(quote "$guard_home/bin:$PATH")"
 echo "export TMUX_TMPDIR=$(quote "$private")"
+echo "export PAPPARDELLE_TEST_TMUX_GUARD=$(quote "$guard_home")"
 echo "export PAPPARDELLE_TEST_TMUX_REFUSALS=$(quote "$private/refusals.log")"
 echo 'unset TMUX TMUX_PANE'

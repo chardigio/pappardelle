@@ -38,12 +38,7 @@ TMUX_REFUSALS=""
 # shellcheck disable=SC2329  # invoked via trap
 cleanup() {
     local status=$? socket pids pid
-    if [[ -s "$TMUX_REFUSALS" ]]; then
-        echo -e "${RED}The test tmux guard refused tmux calls against the live tmux directory (docs/glossary.md):${RESET}"
-        cat "$TMUX_REFUSALS"
-        status=1
-    fi
-    [[ -z "$TMUX_REFUSALS" ]] || rm -rf "${TMUX_REFUSALS%/*}"
+    "$SCRIPT_DIR/../test/helpers/tmux-guard-env.sh" --finish "$TMUX_REFUSALS" || status=1
     if [[ -z "$TMUX_TMPDIR" ]]; then
         exit "$status"
     fi

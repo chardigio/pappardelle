@@ -17,7 +17,6 @@ import {reviveTui} from './tui-sessions.ts';
 const tmuxTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
 
-/** Point the default tmux server at a private TMUX_TMPDIR for one test. */
 function privateDefaultServer(t: ExecutionContext): void {
 	const dir = tempDir(t, 'pappardelle-tmux-');
 	const saved = process.env['TMUX_TMPDIR'];

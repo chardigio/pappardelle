@@ -249,7 +249,11 @@ const guarded = Boolean(process.env['PAPPARDELLE_TEST_TMUX_REFUSALS']);
 (guarded ? test : test.skip)(
 	'a run started inside a test run keeps the outer wrapper',
 	t => {
-		const wrapper = `/tmp/pappardelle-test-tmux-${uid}/bin/tmux`;
+		const wrapper = path.join(
+			process.env['PAPPARDELLE_TEST_TMUX_GUARD']!,
+			'bin',
+			'tmux',
+		);
 		const before = fs.readFileSync(wrapper, 'utf8');
 		const result = spawnSync(setupScript, {encoding: 'utf8'});
 		t.is(result.status, 0, result.stderr);
@@ -270,10 +274,8 @@ const guarded = Boolean(process.env['PAPPARDELLE_TEST_TMUX_REFUSALS']);
 (guarded ? test : test.skip)(
 	"the run's own wrapper refuses every live directory setup recorded",
 	t => {
-		const guardHome = `/tmp/pappardelle-test-tmux-${uid}`;
+		const guardHome = process.env['PAPPARDELLE_TEST_TMUX_GUARD']!;
 		const refusals = path.join(tempDir(t, 'tmux-guard-run-'), 'refusals.log');
-		// A named socket, since a live directory doesn't exist until its first
-		// server starts.
 		const liveBases = fs
 			.readFileSync(path.join(guardHome, 'live-dirs'), 'utf8')
 			.split('\n')
@@ -282,6 +284,8 @@ const guarded = Boolean(process.env['PAPPARDELLE_TEST_TMUX_REFUSALS']);
 			.filter(base => fs.existsSync(base));
 		t.true(liveBases.length > 0);
 		for (const base of liveBases) {
+			// A named socket, since a live directory doesn't exist until its
+			// first server starts.
 			const result = spawnSync(
 				path.join(guardHome, 'bin', 'tmux'),
 				['-L', 'guard-test-no-such-server', 'ls'],
