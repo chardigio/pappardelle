@@ -3,7 +3,6 @@ import test from 'ava';
 import {EmbeddedTerminalRenderable, type TerminalColors} from '@opentui/core';
 import {createTestRenderer, ManualClock} from '@opentui/core/testing';
 import {
-	type ColorReport,
 	type ColorSource,
 	followTerminalColors,
 	paletteSequences,
