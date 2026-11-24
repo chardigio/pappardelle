@@ -9,6 +9,7 @@ const prompt: HeldPrompt = {
 	command: 'doctl account get',
 	filePath: null,
 	cwd: '/home/u/.worktrees/repo/STA-1',
+	approvable: true,
 };
 
 const hold = (fields: Partial<Hold> = {}): Hold => ({

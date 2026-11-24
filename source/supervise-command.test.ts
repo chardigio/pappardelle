@@ -283,17 +283,15 @@ test('an approved hold lets the same prompt through once, used only after the pr
 	t.is(h.holds.load('h2')?.state, 'open');
 });
 
-test('an approved hold never lets a Codex edit through, since its patch is not on record', async t => {
+test('a held Codex edit cannot be approved, since its patch is not on record', async t => {
 	const capture = fixture('codex-permission-patch').replace(
 		/\/tmp\/claude-1000\/[^\s]*\/capture\/repo\/greet/,
 		'/home/u/elsewhere/greet',
 	);
 	const h = harness(t, [capture]);
 	await h.run('answer', 'STA-1', '--option', '1');
-	t.is(await h.run('holds', 'approve', 'h1'), 0);
-	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
-	t.deepEqual(h.pressed.at(-1), ['Escape']);
-	t.is(h.holds.load('h1')?.state, 'approved');
+	t.is(await h.run('holds', 'approve', 'h1'), POLICY_REFUSED_EXIT);
+	t.is(h.holds.load('h1')?.state, 'open');
 });
 
 test('an approved hold is not used up by a press the agent did not take', async t => {
@@ -305,6 +303,7 @@ test('an approved hold is not used up by a press the agent did not take', async 
 		command: 'doctl account get',
 		filePath: null,
 		cwd: null,
+		approvable: true,
 		reason: 'x',
 		state: 'approved',
 		createdAt: '2026-11-09T12:00:00.000Z',
@@ -330,6 +329,15 @@ test('a space answers no prompts and resolves no holds', async t => {
 	t.is(await space.run('holds', 'approve', 'h1'), POLICY_REFUSED_EXIT);
 	t.is(await space.run('holds', 'dismiss', 'h1'), POLICY_REFUSED_EXIT);
 	t.is(space.holds.load('h1')?.state, 'open');
+});
+
+test('a hold an approval cannot match is refused, not approved', async t => {
+	const h = harness(t, [fixture('claude-permission-cut-off')]);
+	await h.run('answer', 'STA-1', '--option', '1');
+	t.false(h.holds.load('h1')!.approvable);
+	t.is(await h.run('holds', 'approve', 'h1'), POLICY_REFUSED_EXIT);
+	t.regex(h.err.at(-1)!, /dismiss it/);
+	t.is(h.holds.load('h1')?.state, 'open');
 });
 
 test('the sous-chef cannot approve a hold from its own space', async t => {

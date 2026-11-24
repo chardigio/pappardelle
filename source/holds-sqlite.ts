@@ -22,6 +22,7 @@ type HoldRow = {
 	command: string;
 	file_path: string | null;
 	cwd: string | null;
+	approvable: number;
 	reason: string;
 	state: HoldState;
 	created_at: string;
@@ -29,7 +30,7 @@ type HoldRow = {
 };
 
 const HOLD_COLUMNS =
-	'id, key, tool, command, file_path, cwd, reason, state, created_at, resolved_at';
+	'id, key, tool, command, file_path, cwd, approvable, reason, state, created_at, resolved_at';
 
 function toHold(row: HoldRow): Hold {
 	return {
@@ -39,6 +40,7 @@ function toHold(row: HoldRow): Hold {
 		command: row.command,
 		filePath: row.file_path,
 		cwd: row.cwd,
+		approvable: row.approvable === 1,
 		reason: row.reason,
 		state: row.state,
 		createdAt: row.created_at,
@@ -116,7 +118,7 @@ export class SqliteHoldDao implements HoldDao {
 		this.openDb()
 			.db.query(
 				`INSERT OR REPLACE INTO holds (repo, ${HOLD_COLUMNS})
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				this.repo,
@@ -126,6 +128,7 @@ export class SqliteHoldDao implements HoldDao {
 				hold.command,
 				hold.filePath,
 				hold.cwd,
+				hold.approvable ? 1 : 0,
 				hold.reason,
 				hold.state,
 				hold.createdAt,

@@ -243,7 +243,8 @@ def track_pending_file(input_data: dict[str, Any], workspace: str) -> Optional[l
             (directory / call).write_text(os.path.normpath(os.path.join(input_data.get("cwd") or "/", target)))
     elif event in ("PostToolUse", "PostToolUseFailure") and call:
         (directory / call).unlink(missing_ok=True)
-    elif event in ("UserPromptSubmit", "Stop", "SessionStart", "SessionEnd") and directory.exists():
+    # Not on Stop: background subagents keep calling tools after the main turn ends.
+    elif event in ("UserPromptSubmit", "SessionStart", "SessionEnd") and directory.exists():
         for entry in directory.iterdir():
             entry.unlink(missing_ok=True)
     elif event == "Notification" and input_data.get("notification_type") == "permission_prompt" and directory.exists():

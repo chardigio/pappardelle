@@ -25,6 +25,11 @@ export type HeldPrompt = {
 	/** The file an Edit, Write or Read prompt is for. */
 	filePath: string | null;
 	cwd: string | null;
+	/**
+	 * Whether an approval can let the retry through. A Codex edit shows only
+	 * its paths, and a cut-off prompt hides its top, so neither is matched.
+	 */
+	approvable: boolean;
 };
 
 export type Hold = HeldPrompt & {
@@ -62,7 +67,7 @@ const isOptionalString = (value: unknown): value is string | null =>
 export function parseHold(content: string): Hold {
 	const hold = (JSON.parse(content) ?? {}) as Record<string, unknown>;
 	const {id, key, tool, command, filePath, cwd, reason, state} = hold;
-	const {createdAt, resolvedAt} = hold;
+	const {createdAt, resolvedAt, approvable} = hold;
 	if (
 		!isString(id) ||
 		!isString(key) ||
@@ -70,6 +75,7 @@ export function parseHold(content: string): Hold {
 		!isString(command) ||
 		!isOptionalString(filePath) ||
 		!isOptionalString(cwd) ||
+		typeof approvable !== 'boolean' ||
 		!isString(reason) ||
 		!HOLD_STATES.includes(state as HoldState) ||
 		!isString(createdAt) ||
@@ -83,6 +89,7 @@ export function parseHold(content: string): Hold {
 		command,
 		filePath,
 		cwd,
+		approvable,
 		reason,
 		state: state as HoldState,
 		createdAt,
@@ -105,11 +112,6 @@ export function isSamePrompt(hold: HeldPrompt, prompt: HeldPrompt): boolean {
 	);
 }
 
-/**
- * The hold for this prompt in the given state: an open one a retry reuses
- * rather than stacking another, or an approved one that lets the prompt
- * through once.
- */
 /** A hold moved on from open, or from approved to used. */
 export function resolveHold(
 	hold: Hold,
@@ -119,6 +121,11 @@ export function resolveHold(
 	return {...hold, state, resolvedAt: now.toISOString()};
 }
 
+/**
+ * The hold for this prompt in the given state: an open one a retry reuses
+ * rather than stacking another, or an approved one that lets the prompt
+ * through once.
+ */
 export function holdFor(
 	holds: Hold[],
 	prompt: HeldPrompt,

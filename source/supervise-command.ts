@@ -669,13 +669,22 @@ const HOOK_REPORT_MS = 10_000;
 
 /**
  * The hook's record of the prompt that is up, or null when Claude hasn't
- * reported it. Codex has no hook, so only a Claude prompt is waited for.
+ * reported it. Only a Claude prompt being approved is waited for: Codex has
+ * no hook, and a No or a forced press doesn't read it.
  */
 async function promptHook(
 	key: string,
 	report: AgentStateReport,
+	command: Extract<SuperviseCommand, {verb: 'answer'}>,
 	deps: SuperviseDeps,
 ): Promise<ClaudeSessionState | null> {
+	const approving =
+		report.permission?.choose === 'digit' &&
+		!command.force &&
+		command.keys.length === 0 &&
+		report.permission.options.find(
+			option => option.number === command.options[0],
+		)?.kind === 'approve_once';
 	for (let waited = 0; ; waited += ANSWER_POLL_MS) {
 		// eslint-disable-next-line no-await-in-loop
 		const stored = await deps.readHookState(await deps.hookKey(key));
@@ -685,8 +694,7 @@ async function promptHook(
 			stored.state.event === 'Notification'
 		)
 			return stored.state;
-		if (report.permission?.choose !== 'digit' || waited >= HOOK_REPORT_MS)
-			return null;
+		if (!approving || waited >= HOOK_REPORT_MS) return null;
 		// eslint-disable-next-line no-await-in-loop
 		await deps.sleep(ANSWER_POLL_MS);
 	}
@@ -1081,7 +1089,7 @@ async function execute(
 			const holds = deps.holds();
 			const decision = decideAnswer(command, key, before, {
 				policy: deps.policy(key),
-				hook: await promptHook(key, before, deps),
+				hook: await promptHook(key, before, command, deps),
 				holds: holds.list(),
 			});
 			if (decision.kind === 'error') {
@@ -1127,6 +1135,14 @@ async function execute(
 
 				allowed = verdict.reason ?? '';
 				entry.verdict = allowed ? `allowed: ${allowed}` : 'allowed';
+			} else if (
+				// The wait for Claude's prompt record can outlast the prompt it was for.
+				promptShown(await readState(key, deps)) !== promptShown(before)
+			) {
+				deps.err(
+					`${key}'s prompt changed before it was answered; nothing was pressed`,
+				);
+				return 1;
 			}
 
 			if (deps.sendKeys(key, pressed) !== 'sent') {
@@ -1324,6 +1340,13 @@ async function execute(
 			if (command.resolution === 'approve' && ownSpace(deps) === hold.key) {
 				deps.err(
 					`${hold.key} can't approve its own hold; the chef decides ${hold.id}`,
+				);
+				return POLICY_REFUSED_EXIT;
+			}
+
+			if (command.resolution === 'approve' && !hold.approvable) {
+				deps.err(
+					`${hold.id} is a Codex edit or a prompt cut off the screen, which an approval can't match; answer it in ${hold.key} or dismiss it`,
 				);
 				return POLICY_REFUSED_EXIT;
 			}

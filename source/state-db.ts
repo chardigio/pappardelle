@@ -207,6 +207,7 @@ const MIGRATIONS: string[] = [
 		command TEXT NOT NULL,
 		file_path TEXT,
 		cwd TEXT,
+		approvable INTEGER NOT NULL CHECK (approvable IN (0, 1)),
 		reason TEXT NOT NULL,
 		state TEXT NOT NULL CHECK (state IN ('open', 'approved', 'dismissed', 'used')),
 		created_at TEXT NOT NULL,

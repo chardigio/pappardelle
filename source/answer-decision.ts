@@ -103,7 +103,8 @@ const FILE_TOOLS = new Set([
 	'Read',
 	'NotebookEdit',
 ]);
-const FILE_HEADER = /^(?:Edit|Create|Write|Read) file$|^Edit notebook$/;
+const FILE_HEADER =
+	/^(?:Edit|Create|Write|Overwrite|Read) file$|^Edit notebook$/;
 // What a file prompt asks when its header is off the screen.
 const FILE_QUESTION = /^Do you want to (?:create|make this edit to|overwrite) /;
 // Answering prompts is the chef's: a call to these from a space would let
@@ -328,6 +329,7 @@ export function decideAnswer(
 		command: permission.command,
 		filePath: file?.kind === 'file' ? file.file : null,
 		cwd: hook?.cwd ?? null,
+		approvable: !permission.cutOff && !permission.files,
 	};
 	const held = (reason: string): AnswerDecision => ({
 		kind: 'hold',
@@ -342,12 +344,9 @@ export function decideAnswer(
 		entry: {...entry, verdict: `allowed: ${reason}`},
 	});
 
-	// A Codex edit shows only its paths, so a different patch to the same files
-	// would match an approval of the first.
-	const approved =
-		permission.cutOff || permission.files
-			? null
-			: holdFor(holds, prompt, 'approved');
+	const approved = prompt.approvable
+		? holdFor(holds, prompt, 'approved')
+		: null;
 	if (approved) {
 		return {...allowed(`the chef approved ${approved.id}`), hold: approved};
 	}
