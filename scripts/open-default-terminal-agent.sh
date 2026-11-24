@@ -211,8 +211,9 @@ if tmux has-session -t "=$VIEW_SESSION:" 2>/dev/null; then
     tmux kill-session -t "=$VIEW_SESSION:"
 fi
 
-tmux new-session -d -s "$VIEW_SESSION" -c "$WORKTREE" "$AGENT_PANE"
-tmux split-window -h -t "=$VIEW_SESSION:" -c "$WORKTREE" "$COMPANION_PANE"
+# tmux expands formats in -c, so a # in the worktree path is doubled.
+tmux new-session -d -s "$VIEW_SESSION" -c "${WORKTREE//#/##}" "$AGENT_PANE"
+tmux split-window -h -t "=$VIEW_SESSION:" -c "${WORKTREE//#/##}" "$COMPANION_PANE"
 tmux select-pane -t "=$VIEW_SESSION:.0"
 exec tmux attach -t "=$VIEW_SESSION:"
 LAUNCHER_END

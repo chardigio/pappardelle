@@ -5,6 +5,12 @@ import type {ClaudeSessionState} from './claude-status.ts';
 import {SnapshotIndex} from './snapshot-index.ts';
 import type {ClientMessage, DaemonMessage} from './status-protocol.ts';
 
+/**
+ * A forgotten generation only has to outlast a monitor's send that was
+ * already on its way, so a repo's oldest are let go past this many.
+ */
+export const FORGOTTEN_GENERATIONS_PER_REPO = 256;
+
 export type Delivery<Subscriber> = {to: Subscriber; message: DaemonMessage};
 
 /**
@@ -17,6 +23,12 @@ export class StatusHub<Subscriber> {
 	private readonly hooks = new Map<string, ClaudeSessionState>();
 	private readonly snapshotsByRepo = new Map<string, SnapshotIndex>();
 	private readonly repoBySubscriber = new Map<Subscriber, string>();
+	/**
+	 * By repo, oldest first: pane generations a forget named. A closer's forget
+	 * and a monitor's last snapshot come on different connections, so the
+	 * snapshot can arrive after the forget.
+	 */
+	private readonly forgottenByRepo = new Map<string, Set<string>>();
 
 	/**
 	 * `daemon` names this daemon in every state it sends, so a client that
@@ -50,7 +62,8 @@ export class StatusHub<Subscriber> {
 			}
 
 			case 'snapshot': {
-				const {repo} = message.snapshot;
+				const {repo, pane} = message.snapshot;
+				if (this.forgottenByRepo.get(repo)?.has(pane.generation)) return [];
 				const snapshots = this.snapshotsByRepo.get(repo) ?? new SnapshotIndex();
 				snapshots.keep(message.snapshot);
 				this.snapshotsByRepo.set(repo, snapshots);
@@ -59,8 +72,14 @@ export class StatusHub<Subscriber> {
 
 			case 'forget': {
 				const {repo, key, keep} = message;
+				this.remember(repo, message.generations ?? []);
 				this.snapshotsByRepo.get(repo)?.forget(key, keep);
-				return this.toRepo(repo, {...message, type: 'forgotten'});
+				return this.toRepo(repo, {
+					type: 'forgotten',
+					repo,
+					key,
+					...(keep === undefined ? {} : {keep}),
+				});
 			}
 
 			case 'drop': {
@@ -75,6 +94,17 @@ export class StatusHub<Subscriber> {
 				return [{to: sender, message: this.state(message.repo)}];
 			}
 		}
+	}
+
+	private remember(repo: string, generations: readonly string[]): void {
+		const forgotten = this.forgottenByRepo.get(repo) ?? new Set<string>();
+		for (const generation of generations) forgotten.add(generation);
+		for (const oldest of forgotten) {
+			if (forgotten.size <= FORGOTTEN_GENERATIONS_PER_REPO) break;
+			forgotten.delete(oldest);
+		}
+
+		this.forgottenByRepo.set(repo, forgotten);
 	}
 
 	disconnect(subscriber: Subscriber): void {

@@ -91,12 +91,13 @@ export class DaemonProgramStatusDao implements ProgramStatusDao {
 	 * subscribers, a moment after this resolves.
 	 */
 	async remove(key: string, keepGeneration?: string): Promise<void> {
-		this.json.removeFiles(key, keepGeneration);
+		const generations = this.json.removeFiles(key, keepGeneration);
 		await this.client.send({
 			type: 'forget',
 			repo: this.repo,
 			key,
 			...(keepGeneration === undefined ? {} : {keep: keepGeneration}),
+			generations,
 		});
 	}
 

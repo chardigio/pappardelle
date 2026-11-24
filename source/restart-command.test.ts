@@ -108,7 +108,7 @@ function harness(
 const COMMAND = "'/node' '/build/dist/cli.js'";
 
 const restartOf = (pane: string) =>
-	`outer kill-pane -a -t ${pane} ; respawn-pane -k -t ${pane} ${COMMAND}`;
+	`outer kill-pane -a -t ${pane} ; respawn-pane -k -t ${pane} -c #{session_path} ${COMMAND}`;
 
 // Calls that change a tmux server, as opposed to reading from one.
 function mutations(h: Harness): string[] {
@@ -303,6 +303,8 @@ test('--hard from a claude pane hands the kill and restarts to a detached child,
 		'-k',
 		'-t',
 		pane,
+		'-c',
+		'#{session_path}',
 		COMMAND,
 	];
 	t.deepEqual(h.detached, [

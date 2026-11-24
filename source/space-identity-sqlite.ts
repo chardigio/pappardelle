@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
 	defaultIdentity,
 	identityAt,
+	sessionNamesFor,
 	type IdentityDefaults,
 	type SpaceIdentity,
 	type SpaceIdentityDao,
@@ -105,6 +106,32 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 						tmux_socket = excluded.tmux_socket`,
 				)
 				.run(...this.values(identity));
+		});
+	}
+
+	async respellFormatSessions(): Promise<void> {
+		await this.openDb().writeRows(() => {
+			const {db} = this.openDb();
+			const keys = db
+				.query<{key: string}, [string]>(
+					`SELECT key FROM space_identities
+					WHERE repo = ? AND (instr(agent_session, '#') > 0 OR instr(companion_session, '#') > 0)`,
+				)
+				.all(this.defaults.repo);
+			// A name another repo's space already holds is left as it is.
+			const respell = db.query(
+				`UPDATE OR IGNORE space_identities SET agent_session = ?, companion_session = ?
+				WHERE repo = ? AND key = ?`,
+			);
+			for (const {key} of keys) {
+				const sessions = sessionNamesFor(key, this.defaults.repo);
+				respell.run(
+					sessions.agent,
+					sessions.companion,
+					this.defaults.repo,
+					key,
+				);
+			}
 		});
 	}
 

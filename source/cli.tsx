@@ -17,8 +17,8 @@ import {
 	cleanupOrphanedOuterSessions,
 	migrateLegacyAgentSessions,
 	exactSessionTarget,
+	killSession,
 	isInTmux,
-	outerSessionName,
 	sendKeysToSpaceAgent,
 	newOuterSessionArgs,
 	sendToSpaceAgent,
@@ -81,7 +81,7 @@ import {isSuperviseVerb} from './supervise-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {waitForAgentStart} from './agent-start.ts';
 import {hookStatusKey} from './claude-status.ts';
-import {tuiLaunchCommand} from './tui-sessions.ts';
+import {reviveTui, tuiLaunchCommand, tuiSessionNames} from './tui-sessions.ts';
 import {
 	readTmuxVersion,
 	tmuxTooOldMessage,
@@ -652,32 +652,43 @@ if (tmuxVersion && tmuxVersionTooOld(tmuxVersion.version)) {
 if (!isInTmux() && cli.flags.layout) {
 	const outerDone = startupTrace.current?.begin('outer-bootstrap');
 	const repoName = getRepoName();
-	const sessionName = outerSessionName(repoName);
-
-	if (sessionExists(sessionName) && isTuiDead(daos.tuiMarker)) {
-		spawnSync('tmux', ['kill-session', '-t', exactSessionTarget(sessionName)]);
-	}
-
-	// Check if a pappardelle session already exists
-	if (sessionExists(sessionName)) {
-		// Attach to the existing session
-		outerDone?.();
-		startupTrace.current?.finish('delegated');
-		const tmuxArgs = ['attach-session', '-t', exactSessionTarget(sessionName)];
-		const result = spawnSync('tmux', tmuxArgs, {
-			stdio: 'inherit',
-			env: process.env,
-		});
-		exitWithTmux(result);
-	}
-
-	// No existing session - create a new one.
+	let existing = tuiSessionNames(repoName).find(name => sessionExists(name));
 	const cmd = tuiLaunchCommand({
 		execPath: process.execPath,
 		cliPath: cliFilePath(),
 		args: process.argv.slice(2),
 		home: homedir(),
 	});
+
+	if (existing !== undefined && isTuiDead(daos.tuiMarker)) {
+		const revived = reviveTui({
+			session: existing,
+			command: cmd,
+			cwd: process.cwd(),
+			envArgs: startupSessionEnvArgs(),
+			markerPaneId: daos.tuiMarker.read()?.paneId ?? null,
+		});
+		// The session is created again instead, which can race the server's
+		// exit when it was the server's last session.
+		if (!revived.ok) {
+			createLogger('cli').warn(
+				`Could not restart the TUI in ${existing}: ${revived.reason}`,
+			);
+			killSession(existing);
+			existing = undefined;
+		}
+	}
+
+	if (existing !== undefined) {
+		outerDone?.();
+		startupTrace.current?.finish('delegated');
+		const tmuxArgs = ['attach-session', '-t', exactSessionTarget(existing)];
+		const result = spawnSync('tmux', tmuxArgs, {
+			stdio: 'inherit',
+			env: process.env,
+		});
+		exitWithTmux(result);
+	}
 
 	const tmuxArgs = newOuterSessionArgs(repoName, startupSessionEnvArgs(), cmd);
 	outerDone?.();
@@ -739,6 +750,12 @@ async function maintainSessions() {
 				error instanceof Error ? error : undefined,
 			);
 		});
+	await daos.spaceIdentities.respellFormatSessions().catch((error: unknown) => {
+		createLogger('cli').warn(
+			'Could not respell stored session names',
+			error instanceof Error ? error : undefined,
+		);
+	});
 	// A space left half-opened or half-closed by a process that died is
 	// settled by whether its sessions exist, before deciding what to reap.
 	await daos.registry

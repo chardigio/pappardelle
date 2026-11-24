@@ -46,15 +46,22 @@ export interface SpaceIdentityDao {
 	 * main's checkout can be moved or cloned again.
 	 */
 	moveMain(identity: SpaceIdentity): Promise<void>;
+	/**
+	 * Give stored identities whose session names hold a `#` the names a new
+	 * space gets. Recorded before `#` was spelled as `_`, those names were
+	 * stored by tmux as something else, so nothing could find their sessions.
+	 */
+	respellFormatSessions(): Promise<void>;
 }
 
 /**
- * tmux 3.6 and older store `.` and `:` in a session name as `_`, so the repo
- * part of a session name is spelled this way to read back the same on every
- * release.
+ * tmux 3.6 and older store `.` and `:` in a session name as `_`, and tmux
+ * 3.3+ expands formats such as `#S` in a new or renamed session's name, so
+ * the repo part of a session name is spelled this way to read back the same
+ * on every release.
  */
 export function tmuxSessionRepo(repoName: string): string {
-	return repoName.replaceAll(/[.:]/g, '_');
+	return repoName.replaceAll(/[.:#]/g, '_');
 }
 
 /**
@@ -254,6 +261,8 @@ export class JsonSpaceIdentityDao implements SpaceIdentityDao {
 	async record(): Promise<void> {}
 
 	async moveMain(): Promise<void> {}
+
+	async respellFormatSessions(): Promise<void> {}
 }
 
 /**

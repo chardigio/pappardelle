@@ -93,11 +93,6 @@ SHIM
 chmod +x "$CLAUDE_SHIM_DIR/claude"
 export PATH="$CLAUDE_SHIM_DIR:$PATH"
 
-# Cases kill the last sessions on the shared server and then create the next
-# one straight away. A new-session that reaches the server while it is exiting
-# over its last session fails with "server exited unexpectedly".
-tmux -L "$PAPPARDELLE_TMUX_SOCKET" start-server \; set-option -s exit-empty off
-
 assert_eq() {
     local test_name="$1"
     local expected="$2"
@@ -1152,6 +1147,38 @@ tmux -L "$KEEP_SOCKET" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: the inner server outlives its last space, so the next one starts${RESET}"
+EMPTY_KEY="${TEST_PREFIX}-empty"
+EMPTY_SOCKET="pappardelle_inner_empty_$$"
+mkdir -p "$TMPDIR_ROOT/empty-worktree"
+start_empty_space() {
+    PAPPARDELLE_TMUX_SOCKET="$EMPTY_SOCKET" start_session --issue-key "$EMPTY_KEY" \
+        --repo-name "$TEST_REPO" --worktree "$TMPDIR_ROOT/empty-worktree" \
+        --no-agent --companion-command '' 2>/dev/null
+}
+start_empty_space
+tmux -L "$EMPTY_SOCKET" kill-session -t "=agent-$TEST_REPO-$EMPTY_KEY:"
+tmux -L "$EMPTY_SOCKET" kill-session -t "=companion-$TEST_REPO-$EMPTY_KEY:"
+assert_eq "the server answers with no sessions left" "0" \
+    "$(tmux -L "$EMPTY_SOCKET" list-sessions >/dev/null 2>&1; echo $?)"
+assert_eq "a space started right after starts" "0" "$(start_empty_space; echo $?)"
+tmux -L "$EMPTY_SOCKET" kill-server 2>/dev/null || true
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: a worktree path that reads as a tmux format is where the space starts${RESET}"
+HASH_KEY="${TEST_PREFIX}-hash"
+HASH_WORKTREE="$TMPDIR_ROOT/pasta#S"
+mkdir -p "$HASH_WORKTREE"
+start_session --issue-key "$HASH_KEY" --repo-name "$TEST_REPO" --worktree "$HASH_WORKTREE" \
+    --no-agent --companion-command '' 2>/dev/null || true
+assert_eq "agent session starts in the worktree" "$HASH_WORKTREE" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "=agent-$TEST_REPO-$HASH_KEY:" '#{session_path}' 2>/dev/null)"
+assert_eq "companion session starts in the worktree" "$HASH_WORKTREE" \
+    "$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "=companion-$TEST_REPO-$HASH_KEY:" '#{session_path}' 2>/dev/null)"
+
+# ==========================================================================
+
 rm -rf "$TMPDIR_ROOT"
 
 echo ""
@@ -1163,3 +1190,4 @@ else
     echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
     exit 1
 fi
+

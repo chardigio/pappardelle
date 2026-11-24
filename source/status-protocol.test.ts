@@ -20,6 +20,7 @@ test('every client message is read back as it was written', t => {
 		{type: 'snapshot', snapshot},
 		{type: 'forget', repo: 'repo', key: 'A', keep: 'g1'},
 		{type: 'forget', repo: 'repo', key: 'A'},
+		{type: 'forget', repo: 'repo', key: 'A', keep: 'g1', generations: ['g0']},
 		{type: 'drop', repo: 'repo', key: 'A', generation: 'g1'},
 		{type: 'subscribe', repo: 'repo'},
 	];
@@ -50,6 +51,15 @@ test('every daemon message is read back as it was written', t => {
 		});
 });
 
+test('a forget that names no pane generations reads as one without the field', t => {
+	t.deepEqual(
+		parseClientMessage(
+			line({type: 'forget', repo: 'repo', key: 'A', generations: []}),
+		),
+		{kind: 'message', message: {type: 'forget', repo: 'repo', key: 'A'}},
+	);
+});
+
 test('a line that is not a message is invalid, and reading it does not throw', t => {
 	for (const text of [
 		'',
@@ -65,6 +75,8 @@ test('a line that is not a message is invalid, and reading it does not throw', t
 		line({type: 'snapshot', snapshot: {...snapshot, repo: undefined}}),
 		line({type: 'forget', repo: 'repo'}),
 		line({type: 'forget', repo: 'repo', key: 'A', keep: 5}),
+		line({type: 'forget', repo: 'repo', key: 'A', generations: 'g0'}),
+		line({type: 'forget', repo: 'repo', key: 'A', generations: ['g0', 5]}),
 		line({type: 'subscribe'}),
 	]) {
 		t.deepEqual(parseClientMessage(text), {kind: 'invalid'}, `line: ${text}`);

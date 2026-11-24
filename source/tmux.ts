@@ -1,6 +1,6 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execFile, execSync, spawn, spawnSync} from 'node:child_process';
+import {exec, execFile, spawn, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
@@ -458,16 +458,12 @@ export function exactSessionTarget(sessionName: string): string {
  * and the default-terminal launcher's viewer sessions share this socket.
  */
 export function sessionExists(sessionName: string): boolean {
-	try {
-		execSync(`tmux has-session -t "${exactSessionTarget(sessionName)}"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-			stdio: ['pipe', 'pipe', 'pipe'],
-		});
-		return true;
-	} catch {
-		return false;
-	}
+	const result = defaultOuterTmuxRunner([
+		'has-session',
+		'-t',
+		exactSessionTarget(sessionName),
+	]);
+	return !result.error && result.status === 0;
 }
 
 /**
@@ -1041,26 +1037,26 @@ export async function panePid(paneId: string): Promise<string | undefined> {
  * Used for the outer `pappardelle-{repo}` session on Pappardelle quit.
  */
 export function killSession(sessionName: string): boolean {
-	try {
-		if (!sessionExists(sessionName)) {
-			log.debug(`Session ${sessionName} does not exist, nothing to kill`);
-			return true;
-		}
-
-		execSync(`tmux kill-session -t "${exactSessionTarget(sessionName)}"`, {
-			encoding: 'utf-8',
-			timeout: 5000,
-			stdio: ['pipe', 'pipe', 'pipe'],
-		});
-		log.info(`Killed session: ${sessionName}`);
+	if (!sessionExists(sessionName)) {
+		log.debug(`Session ${sessionName} does not exist, nothing to kill`);
 		return true;
-	} catch (err) {
+	}
+
+	const result = defaultOuterTmuxRunner([
+		'kill-session',
+		'-t',
+		exactSessionTarget(sessionName),
+	]);
+	if (result.error || result.status !== 0) {
 		log.error(
-			`Failed to kill session ${sessionName}`,
-			err instanceof Error ? err : undefined,
+			`Failed to kill session ${sessionName}: ${result.stderr?.trim() ?? ''}`,
+			result.error,
 		);
 		return false;
 	}
+
+	log.info(`Killed session: ${sessionName}`);
+	return true;
 }
 
 /**
@@ -1143,7 +1139,7 @@ export const defaultOuterTmuxRunner = spawnTmuxRunner(args => [...args]);
 export const OUTER_SESSION_PREFIX = 'pappardelle-';
 
 export function outerSessionName(repoName: string): string {
-	return `${OUTER_SESSION_PREFIX}${repoName}`;
+	return `${OUTER_SESSION_PREFIX}${tmuxSessionRepo(repoName)}`;
 }
 
 // The rail's header already names the repo, so the user's status bar would
@@ -1160,7 +1156,7 @@ export function newOuterSessionArgs(
 	return [
 		'new-session',
 		'-s',
-		tmuxFormatLiteral(sessionName),
+		sessionName,
 		...sessionEnvArgs,
 		command,
 		';',
@@ -2141,7 +2137,7 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 			'-t',
 			listPaneId,
 			'-c',
-			cwd,
+			tmuxFormatLiteral(cwd),
 			'-l',
 			String(size),
 			'-P',
@@ -3410,7 +3406,7 @@ export async function rebuildLayout(
 					'-t',
 					listPaneId,
 					'-c',
-					cwd,
+					tmuxFormatLiteral(cwd),
 					'-l',
 					String(layout.agentHeight),
 					'-P',
@@ -3443,7 +3439,7 @@ export async function rebuildLayout(
 					'-t',
 					listPaneId,
 					'-c',
-					cwd,
+					tmuxFormatLiteral(cwd),
 					'-l',
 					String(rightPortionWidth),
 					'-P',
@@ -3469,7 +3465,7 @@ export async function rebuildLayout(
 						'-t',
 						agentViewerPaneId,
 						'-c',
-						cwd,
+						tmuxFormatLiteral(cwd),
 						'-l',
 						String(layout.companionWidth),
 						'-P',
@@ -3881,8 +3877,10 @@ const STARTUP_GATE_OPTION = '@pappardelle_startup_gate';
 // The inner server loads the user's tmux.conf. With destroy-unattached on,
 // tmux destroys every session no client is viewing, which is every background
 // agent. With exit-unattached on, the server exits once no client is attached,
-// taking the agents with it when the TUI quits.
-const KEEP_UNVIEWED_SESSIONS_ARGS = [
+// taking the agents with it when the TUI quits. With exit-empty on (tmux's
+// default), the server exits when the last space closes, and a space started
+// while it is on its way out fails with "server exited unexpectedly".
+const INNER_SERVER_KEEP_ALIVE_ARGS = [
 	';',
 	'set-option',
 	'-g',
@@ -3892,6 +3890,11 @@ const KEEP_UNVIEWED_SESSIONS_ARGS = [
 	'set-option',
 	'-s',
 	'exit-unattached',
+	'off',
+	';',
+	'set-option',
+	'-s',
+	'exit-empty',
 	'off',
 ];
 
@@ -4106,7 +4109,7 @@ export async function ensureAgentSession(
 				'-s',
 				sessionName,
 				'-c',
-				worktreePath,
+				tmuxFormatLiteral(worktreePath),
 				...spaceSessionEnvArgs(issueKey),
 				...buildAgentSessionEnvArgs(agentProfile.env),
 				...launchArgs,
@@ -4117,7 +4120,7 @@ export async function ensureAgentSession(
 				STARTUP_GATE_OPTION,
 				gate,
 				...hideStatusBarArgs(sessionName),
-				...KEEP_UNVIEWED_SESSIONS_ARGS,
+				...INNER_SERVER_KEEP_ALIVE_ARGS,
 			]),
 		);
 		try {
@@ -4161,11 +4164,11 @@ function companionSessionArgs(
 		'-s',
 		sessionName,
 		'-c',
-		cwd,
+		tmuxFormatLiteral(cwd),
 		...spaceSessionEnvArgs(issueKey, repoName),
 		...(command.trim() === '' ? [] : buildShellLaunchArgs(command)),
 		...hideStatusBarArgs(sessionName),
-		...KEEP_UNVIEWED_SESSIONS_ARGS,
+		...INNER_SERVER_KEEP_ALIVE_ARGS,
 	];
 }
 

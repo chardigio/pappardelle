@@ -1,7 +1,7 @@
 import test from 'ava';
 import {snapshotOf} from '../test/helpers/program-status.ts';
 import {hookState, testPane} from '../test/helpers/status-daemon.ts';
-import {StatusHub} from './status-hub.ts';
+import {FORGOTTEN_GENERATIONS_PER_REPO, StatusHub} from './status-hub.ts';
 import type {DaemonMessage} from './status-protocol.ts';
 
 const snapshot = (repo: string, key: string, generation: string, at = 1) =>
@@ -83,6 +83,51 @@ test('forget drops the snapshots of a space except the pane generation to keep',
 	hub.receive('tui', {type: 'forget', repo: 'one', key: 'A'});
 	t.deepEqual(stateOf(hub, 'one').snapshots, [snapshot('one', 'B', 'g1')]);
 	t.deepEqual(stateOf(hub, 'two').snapshots, [snapshot('two', 'A', 'g1')]);
+});
+
+test('a snapshot of a pane generation a forget named is not kept or pushed, and the forget pushes only what subscribers apply', t => {
+	const hub = new StatusHub<string>('daemon');
+	hub.receive('rail', {type: 'subscribe', repo: 'one'});
+
+	t.deepEqual(
+		hub.receive('tui', {
+			type: 'forget',
+			repo: 'one',
+			key: 'A',
+			generations: ['g1'],
+		}),
+		[{to: 'rail', message: {type: 'forgotten', repo: 'one', key: 'A'}}],
+	);
+	t.deepEqual(
+		hub.receive('monitor', {
+			type: 'snapshot',
+			snapshot: snapshot('one', 'A', 'g1'),
+		}),
+		[],
+	);
+	hub.receive('monitor', {
+		type: 'snapshot',
+		snapshot: snapshot('two', 'A', 'g1'),
+	});
+
+	t.deepEqual(stateOf(hub, 'one').snapshots, []);
+	t.deepEqual(stateOf(hub, 'two').snapshots, [snapshot('two', 'A', 'g1')]);
+});
+
+test('a repo remembers only its latest forgotten pane generations', t => {
+	const hub = new StatusHub<string>('daemon');
+	const generations = Array.from(
+		{length: FORGOTTEN_GENERATIONS_PER_REPO + 1},
+		(_, index) => `g${index}`,
+	);
+	hub.receive('tui', {type: 'forget', repo: 'one', key: 'A', generations});
+	for (const generation of ['g0', 'g1'])
+		hub.receive('monitor', {
+			type: 'snapshot',
+			snapshot: snapshot('one', 'A', generation),
+		});
+
+	t.deepEqual(stateOf(hub, 'one').snapshots, [snapshot('one', 'A', 'g0')]);
 });
 
 test('drop removes one pane generation of a space, and pushes nothing when there was none to remove', t => {

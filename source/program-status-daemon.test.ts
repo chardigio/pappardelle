@@ -10,6 +10,7 @@ import {
 	processesNaming,
 } from '../test/helpers/processes.ts';
 import {
+	grantLease,
 	publishSnapshot,
 	publishSnapshotFile,
 	readStatus,
@@ -17,6 +18,7 @@ import {
 } from '../test/helpers/program-status.ts';
 import {testState} from '../test/helpers/state.ts';
 import {
+	deliver,
 	hookState,
 	manualTimers,
 	serveTestDaemon,
@@ -352,6 +354,31 @@ test('a snapshot that reaches the daemon after its space was forgotten is droppe
 	const after = await subscribeRaw(t, socketPath, 'repo');
 	const [held] = after.messages;
 	t.deepEqual(held?.type === 'state' ? held.snapshots : undefined, []);
+});
+
+// The closer's forget and the monitor's snapshot come on different
+// connections, so the daemon can take the forget first even when the monitor
+// checked its lease before the close.
+test('a snapshot that reaches the daemon on another connection after its space was forgotten is not kept', async t => {
+	const state = testState(t, {sqlite: true});
+	const socketPath = statusSocketPath(state.stateDir);
+	const rail = await subscribeRaw(t, socketPath, 'repo');
+	grantLease(state, target);
+
+	await state.daos.programStatus.remove('STA-1');
+	await rail.received(
+		message => message.type === 'forgotten',
+		'the close to reach the daemon',
+	);
+	await deliver(socketPath, {
+		type: 'snapshot',
+		snapshot: snapshotOf(target, report('working')),
+	});
+
+	const after = await subscribeRaw(t, socketPath, 'repo');
+	const [held] = after.messages;
+	t.deepEqual(held?.type === 'state' ? held.snapshots : undefined, []);
+	t.deepEqual(sentStatuses(rail), []);
 });
 
 test('a monitor whose lease a process with the flag off revoked drops its snapshot from the daemon, once', async t => {

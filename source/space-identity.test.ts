@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import test, {type ExecutionContext} from 'ava';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
 	newSpaceIdentity,
 	protectedSessionNames,
@@ -17,17 +18,13 @@ import {stateDbPath} from './state-db.ts';
 const SOCKET = 'identity-test-socket';
 
 /** Stores with a home of their own, and the identities idow would give its spaces. */
-function fixture(t: ExecutionContext, sqlite?: boolean) {
-	const home = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-identity-')),
-	);
-	t.teardown(() => {
-		fs.rmSync(home, {recursive: true, force: true});
-	});
+function fixture(t: ExecutionContext, sqlite?: boolean, repo?: string) {
+	const home = tempDir(t, 'papp-identity-');
 	const mainRoot = path.join(home, 'workspace', 'repo');
 	fs.mkdirSync(path.join(mainRoot, 'src'), {recursive: true});
 	const state = testState(t, {
 		sqlite,
+		...(repo === undefined ? {} : {repo}),
 		home,
 		env: {PAPPARDELLE_TMUX_SOCKET: SOCKET},
 		mainRoot: () => mainRoot,
@@ -340,6 +337,73 @@ test('a space keeps the names it was first given', async t => {
 	t.deepEqual(f.state.daos.spaceIdentities.get('STA-1'), {
 		kind: 'identity',
 		identity: first,
+	});
+});
+
+test('stored session names that tmux would expand as a format are respelled, and others are left as they are', async t => {
+	const f = fixture(t, true, 'pasta#S');
+	const recorded = await f.open('STA-1');
+	const formatSpelled = {
+		...f.identity('STA-2'),
+		tmux: {
+			...recorded.tmux,
+			agentSession: 'agent-pasta#S-STA-2',
+			companionSession: 'companion-pasta#S-STA-2',
+		},
+	};
+	await f.state.daos.spaceIdentities.record(formatSpelled);
+
+	await f.state.daos.spaceIdentities.respellFormatSessions();
+
+	t.deepEqual(f.state.daos.spaceIdentities.get('STA-1'), {
+		kind: 'identity',
+		identity: recorded,
+	});
+	t.deepEqual(f.state.daos.spaceIdentities.get('STA-2'), {
+		kind: 'identity',
+		identity: {
+			...formatSpelled,
+			tmux: {
+				...formatSpelled.tmux,
+				agentSession: 'agent-pasta_S-STA-2',
+				companionSession: 'companion-pasta_S-STA-2',
+			},
+		},
+	});
+});
+
+test("a respelled name another repo's space already holds is left as it is, and the other names are still respelled", async t => {
+	const f = fixture(t, true, 'pasta#S');
+	const held = await f.open('STA-1');
+	await f.state.daos.spaceIdentities.record({
+		...held,
+		repo: 'pasta_S',
+		tmux: {
+			...held.tmux,
+			agentSession: 'agent-pasta_S-STA-3',
+			companionSession: 'companion-pasta_S-STA-3',
+		},
+		key: 'STA-3',
+	});
+	const formatSpelled = (key: string) => ({
+		...f.identity(key),
+		tmux: {
+			...held.tmux,
+			agentSession: `agent-pasta#S-${key}`,
+			companionSession: `companion-pasta#S-${key}`,
+		},
+	});
+	await f.state.daos.spaceIdentities.record(formatSpelled('STA-3'));
+	await f.state.daos.spaceIdentities.record(formatSpelled('STA-4'));
+
+	await f.state.daos.spaceIdentities.respellFormatSessions();
+
+	t.deepEqual(f.state.daos.spaceIdentities.get('STA-3'), {
+		kind: 'identity',
+		identity: formatSpelled('STA-3'),
+	});
+	t.like(f.state.daos.spaceIdentities.get('STA-4'), {
+		identity: {tmux: {agentSession: 'agent-pasta_S-STA-4'}},
 	});
 });
 
