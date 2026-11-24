@@ -399,7 +399,6 @@ function setupFakeInstall(
 ): {
 	projectDir: string;
 	cache: UpdateCheckDao;
-	cleanup: () => void;
 } {
 	// Build a fake installed tree under ~/.pappardelle/repo/ (in the run's
 	// throwaway HOME) so LOCAL_MODE detection passes. git-init the fake dir so it
@@ -409,6 +408,9 @@ function setupFakeInstall(
 	const installedRoot = path.join(homedir(), '.pappardelle', 'repo');
 	mkdirSync(installedRoot, {recursive: true});
 	const dir = mkdtempSync(path.join(installedRoot, '_test-'));
+	t.teardown(() => {
+		rmSync(dir, {recursive: true, force: true});
+	});
 	initRepoWithTag(dir, null);
 	writeFileSync(
 		path.join(dir, 'package.json'),
@@ -417,7 +419,6 @@ function setupFakeInstall(
 	return {
 		projectDir: dir,
 		cache: testState(t).daos.updateCheck,
-		cleanup: () => rmSync(dir, {recursive: true, force: true}),
 	};
 }
 
@@ -438,19 +439,15 @@ test.serial(
 	'checkForUpdate: returns null when cache says we are up to date',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			await fake.cache.write({
-				checkedAt: Date.now(),
-				latestVersion: '0.1.0',
-			});
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-			});
-			t.is(result, null);
-		} finally {
-			fake.cleanup();
-		}
+		await fake.cache.write({
+			checkedAt: Date.now(),
+			latestVersion: '0.1.0',
+		});
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+		});
+		t.is(result, null);
 	},
 );
 
@@ -458,19 +455,15 @@ test.serial(
 	'checkForUpdate: surfaces update when cache shows a newer version',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			await fake.cache.write({
-				checkedAt: Date.now(),
-				latestVersion: 'v0.2.0',
-			});
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-			});
-			t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.2.0'});
-		} finally {
-			fake.cleanup();
-		}
+		await fake.cache.write({
+			checkedAt: Date.now(),
+			latestVersion: 'v0.2.0',
+		});
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+		});
+		t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.2.0'});
 	},
 );
 
@@ -479,19 +472,15 @@ test.serial(
 	async t => {
 		// Can happen if you manually bump package.json locally.
 		const fake = setupFakeInstall(t, '0.3.0');
-		try {
-			await fake.cache.write({
-				checkedAt: Date.now(),
-				latestVersion: '0.2.0',
-			});
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-			});
-			t.is(result, null);
-		} finally {
-			fake.cleanup();
-		}
+		await fake.cache.write({
+			checkedAt: Date.now(),
+			latestVersion: '0.2.0',
+		});
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+		});
+		t.is(result, null);
 	},
 );
 
@@ -499,37 +488,33 @@ test.serial(
 	'checkForUpdate: bypasses stale cache, calls fetchLatest, and rewrites the cache',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			const now = 1_800_000_000_000;
-			const STALE_TTL_MS = 25 * 60 * 60 * 1000;
-			await fake.cache.write({
-				checkedAt: now - STALE_TTL_MS,
-				latestVersion: 'v0.1.0',
-			});
+		const now = 1_800_000_000_000;
+		const STALE_TTL_MS = 25 * 60 * 60 * 1000;
+		await fake.cache.write({
+			checkedAt: now - STALE_TTL_MS,
+			latestVersion: 'v0.1.0',
+		});
 
-			let fetchCalls = 0;
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-				now,
-				async fetchLatest() {
-					fetchCalls += 1;
-					return 'v0.5.0';
-				},
-			});
+		let fetchCalls = 0;
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+			now,
+			async fetchLatest() {
+				fetchCalls += 1;
+				return 'v0.5.0';
+			},
+		});
 
-			t.is(fetchCalls, 1, 'stub should be called exactly once');
-			t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.5.0'});
+		t.is(fetchCalls, 1, 'stub should be called exactly once');
+		t.deepEqual(result, {installedVersion: '0.1.0', latestVersion: 'v0.5.0'});
 
-			const refreshed = fake.cache.read();
-			t.deepEqual(
-				refreshed,
-				{checkedAt: now, latestVersion: 'v0.5.0'},
-				'cache should be rewritten with the new value and fresh timestamp',
-			);
-		} finally {
-			fake.cleanup();
-		}
+		const refreshed = fake.cache.read();
+		t.deepEqual(
+			refreshed,
+			{checkedAt: now, latestVersion: 'v0.5.0'},
+			'cache should be rewritten with the new value and fresh timestamp',
+		);
 	},
 );
 
@@ -537,33 +522,29 @@ test.serial(
 	'checkForUpdate: stale cache + fetchLatest returning null does not corrupt the cache',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			const now = 1_800_000_000_000;
-			const STALE_TTL_MS = 25 * 60 * 60 * 1000;
-			const staleEntry: CacheEntry = {
-				checkedAt: now - STALE_TTL_MS,
-				latestVersion: 'v0.1.0',
-			};
-			await fake.cache.write(staleEntry);
+		const now = 1_800_000_000_000;
+		const STALE_TTL_MS = 25 * 60 * 60 * 1000;
+		const staleEntry: CacheEntry = {
+			checkedAt: now - STALE_TTL_MS,
+			latestVersion: 'v0.1.0',
+		};
+		await fake.cache.write(staleEntry);
 
-			const result = await checkForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-				now,
-				async fetchLatest() {
-					return null;
-				},
-			});
+		const result = await checkForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+			now,
+			async fetchLatest() {
+				return null;
+			},
+		});
 
-			t.is(result, null);
-			t.deepEqual(
-				fake.cache.read(),
-				staleEntry,
-				'cache must not be overwritten when fetchLatest yields null',
-			);
-		} finally {
-			fake.cleanup();
-		}
+		t.is(result, null);
+		t.deepEqual(
+			fake.cache.read(),
+			staleEntry,
+			'cache must not be overwritten when fetchLatest yields null',
+		);
 	},
 );
 
@@ -588,20 +569,16 @@ test.serial(
 	'safeCheckForUpdate: swallows a throwing fetchLatest and resolves to null',
 	async t => {
 		const fake = setupFakeInstall(t, '0.1.0');
-		try {
-			const now = 1_800_000_000_000;
-			// No cache written — orchestrator will go straight to fetchLatest.
-			const result = await safeCheckForUpdate({
-				projectDir: fake.projectDir,
-				cache: fake.cache,
-				now,
-				async fetchLatest() {
-					throw new Error('boom');
-				},
-			});
-			t.is(result, null, 'the wrapper must not propagate the throw');
-		} finally {
-			fake.cleanup();
-		}
+		const now = 1_800_000_000_000;
+		// No cache written — orchestrator will go straight to fetchLatest.
+		const result = await safeCheckForUpdate({
+			projectDir: fake.projectDir,
+			cache: fake.cache,
+			now,
+			async fetchLatest() {
+				throw new Error('boom');
+			},
+		});
+		t.is(result, null, 'the wrapper must not propagate the throw');
 	},
 );
