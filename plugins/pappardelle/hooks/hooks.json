@@ -59,6 +59,17 @@
 				]
 			}
 		],
+		"PostToolUseFailure": [
+			{
+				"matcher": "*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/update-status.py\""
+					}
+				]
+			}
+		],
 		"Stop": [
 			{
 				"hooks": [

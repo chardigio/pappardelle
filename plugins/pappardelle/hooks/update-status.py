@@ -234,12 +234,14 @@ def track_pending_file(input_data: dict[str, Any], workspace: str) -> Optional[l
     directory = pending_dir(workspace)
     call = str(input_data.get("tool_use_id") or "")
     if event == "PreToolUse" and input_data.get("tool_name") in FILE_TOOLS and call:
-        tool_input = input_data.get("tool_input") or {}
-        target = tool_input.get("file_path") or tool_input.get("notebook_path") if isinstance(tool_input, dict) else None
+        tool_input = input_data.get("tool_input")
+        target = None
+        if isinstance(tool_input, dict):
+            target = tool_input.get("file_path") or tool_input.get("notebook_path")
         if isinstance(target, str) and target:
             directory.mkdir(parents=True, exist_ok=True)
             (directory / call).write_text(os.path.normpath(os.path.join(input_data.get("cwd") or "/", target)))
-    elif event == "PostToolUse" and call:
+    elif event in ("PostToolUse", "PostToolUseFailure") and call:
         (directory / call).unlink(missing_ok=True)
     elif event in ("UserPromptSubmit", "Stop", "SessionStart", "SessionEnd") and directory.exists():
         for entry in directory.iterdir():
@@ -317,7 +319,7 @@ def main() -> None:
             status = "processing"
         elif hook_event == "PreToolUse":
             status = "running_tool"
-        elif hook_event == "PostToolUse":
+        elif hook_event in ("PostToolUse", "PostToolUseFailure"):
             status = "processing"
         elif hook_event == "Stop":
             status = "waiting_for_input"

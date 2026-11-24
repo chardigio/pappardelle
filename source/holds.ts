@@ -110,6 +110,15 @@ export function isSamePrompt(hold: HeldPrompt, prompt: HeldPrompt): boolean {
  * rather than stacking another, or an approved one that lets the prompt
  * through once.
  */
+/** A hold moved on from open, or from approved to used. */
+export function resolveHold(
+	hold: Hold,
+	state: Exclude<HoldState, 'open'>,
+	now: Date,
+): Hold {
+	return {...hold, state, resolvedAt: now.toISOString()};
+}
+
 export function holdFor(
 	holds: Hold[],
 	prompt: HeldPrompt,
@@ -128,7 +137,6 @@ export class JsonHoldDao implements HoldDao {
 		return path.join(this.dir, `${id}.json`);
 	}
 
-	/** The ids of the hold files on disk. */
 	ids(): string[] {
 		let files: string[];
 		try {

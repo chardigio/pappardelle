@@ -33,7 +33,6 @@ export type ApprovalPolicy = {
 	scratchpad: string;
 	/** origin's default branch, which pushes never reach without the chef. */
 	defaultBranch: string | null;
-	/** fs.realpathSync, injected so tests can lay out symlinks. */
 	realpath: (target: string) => string;
 };
 
@@ -231,7 +230,8 @@ function hardStop(args: string[]): string | null {
 	if (/[$`]/.test(program)) return "the program it runs can't be read";
 	// eval "doctl apps list" runs the words inside the quotes.
 	const inner = bare(first).trim().split(/\s+/);
-	const words = [...inner.slice(1), ...rest];
+	// npm pub""lish is npm publish.
+	const words = [...inner.slice(1), ...rest.map(word => bare(word))];
 	for (const {programs, subcommands, why} of HARD_STOPS) {
 		if (!programs.includes(program)) continue;
 		if (!subcommands) return `${program} ${why}`;
@@ -273,6 +273,9 @@ function hardStop(args: string[]): string | null {
 }
 
 const GIT_OPTION_WITH_VALUE = new Set(['-C', '-c']);
+
+const RUNS_INPUT =
+	/^(?:(?:ba|da|k|z|fi)?sh|python[\d.]*|node|bun|deno|perl|ruby|php|osascript)$/;
 
 /** The words from git's subcommand on, past git's own options. */
 function gitSubcommand(args: string[]): string[] {
@@ -564,7 +567,7 @@ export function isAgentConfig(relative: string): boolean {
 		return true;
 	return (
 		first === '.claude' &&
-		(second === undefined || /^settings.*\.json$/.test(second))
+		(second === undefined || /^settings.*\.json$|[*?[]/.test(second))
 	);
 }
 
@@ -602,7 +605,7 @@ export function placeOf(
 				real.startsWith(resolveReal(prefix, policy)),
 			)
 		)
-			return hold(`${target} holds the user's tmux sockets`);
+			return hold(`${target} holds the user's sockets`);
 		for (const shared of policy.shared) {
 			const realShared = resolveReal(shared, policy);
 			if (real === realShared)
@@ -958,7 +961,7 @@ export function checkApproval(
 	// line also breaks, so `echo xcd /tmp/q-a` can show a cd at a line start.
 	let unconditional = true;
 	let chainedCd = false;
-	for (const {text: segment, next} of parts) {
+	for (const [index, {text: segment, next}] of parts.entries()) {
 		const words = wordsOf(segment);
 		const prefixed = new Set<string>();
 		while (words[0] && ASSIGNMENT.test(words[0]))
@@ -1003,6 +1006,15 @@ export function checkApproval(
 		const program = programName(args[0] ?? '');
 		const early = hardStop(args);
 		if (early) return hold(early);
+		// bash <<EOF and curl … | sh run commands this never sees.
+		if (
+			RUNS_INPUT.test(program) &&
+			args
+				.slice(1)
+				.every(word => word.startsWith('-') || /^\d*[<>]/.test(word)) &&
+			(segment.includes('<<') || parts[index - 1]?.next === '|')
+		)
+			return hold(`${program} runs a script from its input`);
 		// bash -c 'cmd' runs a command written as one word.
 		const script = /^(?:ba|da|k|z)?sh$/.test(program)
 			? args.findIndex((word, index) => index > 0 && /^-\w*c\w*$/.test(word))
@@ -1048,7 +1060,7 @@ export function checkApproval(
 		const pushed = pushToMain(args, policy, scope.cwd);
 		if (pushed) return hold(pushed);
 		const [sub = '', action = ''] =
-			program === 'git' ? gitSubcommand(args) : [];
+			program === 'git' ? gitSubcommand(args.map(word => bare(word))) : [];
 		if (SHARED_GIT[sub]?.has(action))
 			return hold(`git ${sub} ${action} reaches state every space shares`);
 		const written = writesAgentConfig(raw, program, scope.cwd, policy);

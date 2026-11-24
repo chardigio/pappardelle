@@ -598,6 +598,16 @@ class TestStatusDetermination:
         assert result is not None
         assert "pendingFiles" not in result
 
+    def test_a_failed_file_call_is_no_longer_pending(self, tmp_path):
+        """A call that errored never reaches PostToolUse, only PostToolUseFailure."""
+        self._run_hook_with_input(self._file_call("PreToolUse", "t1", "/tmp/a.ts"), tmp_path)
+        self._run_hook_with_input(self._file_call("PostToolUseFailure", "t1", "/tmp/a.ts"), tmp_path)
+
+        result = self._run_hook_with_input(self._permission_prompt(), tmp_path)
+
+        assert result is not None
+        assert "pendingFiles" not in result
+
     def test_a_new_prompt_from_the_user_clears_pending_files(self, tmp_path):
         """A call declined at its prompt never finishes, so its file goes when the turn does."""
         self._run_hook_with_input(self._file_call("PreToolUse", "t1", "/tmp/a.ts"), tmp_path)

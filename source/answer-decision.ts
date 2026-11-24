@@ -1,6 +1,6 @@
 // What answering a permission prompt or question comes to, before anything
 // is pressed: the keys, a model check still to run, a hold for the chef, or
-// an error. Pure, so every rule of space_answer is tested without a screen.
+// an error.
 
 import path from 'node:path';
 import type {CodexDialog, PermissionPrompt} from './agent-screen.ts';
@@ -104,6 +104,8 @@ const FILE_TOOLS = new Set([
 	'NotebookEdit',
 ]);
 const FILE_HEADER = /^(?:Edit|Create|Write|Read) file$|^Edit notebook$/;
+// What a file prompt asks when its header is off the screen.
+const FILE_QUESTION = /^Do you want to (?:create|make this edit to|overwrite) /;
 // Answering prompts is the chef's: a call to these from a space would let
 // one agent approve another's, or its own.
 const ANSWERS_PROMPTS =
@@ -310,7 +312,15 @@ export function decideAnswer(
 	// be a record of a different call queued behind this one.
 	const fileTool = permission.tool
 		? FILE_HEADER.test(permission.tool)
-		: FILE_TOOLS.has(hook?.currentTool ?? '');
+		: FILE_TOOLS.has(hook?.currentTool ?? '') ||
+			FILE_QUESTION.test(permission.question);
+	if (fileTool && !hook)
+		return {
+			kind: 'error',
+			exit: 1,
+			message:
+				"Claude hasn't reported which file this prompt is for yet; answer again in a few seconds",
+		};
 	const file = fileTool ? promptFile(permission, hook) : null;
 	const prompt: HeldPrompt = {
 		key,
@@ -368,7 +378,12 @@ export function decideAnswer(
 		return held(
 			"the top of the prompt is off the screen, so the call can't be read",
 		);
-	if (ANSWERS_PROMPTS.test(`${tool}\n${permission.command}`))
+	// A Bash command naming these is only text; pappardelle answer and holds
+	// are hard stops in the rules.
+	if (
+		tool !== 'Bash command' &&
+		ANSWERS_PROMPTS.test(`${tool}\n${permission.command}`)
+	)
 		return held('it answers prompts for agents, which only the chef does');
 	if (tool === 'Bash command') {
 		// Codex wraps a long command onto more lines with no mark, so its
@@ -381,7 +396,11 @@ export function decideAnswer(
 				: null;
 		if (wrapped?.kind === 'hold') return held(wrapped.reason);
 		const verdict = checkApproval(permission.command, policy, {
-			startDir: permission.choose === 'shortcut' ? null : policy.worktree,
+			// Claude's shell stays where the agent last cd'd, which the hook reports.
+			startDir:
+				permission.choose === 'shortcut'
+					? null
+					: (hook?.cwd ?? policy.worktree),
 		});
 		if (verdict.kind === 'hold') return held(verdict.reason);
 	}

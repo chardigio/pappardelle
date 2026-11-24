@@ -123,7 +123,12 @@ function approvalPolicy(key: string): ApprovalPolicy {
 	return {
 		worktree,
 		roots: tempRoots(),
+		// The desktop's and ssh-agent's sockets live in /tmp too.
 		reserved: unique([
+			'/tmp/.X11-unix',
+			'/tmp/.ICE-unix',
+			'/tmp/ssh-',
+			'/private/tmp/com.apple.launchd.',
 			'/tmp/tmux-',
 			'/private/tmp/tmux-',
 			path.join(tmpdir(), 'tmux-'),

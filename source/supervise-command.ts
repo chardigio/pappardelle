@@ -40,7 +40,7 @@ import type {ApprovalPolicy} from './approve-policy.ts';
 
 import type {ClassifierVerdict} from './approve-classifier.ts';
 import type {ClaudeSessionState, StoredClaudeStatus} from './claude-status.ts';
-import {holdFor, type Hold, type HoldDao} from './holds.ts';
+import {holdFor, resolveHold, type Hold, type HoldDao} from './holds.ts';
 import {readCompanionPane} from './companion.ts';
 import {
 	fireJob,
@@ -64,8 +64,6 @@ import {
 import {recordSupervision, type SuperviseEntry} from './supervise-log.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
-
-export {POLICY_REFUSED_EXIT} from './answer-decision.ts';
 
 export type SuperviseDeps = {
 	repo: () => string;
@@ -472,10 +470,16 @@ async function answerSettled(
 	const selected = now.permission?.options.find(
 		candidate => candidate.selected,
 	);
-	if (
-		now.permission?.command !== permission.command ||
-		selected?.number !== option
-	)
+	// The same diff to another file reads the same command; only the very
+	// prompt that was judged may be approved.
+	const call = (prompt: typeof permission | null | undefined) =>
+		JSON.stringify([
+			prompt?.tool,
+			prompt?.description,
+			prompt?.question,
+			prompt?.command,
+		]);
+	if (call(now.permission) !== call(permission) || selected?.number !== option)
 		return false;
 	if (deps.sendKeys(key, ['Enter']) !== 'sent') return false;
 	return answerTaken(key, before, deps);
@@ -660,18 +664,32 @@ async function settlesOn(
 	return false;
 }
 
-/** The hook's record of the prompt that is up, or null when it is of something else. */
+// Claude reports a permission prompt several seconds after drawing it.
+const HOOK_REPORT_MS = 10_000;
+
+/**
+ * The hook's record of the prompt that is up, or null when Claude hasn't
+ * reported it. Codex has no hook, so only a Claude prompt is waited for.
+ */
 async function promptHook(
 	key: string,
+	report: AgentStateReport,
 	deps: SuperviseDeps,
 ): Promise<ClaudeSessionState | null> {
-	const stored = await deps.readHookState(await deps.hookKey(key));
-	if (stored.kind !== 'state') return null;
-	const {state} = stored;
-	return state.status === 'waiting_for_approval' &&
-		state.event === 'Notification'
-		? state
-		: null;
+	for (let waited = 0; ; waited += ANSWER_POLL_MS) {
+		// eslint-disable-next-line no-await-in-loop
+		const stored = await deps.readHookState(await deps.hookKey(key));
+		if (
+			stored.kind === 'state' &&
+			stored.state.status === 'waiting_for_approval' &&
+			stored.state.event === 'Notification'
+		)
+			return stored.state;
+		if (report.permission?.choose !== 'digit' || waited >= HOOK_REPORT_MS)
+			return null;
+		// eslint-disable-next-line no-await-in-loop
+		await deps.sleep(ANSWER_POLL_MS);
+	}
 }
 
 function describeHold(hold: Hold): string {
@@ -1063,7 +1081,7 @@ async function execute(
 			const holds = deps.holds();
 			const decision = decideAnswer(command, key, before, {
 				policy: deps.policy(key),
-				hook: await promptHook(key, deps),
+				hook: await promptHook(key, before, deps),
 				holds: holds.list(),
 			});
 			if (decision.kind === 'error') {
@@ -1136,11 +1154,7 @@ async function execute(
 			const used = decision.kind === 'press' ? decision.hold : undefined;
 			if (used) {
 				// Only once the press is taken, so a failed one keeps the approval.
-				await holds.save({
-					...used,
-					state: 'used',
-					resolvedAt: deps.now().toISOString(),
-				});
+				await holds.save(resolveHold(used, 'used', deps.now()));
 				log({action: 'hold_use', key, hold: used.id, command: used.command});
 			}
 
@@ -1289,6 +1303,12 @@ async function execute(
 		}
 
 		case 'hold-resolve': {
+			const refused = refusedCaller(deps);
+			if (refused) {
+				deps.err(refused);
+				return POLICY_REFUSED_EXIT;
+			}
+
 			const store = deps.holds();
 			const hold = store.load(command.id);
 			if (!hold) {
@@ -1301,12 +1321,6 @@ async function execute(
 				return 1;
 			}
 
-			const refused = refusedCaller(deps);
-			if (refused) {
-				deps.err(refused);
-				return POLICY_REFUSED_EXIT;
-			}
-
 			if (command.resolution === 'approve' && ownSpace(deps) === hold.key) {
 				deps.err(
 					`${hold.key} can't approve its own hold; the chef decides ${hold.id}`,
@@ -1315,7 +1329,7 @@ async function execute(
 			}
 
 			const state = command.resolution === 'approve' ? 'approved' : 'dismissed';
-			await store.save({...hold, state, resolvedAt: deps.now().toISOString()});
+			await store.save(resolveHold(hold, state, deps.now()));
 			log({
 				action:
 					command.resolution === 'approve' ? 'hold_approve' : 'hold_dismiss',
