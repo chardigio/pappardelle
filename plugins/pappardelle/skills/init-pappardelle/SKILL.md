@@ -335,7 +335,7 @@ Replace `<TERM>` with the `TERM=` value the probe reported (e.g. `xterm-ghostty`
 
 **Gotcha:** `terminal-features` is an array option and `set -ga` appends a new **comma**-separated element. Features within one entry must be joined with `:`. Writing `"xterm-ghostty:usstyle,hyperlinks"` silently produces two entries, the second a bare `hyperlinks` with no TERM pattern, which does nothing.
 
-Then tell the user the settings need **new tmux servers** to take effect: `default-terminal` applies only to new sessions and the client-side features resolve at attach time. Both the `pappardelle_inner` server and the default server must be restarted, as described in the [tmux instructions](https://github.com/chardigio/pappardelle#tmux-version). This also applies after upgrading the tmux binary. Restarting ends running workspace processes, so tell the user to run these commands when ready, from outside tmux:
+Then tell the user the settings need **new tmux servers** to take effect: `default-terminal` applies only to new sessions and the client-side features resolve at attach time. Both the `pappardelle_inner` server and the default server must be restarted, as described in the [tmux instructions](https://github.com/chardigio/pappardelle#tmux-version). This also applies after upgrading the tmux binary. The inner server stays up even when no space is open, so closing every space doesn't restart it. Restarting ends running workspace processes, so tell the user to run these commands when ready, from outside tmux:
 
 ```bash
 tmux -L pappardelle_inner kill-server
