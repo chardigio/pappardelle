@@ -282,6 +282,11 @@ space_get() {
     esac
 }
 
+# The TUI rejects the whole config when any part of it is invalid, so idow does
+# too, before it fetches the issue or makes a worktree. Run before the yq merge
+# below so a YAML error is reported by the validator, not by yq.
+pappardelle_state check-config --project-root "$REPO_ROOT" --main-root "$MAIN_REPO_ROOT" || exit 1
+
 # From here on, read the merged config so home and local layers apply to
 # every field (profiles, team_prefix, providers, apps, links, hooks, ...),
 # not only the Claude settings that resolve-agent-config.sh layers itself.

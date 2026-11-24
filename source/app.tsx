@@ -108,7 +108,8 @@ import {
 } from './session-routing.ts';
 import {
 	getDefaultHomeConfigDir,
-	loadConfig,
+	readConfig,
+	DEFAULT_TEAM_PREFIX,
 	sousChefLaunch,
 	getStateColors,
 	getBeadsPrefixes,
@@ -164,7 +165,12 @@ import {
 	planConfigMigrations,
 	type ConfigMigration,
 } from './config-migration.ts';
-import {runCloseHooks, shouldAttach} from './close-space.ts';
+import {deinitSkipped, runCloseHooks, shouldAttach} from './close-space.ts';
+import {
+	readReportedConfig,
+	reportConfigEvent,
+	reportStartedWithInvalidConfig,
+} from './config-report.ts';
 import {spaceStatusKey} from './claude-status.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
@@ -475,17 +481,21 @@ export default function App({
 	const openPRRequest = useRef(0);
 
 	// Load config once at startup. Used for keybindings, emoji lookup, etc.
-	// May be null if .pappardelle.yml is missing or invalid; downstream lookups
-	// guard against this.
 	const configMemo = React.useMemo(() => {
-		try {
-			return loadConfig();
-		} catch (err) {
-			log.error(
-				'Failed to load config',
-				err instanceof Error ? err : undefined,
-			);
-			return null;
+		const load = readReportedConfig();
+		switch (load.kind) {
+			case 'valid': {
+				return load.config;
+			}
+
+			case 'missing': {
+				return null;
+			}
+
+			case 'invalid': {
+				reportStartedWithInvalidConfig();
+				return null;
+			}
 		}
 	}, []);
 
@@ -528,37 +538,30 @@ export default function App({
 	// Load issue watchlists (once at startup): the top-level issue_watchlist plus
 	// each profile's own issue_watchlist, all polled additively.
 	const watchlists = React.useMemo<ResolvedWatchlist[]>(() => {
-		try {
-			const config = loadConfig();
-			const resolved = getResolvedWatchlists(config);
-			if (resolved.length === 0) {
-				log.debug('No issue_watchlist configured — watchlist polling disabled');
-			} else {
-				for (const {profileName, watchlist: wl} of resolved) {
-					const source = profileName ? `profile "${profileName}"` : 'top-level';
-					const assigneeInfo = wl.assignee ? `assignee=${wl.assignee}, ` : '';
-					const labelInfo = wl.labels?.length
-						? `, labels=[${wl.labels.join(', ')}]`
-						: '';
-					const prefixInfo = wl.key_prefixes?.length
-						? `, key_prefixes=[${wl.key_prefixes.join(', ')}]`
-						: '';
-					const maxInfo =
-						wl.max_workspaces === undefined ? '' : `, max=${wl.max_workspaces}`;
-					log.info(
-						`Issue watchlist (${source}): ${assigneeInfo}statuses=[${wl.statuses.join(', ')}]${labelInfo}${prefixInfo}${maxInfo}`,
-					);
-				}
+		if (!configMemo) return [];
+		const resolved = getResolvedWatchlists(configMemo);
+		if (resolved.length === 0) {
+			log.debug('No issue_watchlist configured — watchlist polling disabled');
+		} else {
+			for (const {profileName, watchlist: wl} of resolved) {
+				const source = profileName ? `profile "${profileName}"` : 'top-level';
+				const assigneeInfo = wl.assignee ? `assignee=${wl.assignee}, ` : '';
+				const labelInfo = wl.labels?.length
+					? `, labels=[${wl.labels.join(', ')}]`
+					: '';
+				const prefixInfo = wl.key_prefixes?.length
+					? `, key_prefixes=[${wl.key_prefixes.join(', ')}]`
+					: '';
+				const maxInfo =
+					wl.max_workspaces === undefined ? '' : `, max=${wl.max_workspaces}`;
+				log.info(
+					`Issue watchlist (${source}): ${assigneeInfo}statuses=[${wl.statuses.join(', ')}]${labelInfo}${prefixInfo}${maxInfo}`,
+				);
 			}
-
-			return resolved;
-		} catch (err) {
-			log.debug(
-				`Failed to load watchlist config: ${err instanceof Error ? err.message : String(err)}`,
-			);
-			return [];
 		}
-	}, []);
+
+		return resolved;
+	}, [configMemo]);
 
 	// Build a lookup map: key char → keybinding config
 	const keybindingMap = React.useMemo(() => {
@@ -1328,8 +1331,8 @@ export default function App({
 		const vars = buildWorkspaceTemplateVars(
 			space.name,
 			worktreePath,
+			configMemo,
 			space.trackerIssue?.title ?? space.linearIssue?.title,
-			configMemo ?? undefined,
 			profileName,
 		);
 
@@ -1525,6 +1528,13 @@ export default function App({
 			return;
 		}
 
+		// Read fresh so profile vars edited since startup reach the command.
+		const load = readReportedConfig();
+		if (load.kind === 'invalid') {
+			setHeaderWithTimeout(`${kb.name} not run: the config is invalid`, 4000);
+			return;
+		}
+
 		const startTime = Date.now();
 		setRunningCommand(kb.name);
 		showHeaderMessage(`Running: ${kb.name}...`);
@@ -1533,6 +1543,7 @@ export default function App({
 		const vars = buildWorkspaceTemplateVars(
 			space.name,
 			worktreePath,
+			load.kind === 'valid' ? load.config : null,
 			space.trackerIssue?.title ?? space.linearIssue?.title,
 		);
 		const expandedCommand = expandTemplate(kb.run!, vars);
@@ -2032,6 +2043,10 @@ export default function App({
 			log.debug('Watchlist: polling for assigned issues…');
 
 			try {
+				// A space started now would stop at idow's config check, and its issue
+				// would not be picked up again until Pappardelle restarts.
+				if (readReportedConfig().kind === 'invalid') return;
+
 				// Fetch the registered space set once per poll cycle; the
 				// per-issue spawn guard (watchlistSpawnedRef) handles dedup both
 				// across watchlists and across cycles.
@@ -2195,13 +2210,16 @@ export default function App({
 				worktreePath: space.worktreePath,
 				trackerIssue: space.trackerIssue ?? space.linearIssue,
 			});
-			if (!deinit.success) {
+			if (deinit.kind === 'failed') {
 				setHeaderWithTimeout(
 					`Deinit failed: ${deinit.failedCommand ?? 'unknown'} — deletion aborted`,
 					5000,
 				);
 				return false;
 			}
+
+			if (deinit.kind === 'config-invalid')
+				reportConfigEvent(deinitSkipped(space.name));
 
 			// Prevent reattachment until the deleted space has left the list.
 			closingSpacesRef.current.add(space.name);
@@ -2346,6 +2364,9 @@ export default function App({
 			? getAutoRemoveWhenDone(configMemo)
 			: false;
 		if (!autoRemoveWhenDone) return;
+		// Nobody asked for these closes, so they wait for a config that can say
+		// which deinit commands to run.
+		if (readReportedConfig().kind === 'invalid') return;
 
 		const candidates = findSpacesToAutoRemove(spaces, true);
 		for (const space of candidates) {
@@ -2471,6 +2492,14 @@ export default function App({
 			return;
 		}
 
+		if (readReportedConfig().kind === 'invalid') {
+			setHeaderWithTimeout(
+				`${space.name} not opened: the config is invalid`,
+				4000,
+			);
+			return;
+		}
+
 		showHeaderMessage(`Opening ${space.name}...`);
 
 		const child = spawnQuietCommand(
@@ -2515,15 +2544,17 @@ export default function App({
 		setShowPromptDialog(false);
 
 		// Try to normalize as an issue identifier (supports bare numbers like '400')
-		let config;
-		try {
-			config = loadConfig();
-		} catch {
-			// Config loading failed, use default team prefix
-			config = null;
+		const load = readReportedConfig();
+		if (load.kind === 'invalid') {
+			const message = 'New space not created: the config is invalid';
+			setHeaderWithTimeout(message, 5000);
+			reportConfigEvent(message);
+			return;
 		}
 
-		const teamPrefix = config ? getTeamPrefix(config) : 'STA';
+		const config = load.kind === 'valid' ? load.config : null;
+
+		const teamPrefix = config ? getTeamPrefix(config) : DEFAULT_TEAM_PREFIX;
 		const normalizedIssueKey = inputIsIssueKey
 			? input.trim()
 			: normalizeIssueIdentifier(
@@ -3054,12 +3085,18 @@ function workspaceTitleRuns(header: {
 }
 
 // The new-space dialog picks a profile for every space, so it can't open
-// without one. A config that fails to load is left to the dialog to report.
+// without one. An invalid config is left to the dialog to report.
 function hasNoProfiles(): boolean {
-	try {
-		return Object.keys(loadConfig().profiles).length === 0;
-	} catch {
-		return false;
+	const load = readConfig();
+	switch (load.kind) {
+		case 'valid': {
+			return Object.keys(load.config.profiles).length === 0;
+		}
+
+		case 'missing':
+		case 'invalid': {
+			return false;
+		}
 	}
 }
 

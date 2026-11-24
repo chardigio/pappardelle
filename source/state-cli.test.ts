@@ -178,3 +178,34 @@ test("launch-agent records the agent profile a space's agent session starts with
 	});
 	t.is(launch().status, 2);
 });
+
+test('check-config passes a valid or missing config and fails an invalid one with its errors', t => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
+	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const project = path.join(home, 'project');
+	fs.mkdirSync(project);
+	const check = () =>
+		pappardelleState(
+			['check-config', '--project-root', project, '--main-root', project],
+			home,
+		);
+
+	const missing = check();
+	t.is(missing.status, 0, `stderr: ${missing.stderr}`);
+
+	fs.writeFileSync(
+		path.join(project, '.pappardelle.yml'),
+		'version: 1\nprofiles: {}\n',
+	);
+	const valid = check();
+	t.is(valid.status, 0, `stderr: ${valid.stderr}`);
+
+	// Broken in an agent profile no space uses: the TUI still rejects it.
+	fs.writeFileSync(
+		path.join(project, '.pappardelle.yml'),
+		'version: 1\nprofiles: {}\nagent_profiles:\n  opus:\n    command: claude\n    model: 7\n',
+	);
+	const invalid = check();
+	t.is(invalid.status, 1);
+	t.regex(invalid.stderr, /agent_profiles\.opus\.model: must be a string/);
+});

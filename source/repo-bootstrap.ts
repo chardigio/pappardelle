@@ -1,6 +1,7 @@
 import {
 	getRepoName,
 	getRepoRoot,
+	inlineConfigErrors,
 	loadProviderConfigs,
 	readHomeSqliteState,
 } from './config.ts';
@@ -17,6 +18,9 @@ import {discoverWorkspaceRepositories} from './providers/workspace-repositories.
 import {stateDaosByRepo, type StateDaos} from './state-daos.ts';
 import {recordSqliteState} from './state-flag.ts';
 import {initTmuxState} from './tmux.ts';
+import {createLogger} from './logger.ts';
+
+const log = createLogger('repo-bootstrap');
 
 /**
  * Per-repo process setup shared by the TUI and its popup child. The popup is
@@ -63,10 +67,17 @@ export function bootstrapRepo(): {repoName: string; daos: StateDaos} {
 	// profiles) have validation errors.
 	try {
 		const providerCfg = loadProviderConfigs();
+		if (providerCfg.unparsable.length > 0)
+			log.error(
+				`The tracker and VCS host settings of a config file that failed to parse are ignored: ${inlineConfigErrors(providerCfg.unparsable)}`,
+			);
 		createIssueTracker(providerCfg.issue_tracker);
 		createVcsHost(providerCfg.vcs_host);
-	} catch {
-		// If loading fails the providers will fall back to defaults on first use.
+	} catch (error) {
+		log.error(
+			'Could not set up the tracker and VCS host; using the defaults',
+			error instanceof Error ? error : undefined,
+		);
 	}
 
 	return {repoName, daos};

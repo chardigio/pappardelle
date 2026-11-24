@@ -7,14 +7,17 @@ import {
 	workspaceInstructions,
 	type CliResult,
 	type RunCli,
+	type WorkspaceAwareness,
 } from './mcp-server.ts';
 import type {CliCall} from './mcp-tools.ts';
 
-async function connect(options: {enabled?: boolean; runCli?: RunCli} = {}) {
+async function connect(
+	options: {awareness?: WorkspaceAwareness; runCli?: RunCli} = {},
+) {
 	const calls: CliCall[] = [];
 	const result: CliResult = {code: 0, stdout: 'out\n', stderr: ''};
 	const server = createMcpServer({
-		enabled: options.enabled ?? true,
+		awareness: options.awareness ?? {kind: 'on'},
 		space: 'STA-1',
 		repoName: 'repo',
 		runCli:
@@ -114,9 +117,22 @@ test('cancelling a call aborts the running command', async t => {
 });
 
 test('outside a Pappardelle repo the server offers nothing', async t => {
-	const {client} = await connect({enabled: false});
+	const {client} = await connect({awareness: {kind: 'off'}});
 	t.is(client.getServerCapabilities()?.tools, undefined);
 	t.is(client.getInstructions(), undefined);
+});
+
+test('an invalid config turns the tools off and the instructions say why', async t => {
+	const {client} = await connect({
+		awareness: {
+			kind: 'invalid-config',
+			errors: ['agent_profiles.opus.model: must be a string'],
+		},
+	});
+	t.is(client.getServerCapabilities()?.tools, undefined);
+	const instructions = client.getInstructions() ?? '';
+	t.true(instructions.includes('agent_profiles.opus.model: must be a string'));
+	t.true(instructions.includes('restart this session'));
 });
 
 test('inside a repo tools are annotated and instructions are sent', async t => {

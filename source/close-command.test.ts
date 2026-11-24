@@ -55,7 +55,7 @@ function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 			events.push(
 				`hooks ${space.name} ${space.worktreePath} ${space.trackerIssue?.identifier ?? 'no-issue'}`,
 			);
-			return {success: true};
+			return {kind: 'ran'};
 		},
 		async killSpaceSessions(key) {
 			events.push(`kill ${key}`);
@@ -143,7 +143,7 @@ test('a yes at the prompt closes the space', async t => {
 test('a failed hook names the hook and leaves the space open', async t => {
 	const {deps, events} = fakeDeps({
 		async runHooks() {
-			return {success: false, failedCommand: 'remove worktree'};
+			return {kind: 'failed', failedCommand: 'remove worktree'};
 		},
 	});
 	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 1);
@@ -151,6 +151,24 @@ test('a failed hook names the hook and leaves the space open', async t => {
 		'print Running pre_workspace_deinit hooks...',
 		'print pre_workspace_deinit hook failed: remove worktree. STA-1 is still open',
 	]);
+});
+
+test('an invalid config closes the space and says the deinit commands were skipped', async t => {
+	const {deps, events} = fakeDeps({
+		async runHooks() {
+			return {
+				kind: 'config-invalid',
+				errors: ['agent_profiles.opus.model: must be a string'],
+			};
+		},
+	});
+	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 0);
+	t.true(events.includes('unregister STA-1'));
+	t.true(
+		events.includes(
+			'print Skipped the deinit commands of STA-1: the config is invalid\nInvalid .pappardelle.yml configuration:\n  - agent_profiles.opus.model: must be a string',
+		),
+	);
 });
 
 test('a failed kill leaves the space registered', async t => {

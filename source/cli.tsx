@@ -36,7 +36,9 @@ import {
 	getRepoRoot,
 	getMainRepoRoot,
 	getRepoName,
-	loadConfig,
+	readConfig,
+	formatConfigErrors,
+	DEFAULT_TEAM_PREFIX,
 	checkAgentProfile,
 	unknownAgentProfileMessage,
 	loadProviderConfigs,
@@ -59,7 +61,7 @@ captureStderr();
 import {bootstrapRepo} from './repo-bootstrap.ts';
 import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
-import {resolveSpaceKey} from './issue-utils.ts';
+import {cliSpaceKey} from './cli-space-key.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
 import {
 	readCommitSha,
@@ -138,19 +140,17 @@ if (process.argv[2] === 'close') {
 }
 
 function resolveCliSpaceKey(rawKey: string): string {
-	let config;
-	try {
-		config = loadConfig();
-	} catch {
-		config = null;
-	}
-
-	return resolveSpaceKey(
+	const resolved = cliSpaceKey(
 		rawKey,
-		config ? getTeamPrefix(config) : 'STA',
+		readConfig(),
 		createIssueTracker().name,
-		config ? getBeadsPrefixes(config, readBeadsIssuePrefix()) : [],
+		readBeadsIssuePrefix,
 	);
+	if (resolved.kind === 'key') return resolved.key;
+	console.error(
+		`${rawKey} needs team_prefix from .pappardelle.yml, which is invalid:\n${formatConfigErrors(resolved.errors)}`,
+	);
+	process.exit(1);
 }
 
 // Dispatched before meow so that `--field x` and `--field=x` both parse, and
@@ -332,13 +332,7 @@ function checkConfig(): void {
 			);
 			process.exit(1);
 		} else if (error instanceof ConfigValidationError) {
-			console.error(
-				'\x1b[31mError: Invalid .pappardelle.yml configuration.\x1b[0m',
-			);
-			console.error('');
-			for (const err of error.errors) {
-				console.error(`  - ${err}`);
-			}
+			console.error(`\x1b[31m${formatConfigErrors(error.errors)}\x1b[0m`);
 			console.error('');
 			console.error('Please fix the configuration and try again.');
 			process.exit(1);
@@ -355,13 +349,17 @@ if (cli.input[0] === 'link-pr') {
 			throw new Error(
 				'Usage: pappardelle link-pr <url> [--workspace <workspace-root>]',
 			);
+		const providers = loadProviderConfigs();
+		// A GitLab host from a layer that failed to parse would link the wrong MR.
+		if (providers.unparsable.length > 0)
+			throw new Error(formatConfigErrors(providers.unparsable));
 		const result = await linkPr(
 			cli.input[1]!,
 			process.cwd(),
 			cli.flags.workspace ? path.resolve(cli.flags.workspace) : getRepoRoot(),
 			{
 				daosFor: repo => createStateDaos({repo}),
-				gitlabHost: loadProviderConfigs().vcs_host?.host,
+				gitlabHost: providers.vcs_host?.host,
 			},
 		);
 		console.log(
@@ -545,20 +543,18 @@ if (cli.input.length > 0) {
 	const prompt = cli.input.join(' ');
 
 	// Normalize issue identifiers (supports bare numbers like '400')
-	let config;
-	let configError: unknown;
-	try {
-		config = loadConfig();
-	} catch (error) {
-		config = null;
-		configError = error;
+	const load = readConfig();
+	if (load.kind === 'invalid') {
+		console.error(formatConfigErrors(load.errors));
+		process.exit(1);
 	}
 
+	const config = load.kind === 'valid' ? load.config : null;
 	const {agentProfile} = cli.flags;
 	if (agentProfile !== undefined) {
 		if (!config) {
 			console.error(
-				`Could not read the config to check agent profile "${agentProfile}": ${configError instanceof Error ? configError.message : String(configError)}`,
+				`Could not check agent profile "${agentProfile}": no .pappardelle.yml`,
 			);
 			process.exit(1);
 		}
@@ -570,7 +566,7 @@ if (cli.input.length > 0) {
 		}
 	}
 
-	let teamPrefix = config ? getTeamPrefix(config) : 'STA';
+	let teamPrefix = config ? getTeamPrefix(config) : DEFAULT_TEAM_PREFIX;
 	const profile = cli.flags.profile
 		? config?.profiles[cli.flags.profile]
 		: undefined;

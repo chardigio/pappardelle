@@ -11,13 +11,17 @@ import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
 	getMainRepoRoot,
 	getRepoName,
-	loadConfig,
+	inlineConfigErrors,
+	readConfig,
 	SOUS_CHEF_FILE,
 	SOUS_CHEF_NAME,
 	sousChefLaunch,
 	workspaceAwareAgents,
-	type PappardelleConfig,
+	type ConfigLoad,
 } from './config.ts';
+import {createLogger} from './logger.ts';
+
+const log = createLogger('mcp');
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
@@ -65,27 +69,49 @@ ${options.sousChef ? `${MESSAGING} ${MESSAGE_SOUS_CHEF}` : MESSAGING}
 ${companionRules()}`;
 }
 
+export type WorkspaceAwareness =
+	| {kind: 'on'}
+	| {kind: 'off'}
+	| {kind: 'invalid-config'; errors: string[]};
+
+function invalidConfigInstructions(errors: string[]): string {
+	return `Pappardelle's workspace tools are off because .pappardelle.yml is invalid: ${inlineConfigErrors(errors)}. Tell the user; once it's fixed, restart this session.`;
+}
+
 export function createMcpServer(options: {
-	enabled: boolean;
+	awareness: WorkspaceAwareness;
 	space?: string;
 	repoName?: string;
 	sousChef?: boolean;
 	sousChefFile?: string;
 	runCli: RunCli;
 }): McpServer {
-	const {enabled, space, repoName, sousChef, sousChefFile, runCli} = options;
+	const {awareness, space, repoName, sousChef, sousChefFile, runCli} = options;
+	let instructions: string | undefined;
+	switch (awareness.kind) {
+		case 'on': {
+			instructions = workspaceInstructions(space, repoName, {
+				sousChef,
+				sousChefFile,
+			});
+			break;
+		}
+
+		case 'off': {
+			break;
+		}
+
+		case 'invalid-config': {
+			instructions = invalidConfigInstructions(awareness.errors);
+			break;
+		}
+	}
+
 	const server = new McpServer(
 		{name: 'pappardelle', version: '1.0.0'},
-		enabled
-			? {
-					instructions: workspaceInstructions(space, repoName, {
-						sousChef,
-						sousChefFile,
-					}),
-				}
-			: {},
+		instructions === undefined ? {} : {instructions},
 	);
-	if (!enabled) return server;
+	if (awareness.kind !== 'on') return server;
 
 	for (const tool of MCP_TOOLS) {
 		server.registerTool(
@@ -171,21 +197,28 @@ const spawnCli =
 			child.stdin.end(stdin);
 		});
 
-/** A config that doesn't load leaves workspace awareness off; the TUI reports why. */
-function loadRepoConfig(): PappardelleConfig | null {
-	try {
-		return loadConfig();
-	} catch {
-		return null;
-	}
-}
-
 function findSousChefFile(): string | undefined {
 	try {
 		const file = path.join(getMainRepoRoot(), SOUS_CHEF_FILE);
 		return fs.existsSync(file) ? file : undefined;
 	} catch {
 		return undefined;
+	}
+}
+
+function workspaceAwareness(load: ConfigLoad): WorkspaceAwareness {
+	switch (load.kind) {
+		case 'valid': {
+			return workspaceAwareAgents(load.config) ? {kind: 'on'} : {kind: 'off'};
+		}
+
+		case 'missing': {
+			return {kind: 'off'};
+		}
+
+		case 'invalid': {
+			return {kind: 'invalid-config', errors: load.errors};
+		}
 	}
 }
 
@@ -209,14 +242,18 @@ export async function runMcpServer(): Promise<void> {
 			: caller.key;
 	const repoName =
 		checkout.kind === 'checkout' ? checkout.checkout.repoName : undefined;
-	const config = loadRepoConfig();
-	const enabled = workspaceAwareAgents(config);
-	const sousChef = enabled && sousChefLaunch(config) !== undefined;
+	const load = readConfig();
+	const config = load.kind === 'valid' ? load.config : null;
+	const awareness = workspaceAwareness(load);
+	if (awareness.kind === 'invalid-config')
+		log.error(invalidConfigInstructions(awareness.errors));
+	const sousChef =
+		awareness.kind === 'on' && sousChefLaunch(config) !== undefined;
 	const closed = new Promise(resolve => {
 		process.stdin.once('close', resolve);
 	});
 	await createMcpServer({
-		enabled,
+		awareness,
 		space,
 		repoName,
 		sousChef,

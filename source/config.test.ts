@@ -824,7 +824,6 @@ test('buildWorkspaceTemplateVars sets base variables', t => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
-		undefined,
 		templateVarsTestConfig,
 	);
 	t.is(vars.ISSUE_KEY, 'STA-999');
@@ -841,8 +840,8 @@ test('buildWorkspaceTemplateVars prefers an explicit profileName over the title 
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
-		'fix stardust jams bug', // matches stardust-jams
 		templateVarsTestConfig,
+		'fix stardust jams bug', // matches stardust-jams
 		'pappardelle', // but this is the profile the space was created with
 	);
 	t.is(vars['IOS_APP_DIR'], undefined);
@@ -853,8 +852,8 @@ test('buildWorkspaceTemplateVars uses the named profile vars even when the title
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
-		'unrelated title',
 		templateVarsTestConfig,
+		'unrelated title',
 		'stardust-jams',
 	);
 	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
@@ -866,8 +865,8 @@ test('buildWorkspaceTemplateVars falls back to the title match for an unknown pr
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
-		'fix stardust jams bug',
 		templateVarsTestConfig,
+		'fix stardust jams bug',
 		'deleted_profile',
 	);
 	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
@@ -877,8 +876,8 @@ test('buildWorkspaceTemplateVars merges profile vars when title matches', t => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
-		'fix stardust jams bug',
 		templateVarsTestConfig,
+		'fix stardust jams bug',
 	);
 	// Profile vars from stardust-jams profile should be merged
 	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
@@ -890,8 +889,8 @@ test('buildWorkspaceTemplateVars sets VCS label from matched profile', t => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
-		'fix stardust jams bug',
 		templateVarsTestConfig,
+		'fix stardust jams bug',
 	);
 	t.is(vars.VCS_LABEL, 'stardust_jams');
 	t.is(vars.GITHUB_LABEL, 'stardust_jams');
@@ -901,8 +900,8 @@ test('buildWorkspaceTemplateVars falls back to default profile when no title mat
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
-		'zzz nonexistent topic',
 		templateVarsTestConfig,
+		'zzz nonexistent topic',
 	);
 	// Default profile is "pappardelle" which has no vars, so custom vars should be absent
 	t.is(vars['IOS_APP_DIR'], undefined);
@@ -913,7 +912,6 @@ test('buildWorkspaceTemplateVars falls back to default profile when no title pro
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
-		undefined,
 		templateVarsTestConfig,
 	);
 	// No title = no match = falls back to default profile (pappardelle, no vars)
@@ -924,8 +922,8 @@ test('buildWorkspaceTemplateVars does not overwrite base vars with profile vars'
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
-		'fix stardust jams bug',
 		templateVarsTestConfig,
+		'fix stardust jams bug',
 	);
 	// Base vars should remain even though profile vars were merged
 	t.is(vars.ISSUE_KEY, 'STA-999');
