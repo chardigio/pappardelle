@@ -43,7 +43,9 @@ function makeRunner(options: {
 	listFails?: boolean;
 	failOn?: (args: readonly string[]) => boolean;
 	/** The agent's screen, fixed or drawn from what the send has done so far. */
-	screen?: string | ((sent: {pasted: boolean; enters: number}) => string);
+	screen?:
+		| string
+		| ((sent: {cleared: boolean; pasted: boolean; enters: number}) => string);
 	captureFails?: boolean;
 }): {
 	runner: SendTmuxRunner;
