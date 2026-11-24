@@ -102,8 +102,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install yq
+      - name: Install tmux and yq
         run: |
+          sudo apt-get update && sudo apt-get install -y tmux
           sudo curl -fsSL -o /usr/local/bin/yq \
             https://github.com/mikefarah/yq/releases/download/v4.54.3/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
@@ -142,8 +143,9 @@ jobs:
       - name: Terminal launcher resolution
         run: ./scripts/test-terminal-launcher.sh
 
-      # Only the portable quoting tests run here; the parity half needs osascript.
-      - name: Workspace launcher quoting
+      # Only the portable quoting and viewer rebuild tests run here; the parity
+      # half needs osascript.
+      - name: Workspace launcher quoting and viewer rebuild
         run: ./scripts/test-workspace-launchers.sh
 
   python-tests:

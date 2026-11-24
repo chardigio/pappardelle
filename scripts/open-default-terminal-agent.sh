@@ -200,21 +200,29 @@ CMD_FILE="${LAUNCH_DIR}/${TMUX_SESSION#agent-}.command"
     printf 'COMPANION_PANE=%q\n' "$COMPANION_LINE"
     cat <<'LAUNCHER_END'
 
+# tmux expands formats in -c, so a # in the worktree path is doubled.
+START_DIR="${WORKTREE//#/##}"
+
 # Reopening attaches to the viewer already there; splitting again would stack
 # a duplicate pane pair on every press of `o`. A viewer down to one pane lost
 # the session behind the other (the TUI's kill deletes the inner agent
 # session), and reattaching it would never bring that pane back.
 if tmux has-session -t "=$VIEW_SESSION:" 2>/dev/null; then
-    if [[ "$(tmux list-panes -t "=$VIEW_SESSION:" 2>/dev/null | wc -l)" -eq 2 ]]; then
+    if [[ "$(tmux list-panes -t "=$VIEW_SESSION:^" 2>/dev/null | wc -l)" -eq 2 ]]; then
         exec tmux attach -t "=$VIEW_SESSION:"
     fi
-    tmux kill-session -t "=$VIEW_SESSION:"
+    # Rebuilt inside the viewer rather than killed and created again: when the
+    # viewer is the default server's last session, killing it makes the server
+    # exit, and a new-session that reaches the server on its way out fails with
+    # it. One invocation, so nothing else reaches the window in between.
+    tmux kill-pane -a -t "=$VIEW_SESSION:^" \; \
+        respawn-pane -k -t "=$VIEW_SESSION:^" -c "$START_DIR" "$AGENT_PANE" ||
+        tmux kill-session -t "=$VIEW_SESSION:" 2>/dev/null
 fi
 
-# tmux expands formats in -c, so a # in the worktree path is doubled.
-tmux new-session -d -s "$VIEW_SESSION" -c "${WORKTREE//#/##}" "$AGENT_PANE"
-tmux split-window -h -t "=$VIEW_SESSION:" -c "${WORKTREE//#/##}" "$COMPANION_PANE"
-tmux select-pane -t "=$VIEW_SESSION:.0"
+tmux has-session -t "=$VIEW_SESSION:" 2>/dev/null ||
+    tmux new-session -d -s "$VIEW_SESSION" -c "$START_DIR" "$AGENT_PANE"
+tmux split-window -d -h -t "=$VIEW_SESSION:^" -c "$START_DIR" "$COMPANION_PANE"
 exec tmux attach -t "=$VIEW_SESSION:"
 LAUNCHER_END
 } > "$CMD_FILE"
