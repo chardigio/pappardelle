@@ -18,7 +18,7 @@ RESET='\033[0m'
 # A run inside a space inherits that space's PAPPARDELLE_*, and the state ones
 # (PAPPARDELLE_STATE_DB, PAPPARDELLE_STATUS_SOCKET, PAPPARDELLE_STATUS_DIR)
 # would point the hooks past the throwaway HOME below.
-for name in $(compgen -e | grep '^PAPPARDELLE_' | grep -v '^PAPPARDELLE_SQLITE_STATE$'); do unset "$name"; done
+for name in $(compgen -e | grep '^PAPPARDELLE_' | grep -v '^PAPPARDELLE_SQLITE_STATE$\|^PAPPARDELLE_TEST_'); do unset "$name"; done
 
 # Unique prefix to avoid collisions with real sessions
 TEST_PREFIX="test-$$"
@@ -34,10 +34,14 @@ export PAPPARDELLE_TMUX_SOCKET
 # the run made. Both dirs start empty here, never inherited from the caller.
 TMUX_TMPDIR=""
 TMPDIR_ROOT=""
+TMUX_REFUSALS=""
 # shellcheck disable=SC2329  # invoked via trap
 cleanup() {
-    local socket pids pid
-    [[ -n "$TMUX_TMPDIR" ]] || return 0
+    local status=$? socket pids pid
+    "$SCRIPT_DIR/../test/helpers/tmux-guard-env.sh" --finish "$TMUX_REFUSALS" || status=1
+    if [[ -z "$TMUX_TMPDIR" ]]; then
+        exit "$status"
+    fi
     for socket in "$TMUX_TMPDIR"/tmux-*/*; do
         [[ -S "$socket" ]] || continue
         pids=$(tmux -S "$socket" list-panes -a -F '#{pane_pid}' 2>/dev/null || true)
@@ -53,11 +57,16 @@ cleanup() {
     if [[ -n "$TMPDIR_ROOT" ]]; then
         rm -rf "$TMPDIR_ROOT"
     fi
+    exit "$status"
 }
 trap cleanup EXIT
 # bash skips the EXIT trap when a signal kills it.
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+TMUX_GUARD_ENV=$("$SCRIPT_DIR/../test/helpers/tmux-guard-env.sh") || exit 1
+eval "$TMUX_GUARD_ENV"
+TMUX_REFUSALS=${PAPPARDELLE_TEST_TMUX_REFUSALS:-}
 
 # Every server the run starts, on any -L name, lands in this directory, so the
 # exit trap can find them all: a test that aborts under `set -e` skips its own

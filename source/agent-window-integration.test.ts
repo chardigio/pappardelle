@@ -15,7 +15,7 @@ const tmuxTest =
 const dir = realpathSync(mkdtempSync('/tmp/pw-'));
 const inner = `${dir}/i`;
 const viewer = `${dir}/o`;
-const {TMUX: _tmux, TMUX_PANE: _pane, ...env} = process.env;
+const env = {...process.env};
 
 const on =
 	(socket: string): OuterTmuxRunner =>

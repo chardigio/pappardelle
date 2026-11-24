@@ -17,22 +17,14 @@ import {reviveTui} from './tui-sessions.ts';
 const tmuxTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
 
-/**
- * Point the default tmux server at a private TMUX_TMPDIR for one test. With
- * TMUX set, tmux targets that server regardless of TMUX_TMPDIR, which would
- * put the test's sessions on the developer's own server.
- */
 function privateDefaultServer(t: ExecutionContext): void {
 	const dir = tempDir(t, 'pappardelle-tmux-');
-	const saved = {tmux: process.env['TMUX'], tmpdir: process.env['TMUX_TMPDIR']};
-	delete process.env['TMUX'];
+	const saved = process.env['TMUX_TMPDIR'];
 	process.env['TMUX_TMPDIR'] = dir;
 	t.teardown(() => {
 		spawnSync('tmux', ['kill-server'], {stdio: 'ignore'});
-		if (saved.tmux === undefined) delete process.env['TMUX'];
-		else process.env['TMUX'] = saved.tmux;
-		if (saved.tmpdir === undefined) delete process.env['TMUX_TMPDIR'];
-		else process.env['TMUX_TMPDIR'] = saved.tmpdir;
+		if (saved === undefined) delete process.env['TMUX_TMPDIR'];
+		else process.env['TMUX_TMPDIR'] = saved;
 	});
 }
 
