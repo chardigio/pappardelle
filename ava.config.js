@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import {isMainThread} from 'node:worker_threads';
 
 // xo's ava rules load this file in a worker thread, where an exit listener
@@ -23,6 +24,11 @@ if (isMainThread) {
 		}
 	}
 
+	// These move the agents' config dirs off HOME, so they would point tests at
+	// the developer's own Claude and Codex config.
+	delete process.env.CLAUDE_CONFIG_DIR;
+	delete process.env.CODEX_HOME;
+
 	// Bun reads HOME once at startup, so the throwaway HOME has to be in the
 	// environment the workers are forked with. Everything under ~/.pappardelle
 	// (logs, state, the status daemon's socket) and ~/.claude.json then lands
@@ -31,6 +37,9 @@ if (isMainThread) {
 	const throwawayHome = fs.mkdtempSync('/tmp/ph-');
 	process.env.HOME = throwawayHome;
 	process.env.PAPPARDELLE_TEST_HOME = throwawayHome;
+	// Without a .zshrc, a zsh started in a test's tmux pane opens its first-run
+	// wizard, which takes the keys the test types.
+	fs.writeFileSync(path.join(throwawayHome, '.zshrc'), '');
 	process.on('exit', () => {
 		// A failed, timed-out or interrupted run kills workers before their own
 		// cleanup runs, so leftovers then say nothing about the tests.

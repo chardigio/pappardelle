@@ -93,7 +93,6 @@ SHIM
 chmod +x "$CLAUDE_SHIM_DIR/claude"
 export PATH="$CLAUDE_SHIM_DIR:$PATH"
 
-
 # Cases kill the last sessions on the shared server and then create the next
 # one straight away. A new-session that reaches the server while it is exiting
 # over its last session fails with "server exited unexpectedly".
@@ -395,14 +394,15 @@ mkdir -p "$WORKTREE_PATH5"
 start_session --issue-key "$ISSUE_KEY5" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH5" 2>/dev/null
 
 # The fresh launch runs only after --continue failed and the erase ran.
-claude_calls5() { grep -F -- "$ISSUE_KEY5" "$CLAUDE_SHIM_LOG" 2>/dev/null || true; }
+shim_calls_for_key5() { grep -F -- "$ISSUE_KEY5" "$CLAUDE_SHIM_LOG" 2>/dev/null || true; }
 for _ in $(seq 1 150); do
-    claude_calls5 | grep -qv -- '--continue' && break
+    shim_calls_for_key5 | grep -qv -- '--continue' && break
     sleep 0.1
 done
+# The erase was printed before the fresh launch; give tmux time to draw it.
 sleep 0.3
-RESUME_CALL5=$(claude_calls5 | tail -2 | head -1)
-FRESH_CALL5=$(claude_calls5 | tail -1)
+RESUME_CALL5=$(shim_calls_for_key5 | tail -2 | head -1)
+FRESH_CALL5=$(shim_calls_for_key5 | tail -1)
 if [[ "$RESUME_CALL5" == *" --continue"* && "$FRESH_CALL5" != *"--continue"* ]]; then
     echo -e "  ${GREEN}PASS${RESET} claude --continue failed, then the fresh launch ran"
     PASS=$((PASS + 1))
@@ -464,10 +464,9 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISS
 # actual command line claude was launched with rather than a pane transcript.
 # The shim exits 0, so the `--continue` branch succeeds and runs exactly once.
 #
-# HOME is redirected to a throwaway dir for these two cases: the interactive
-# shell tmux spawns would otherwise source the developer's ~/.zshrc and put the
-# real claude ahead of the shim on PATH. It also keeps the pre-trust step out of
-# the real ~/.claude.json.
+# These two cases get a HOME of their own, apart from the run's: the pre-trust
+# check further down reads $SHIM_HOME/.claude.json to see that only the claude
+# launch wrote one.
 echo -e "\n${BOLD}Test: launch flags reach the claude command line${RESET}"
 ISSUE_KEY7="${TEST_PREFIX}-700"
 WORKTREE_PATH7="$TMPDIR_ROOT/worktree7"
