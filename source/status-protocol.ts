@@ -15,8 +15,18 @@ export type ClientMessage =
 	| {type: 'restore'; state: ClaudeSessionState}
 	/** A pane monitor's snapshot. Replaces the one of its pane generation. */
 	| {type: 'snapshot'; snapshot: ProgramStatusSnapshot}
-	/** Drop the snapshots of a space, except pane generation `keep`'s. */
-	| {type: 'forget'; repo: string; key: string; keep?: string}
+	/**
+	 * Drop the snapshots of a space, except pane generation `keep`'s.
+	 * `generations` are those whose leases the sender removed: a snapshot of
+	 * one that arrives later, on another connection, is not kept.
+	 */
+	| {
+			type: 'forget';
+			repo: string;
+			key: string;
+			keep?: string;
+			generations?: string[];
+	  }
 	/** Drop the snapshot of one pane generation of a space. */
 	| {type: 'drop'; repo: string; key: string; generation: string}
 	/** Send the current state, then every change. Snapshots of `repo` only. */
@@ -120,8 +130,21 @@ export function parseClientMessage(line: string): Parsed<ClientMessage> {
 
 		case 'forget': {
 			const forget = forgetFields(fields);
-			return forget
-				? {kind: 'message', message: {type: 'forget', ...forget}}
+			const generations =
+				fields['generations'] === undefined
+					? []
+					: listOf(fields['generations'], value =>
+							typeof value === 'string' ? value : undefined,
+						);
+			return forget && generations
+				? {
+						kind: 'message',
+						message: {
+							type: 'forget',
+							...forget,
+							...(generations.length > 0 ? {generations} : {}),
+						},
+					}
 				: INVALID;
 		}
 

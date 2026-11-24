@@ -105,6 +105,10 @@ function setup(t: ExecutionContext, options: {sqlite?: boolean} = {}) {
 		exitPane() {
 			paneOutput = '%1\t12\t1\t0\t12.owner';
 		},
+		/** tmux 3.8 lists no pid for a dead pane. */
+		exitPaneWithoutPid() {
+			paneOutput = '%1\t\t1\t0\t12.owner';
+		},
 	};
 }
 
@@ -124,20 +128,22 @@ test('hook mapping preserves question and compaction semantics without implying 
 	t.is(mapClaudeStatus({status: 'ended'}).status, 'idle');
 });
 
-test.serial(
-	'dead panes remove active records immediately while retaining done and error',
-	async t => {
-		const h = setup(t);
-		await h.writeHook('waiting_for_input');
-		await h.writeOsc({status: 'working', app: 'fixture'});
-		h.exitPane();
-		t.like(await h.status.read('TASK-1'), {status: 'unknown', source: 'osc'});
-		for (const status of ['done', 'error'] as const) {
-			await h.writeOsc({status, app: 'fixture'});
-			t.like(await h.status.read('TASK-1'), {status, source: 'osc'});
-		}
-	},
-);
+for (const exit of ['exitPane', 'exitPaneWithoutPid'] as const) {
+	test.serial(
+		`dead panes remove active records immediately while retaining done and error (${exit})`,
+		async t => {
+			const h = setup(t);
+			await h.writeHook('waiting_for_input');
+			await h.writeOsc({status: 'working', app: 'fixture'});
+			h[exit]();
+			t.like(await h.status.read('TASK-1'), {status: 'unknown', source: 'osc'});
+			for (const status of ['done', 'error'] as const) {
+				await h.writeOsc({status, app: 'fixture'});
+				t.like(await h.status.read('TASK-1'), {status, source: 'osc'});
+			}
+		},
+	);
+}
 
 test.serial(
 	'persisted status cannot inject invalid fields or contradict its records',

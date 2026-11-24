@@ -86,10 +86,14 @@ export function programStatusLeased(
 ): boolean {
 	return existsSync(`${programStatusPath(dir, key, generation)}.lease`);
 }
-export function statusKeyFromFilename(filename: string): string | undefined {
-	const match = /^(.*)--[a-f\d]{32}\.json$/.exec(filename);
+/** The space key and pane generation a snapshot file is named after. */
+export function statusFileOf(
+	filename: string,
+): {key: string; generation: string} | undefined {
+	const match = /^(.*)--([a-f\d]{32})\.json$/.exec(filename);
+	if (!match) return undefined;
 	try {
-		return match ? decodeURIComponent(match[1]!) : undefined;
+		return {key: decodeURIComponent(match[1]!), generation: match[2]!};
 	} catch {
 		return undefined;
 	}
@@ -103,12 +107,25 @@ export interface StatusPane {
 	marker: string;
 	generation: string;
 }
+/** What a monitor marks its pane with: the pane's pid, then a fresh id. */
+export function statusMarker(pid: string): string {
+	return `${pid}.${randomUUID()}`;
+}
+
+/** The pid a pane had when its monitor marked it. */
+export function markerPid(marker: string): string | undefined {
+	return /^(\d+)\./.exec(marker)?.[1];
+}
+
 export function parseStatusPane(
 	output: string,
 	socket: string,
 ): StatusPane | null {
-	const [id, pid, dead, piped, marker = ''] =
+	const [id, listedPid, dead, piped, marker = ''] =
 		output.trim().split('\n')[0]?.split('\t') ?? [];
+	// tmux 3.8 lists no pid for a dead pane, and its monitor's snapshot is
+	// filed under the pid the pane had.
+	const pid = listedPid || (dead === '1' ? markerPid(marker) : undefined);
 	if (!id || !/^%\d+$/.test(id) || !pid || !/^\d+$/.test(pid)) return null;
 	return {
 		id,
@@ -336,13 +353,13 @@ export async function monitorStatusPane(
 			await run(statusTmuxArgs(pin, socket));
 		if (pane.dead) return pane;
 		if (pane.piped) {
-			if (!pane.marker.startsWith(`${pane.pid}.`))
+			if (markerPid(pane.marker) !== pane.pid)
 				log.debug(
 					`Status monitoring skipped for ${session}: pane already has a pipe`,
 				);
 			return pane;
 		}
-		const marker = `${pane.pid}.${randomUUID()}`;
+		const marker = statusMarker(pane.pid);
 		pane = parseStatusPane(`${pane.id}\t${pane.pid}\t0\t0\t${marker}`, socket)!;
 		mkdirSync(dir, {recursive: true});
 		const lease = `${programStatusPath(dir, key, pane.generation)}.lease`;
@@ -472,30 +489,31 @@ export class JsonProgramStatusDao implements ProgramStatusDao {
 		this.removeFiles(key, keepGeneration);
 	}
 
-	removeFiles(key: string, keepGeneration?: string): void {
+	/** Returns the pane generations whose leases it removed. */
+	removeFiles(key: string, keepGeneration?: string): string[] {
 		try {
-			const kept =
-				keepGeneration === undefined
-					? undefined
-					: path.basename(programStatusPath(this.dir, key, keepGeneration));
-			const files = readdirSync(this.dir).filter(
-				file =>
-					statusKeyFromFilename(file.replace(/\.lease$|\.tmp\.\d+$/g, '')) ===
-						key &&
-					(kept === undefined || !file.startsWith(kept)),
-			);
-			for (const file of files.filter(file => file.endsWith('.lease')))
+			const files = readdirSync(this.dir).flatMap(file => {
+				const of = statusFileOf(file.replace(/\.lease$|\.tmp\.\d+$/g, ''));
+				return of?.key === key && of.generation !== keepGeneration
+					? [{file, generation: of.generation}]
+					: [];
+			});
+			const leases = files.filter(({file}) => file.endsWith('.lease'));
+			for (const {file} of leases)
 				rmSync(path.join(this.dir, file), {force: true});
-			for (const file of files.filter(file => !file.endsWith('.lease')))
+			for (const {file} of files.filter(({file}) => !file.endsWith('.lease')))
 				rmSync(path.join(this.dir, file), {force: true});
-		} catch {}
+			return leases.map(({generation}) => generation);
+		} catch {
+			return [];
+		}
 	}
 
 	watch(listener: (key: string) => void): () => void {
 		mkdirSync(this.dir, {recursive: true});
 		const watcher = watch(this.dir, (_event, filename) => {
-			const key = filename ? statusKeyFromFilename(filename) : undefined;
-			if (key !== undefined) listener(key);
+			const of = filename ? statusFileOf(filename) : undefined;
+			if (of !== undefined) listener(of.key);
 		});
 		return () => {
 			watcher.close();

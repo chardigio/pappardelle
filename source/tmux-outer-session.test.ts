@@ -1,8 +1,9 @@
 import {execFileSync, spawnSync} from 'node:child_process';
-import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {mkdirSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import test from 'ava';
+import test, {type ExecutionContext} from 'ava';
+import {tempDir} from '../test/helpers/temp-dir.ts';
+import {sessionNamesFor} from './space-identity.ts';
 import {
 	exactSessionTarget,
 	killSession,
@@ -10,18 +11,20 @@ import {
 	outerSessionName,
 	sessionExists,
 } from './tmux.ts';
+import {tmuxFormatLiteral} from './tmux-format.ts';
+import {reviveTui} from './tui-sessions.ts';
 
 const tmuxTest =
 	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
 
-// The TUI's pappardelle-<repo> session shares the default socket with the
-// default-terminal launcher's pappardelle-view-<repo>-<key> viewers, so for a
-// repo named `view` a viewer name extends the TUI's.
-tmuxTest('outer session lookups ignore a longer session name', t => {
-	const dir = mkdtempSync(join(tmpdir(), 'pappardelle-tmux-'));
+/**
+ * Point the default tmux server at a private TMUX_TMPDIR for one test. With
+ * TMUX set, tmux targets that server regardless of TMUX_TMPDIR, which would
+ * put the test's sessions on the developer's own server.
+ */
+function privateDefaultServer(t: ExecutionContext): void {
+	const dir = tempDir(t, 'pappardelle-tmux-');
 	const saved = {tmux: process.env['TMUX'], tmpdir: process.env['TMUX_TMPDIR']};
-	// With TMUX set, tmux targets that server regardless of TMUX_TMPDIR, which
-	// would put this session on the developer's own server.
 	delete process.env['TMUX'];
 	process.env['TMUX_TMPDIR'] = dir;
 	t.teardown(() => {
@@ -30,9 +33,19 @@ tmuxTest('outer session lookups ignore a longer session name', t => {
 		else process.env['TMUX'] = saved.tmux;
 		if (saved.tmpdir === undefined) delete process.env['TMUX_TMPDIR'];
 		else process.env['TMUX_TMPDIR'] = saved.tmpdir;
-		rmSync(dir, {recursive: true, force: true});
 	});
+}
 
+function tmuxOn(socket: string, conf = '/dev/null') {
+	return (...args: string[]) =>
+		spawnSync('tmux', ['-S', socket, '-f', conf, ...args], {encoding: 'utf8'});
+}
+
+// The TUI's pappardelle-<repo> session shares the default socket with the
+// default-terminal launcher's pappardelle-view-<repo>-<key> viewers, so for a
+// repo named `view` a viewer name extends the TUI's.
+tmuxTest('outer session lookups ignore a longer session name', t => {
+	privateDefaultServer(t);
 	const viewer = 'pappardelle-view-view-KEY-1';
 	execFileSync('tmux', ['new-session', '-d', '-s', viewer]);
 
@@ -42,22 +55,29 @@ tmuxTest('outer session lookups ignore a longer session name', t => {
 });
 
 tmuxTest(
+	'outer session lookups and kills take a name the shell would expand',
+	t => {
+		privateDefaultServer(t);
+		const name = 'pappardelle-it\'s "$HOME" `id`';
+		execFileSync('tmux', ['new-session', '-d', '-s', name]);
+
+		t.true(sessionExists(name));
+		t.true(killSession(name));
+		t.false(sessionExists(name));
+	},
+);
+
+tmuxTest(
 	'a repo whose name reads as a tmux format still gets its own outer session, titled 🍝 <repo> even when the user turned titles off',
 	t => {
-		const dir = mkdtempSync(join(tmpdir(), 'pappardelle-tmux-'));
+		const dir = tempDir(t, 'pappardelle-tmux-');
 		const conf = join(dir, 'tmux.conf');
 		writeFileSync(
 			conf,
 			'set -g set-titles off\nset -g set-titles-string "#h:#W"\n',
 		);
-		const tmux = (...args: string[]) =>
-			spawnSync('tmux', ['-S', join(dir, 's'), '-f', conf, ...args], {
-				encoding: 'utf8',
-			});
-		t.teardown(() => {
-			tmux('kill-server');
-			rmSync(dir, {recursive: true, force: true});
-		});
+		const tmux = tmuxOn(join(dir, 's'), conf);
+		t.teardown(() => tmux('kill-server'));
 
 		const repo = 'pasta#S';
 		// Detached, since the test has no terminal for the client.
@@ -72,6 +92,101 @@ tmuxTest(
 			exactSessionTarget(outerSessionName(repo)),
 			'#{session_name}|#{set-titles}|#{T:set-titles-string}',
 		);
-		t.is(shown.stdout.trim(), 'pappardelle-pasta#S|1|🍝 pasta#S');
+		t.is(shown.stdout.trim(), 'pappardelle-pasta_S|1|🍝 pasta#S');
 	},
 );
+
+tmuxTest(
+	'a space of a repo whose name reads as a tmux format is found under the names it was given',
+	t => {
+		const dir = tempDir(t, 'pappardelle-tmux-');
+		const tmux = tmuxOn(join(dir, 's'));
+		t.teardown(() => tmux('kill-server'));
+
+		const names = sessionNamesFor('STA-1', 'pasta#S');
+		for (const session of [names.agent, names.companion]) {
+			const created = tmux('new-session', '-d', '-s', session, 'sleep 30');
+			t.is(created.status, 0, created.stderr);
+			t.is(
+				tmux('has-session', '-t', exactSessionTarget(session)).status,
+				0,
+				session,
+			);
+		}
+	},
+);
+
+// A TUI that died stays in its session when the pane is kept (remain-on-exit),
+// and the next launch reruns it there instead of creating the session again.
+tmuxTest('a dead TUI is rerun in its own session, which never goes away', t => {
+	privateDefaultServer(t);
+	const session = 'pappardelle-revive';
+	const repo = join(tempDir(t, 'pappardelle-revive-'), 'pasta#S');
+	mkdirSync(repo);
+	execFileSync('tmux', [
+		'new-session',
+		'-d',
+		'-s',
+		session,
+		'-c',
+		tmuxFormatLiteral(repo),
+		'true',
+		';',
+		'set-option',
+		'-t',
+		exactSessionTarget(session),
+		'remain-on-exit',
+		'on',
+	]);
+	const pane = () =>
+		execFileSync(
+			'tmux',
+			[
+				'display-message',
+				'-p',
+				'-t',
+				exactSessionTarget(session),
+				'#{pane_dead}|#{pane_start_command}',
+			],
+			{encoding: 'utf8'},
+		).trim();
+	for (let i = 0; i < 50 && !pane().startsWith('1|'); i++)
+		execFileSync('sleep', ['0.05']);
+	t.regex(pane(), /^1\|/);
+	// The TUI's own pane can be gone, leaving a viewer started elsewhere.
+	const viewer = execFileSync(
+		'tmux',
+		[
+			'split-window',
+			'-d',
+			'-P',
+			'-F',
+			'#{pane_id}',
+			'-t',
+			exactSessionTarget(session),
+			'-c',
+			'/',
+			'sleep 30',
+		],
+		{encoding: 'utf8'},
+	).trim();
+
+	const revived = reviveTui({
+		session,
+		command: 'sleep 30',
+		envArgs: ['-e', 'PAPPARDELLE_REVIVE_TEST=1'],
+		markerPaneId: viewer,
+	});
+
+	t.true(revived.ok);
+	t.true(sessionExists(session));
+	t.regex(pane(), /^0\|"?sleep 30"?$/);
+	t.is(
+		execFileSync(
+			'tmux',
+			['display-message', '-p', '-t', viewer, '#{pane_start_path}'],
+			{encoding: 'utf8'},
+		).trim(),
+		repo,
+	);
+});

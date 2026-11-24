@@ -178,18 +178,17 @@ test('switch-client and list-clients route through innerTmuxArgs', t => {
 });
 
 test('has-session via spawnSync routes through innerTmuxArgs', t => {
-	// `has-session` may be used either via execSync (string form, for the outer
-	// pappardelle-{repo} session in `sessionExists`) or via spawnSync+argv
-	// (inner sessions). Every spawnSync form must route through innerTmuxArgs
-	// — a bare `spawnSync('tmux', ['has-session', ...])` would silently target
-	// the default socket and miss per-issue sessions.
+	// The outer pappardelle-{repo} session's `has-session` goes through
+	// defaultOuterTmuxRunner. Every spawnSync form must route through
+	// innerTmuxArgs — a bare `spawnSync('tmux', ['has-session', ...])` would
+	// silently target the default socket and miss per-issue sessions.
 	const bareHasSession = TMUX_SOURCE.match(
 		/spawnSync\(\s*['"]tmux['"]\s*,\s*\[\s*['"]has-session['"]/g,
 	);
 	t.is(
 		bareHasSession,
 		null,
-		'has-session spawnSync calls must go through innerTmuxArgs; use execSync only for the outer `pappardelle-{repo}` session',
+		'has-session spawnSync calls must go through innerTmuxArgs; the outer `pappardelle-{repo}` session uses defaultOuterTmuxRunner',
 	);
 	t.regex(
 		TMUX_SOURCE,
@@ -209,8 +208,14 @@ test('session lookups and kills by name use exact targets', t => {
 		TMUX_SOURCE,
 		/innerTmuxArgs\(\[\s*'kill-session',\s*'-t',\s*exactSessionTarget\(/,
 	);
-	t.regex(TMUX_SOURCE, /tmux has-session -t "\$\{exactSessionTarget\(/);
-	t.regex(TMUX_SOURCE, /tmux kill-session -t "\$\{exactSessionTarget\(/);
+	t.regex(
+		TMUX_SOURCE,
+		/defaultOuterTmuxRunner\(\[\s*'has-session',\s*'-t',\s*exactSessionTarget\(/,
+	);
+	t.regex(
+		TMUX_SOURCE,
+		/defaultOuterTmuxRunner\(\[\s*'kill-session',\s*'-t',\s*exactSessionTarget\(/,
+	);
 });
 
 test('exactSessionTarget stops tmux prefix-matching another session', t => {

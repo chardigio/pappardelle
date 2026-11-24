@@ -6,10 +6,10 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {
 	clearSousChefKeyArgs,
 	defaultServerTmuxRunner,
+	OUTER_SESSION_PREFIX,
 	outerSessionName,
 	type OuterTmuxRunner,
 } from './tmux.ts';
-import {tmuxSessionRepo} from './space-identity.ts';
 import {shellQuote} from './shell-quote.ts';
 import type {PaneLayout} from './types.ts';
 import {
@@ -18,15 +18,16 @@ import {
 	type TuiMarkerDao,
 } from './tui-marker.ts';
 
-// The TUI session is created with the repo's own spelling, which tmux 3.6 and
-// older store as tmuxSessionRepo's.
+// A TUI started before outer session names were spelled with tmuxSessionRepo
+// runs under the repo's own spelling until it quits.
 export function tuiSessionNames(repoName: string): string[] {
 	return [
-		...new Set([
-			outerSessionName(repoName),
-			outerSessionName(tmuxSessionRepo(repoName)),
-		]),
+		...new Set([outerSessionName(repoName), repoSpelledOuterName(repoName)]),
 	];
+}
+
+function repoSpelledOuterName(repoName: string): string {
+	return `${OUTER_SESSION_PREFIX}${repoName}`;
 }
 
 export type RunningTui = {session: string; repo: string};
@@ -51,7 +52,7 @@ export function listRunningTuis(
 		...repos.flatMap(repo =>
 			tuiSessionNames(repo).map(session => [session, repo] as const),
 		),
-		...repos.map(repo => [outerSessionName(repo), repo] as const),
+		...repos.map(repo => [repoSpelledOuterName(repo), repo] as const),
 	]);
 	return listSessionNames(tmux).flatMap(session => {
 		const repo = repoBySession.get(session);
@@ -123,8 +124,13 @@ export function tuiListPane(
 // stays attached and the layout rebuilds. `respawn-window -k` would do both in
 // one step, but on tmux next-3.9 it kills the whole server when the window has
 // several panes and a client attached. Both commands go in one invocation so
-// nothing else reaches the window between them.
-export function restartTuiArgs(paneId: string, command: string): string[] {
+// nothing else reaches the window between them. The pane kept can be a
+// viewer, so the TUI is started in the session's own directory, the repo's.
+export function restartTuiArgs(
+	paneId: string,
+	command: string,
+	envArgs: readonly string[] = [],
+): string[] {
 	return [
 		'kill-pane',
 		'-a',
@@ -135,6 +141,9 @@ export function restartTuiArgs(paneId: string, command: string): string[] {
 		'-k',
 		'-t',
 		paneId,
+		'-c',
+		'#{session_path}',
+		...envArgs,
 		command,
 	];
 }
@@ -143,11 +152,32 @@ function restartPane(
 	paneId: string,
 	command: string,
 	tmux: OuterTmuxRunner,
+	envArgs: readonly string[] = [],
 ): PaneOutcome {
-	const result = tmux(restartTuiArgs(paneId, command));
+	const result = tmux(restartTuiArgs(paneId, command, envArgs));
 	return result.error || result.status !== 0
 		? {ok: false, reason: tmuxFailure(result)}
 		: {ok: true, paneId};
+}
+
+/**
+ * Rerun a TUI that died in its session's pane. Killing the session and
+ * creating it again can empty the server, and a client that reaches a server
+ * on its way out ends with it.
+ */
+export function reviveTui(
+	revival: {
+		session: string;
+		command: string;
+		envArgs: readonly string[];
+		markerPaneId: string | null;
+	},
+	tmux: OuterTmuxRunner = defaultServerTmuxRunner,
+): PaneOutcome {
+	const pane = tuiListPane(revival.session, tmux, revival.markerPaneId);
+	return pane.ok
+		? restartPane(pane.paneId, revival.command, tmux, revival.envArgs)
+		: pane;
 }
 
 function lockRefusal(lock: {holder: number | null; error?: string}): string {

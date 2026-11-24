@@ -294,13 +294,16 @@ new_inner_session() {
     local session="$1"
     shift
     # Viewer panes nest the session under the rail, so its status bar is hidden.
+    # tmux expands formats in -c, so a # in the worktree path is doubled.
     # The user's tmux.conf may turn on destroy-unattached or exit-unattached,
-    # which kill agents no client is viewing; see KEEP_UNVIEWED_SESSIONS_ARGS
-    # in source/tmux.ts.
-    (cd "$HOME" && tmux "${TMUX_SOCKET_ARGS[@]}" new-session -d -s "$session" -c "$WORKTREE_PATH" "${SESSION_ENV[@]}" "$@" \; \
+    # which kill agents no client is viewing, and exit-empty (on by default)
+    # makes a space started as the last one closes race the server's exit;
+    # see INNER_SERVER_KEEP_ALIVE_ARGS in source/tmux.ts.
+    (cd "$HOME" && tmux "${TMUX_SOCKET_ARGS[@]}" new-session -d -s "$session" -c "${WORKTREE_PATH//#/##}" "${SESSION_ENV[@]}" "$@" \; \
         set-option -t "=$session:" status off \; \
         set-option -g destroy-unattached off \; \
-        set-option -s exit-unattached off)
+        set-option -s exit-unattached off \; \
+        set-option -s exit-empty off)
 }
 
 # A live legacy claude-<REPO>-<KEY> session is the same space mid-upgrade:

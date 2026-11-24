@@ -145,7 +145,7 @@ tmux -L pappardelle_inner kill-server
 tmux kill-server
 ```
 
-A "no server running" message is harmless. Closing only the Pappardelle window leaves the inner server running. After relaunching, check the running servers with `tmux display-message -p '#{version}'` and `tmux -L pappardelle_inner display-message -p '#{version}'`.
+A "no server running" message is harmless. Closing the Pappardelle window or every space leaves the inner server running. After relaunching, check the running servers with `tmux display-message -p '#{version}'` and `tmux -L pappardelle_inner display-message -p '#{version}'`.
 
 ### Recommended tmux config
 
