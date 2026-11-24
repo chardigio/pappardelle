@@ -44,6 +44,13 @@ const WARMUP_MS = 1000;
 const SETTLE_MS = 300;
 // Output still in flight when the child reports a phase's end.
 const BYTE_TAIL_MS = 30;
+// The spinner (150 ms) and the blink (500 ms) tick on the renderer clock's
+// multiples of their interval, and both divide this. Phases start this far
+// past one of its boundaries, between two spinner ticks, and last a multiple
+// of it, so no tick falls on either edge of a phase or in its byte tail, and
+// each run sees the same ticks against the same keys.
+const TICK_GRID_MS = 1500;
+const PHASE_OFFSET_MS = 75;
 // A held key's auto-repeat rate.
 const KEYS_PER_SECOND = 30;
 const SWEEP_LENGTH = 10;
@@ -115,6 +122,10 @@ const {values: options} = parseArgs({
 });
 const phaseMs = Number(options['phase-ms']);
 const blinkMs = Number(options['blink-ms']);
+if (phaseMs % TICK_GRID_MS || blinkMs % TICK_GRID_MS)
+	throw new Error(
+		`--phase-ms and --blink-ms must be multiples of ${TICK_GRID_MS}`,
+	);
 const phaseDuration = (phase: Phase) => (phase === 'blink' ? blinkMs : phaseMs);
 
 // Child: the fixture, in the terminal the parent gives it.
@@ -338,10 +349,20 @@ async function runChild(variant: Variant) {
 		if (phase === 'blink') fixture.stopSpinner();
 		fixture.select(0);
 		await Bun.sleep(SETTLE_MS);
+		await Bun.sleep(
+			(PHASE_OFFSET_MS - (renderer.clock.now() % TICK_GRID_MS) + TICK_GRID_MS) %
+				TICK_GRID_MS,
+		);
 		recorder.start(phase);
 		send({type: 'phase-start', phase, durationMs: phaseDuration(phase)});
 		await Bun.sleep(phaseDuration(phase));
+		// The next phase's setup draws, so it waits until the parent has counted
+		// this phase's bytes.
+		const bytesCounted = new Promise(resolve => {
+			process.once('message', resolve);
+		});
 		send({type: 'phase-end', record: recorder.end()});
+		await bytesCounted;
 	}
 
 	await Bun.sleep(SETTLE_MS);
@@ -436,15 +457,19 @@ async function runOnce(
 				clearInterval(keyTimer);
 				const written = keysWritten;
 				records.push(
-					Bun.sleep(BYTE_TAIL_MS).then(() => ({
-						type: 'run',
-						run,
-						commit: target.commit,
-						variant,
-						...message.record,
-						outputBytes: bytes - phaseBytesFrom,
-						keysWritten: written,
-					})),
+					Bun.sleep(BYTE_TAIL_MS).then(() => {
+						const outputBytes = bytes - phaseBytesFrom;
+						child.send('bytes-counted');
+						return {
+							type: 'run',
+							run,
+							commit: target.commit,
+							variant,
+							...message.record,
+							outputBytes,
+							keysWritten: written,
+						};
+					}),
 				);
 			},
 		},
@@ -503,49 +528,64 @@ function check(records: RunRecord[]) {
 	if (failures.length > 0) throw new Error(failures.join('\n'));
 }
 
-// Gate metrics don't depend on whether a React commit runs inside the
-// renderer's frame loop. Frame time does, so it is diagnostic only.
+const perSecond = (r: RunRecord, total: number) =>
+	(total * 1000) / r.durationMs;
+
+// Gate metrics are rates per second: when animations share frames, there are
+// fewer frames that each carry more, so a per-frame figure rises while the
+// terminal receives less. Per-frame figures are diagnostic, and so is frame
+// time, which counts the React commits run inside the renderer's frame loop.
 const metrics: Array<{
 	name: string;
 	gate: boolean;
 	value: (record: RunRecord) => number | undefined;
 }> = [
-	{
-		name: 'framesPerSecond',
-		gate: true,
-		value: r => (r.frames * 1000) / r.durationMs,
-	},
-	{
-		name: 'cpuMsPerSecond',
-		gate: true,
-		value: r => (r.cpuMs * 1000) / r.durationMs,
-	},
+	{name: 'framesPerSecond', gate: true, value: r => perSecond(r, r.frames)},
+	{name: 'cpuMsPerSecond', gate: true, value: r => perSecond(r, r.cpuMs)},
 	{
 		name: 'outputBytesPerSecond',
 		gate: true,
-		value: r => (r.outputBytes * 1000) / r.durationMs,
+		value: r => perSecond(r, r.outputBytes),
 	},
 	{
-		name: 'outputBytesPerFrame',
+		name: 'cellsUpdatedPerSecond',
 		gate: true,
+		value: r => perSecond(r, r.cellsUpdated),
+	},
+	{
+		name: 'nativeRenderTimePerSecond',
+		gate: true,
+		value: r =>
+			r.nativeRenderTime.mean === undefined
+				? undefined
+				: perSecond(r, r.nativeRenderTime.mean * r.nativeRenderTime.samples),
+	},
+	...counters.map(name => ({
+		name: `${name}PerSecond`,
+		gate: true,
+		value: (r: RunRecord) => perSecond(r, r.counters[name]),
+	})),
+	{name: 'fullPathFrames', gate: true, value: r => r.fullPathFrames},
+	{
+		name: 'outputBytesPerFrame',
+		gate: false,
 		value: r => r.outputBytes / r.frames,
 	},
 	{
 		name: 'cellsUpdatedPerFrame',
-		gate: true,
+		gate: false,
 		value: r => r.cellsUpdated / r.frames,
 	},
 	{
 		name: 'nativeRenderTimePerFrame',
-		gate: true,
+		gate: false,
 		value: r => r.nativeRenderTime.mean,
 	},
 	...counters.map(name => ({
 		name: `${name}PerFrame`,
-		gate: true,
+		gate: false,
 		value: (r: RunRecord) => r.counters[name] / r.frames,
 	})),
-	{name: 'fullPathFrames', gate: true, value: r => r.fullPathFrames},
 	{
 		name: 'nativeStdoutWriteTimePerFrame',
 		gate: false,

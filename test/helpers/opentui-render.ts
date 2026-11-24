@@ -1,7 +1,10 @@
 import {Buffer} from 'node:buffer';
 import type {ReactNode} from 'react';
 import {createRoot, flushSync} from '@opentui/react';
-import {createTestRenderer} from '@opentui/core/testing';
+import {
+	createTestRenderer,
+	type TestRendererOptions,
+} from '@opentui/core/testing';
 import {
 	commitEachKey,
 	tmuxRendererEnvironment,
@@ -9,7 +12,7 @@ import {
 /** Component tests use OpenTUI's real offscreen renderer and input parser. */
 export async function render(
 	node: ReactNode,
-	options: {width?: number; height?: number} = {},
+	options: Pick<TestRendererOptions, 'width' | 'height' | 'clock'> = {},
 ) {
 	const setup = await createTestRenderer({
 		width: 100,

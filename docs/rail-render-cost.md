@@ -17,7 +17,9 @@ It measures two frames:
 
 Every presented frame reads OpenTUI's `getNativeStats()`, which describes only the last frame, so each phase adds up per-frame values. The JSONL has an environment line, one line per run, phase and variant, and one summary line per metric with median, min, max, range and spread (range over median). Each summary line says whether the metric is a **gate** metric.
 
-Gate metrics don't depend on whether a React commit runs inside the renderer's frame loop: frames per second, CPU per second, terminal output bytes, cells updated, `nativeRenderTime` and the `frameWork` counters. `frameTimeMs` is the renderer loop's own time. Today's spinner and key commits run outside that loop, but a commit from `useAnimationTick` (`lgat.6`) runs inside it, so frame time is diagnostic only. `nativeRenderTime` is in OpenTUI's native units (about 5 to 8 per frame here, against about 1 ms of whole frame time, so likely microseconds).
+Gate metrics are rates per second: frames, CPU, terminal output bytes, cells updated, `nativeRenderTime` and the `frameWork` counters, plus `fullPathFrames`. Per-frame figures are diagnostic, because when animations share frames there are fewer frames that each carry more, so a per-frame figure rises while the terminal receives less. `frameTimeMs` is the renderer loop's own time. Since `lgat.6` the spinner and blink commit inside that loop, from the renderer's animation tick, so frame time is diagnostic too. `nativeRenderTime` is in OpenTUI's native units (about 5 to 8 per frame here, against about 1 ms of whole frame time, so likely microseconds).
+
+The spinner (150 ms) and the blink (500 ms) tick on multiples of their interval on the renderer's clock. Each phase starts 75 ms past a multiple of 1500 ms on that clock, between two spinner ticks, and lasts a multiple of 1500 ms, so no tick falls on either edge of a phase or in the 30 ms the parent waits for output still in flight, and every run sees the same ticks against the same keys. The child starts the next phase's setup only after the parent has counted the last phase's bytes. Before this a blink frame could land in that 30 ms tail (one 251-byte frame more in some runs), and the burst's cells took one of several values from run to run, depending on where the blink toggles fell in the selection sweep.
 
 The run fails when the keys handled in the burst don't match the keys written, when idle draws no faster than blink (the spinner did not run), or when a frame event reads a stale stats snapshot.
 
@@ -30,11 +32,11 @@ bun scripts/benchmarks/rail-render.tsx                              # this check
 bun scripts/benchmarks/rail-render.tsx --checkout ../base-checkout  # base and head, alternating in each run
 ```
 
-`--checkout` copies the script into the other checkout's `scripts/benchmarks/` for the run, so it renders that checkout's components with that checkout's React, and removes it afterwards. That checkout needs `bun install`. Results go to `benchmark-results/rail-render.jsonl` (`--output`), with the markdown table on stdout. `--runs`, `--phase-ms` (idle and burst, default 3000) and `--blink-ms` (default 6000) set the length.
+`--checkout` copies the script into the other checkout's `scripts/benchmarks/` for the run, so it renders that checkout's components with that checkout's React, and removes it afterwards. That checkout needs `bun install`. Results go to `benchmark-results/rail-render.jsonl` (`--output`), with the markdown table on stdout. `--runs`, `--phase-ms` (idle and burst, default 3000) and `--blink-ms` (default 6000) set the length; the two lengths must be multiples of 1500.
 
 ## Baseline
 
-`c3343af` (`sd-lgat-followups`), AMD Ryzen 7 5800X 8-Core Processor, 16 threads, Linux 7.2.15-1-omarchy, Bun 1.4.4, 5 runs. Median (min-max) over runs.
+`c3343af` (`sd-lgat-followups`), measured before the gate moved to rates per second, AMD Ryzen 7 5800X 8-Core Processor, 16 threads, Linux 7.2.15-1-omarchy, Bun 1.4.4, 5 runs. Median (min-max) over runs.
 
 The machine was busy: other agents were running test suites, with load averages between 4 and 29 across the runs. CPU per second has a 16-66% range across runs, against a target of 10%, because of a single outlier run in most phases. Phases of 8 s didn't narrow it (39-85%). Rerun this baseline on a quiet machine before using CPU as a gate. The counters, cells and bytes are close to deterministic (0-7%).
 
@@ -76,6 +78,6 @@ native-border:
 
 ## Reading it
 
-- **Gate**: on the same machine, run base and head together with `--checkout`. A gate metric whose head median is worse than base by more than the larger of the two ranges is a regression
+- **Gate**: on the same machine, run base and head together with `--checkout`. A gate metric (a rate per second) whose head median is worse than base by more than the larger of the two ranges is a regression. A base from before `lgat.6` runs its animations on timers started at mount, not on the renderer's clock, so its burst cells still vary from run to run
 - **The paint hook**: with `PaneFrame`, every frame makes one host request and 764 JS paint visits, which is every renderable in the rail. Without the hook it makes none. No frame takes OpenTUI's full path in either variant. Cells, bytes and damage rows are the same, so the hook costs CPU (idle median 27.9 against 23.6 ms/s, burst 109 against 90) but not output
-- **The spinner**: idle minus blink is the spinner's cost: about 6.7 frames a second, about 9 cells and about 110 bytes a frame
+- **The spinner**: idle minus blink is the spinner's cost: about 6 frames a second (6.7 ticks, one in three shared with the blink since `lgat.6`) and about 350 bytes a second
