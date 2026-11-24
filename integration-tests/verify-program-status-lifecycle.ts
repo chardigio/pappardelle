@@ -8,6 +8,8 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {WorkspaceStatuses} from '../source/workspace-status.ts';
 import {
+	STATUS_MONITOR_OPTION,
+	STATUS_PANE_FORMAT,
 	listStatusPanes,
 	parseStatusPane,
 	programStatusPath,
@@ -45,8 +47,6 @@ const evidence: Record<string, unknown> = {};
 
 try {
 	await harness.tmux([
-		'-f',
-		'/dev/null',
 		'new-session',
 		'-d',
 		'-s',
@@ -165,6 +165,40 @@ try {
 	evidence['stale-listing'] =
 		'a pane closed after the listing is neither piped nor pinned';
 	console.log('PASS a pane closed after the listing is not pinned');
+
+	const owned = 'lifecycle-owned';
+	await harness.tmux(['new-session', '-d', '-s', owned, ...shell]);
+	const listing = await listStatusPanes(harness.socket);
+	const unpiped = listing.get(owned);
+	assert.ok(unpiped?.pane);
+	assert.equal(unpiped.pane.piped, false);
+	const ownedPane = unpiped.pane.id;
+	await harness.tmux(['pipe-pane', '-t', ownedPane, 'cat >/dev/null']);
+	await harness.tmux([
+		'set-option',
+		'-p',
+		'-t',
+		ownedPane,
+		STATUS_MONITOR_OPTION,
+		'other-owner',
+	]);
+	await programStatus.monitor('owned', owned, unpiped, harness.socket);
+	const afterAttach = parseStatusPane(
+		await harness.tmux([
+			'display-message',
+			'-p',
+			'-t',
+			ownedPane,
+			STATUS_PANE_FORMAT,
+		]),
+		harness.socket,
+	);
+	assert.equal(afterAttach?.piped, true);
+	assert.equal(afterAttach?.marker, 'other-owner');
+	await harness.tmux(['kill-session', '-t', `=${owned}`]);
+	evidence['foreign-pipe'] =
+		'a pane piped by another owner after the listing keeps its pipe and marker';
+	console.log('PASS a pane piped after the listing keeps its owner');
 
 	let delivered = 0;
 	const deliveredCount = () => delivered;

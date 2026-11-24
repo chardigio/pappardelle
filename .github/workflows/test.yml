@@ -94,6 +94,60 @@ jobs:
       - name: Verify tmux popups close and release their pty
         run: bun integration-tests/verify-popup-close.ts
 
+  tmux-floor:
+    name: Program status on tmux 3.3a (sqliteState ${{ matrix.sqlite_state }})
+    strategy:
+      fail-fast: false
+      matrix:
+        sqlite_state: ['0', '1']
+    runs-on: ubuntu-latest
+    env:
+      PAPPARDELLE_SQLITE_STATE: ${{ matrix.sqlite_state }}
+      # The oldest tmux Pappardelle supports: MIN_TMUX_VERSION in
+      # source/tmux-version.ts. Move both together.
+      TMUX_FLOOR_VERSION: 3.3a
+      TMUX_FLOOR_SHA256: e4fd347843bd0772c4f48d6dde625b0b109b7a380ff15db21e97c11a4dcdf93f
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Install build and test tools
+        run: sudo apt-get update && sudo apt-get install -y libevent-dev libncurses-dev bison shellcheck
+
+      - name: Build tmux ${{ env.TMUX_FLOOR_VERSION }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL -o tmux.tar.gz "https://github.com/tmux/tmux/releases/download/$TMUX_FLOOR_VERSION/tmux-$TMUX_FLOOR_VERSION.tar.gz"
+          echo "$TMUX_FLOOR_SHA256  tmux.tar.gz" | sha256sum -c -
+          tar xzf tmux.tar.gz
+          cd "tmux-$TMUX_FLOOR_VERSION"
+          ./configure --prefix="$RUNNER_TEMP/tmux-floor"
+          make -j"$(nproc)"
+          make install
+          echo "$RUNNER_TEMP/tmux-floor/bin" >> "$GITHUB_PATH"
+
+      - name: Check the tests run tmux ${{ env.TMUX_FLOOR_VERSION }}
+        run: test "$(tmux -V)" = "tmux $TMUX_FLOOR_VERSION"
+
+      - name: Verify program status transport, lifecycle, cleanup and app
+        run: |
+          bun integration-tests/verify-program-status.ts
+          bun integration-tests/verify-program-status-lifecycle.ts
+          bun integration-tests/verify-program-status-cleanup.ts
+          bun integration-tests/verify-program-status-app.ts
+
   shell-tests:
     name: Shell Tests
     runs-on: ubuntu-latest

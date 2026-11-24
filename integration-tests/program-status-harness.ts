@@ -182,8 +182,11 @@ export class StatusHarness {
 		return [...hookFiles, ...snapshotFiles];
 	}
 
+	/** `-f /dev/null` keeps the developer's tmux config out of the server it starts. */
 	async tmux(args: string[]) {
-		return runStatusTmux(statusTmuxArgs(args, this.socket));
+		return runStatusTmux(
+			statusTmuxArgs(['-f', '/dev/null', ...args], this.socket),
+		);
 	}
 
 	async type(session: string, text: string) {
