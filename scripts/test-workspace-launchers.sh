@@ -11,7 +11,8 @@
 #
 # The AppleScript pair assemble inside osascript, so --print-command runs the
 # real thing rather than a bash-side reimplementation. osascript is macOS-only,
-# so CI runs only the portable prompt and worktree path tests that precede it.
+# so CI runs only the portable tests that precede it: prompt and worktree path
+# quoting, and the viewer rebuild, which needs tmux.
 #
 # Usage: ./test-workspace-launchers.sh
 
@@ -146,6 +147,56 @@ NAMED_LINES=$("$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree /tmp/wt --
     --prompt "" --print-command)
 assert_eq "agent pane" "1" "$(sed -n 1p <<< "$NAMED_LINES" | grep -c "new-session -A -s 'hand.named_agent'" || true)"
 assert_eq "companion pane" "1" "$(sed -n 2p <<< "$NAMED_LINES" | grep -c "new-session -A -s 'hand-named_companion'" || true)"
+
+# Runs anywhere with tmux: the generated .command, run against a private tmux
+# server, rebuilds a viewer that lost a pane inside the same session. Killing
+# the viewer and creating it again can empty the user's default server, and a
+# new-session that reaches a server on its way out fails with it.
+echo -e "\n${BOLD}Test: the default-terminal viewer is rebuilt in place${RESET}"
+VIEW_TMP=$(mktemp -d /tmp/pappardelle-test-view.XXXXXX)
+REAL_TMUX=$(command -v tmux)
+mkdir -p "$VIEW_TMP/bin" "$VIEW_TMP/home" "$VIEW_TMP/wt"
+cat > "$VIEW_TMP/bin/tmux" <<SHIM
+#!/bin/bash
+# The panes' attach to the inner server is recorded and stood in for by a sleep.
+if [[ "\$1" == -L ]]; then printf '%s\n' "\$*" >> "$VIEW_TMP/inner"; exec sleep 600; fi
+# attach needs a terminal.
+[[ "\$1" == attach ]] && exit 0
+exec env -u TMUX -u TMUX_PANE "$REAL_TMUX" -f /dev/null -S "$VIEW_TMP/s" "\$@"
+SHIM
+cat > "$VIEW_TMP/bin/open" <<'SHIM'
+#!/bin/bash
+exec bash "$1"
+SHIM
+chmod +x "$VIEW_TMP/bin/tmux" "$VIEW_TMP/bin/open"
+vrun() { HOME="$VIEW_TMP/home" PATH="$VIEW_TMP/bin:$PATH" SHELL=/bin/sh PAPPARDELLE_TMUX_SOCKET=view_inner "$@"; }
+vtmux() { vrun tmux "$@"; }
+# shellcheck disable=SC2329 # invoked by the EXIT trap
+view_cleanup() { vtmux kill-server 2>/dev/null || true; rm -rf "$VIEW_TMP"; }
+trap view_cleanup EXIT
+open_viewer() {
+    vrun "$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree "$VIEW_TMP/wt" --issue-key QA-1 \
+        --repo-name testrepo --agent-session agent-testrepo-QA-1 --companion-session companion-testrepo-QA-1 \
+        --companion-command "" --prompt "" >/dev/null 2>&1 || true
+}
+VIEWER="=pappardelle-view-testrepo-QA-1:"
+vtmux new-session -d -s pappardelle-view-testrepo-QA-1 "sleep 600"
+BEFORE=$(vtmux display-message -p -t "$VIEWER" '#{pid} #{session_id}')
+open_viewer
+assert_eq "the last session on the server is the same one afterwards" "$BEFORE" \
+    "$(vtmux display-message -p -t "$VIEWER" '#{pid} #{session_id}' 2>/dev/null)"
+assert_eq "it has the agent and companion panes" "2" "$(vtmux list-panes -t "$VIEWER" 2>/dev/null | wc -l | tr -d ' ')"
+for _ in $(seq 50); do [[ "$(grep -c '' "$VIEW_TMP/inner" 2>/dev/null)" == 2 ]] && break; sleep 0.1; done
+assert_eq "both panes attach to the inner sessions" \
+    "-L view_inner new-session -A -s agent-testrepo-QA-1"$'\n'"-L view_inner new-session -A -s companion-testrepo-QA-1" \
+    "$(cut -d' ' -f1-6 "$VIEW_TMP/inner" 2>/dev/null | sort)"
+assert_eq "the agent pane is the active one" "1" \
+    "$(vtmux display-message -p -t "$VIEWER" '#{pane_start_command}' | grep -c 'agent-testrepo-QA-1' || true)"
+vtmux kill-server 2>/dev/null || true
+open_viewer
+assert_eq "a missing viewer is created with both panes" "2" "$(vtmux list-panes -t "$VIEWER" 2>/dev/null | wc -l | tr -d ' ')"
+view_cleanup
+trap - EXIT
 
 if ! command -v osascript >/dev/null 2>&1; then
     echo "SKIP (no osascript — macOS only)"
