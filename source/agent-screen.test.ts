@@ -475,9 +475,10 @@ test('a Codex prompt whose command is off the screen reads as no command', t => 
 });
 
 test('a Codex command with a blank line in it is read whole', t => {
-	const text = fs
-		.readFileSync(path.join(fixtures, 'codex-permission-command.txt'), 'utf8')
-		.replace(/ {2}\$ .*\n/, '  $ echo hi\n \n  doctl apps list\n');
+	const text = agentScreenFixture('codex-permission-command').replace(
+		/ {2}\$ .*\n/,
+		'  $ echo hi\n \n  doctl apps list\n',
+	);
 	t.is(
 		parseAgentScreen(text, NOW).permission?.command,
 		'echo hi\n\ndoctl apps list',
@@ -485,10 +486,7 @@ test('a Codex command with a blank line in it is read whole', t => {
 });
 
 test('a Codex prompt left in the scrollback is not the prompt on screen', t => {
-	const text = fs.readFileSync(
-		path.join(fixtures, 'codex-permission-command.txt'),
-		'utf8',
-	);
+	const text = agentScreenFixture('codex-permission-command');
 	t.not(
 		parseAgentScreen(`${text}\n● Done.\n`, NOW).permission?.choose,
 		'shortcut',
