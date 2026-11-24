@@ -513,6 +513,8 @@ cd pappardelle
 ./install.sh
 ```
 
+`install.sh` typechecks and builds the clone, then copies the build, scripts and plugin to `~/.pappardelle/local/` and runs Pappardelle from there. Later builds in the clone don't reach running spaces until you run `install.sh` again, and you can remove a worktree you installed from. The previous install is kept at `~/.pappardelle/local.previous/`. Processes that are already running (agents' MCP servers, pane monitors, the status daemon and the TUI) keep the binary they started with until they restart, but hooks, and anything those processes start after the install, use the new build.
+
 > **Compiled runtime:** release builds embed Bun, production React, and OpenTUI
 > in `dist/pappardelle`, with startup bytecode. Running the installed app requires
 > neither Node nor a separate Bun. Bun 1.4.4+ is needed to build or update; the
@@ -538,6 +540,7 @@ pappardelle plugin install  # installs the plugin (skills, hooks and MCP tools) 
 | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `~/.pappardelle/`                                  | Config, logs, and program status files                                                                |
 | `~/.pappardelle/.pappardelle.yml`                  | Optional home config layer                                                                            |
+| `~/.pappardelle/local/`                            | The build a local-clone install runs from, with the commit it came from in `commit-sha`               |
 | `~/.pappardelle/repos/{repoName}/open-spaces.json` | Persisted workspace registry (per-repo, survives reboots)                                             |
 | `~/.pappardelle/repos/{repoName}/issue-meta/`      | Issue metadata for hook tracking (per-repo)                                                           |
 | `~/.pappardelle/claude-status/`                    | Real-time status JSON files from Claude hooks, with `experimental.sqliteState` off                    |
@@ -602,7 +605,7 @@ Restarting doesn't touch agent and companion sessions; they live on a separate t
 The version shown in the help (`?`) overlay follows the same source-of-truth but degrades differently, since `package.json` is never bumped on release and so is always a stale `0.1.0`:
 
 - **Released install** (run from `~/.pappardelle/repo`, which carries the tag) → `pappardelle v0.7.9 (<sha>)`.
-- **Dev / worktree build** (run from the monorepo, where no `v*.*.*` tag is reachable) → reports the latest release you have installed, flagged `-dev`: `pappardelle v0.7.9-dev (<sha>)`. This signals "ahead of v0.7.9" rather than leaking the stale `0.1.0`.
+- **Dev / worktree build** (run from the monorepo, a checkout, or the `~/.pappardelle/local` snapshot of one, where no `v*.*.*` tag is reachable) → reports the latest release you have installed, flagged `-dev`: `pappardelle v0.7.9-dev (<sha>)`. This signals "ahead of v0.7.9" rather than leaking the stale `0.1.0`. A snapshot shows the commit it was copied from, with `-dirty` when the clone had uncommitted changes.
 - **Neither resolvable** → the line degrades to the sha-only form `pappardelle (<sha>)`.
 
 When running out of the stardust-labs monorepo (`LOCAL_MODE`), the **automatic** update check (and its banner) is skipped — the monorepo's version is a dev placeholder, so the comparison would false-positive on every launch. The manual `U` update still works everywhere: the installer writes to `~/.pappardelle/repo`, never to your monorepo checkout, so it can't clobber unpushed work there.
@@ -720,15 +723,13 @@ An agent in a space is told to keep the companion showing its work, from `script
 | Pi                    | `--append-system-prompt` at launch                                                             |
 | Antigravity           | `.agents/rules/pappardelle.md`, written into the worktree at launch and git-excluded           |
 
-They ship in the `pappardelle` plugin with the [hooks](#agent-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which installs the plugin from the checkout it installed into each agent it finds:
+They ship in the `pappardelle` plugin with the [hooks](#agent-hooks). `install.sh` (and so `U` and `pappardelle update`) runs `pappardelle plugin install`, which installs the plugin from the install it made (`~/.pappardelle/local` for a local clone) into each agent it finds:
 
-- **Claude Code** gets the `pappardelle-marketplace` marketplace from the checkout and the plugin at user scope. It loads a plugin from a local marketplace in place, so the skills and hooks always match that checkout. Run `/reload-plugins` in open sessions after an update, or after editing a local clone you installed from
-- **Codex** gets the same marketplace and `codex plugin add` for the skills. Codex copies the plugin into its cache, so rerun `pappardelle plugin install` after editing a local clone. Codex trusts a plugin's hooks by a hash of the whole plugin, so any update would make you trust the session hook again; instead `pappardelle plugin install` adds it to `~/.codex/hooks.json`, pointing at the checkout. Codex asks to trust it on its next launch, and that trust lasts until the checkout moves
-- **agy** gets a symlink from `~/.gemini/config/plugins/pappardelle` to the checkout, so new agy sessions load the plugin in place
+- **Claude Code** gets the `pappardelle-marketplace` marketplace from the install and the plugin at user scope. It loads a plugin from a local marketplace in place, so the skills and hooks always match that install. Run `/reload-plugins` in open sessions after an update or a local install
+- **Codex** gets the same marketplace and `codex plugin add` for the skills. Codex copies the plugin into its cache, which each install refreshes. Codex trusts a plugin's hooks by a hash of the whole plugin, so any update would make you trust the session hook again; instead `pappardelle plugin install` adds it to `~/.codex/hooks.json`, pointing at the install. Codex asks to trust it on its next launch, and that trust lasts until the install moves. A local install always lands at `~/.pappardelle/local`, so reinstalling keeps it
+- **agy** gets a symlink from `~/.gemini/config/plugins/pappardelle` to the install, so new agy sessions load the plugin in place
 
-If you install from a worktree, run `install.sh` from your main checkout before removing that worktree, since Claude Code and agy load the plugin from it.
-
-Earlier versions told you to add the marketplace from GitHub, which Claude Code caches by version, and to merge the hooks into `~/.claude/settings.json`. `pappardelle plugin install` moves that marketplace over to the checkout and removes the old `~/.pappardelle/hooks/` entries from your settings (backing it up to `settings.json.pappardelle.bak` first), so the hooks don't run twice. It also replaces the `record-agent-session.py` entries `install.sh` used to merge into `~/.codex/hooks.json` with one pointing at the checkout, backing the file up to `hooks.json.pappardelle.bak`. Codex keys hook trust by position in that file, so it asks you to review any of your own hooks listed after the old entries again. It removes the `pappardelle-session` hook that `install.sh` used to merge into `~/.gemini/config/hooks.json` for agy, with a `hooks.json.pappardelle.bak` backup. It leaves the `~/.pappardelle/hooks/` scripts for sessions that were open during the update; delete the directory once those sessions have restarted.
+Earlier versions told you to add the marketplace from GitHub, which Claude Code caches by version, and to merge the hooks into `~/.claude/settings.json`. `pappardelle plugin install` moves that marketplace over to the install and removes the old `~/.pappardelle/hooks/` entries from your settings (backing it up to `settings.json.pappardelle.bak` first), so the hooks don't run twice. It also replaces the `record-agent-session.py` entries `install.sh` used to merge into `~/.codex/hooks.json` with one pointing at the install, backing the file up to `hooks.json.pappardelle.bak`. Codex keys hook trust by position in that file, so it asks you to review any of your own hooks listed after the old entries again. It removes the `pappardelle-session` hook that `install.sh` used to merge into `~/.gemini/config/hooks.json` for agy, with a `hooks.json.pappardelle.bak` backup. It leaves the `~/.pappardelle/hooks/` scripts for sessions that were open during the update; delete the directory once those sessions have restarted.
 
 Because `/configure-pappardelle` is model-invocable, Claude will automatically offer to use it when you ask about configuring Pappardelle — no need to invoke it explicitly.
 

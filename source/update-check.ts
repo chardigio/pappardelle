@@ -103,6 +103,26 @@ export function resolveInstalledVersion(projectDir: string): string | null {
 	);
 }
 
+// A snapshot has no git history, so install.sh stamps the sha of the clone it
+// copied into commit-sha.
+export function readCommitSha(projectDir: string): string | undefined {
+	try {
+		return readFileSync(path.join(projectDir, 'commit-sha'), 'utf8').trim();
+	} catch {}
+
+	try {
+		return (
+			execFileSync('git', ['log', '-1', '--format=%h', '--', '.'], {
+				cwd: projectDir,
+				encoding: 'utf8',
+				stdio: ['pipe', 'pipe', 'pipe'],
+			}).trim() || undefined
+		);
+	} catch {
+		return undefined;
+	}
+}
+
 export type DisplayVersion = {
 	// The semver tag to show (e.g. "v0.7.9"), or null when nothing is
 	// resolvable and the help line should degrade to the sha-only form.
@@ -199,10 +219,10 @@ export class JsonUpdateCheckDao implements UpdateCheckDao {
 // LOCAL_MODE detection
 // ============================================================================
 
-// Pappardelle ships as a clone at ~/.pappardelle/repo/. When running from the
-// monorepo (or any other directory), we're in LOCAL_MODE and must skip the
-// update prompt — the monorepo is the source of truth, and curl | bash would
-// clobber unpushed work.
+// Pappardelle ships as a clone at ~/.pappardelle/repo/. When running from
+// anywhere else (a checkout, or the snapshot install.sh makes of one at
+// ~/.pappardelle/local/), we're in LOCAL_MODE and skip the update prompt: that
+// build isn't a release, so comparing its version would always prompt.
 export function isLocalMode(projectDir: string): boolean {
 	const installedRoot = path.join(homedir(), '.pappardelle', 'repo');
 	const normalizedProject = path.resolve(projectDir);

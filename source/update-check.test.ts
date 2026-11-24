@@ -12,6 +12,7 @@ import {
 	readInstalledVersionFromGit,
 	resolveInstalledVersion,
 	resolveDisplayVersion,
+	readCommitSha,
 	isLocalMode,
 	checkForUpdate,
 	safeCheckForUpdate,
@@ -216,6 +217,43 @@ test('resolveInstalledVersion: returns null when neither source works', t => {
 	const dir = mkdtempSync(path.join(tmpdir(), 'pap-uc-resolve-'));
 	try {
 		t.is(resolveInstalledVersion(dir), null);
+	} finally {
+		rmSync(dir, {recursive: true, force: true});
+	}
+});
+
+// ============================================================================
+// readCommitSha (help-overlay sha: stamped snapshot vs git checkout)
+// ============================================================================
+
+test('readCommitSha: a snapshot reports the sha install.sh stamped, not the git history around it', t => {
+	const dir = mkdtempSync(path.join(tmpdir(), 'pap-sha-'));
+	try {
+		initRepoWithTag(dir, null);
+		writeFileSync(path.join(dir, 'commit-sha'), 'abc1234-dirty\n');
+		t.is(readCommitSha(dir), 'abc1234-dirty');
+	} finally {
+		rmSync(dir, {recursive: true, force: true});
+	}
+});
+
+test('readCommitSha: a checkout without a stamp reports its last commit', t => {
+	const dir = mkdtempSync(path.join(tmpdir(), 'pap-sha-'));
+	try {
+		initRepoWithTag(dir, null);
+		const head = execFileSync('git', ['-C', dir, 'log', '-1', '--format=%h'], {
+			encoding: 'utf8',
+		}).trim();
+		t.is(readCommitSha(dir), head);
+	} finally {
+		rmSync(dir, {recursive: true, force: true});
+	}
+});
+
+test('readCommitSha: neither a stamp nor git reports no sha', t => {
+	const dir = mkdtempSync(path.join(tmpdir(), 'pap-sha-'));
+	try {
+		t.is(readCommitSha(dir), undefined);
 	} finally {
 		rmSync(dir, {recursive: true, force: true});
 	}

@@ -5,7 +5,7 @@ import {
 	startupTrace,
 	startupSessionEnvArgs,
 } from './startup-trace.ts';
-import {execSync, spawnSync} from 'node:child_process';
+import {spawnSync} from 'node:child_process';
 import {existsSync, readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {installationRoot, scriptsDir, cliFilePath} from './runtime.ts';
@@ -61,7 +61,11 @@ import {createIssueTracker} from './providers/index.ts';
 import {normalizeIssueIdentifier} from './issue-checker.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {buildSpawnEnv} from './spawn-env.ts';
-import {resolveDisplayVersion, safeCheckForUpdate} from './update-check.ts';
+import {
+	readCommitSha,
+	resolveDisplayVersion,
+	safeCheckForUpdate,
+} from './update-check.ts';
 import {linkPr} from './link-pr.ts';
 import {createStateDaos, type StateDaos} from './state-daos.ts';
 import {
@@ -808,21 +812,10 @@ if (isInTmux() && cli.flags.layout) {
 }
 
 function readDisplayMetadata() {
-	// Compute the abbreviated commit SHA of the pappardelle source for display in the help overlay.
-	// Uses the pappardelle project directory so the SHA only changes when pappardelle code is modified.
-	let commitSha = 'unknown';
 	const commitDone = startupTrace.current?.begin('commit-metadata');
-	try {
-		commitSha = execSync('git log -1 --format=%h -- .', {
-			cwd: pappardelleDir,
-			encoding: 'utf8',
-			stdio: ['pipe', 'pipe', 'pipe'],
-		}).trim();
-	} catch {
-		// Not in a git repo or git not available - leave as 'unknown'
-	} finally {
-		commitDone?.(commitSha === 'unknown' ? 'unavailable' : 'ok');
-	}
+	const sha = readCommitSha(pappardelleDir);
+	commitDone?.(sha === undefined ? 'unavailable' : 'ok');
+	const commitSha = sha ?? 'unknown';
 
 	// Resolve the version for display in the help overlay. A real release checkout
 	// reports its own vX.Y.Z tag; a dev/worktree build (run from the monorepo, where

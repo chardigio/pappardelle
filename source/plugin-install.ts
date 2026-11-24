@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 
-// Claude Code and agy load the plugin in place from the checkout, so skill and
-// hook edits are live after /reload-plugins (Claude Code) or in new agy
-// sessions. Claude Code serves a GitHub marketplace from a cache that only
+// Claude Code and agy load the plugin in place from the install this runs
+// from, so a new install is live after /reload-plugins (Claude Code) or in new
+// agy sessions. install.sh runs it from the release clone, or for a local
+// clone from the snapshot it copies, so edits in that clone stay out of
+// running sessions until the next install. Claude Code serves a GitHub marketplace from a cache that only
 // refreshes on a version bump; `marketplace add` under the same name repoints
 // it. Codex copies even a local plugin into its cache, and `plugin add`
 // refreshes that copy.
@@ -27,7 +29,7 @@ const PLUGIN_ID = `pappardelle@${MARKETPLACE}`;
 const LEGACY_HOOK_DIR = '.pappardelle/hooks/';
 
 // Older installs pointed Codex's session hook at ~/.pappardelle/hooks or at
-// another checkout; any copy left beside this checkout's records every
+// another install; any copy left beside this install's records every
 // session twice.
 const CODEX_SESSION_HOOK = 'record-agent-session.py';
 const CODEX_SESSION_EVENTS: Array<[event: string, matcher?: string]> = [
@@ -71,7 +73,7 @@ export function installPlugin(deps: PluginInstallDeps): number {
 	// Code and agy load in place and the script Codex's session hook runs.
 	if (deps.isLinkedWorktree() && outcomes.has('installed')) {
 		deps.print(
-			'This is a git worktree: run install.sh from your main checkout before removing it, or Claude Code and agy lose the plugin and Codex its session hook.',
+			'This is a git worktree: run install.sh before removing it, or Claude Code and agy lose the plugin and Codex its session hook.',
 		);
 	}
 
@@ -200,7 +202,7 @@ function installCodexSessionHook(deps: PluginInstallDeps): void {
 
 	deps.writeFile(file, JSON.stringify(settings, null, 2) + '\n');
 	deps.print(
-		`Pointed the Codex session hook in ${file} at this checkout${original === undefined ? '' : ` (backup: ${file}.pappardelle.bak)`}.`,
+		`Pointed the Codex session hook in ${file} at this install${original === undefined ? '' : ` (backup: ${file}.pappardelle.bak)`}.`,
 	);
 	if (added) {
 		deps.print(
