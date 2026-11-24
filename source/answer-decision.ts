@@ -395,11 +395,9 @@ export function decideAnswer(
 				: null;
 		if (wrapped?.kind === 'hold') return held(wrapped.reason);
 		const verdict = checkApproval(permission.command, policy, {
-			// Claude's shell stays where the agent last cd'd, which the hook reports.
-			startDir:
-				permission.choose === 'shortcut'
-					? null
-					: (hook?.cwd ?? policy.worktree),
+			// Claude's shell stays where the agent last cd'd, which only the hook
+			// knows.
+			startDir: permission.choose === 'shortcut' ? null : (hook?.cwd ?? null),
 		});
 		if (verdict.kind === 'hold') return held(verdict.reason);
 	}

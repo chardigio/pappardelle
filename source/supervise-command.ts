@@ -434,6 +434,9 @@ const ANSWER_POLL_MS = 250;
 function promptShown(report: AgentStateReport): string {
 	return JSON.stringify([
 		report.state,
+		report.permission?.tool,
+		report.permission?.description,
+		report.permission?.question,
 		report.permission?.command,
 		report.question?.question,
 		report.question?.options.map(option => [option.selected, option.checked]),

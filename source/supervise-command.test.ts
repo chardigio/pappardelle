@@ -175,6 +175,7 @@ function harness(
 
 test('a command inside the space is approved after the model check, and the verdict logged', async t => {
 	const h = harness(t, [permission('rm -rf node_modules')]);
+	h.hookReports({cwd: worktree});
 	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
 	t.deepEqual(h.pressed, [['1']]);
 	t.like(h.logged[0], {
@@ -488,6 +489,13 @@ test('a tool call that answers prompts holds; a Bash command naming one goes to 
 	const bash = harness(t, [permission('rg space_answer source')]);
 	t.is(await bash.run('answer', 'STA-1', '--option', '1'), 0);
 	t.is(bash.classified.length, 1);
+});
+
+test('a relative delete holds when Claude never reported where its shell is', async t => {
+	const h = harness(t, [permission('rm -rf build')]);
+	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
+	t.deepEqual(h.classified, []);
+	t.deepEqual(h.pressed, [['3']]);
 });
 
 test("a relative delete is placed from the shell's directory, which the hook reports", async t => {

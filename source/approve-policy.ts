@@ -366,7 +366,7 @@ function pushToMain(
  * The command with heredoc bodies left out: they are text fed to a program,
  * such as a commit message, and the words in them never run.
  */
-function withoutHeredocs(command: string): string {
+function withoutHeredocs(command: string): {text: string; unended: boolean} {
 	const kept: string[] = [];
 	const pending: string[] = [];
 	for (const line of command.split('\n')) {
@@ -376,11 +376,65 @@ function withoutHeredocs(command: string): string {
 		}
 
 		kept.push(line);
-		for (const match of line.matchAll(/<<-?\s*(['"]?)([\w.-]+)\1/g))
-			pending.push(match[2]!);
+		// Not a here-string (<<<), and not a shift inside $(( )).
+		for (const match of line.matchAll(
+			/(?<!<)<<(?!<)-?\s*(['"]?)([A-Za-z_][\w.-]*)\1/g,
+		)) {
+			if (!/\$\(\([^)]*$/.test(line.slice(0, match.index)))
+				pending.push(match[2]!);
+		}
 	}
 
-	return kept.join('\n');
+	return {text: kept.join('\n'), unended: pending.length > 0};
+}
+
+/**
+ * The commands that $(…) and backticks run from inside double quotes, where
+ * segments() keeps them as the text of one word.
+ */
+function quotedSubstitutions(command: string): string[] {
+	const found: string[] = [];
+	let quote: string | undefined;
+	for (let index = 0; index < command.length; index++) {
+		const char = command[index]!;
+		if (quote === "'") {
+			if (char === "'") quote = undefined;
+			continue;
+		}
+
+		if (char === '\\') {
+			index++;
+			continue;
+		}
+
+		if (quote !== '"') {
+			if (char === '"' || char === "'") quote = char;
+			continue;
+		}
+
+		if (char === '"') {
+			quote = undefined;
+		} else if (
+			command.startsWith('$(', index) &&
+			!command.startsWith('$((', index)
+		) {
+			let depth = 1;
+			let end = index + 2;
+			for (; end < command.length && depth > 0; end++) {
+				if (command[end] === '(') depth++;
+				else if (command[end] === ')') depth--;
+			}
+
+			found.push(command.slice(index + 2, depth === 0 ? end - 1 : end));
+			index = end - 1;
+		} else if (char === '`') {
+			const end = command.indexOf('`', index + 1);
+			found.push(command.slice(index + 1, end === -1 ? undefined : end));
+			index = end === -1 ? command.length : end;
+		}
+	}
+
+	return found;
 }
 
 const SEPARATORS = ['&&', '||', '$(', ';', '|', '&', '\n', '(', ')', '`'];
@@ -413,6 +467,12 @@ function segments(command: string): Segment[] {
 			continue;
 		}
 
+		// 2>&1 and &>file redirect; the & starts no command.
+		if (
+			char === '&' &&
+			(command[index - 1] === '>' || command[index + 1] === '>')
+		)
+			continue;
 		const separator = SEPARATORS.find(candidate =>
 			command.startsWith(candidate, index),
 		);
@@ -808,8 +868,13 @@ const DELETES = new Set([
 function deleteTargets(args: string[]): string[] {
 	const targets: string[] = [];
 	let options = true;
+	let redirected = false;
 	for (const word of args.slice(1)) {
-		if (options && word === '--') options = false;
+		// 2>/dev/null, or the file after a bare > or 2>.
+		const redirect = /^(?:\d*|&)[<>]{1,2}&?(.*)$/.exec(word);
+		if (redirected) redirected = false;
+		else if (redirect) redirected = redirect[1] === '';
+		else if (options && word === '--') options = false;
 		else if (!options || !word.startsWith('-')) targets.push(word);
 	}
 
@@ -892,8 +957,17 @@ function writesAgentConfig(
 		targets.push(...operands);
 	}
 	for (const word of targets) {
-		const target = unquote(word);
-		if (!target || /[$`]/.test(target)) continue;
+		// "$PWD"/.claude/x is .claude/x wherever the shell is.
+		const spelled = bare(word);
+		const target = spelled.replace(/^(?:\$\{?\w+\}?\/+)+/, '');
+		if (!target) continue;
+		if (/[$`]/.test(target)) continue;
+		if (target !== spelled) {
+			if (isAgentConfig(target))
+				return `it writes ${spelled}, agent configuration`;
+			continue;
+		}
+
 		if (!target.startsWith('/') && cwd === null) {
 			if (isAgentConfig(target))
 				return `${program || 'a redirect'} into ${target}, agent configuration`;
@@ -935,7 +1009,14 @@ export function checkApproval(
 	// An empty box or a layout the screen parser doesn't know reads as no
 	// command, and the model check has nothing to judge either.
 	if (command.trim() === '') return hold('no command to read');
-	const text = withoutHeredocs(command);
+	const {text, unended} = withoutHeredocs(command);
+	if (unended)
+		return hold('a heredoc that never ends hides the lines after it');
+	for (const inner of quotedSubstitutions(command)) {
+		const verdict = checkApproval(inner, policy, {startDir});
+		if (verdict.kind === 'hold') return verdict;
+	}
+
 	// Any spelling of ~/.pappardelle: "$HOME"/.pappardelle, ~/./.pappardelle,
 	// .papp"ardelle", .pappar{delle,}, and a glob such as ~/.pap* or .[p]a*.
 	const spelled = bare(text);
@@ -946,7 +1027,7 @@ export function checkApproval(
 		)
 	)
 		return hold("it reaches Pappardelle's own state, where holds are approved");
-	if (AGENT_CONFIG_WRITE.test(text))
+	if (AGENT_CONFIG_WRITE.test(bare(text)))
 		return hold(
 			'it writes agent configuration, which decides what agents may do',
 		);
@@ -1007,12 +1088,17 @@ export function checkApproval(
 		const early = hardStop(args);
 		if (early) return hold(early);
 		// bash <<EOF and curl … | sh run commands this never sees.
+		let previous = index - 1;
+		while (previous >= 0 && parts[previous]!.text.trim() === '') previous--;
 		if (
 			RUNS_INPUT.test(program) &&
 			args
 				.slice(1)
 				.every(word => word.startsWith('-') || /^\d*[<>]/.test(word)) &&
-			(segment.includes('<<') || parts[index - 1]?.next === '|')
+			(segment.includes('<<') ||
+				parts[previous]?.next === '|' ||
+				// bash <(curl …)
+				(next === '(' && /<\s*$/.test(segment)))
 		)
 			return hold(`${program} runs a script from its input`);
 		// bash -c 'cmd' runs a command written as one word.
@@ -1020,9 +1106,11 @@ export function checkApproval(
 			? args.findIndex((word, index) => index > 0 && /^-\w*c\w*$/.test(word))
 			: -1;
 		if (script !== -1) {
-			const inner = checkApproval(args[script + 1] ?? '', policy, {
-				startDir: cwd,
-			});
+			const inner = checkApproval(
+				args.slice(script + 1).find(word => !word.startsWith('-')) ?? '',
+				policy,
+				{startDir: cwd},
+			);
 			if (inner.kind === 'hold') return inner;
 		}
 		// env -S'cmd' and --split-string=cmd run a command written as one word.
