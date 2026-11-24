@@ -491,29 +491,40 @@ export class JsonProgramStatusDao implements ProgramStatusDao {
 
 	/** Returns the pane generations whose leases it removed. */
 	removeFiles(key: string, keepGeneration?: string): string[] {
+		const removed: string[] = [];
 		try {
 			const files = readdirSync(this.dir).flatMap(file => {
-				const of = statusFileOf(file.replace(/\.lease$|\.tmp\.\d+$/g, ''));
-				return of?.key === key && of.generation !== keepGeneration
-					? [{file, generation: of.generation}]
+				const statusFile = statusFileOf(
+					file.replace(/\.lease$|\.tmp\.\d+$/g, ''),
+				);
+				return statusFile?.key === key &&
+					statusFile.generation !== keepGeneration
+					? [{file, generation: statusFile.generation}]
 					: [];
 			});
-			const leases = files.filter(({file}) => file.endsWith('.lease'));
-			for (const {file} of leases)
+			for (const {file, generation} of files) {
+				if (!file.endsWith('.lease')) continue;
 				rmSync(path.join(this.dir, file), {force: true});
+				removed.push(generation);
+			}
+
 			for (const {file} of files.filter(({file}) => !file.endsWith('.lease')))
 				rmSync(path.join(this.dir, file), {force: true});
-			return leases.map(({generation}) => generation);
-		} catch {
-			return [];
+		} catch (error) {
+			log.warn(
+				`Could not remove every program status file of ${key}`,
+				error instanceof Error ? error : undefined,
+			);
 		}
+
+		return removed;
 	}
 
 	watch(listener: (key: string) => void): () => void {
 		mkdirSync(this.dir, {recursive: true});
 		const watcher = watch(this.dir, (_event, filename) => {
-			const of = filename ? statusFileOf(filename) : undefined;
-			if (of !== undefined) listener(of.key);
+			const statusFile = filename ? statusFileOf(filename) : undefined;
+			if (statusFile !== undefined) listener(statusFile.key);
 		});
 		return () => {
 			watcher.close();
