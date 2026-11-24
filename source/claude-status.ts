@@ -25,8 +25,11 @@ export interface ClaudeSessionState {
 	currentTool?: string;
 	event?: string;
 	cwd?: string;
-	/** The file an Edit, Write or Read permission prompt is for. */
-	filePath?: string;
+	/**
+	 * The files of the file-tool calls not finished when a permission prompt
+	 * came up, one of which the prompt is for.
+	 */
+	pendingFiles?: string[];
 }
 export const STABLE_STATUSES = new Set<ClaudeStatus>([
 	'waiting_for_input',
@@ -135,16 +138,16 @@ function sessionState(
 		currentTool: string | undefined;
 		event: string | undefined;
 		cwd: string | undefined;
-		filePath: string | undefined;
+		pendingFiles: string[] | undefined;
 	},
 ): ClaudeSessionState {
-	const {currentTool, event, cwd, filePath} = reported;
+	const {currentTool, event, cwd, pendingFiles} = reported;
 	return {
 		...required,
 		...(currentTool === undefined ? {} : {currentTool}),
 		...(event === undefined ? {} : {event}),
 		...(cwd === undefined ? {} : {cwd}),
-		...(filePath === undefined ? {} : {filePath}),
+		...(pendingFiles === undefined ? {} : {pendingFiles}),
 	};
 }
 
@@ -162,7 +165,7 @@ export function sessionStateOf(value: unknown): ClaudeSessionState | undefined {
 		currentTool,
 		event,
 		cwd,
-		filePath,
+		pendingFiles,
 	} = record ?? {};
 	if (
 		typeof sessionId !== 'string' ||
@@ -172,12 +175,21 @@ export function sessionStateOf(value: unknown): ClaudeSessionState | undefined {
 		!isOptionalString(currentTool) ||
 		!isOptionalString(event) ||
 		!isOptionalString(cwd) ||
-		!isOptionalString(filePath)
+		!(
+			pendingFiles === undefined ||
+			(Array.isArray(pendingFiles) &&
+				pendingFiles.every(file => typeof file === 'string'))
+		)
 	)
 		return undefined;
 	return sessionState(
 		{sessionId, workspaceName, status: status as ClaudeStatus, lastUpdate},
-		{currentTool, event, cwd, filePath},
+		{
+			currentTool,
+			event,
+			cwd,
+			pendingFiles: pendingFiles as string[] | undefined,
+		},
 	);
 }
 

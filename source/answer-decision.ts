@@ -5,12 +5,7 @@
 import path from 'node:path';
 import type {CodexDialog, PermissionPrompt} from './agent-screen.ts';
 import type {AgentStateReport} from './agent-state.ts';
-import {
-	checkApproval,
-	placeOf,
-	type ApprovalPolicy,
-	type ApprovalVerdict,
-} from './approve-policy.ts';
+import {checkApproval, placeOf, type ApprovalPolicy} from './approve-policy.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
 import {holdFor, type HeldPrompt, type Hold} from './holds.ts';
 import type {SuperviseCommand} from './supervise-args.ts';
@@ -115,43 +110,41 @@ const ANSWERS_PROMPTS =
 	/\b(?:space_hold_resolve|space_answer|space_press_keys)\b/;
 
 /**
- * A file tool's prompt, placed by the path its hook reported. The prompt
- * must show the same file name, so a stale record from another call never
- * stands in for it.
+ * The file a file tool's prompt is for: the one pending call whose file name
+ * the prompt shows. The hook only knows which calls are pending, not which
+ * one asked.
  */
-function checkFile(
+function promptFile(
 	permission: PermissionPrompt,
 	hook: ClaudeSessionState | null,
-	policy: ApprovalPolicy,
-): ApprovalVerdict {
-	const reported = hook?.filePath;
-	if (!reported)
+): {kind: 'file'; file: string} | {kind: 'hold'; reason: string} {
+	const pending = hook?.pendingFiles ?? [];
+	if (pending.length === 0)
 		return {kind: 'hold', reason: "the file this prompt is for isn't known"};
-	if (!reported.startsWith('/') && !hook.cwd)
-		return {
-			kind: 'hold',
-			reason: `${reported} is relative to an unknown directory`,
-		};
-	const file = path.posix.resolve(hook.cwd ?? '/', reported);
-	const name = path.posix.basename(file);
 	// A long path wraps onto the next line of the prompt.
 	const shown = [
 		permission.description,
 		permission.question,
 		permission.command,
 	].map(text => text.replaceAll(/\n\s*/g, ''));
-	const named = new RegExp(
-		`(?:^|[\\s/])${name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(?=$|[\\s:,)'"?]|\\.(?:$|\\s))`,
-	);
-	if (!shown.some(text => named.test(text)))
+	const matches = [...new Set(pending)].filter(file => {
+		const name = path.posix.basename(file);
+		const named = new RegExp(
+			`(?:^|[\\s/])${name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(?=$|[\\s:,)'"?]|\\.(?:$|\\s))`,
+		);
+		return shown.some(text => named.test(text));
+	});
+	if (matches.length === 0)
 		return {
 			kind: 'hold',
-			reason: `the prompt doesn't show ${name}, the file its hook reported`,
+			reason: "the prompt doesn't show any file its agent is working on",
 		};
-	const reading = permission.tool
-		? permission.tool === 'Read file'
-		: hook.currentTool === 'Read';
-	return placeOf(file, policy, {reading});
+	if (matches.length > 1)
+		return {
+			kind: 'hold',
+			reason: `the prompt could be for ${matches.join(' or ')}`,
+		};
+	return {kind: 'file', file: matches[0]!};
 }
 
 export function decideAnswer(
@@ -313,11 +306,17 @@ export function decideAnswer(
 	}
 
 	const tool = permission.tool || hook?.currentTool || '';
+	// The hook's tool stands in only for a header cut off the screen: it can
+	// be a record of a different call queued behind this one.
+	const fileTool = permission.tool
+		? FILE_HEADER.test(permission.tool)
+		: FILE_TOOLS.has(hook?.currentTool ?? '');
+	const file = fileTool ? promptFile(permission, hook) : null;
 	const prompt: HeldPrompt = {
 		key,
 		tool,
 		command: permission.command,
-		filePath: hook?.filePath ?? null,
+		filePath: file?.kind === 'file' ? file.file : null,
 		cwd: hook?.cwd ?? null,
 	};
 	const held = (reason: string): AnswerDecision => ({
@@ -354,13 +353,12 @@ export function decideAnswer(
 			: allowed('files inside the space');
 	}
 
-	// The hook's tool stands in only for a header cut off the screen: it can
-	// be a record of a different call queued behind this one.
-	const fileTool = permission.tool
-		? FILE_HEADER.test(permission.tool)
-		: FILE_TOOLS.has(hook?.currentTool ?? '');
-	if (fileTool) {
-		const verdict = checkFile(permission, hook, policy);
+	if (file) {
+		if (file.kind === 'hold') return held(file.reason);
+		const reading = permission.tool
+			? permission.tool === 'Read file'
+			: hook?.currentTool === 'Read';
+		const verdict = placeOf(file.file, policy, {reading});
 		return verdict.kind === 'hold'
 			? held(verdict.reason)
 			: allowed('a file inside the space');

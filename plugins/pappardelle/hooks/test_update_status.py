@@ -487,11 +487,23 @@ class TestStatusDetermination:
         assert result is not None
         assert result["status"] == "waiting_for_input"
 
+    def _file_call(self, event: str, call: str, file_path: str, tool_name: str = "Edit") -> dict[str, Any]:
+        data = self._create_hook_input(hook_event=event, tool_name=tool_name)
+        data["tool_use_id"] = call
+        data["tool_input"] = {"file_path": file_path}
+        return data
+
+    def _permission_prompt(self, tool: str = "Edit") -> dict[str, Any]:
+        return self._create_hook_input(
+            hook_event="Notification",
+            notification_type="permission_prompt",
+            message=f"Claude needs your permission to use {tool}",
+        )
+
     def test_helper_subagent_stop_keeps_the_permission_record(self, tmp_path):
         """Claude's own helper agents stop with no agent_type while a prompt is up."""
-        prompt = self._create_hook_input(hook_event="PermissionRequest", tool_name="Write")
-        prompt["tool_input"] = {"file_path": "/x/a.ts"}
-        self._run_hook_with_input(prompt, tmp_path)
+        self._run_hook_with_input(self._file_call("PreToolUse", "t1", "/x/a.ts", "Write"), tmp_path)
+        self._run_hook_with_input(self._permission_prompt("Write"), tmp_path)
         helper = self._create_hook_input(hook_event="SubagentStop")
         helper["agent_type"] = ""
 
@@ -499,7 +511,7 @@ class TestStatusDetermination:
 
         assert result is not None
         assert result["status"] == "waiting_for_approval"
-        assert result["filePath"] == "/x/a.ts"
+        assert result["pendingFiles"] == ["/x/a.ts"]
 
     # =========================================================================
     # Compaction Tests
@@ -566,25 +578,35 @@ class TestStatusDetermination:
         assert result is not None
         assert result.get("cwd") == "/Users/charlie/.worktrees/stardust-labs/STA-999"
 
-    def test_permission_request_records_the_file_it_is_for(self, tmp_path):
-        """An Edit, Write or Read prompt records the file, for the supervisor to place."""
-        input_data = self._create_hook_input(hook_event="PermissionRequest", tool_name="Edit")
-        input_data["tool_input"] = {"file_path": "/Users/charlie/.worktrees/stardust-labs/STA-999/a.ts"}
+    def test_permission_prompt_reports_the_files_of_unfinished_file_calls(self, tmp_path):
+        """The prompt doesn't name its file, so the supervisor gets every pending one, resolved against cwd."""
+        self._run_hook_with_input(self._file_call("PreToolUse", "t1", "a.ts"), tmp_path)
+        self._run_hook_with_input(self._file_call("PreToolUse", "t2", "/tmp/b.ts", "Read"), tmp_path)
 
-        result = self._run_hook_with_input(input_data, tmp_path)
-
-        assert result is not None
-        assert result.get("filePath") == "/Users/charlie/.worktrees/stardust-labs/STA-999/a.ts"
-
-    def test_only_a_permission_request_records_a_file(self, tmp_path):
-        """A file from an earlier tool call never stands in for the prompt's."""
-        input_data = self._create_hook_input(hook_event="PreToolUse", tool_name="Edit")
-        input_data["tool_input"] = {"file_path": "/tmp/a.ts"}
-
-        result = self._run_hook_with_input(input_data, tmp_path)
+        result = self._run_hook_with_input(self._permission_prompt(), tmp_path)
 
         assert result is not None
-        assert "filePath" not in result
+        assert result["pendingFiles"] == ["/Users/charlie/.worktrees/stardust-labs/STA-999/a.ts", "/tmp/b.ts"]
+
+    def test_a_finished_file_call_is_no_longer_pending(self, tmp_path):
+        """A file from a call that already ran never stands in for the prompt's."""
+        self._run_hook_with_input(self._file_call("PreToolUse", "t1", "/tmp/a.ts"), tmp_path)
+        self._run_hook_with_input(self._file_call("PostToolUse", "t1", "/tmp/a.ts"), tmp_path)
+
+        result = self._run_hook_with_input(self._permission_prompt(), tmp_path)
+
+        assert result is not None
+        assert "pendingFiles" not in result
+
+    def test_a_new_prompt_from_the_user_clears_pending_files(self, tmp_path):
+        """A call declined at its prompt never finishes, so its file goes when the turn does."""
+        self._run_hook_with_input(self._file_call("PreToolUse", "t1", "/tmp/a.ts"), tmp_path)
+        self._run_hook_with_input(self._create_hook_input(hook_event="UserPromptSubmit"), tmp_path)
+
+        result = self._run_hook_with_input(self._permission_prompt(), tmp_path)
+
+        assert result is not None
+        assert "pendingFiles" not in result
 
     # =========================================================================
     # Edge Cases

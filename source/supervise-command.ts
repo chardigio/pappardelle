@@ -669,7 +669,7 @@ async function promptHook(
 	if (stored.kind !== 'state') return null;
 	const {state} = stored;
 	return state.status === 'waiting_for_approval' &&
-		state.event === 'PermissionRequest'
+		state.event === 'Notification'
 		? state
 		: null;
 }

