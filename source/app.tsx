@@ -3130,6 +3130,10 @@ function sendResultMessage(
 			return `✗ Not sent: ${targetSpace}'s composer has text that would be cleared`;
 		}
 
+		case 'unsubmitted': {
+			return `✗ Not submitted: the text is in ${targetSpace}'s composer`;
+		}
+
 		case 'failed': {
 			return '✗ Failed to send to the agent';
 		}

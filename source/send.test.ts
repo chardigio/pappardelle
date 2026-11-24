@@ -42,7 +42,10 @@ function makeRunner(options: {
 	sessions?: string[];
 	listFails?: boolean;
 	failOn?: (args: readonly string[]) => boolean;
-	screen?: string;
+	/** The agent's screen, fixed or drawn from what the send has done so far. */
+	screen?:
+		| string
+		| ((sent: {cleared: boolean; pasted: boolean; enters: number}) => string);
 	captureFails?: boolean;
 }): {
 	runner: SendTmuxRunner;
@@ -61,9 +64,17 @@ function makeRunner(options: {
 		}
 
 		if (args[0] === 'capture-pane') {
+			const {screen = ''} = options;
 			return {
 				status: options.captureFails ? 1 : 0,
-				stdout: options.screen ?? '',
+				stdout:
+					typeof screen === 'string'
+						? screen
+						: screen({
+								cleared: calls.some(call => call.includes('C-u')),
+								pasted: calls.some(call => call[0] === 'paste-buffer'),
+								enters: calls.filter(call => call.at(-1) === 'Enter').length,
+							}),
 			};
 		}
 
@@ -73,6 +84,22 @@ function makeRunner(options: {
 	};
 
 	return {runner, calls, inputs};
+}
+
+const sleep = async () => {};
+
+/**
+ * Codex with an empty input box that shows the pasted text and takes it out
+ * on the `submitsOn`th Enter (never, for Infinity), drawing `after` then.
+ */
+function submitsOnEnter(
+	submitsOn: number,
+	after = agentScreenFixture('codex-sent'),
+): (sent: {cleared: boolean; pasted: boolean; enters: number}) => string {
+	return ({pasted, enters}) => {
+		if (!pasted) return agentScreenFixture('codex-sent');
+		return enters >= submitsOn ? after : agentScreenFixture('codex-draft');
+	};
 }
 
 test('resolveInnerSessionTarget returns an exact-match session target', async t => {
@@ -147,7 +174,35 @@ test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced'
 	const draft = '\u001B[1m›\u001B[0m half a thought\n  gpt-6 · ~/repo\n';
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
-		screen: draft,
+		screen(sent) {
+			if (sent.pasted) return submitsOnEnter(1)(sent);
+			return sent.cleared ? agentScreenFixture('codex-sent') : draft;
+		},
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+		'draft',
+	);
+	t.deepEqual(calls, []);
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner,
+			lockDir,
+			force: true,
+			sleep,
+		}),
+		'sent',
+	);
+});
+
+test("sendToSpaceAgent leaves a command typed in Claude's shell mode alone unless forced", async t => {
+	const draft = agentScreenFixture('claude-shell-draft');
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen(sent) {
+			if (sent.pasted) return submitsOnEnter(1)(sent);
+			return sent.cleared ? agentScreenFixture('codex-sent') : draft;
+		},
 	});
 	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'draft');
 	t.deepEqual(calls, []);
@@ -156,18 +211,8 @@ test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced'
 			runner,
 			lockDir,
 			force: true,
+			sleep,
 		}),
-		'sent',
-	);
-});
-
-test("sendToSpaceAgent leaves a command typed in Claude's shell mode alone unless forced", async t => {
-	const screen = agentScreenFixture('claude-shell-draft');
-	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1'], screen});
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'draft');
-	t.deepEqual(calls, []);
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, force: true}),
 		'sent',
 	);
 });
@@ -212,11 +257,192 @@ test('sendToSpaceAgent sends nothing when it cannot read the screen for a prompt
 });
 
 test('a dim placeholder in the Codex composer is not a draft', async t => {
+	const placeholder =
+		'\u001B[1m›\u001B[0m \u001B[2mAsk Codex to do anything\u001B[0m\n';
 	const {runner} = makeRunner({
 		sessions: ['agent-r-STA-1'],
-		screen: '\u001B[1m›\u001B[0m \u001B[2mAsk Codex to do anything\u001B[0m\n',
+		screen: sent => (sent.pasted ? submitsOnEnter(1)(sent) : placeholder),
 	});
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'sent');
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
+});
+
+const enters = (calls: string[][]) =>
+	calls.filter(args => args.at(-1) === 'Enter').length;
+
+// pappardelle-hrdr: a new Codex session takes the clear keys at about 100 a
+// second and draws a paste only after them, seconds later.
+test('a send clears the box only when it was not read empty', async t => {
+	const clears = async (screen: string) => {
+		const {runner, calls} = makeRunner({
+			sessions: ['agent-r-STA-1'],
+			screen: sent => (sent.pasted ? submitsOnEnter(1)(sent) : screen),
+		});
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner,
+			lockDir,
+			sleep,
+			force: true,
+		});
+		return calls.some(args => args.includes('C-u'));
+	};
+
+	t.false(await clears(agentScreenFixture('codex-sent')));
+	t.true(await clears(agentScreenFixture('codex-draft')));
+	t.true(await clears('$ '));
+});
+
+test('a send presses Enter once the agent shows the pasted text, and is sent when the box empties', async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: submitsOnEnter(1),
+	});
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
+	t.is(enters(calls), 1);
+});
+
+// pappardelle-hrdr: Codex has left a sent prompt in its box until the next key.
+test('a forced send pastes only once the cleared box reads empty', async t => {
+	const draft = '\u001B[1m›\u001B[0m half a thought\n  gpt-6 · ~/repo\n';
+	let readsAfterClear = 0;
+	let pastedEarly = false;
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen(sent) {
+			if (!sent.cleared) return draft;
+			if (sent.pasted) return submitsOnEnter(1)(sent);
+			readsAfterClear++;
+			return readsAfterClear <= 5 ? draft : agentScreenFixture('codex-sent');
+		},
+	});
+	const result = await sendToSpaceAgent('STA-1', 'hi', {
+		async runner(args, input) {
+			if (args[0] === 'paste-buffer' && readsAfterClear <= 5)
+				pastedEarly = true;
+			return runner(args, input);
+		},
+		lockDir,
+		sleep,
+		force: true,
+	});
+	t.is(result, 'sent');
+	t.false(pastedEarly);
+	t.is(enters(calls), 1);
+});
+
+// The draft left by an unsubmitted send, sent again with --force.
+test('a forced send of the same text as the draft is sent', async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen(sent) {
+			if (!sent.cleared || sent.pasted)
+				return submitsOnEnter(1)({...sent, pasted: true});
+			return agentScreenFixture('codex-sent');
+		},
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', 'a draft I have not sent yet', {
+			runner,
+			lockDir,
+			sleep,
+			force: true,
+		}),
+		'sent',
+	);
+	t.is(enters(calls), 1);
+});
+
+// Clearing the box is what takes Claude out of shell mode; pasted into it, the
+// prompt would run as a shell command.
+test("a send clears Claude's empty shell-mode box, so the prompt is not run as a command", async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen(sent) {
+			if (!sent.cleared) return agentScreenFixture('claude-shell-empty');
+			return sent.pasted
+				? submitsOnEnter(1)(sent)
+				: agentScreenFixture('claude-placeholder');
+		},
+	});
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
+	t.true(calls.some(args => args.includes('C-u')));
+});
+
+test('a send presses Enter again when the first leaves the text in the box', async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: submitsOnEnter(2),
+	});
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
+	t.is(enters(calls), 2);
+});
+
+test('a send whose text stays in the box after two Enters is unsubmitted', async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: submitsOnEnter(Number.POSITIVE_INFINITY),
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+		'unsubmitted',
+	);
+	t.is(enters(calls), 2);
+});
+
+test('a send presses no Enter when the pasted text never shows in the box', async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: agentScreenFixture('codex-sent'),
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+		'failed',
+	);
+	t.is(enters(calls), 0);
+});
+
+test('a send presses nothing more when a dialog replaces the box before the paste shows', async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: sent =>
+			sent.pasted
+				? agentScreenFixture('claude-permission-bash')
+				: agentScreenFixture('claude-placeholder'),
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+		'failed',
+	);
+	t.is(enters(calls), 0);
+});
+
+test('a permission prompt that opens after the Enter means the text was sent, and gets no second Enter', async t => {
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: submitsOnEnter(1, agentScreenFixture('claude-permission-bash')),
+	});
+	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
+	t.is(enters(calls), 1);
+});
+
+test('an agent whose input box is not read gets the paste and one Enter, unwatched', async t => {
+	let reads = 0;
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: '$ ',
+	});
+	t.is(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			async runner(args, input) {
+				if (args[0] === 'capture-pane') reads++;
+				return runner(args, input);
+			},
+			lockDir,
+			sleep,
+		}),
+		'sent',
+	);
+	t.is(enters(calls), 1);
+	t.is(reads, 1);
 });
 
 test('sendToSpaceAgent stops before pasting or pressing Enter when load-buffer fails', async t => {

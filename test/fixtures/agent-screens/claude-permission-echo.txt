@@ -1,0 +1,41 @@
+[91m ▐[40m▛███▛█[39m[49m   [1mClaude Code[0m [2m[37mv2.1.331
+[0m[91m▝▜[40m█████[49m█▀[39m  [2m[37mFable 5.2 with high effort · Claude Ultra
+[0m[91m ▝▝   ▝▝ [39m  [2m[37m/tmp/repo
+
+[0m[93m⚠[39m [93mCode Mode (experimental) is on · this session can be resumed only with Code Mode on
+⚠[39m [93mRemote Control isn't available in Code Mode (experimental) yet, so this session isn't connected. 
+[39m  [93mTo use Remote Control, quit Claude Code and start it again with CLAUDE_CODE_EXPERIMENTAL_CODE_MODE
+[39m  [93mset to 0.
+
+[37m[100m❯ [97mUse the AskUserQuestion tool to ask me one question: which color do I prefer, with options red [39m   
+  [97mand blue. Do nothing else.[39m                                                                        
+
+[37m[49m●[39m Declined to answer Claude's questions:
+[2m[37m  ⎿  [0m[37m· Which color do you prefer? (Red / Blue)
+
+[100m❯ [97mRun exactly this Bash command and nothing else: touch made-by-claude.txt[39m                          
+
+[2m[37m›[0m [2m[37mMessage from @sous-chef[3m: keep going[0m
+
+[2m[37m[49m●[0m Creating made-by-claude.txt via touch
+[2m[37m  ⎿  $ touch made-by-claude.txt
+
+
+
+
+
+[0m[94m────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [1m[94mBash command
+[0m [1mTip: auto mode handles these prompts for you — choose "switch to auto mode" below
+[0m [2m[37mRun shell command
+[0m[37m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m touch made-by-claude.txt
+[37m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m Do you want to proceed?                                                        
+ [94m❯[39m [2m[37m1. [0m[94mYes[39m                                                                                         
+   [2m[37m2. [0mYes, and always allow access to [1m/tmp/repo[0m 
+      from this project         
+   [2m[37m3. [0mYes, and switch to auto mode[2m[37m · auto mode handles these prompts for you[0m                        
+   [2m[37m4. [0mNo                                                                                            
+                                                                                                  
+ [2m[37mEsc to cancel · Tab to amend[0m

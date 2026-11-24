@@ -50,6 +50,8 @@ export type FireResult =
 	| 'retrying'
 	| 'skipped_working'
 	| 'skipped_draft'
+	/** The message is in the agent's input box but did not submit. */
+	| 'unsubmitted'
 	| 'no_session'
 	| 'expired';
 
@@ -254,8 +256,9 @@ async function sendNext(
 
 	const queued = deps.store.queued(job.key);
 	const outcome = await deps.send(job.key, queued ?? text);
-	// Only once it's out, so a refused send keeps it for the next try.
-	if (outcome === 'sent' && queued !== null) {
+	// Only once it's in the agent's box, so a refused send keeps it for the
+	// next try.
+	if ((outcome === 'sent' || outcome === 'unsubmitted') && queued !== null) {
 		await deps.store.clearQueued(job.key);
 	}
 
@@ -316,12 +319,19 @@ async function fireOneShot(
 		return 'no_session';
 	}
 
+	// The text is in the agent's box; sent again, it would go twice once a
+	// person submits it.
+	if (outcome === 'unsubmitted') {
+		await finish(job, deps);
+		return 'unsubmitted';
+	}
+
 	await rearm(job, new Date(now.getTime() + RETRY_MS), deps);
 	return 'retrying';
 }
 
 function nudgeResult(outcome: SendOutcome): FireResult {
-	if (outcome === 'sent') return 'sent';
+	if (outcome === 'sent' || outcome === 'unsubmitted') return outcome;
 	return outcome === 'draft' ? 'skipped_draft' : 'waiting';
 }
 

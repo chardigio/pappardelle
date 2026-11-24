@@ -320,7 +320,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_send',
 		description:
-			"Type a prompt into a space's agent TUI as if the user did: clears the input line, types the text literally, presses Enter. Slash commands are prompts. Use it when the user asks for it; to talk to another agent, use SendMessage. Fails with No active session when the agent's session isn't running: reopen with space_open (resume and wait) first",
+			"Type a prompt into a space's agent TUI as if the user did: clears the input line, types the text literally, presses Enter. Slash commands are prompts. Use it when the user asks for it; to talk to another agent, use SendMessage. Fails with No active session when the agent's session isn't running: reopen with space_open (resume and wait) first. Fails with Not submitted when the text reached the input box but didn't send: it is still there, so look at space_screen before sending again, since a resend would see it as a draft",
 		inputSchema: {
 			key,
 			text: z.string().min(1),

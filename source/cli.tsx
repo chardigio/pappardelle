@@ -22,6 +22,7 @@ import {
 	sendKeysToSpaceAgent,
 	newOuterSessionArgs,
 	sendToSpaceAgent,
+	type SendToSpaceAgentResult,
 	sessionExists,
 	setupPappardellLayout,
 	enableTmuxControlClients,
@@ -445,39 +446,9 @@ if (cli.input[0] === 'send') {
 		},
 		new Date(),
 	);
-	if (result === 'prompt') {
-		console.error(
-			`Not sent: ${issueKey} is showing a permission prompt, a question or a Codex dialog. Answer it with \`pappardelle answer ${issueKey}\`; Escape can still be pressed on a prompt or question`,
-		);
-		process.exit(1);
-	}
-
-	if (result === 'draft') {
-		console.error(
-			`Not sent: ${issueKey}'s input box has text that sending would clear. Check it with \`pappardelle screen ${issueKey}\`, or pass --force`,
-		);
-		process.exit(1);
-	}
-
-	if (result === 'no-session') {
-		const session = spaceSessionNames(issueKey)?.agent;
-		console.error(
-			session
-				? `No active session for ${issueKey} (${session} on ${INNER_SOCKET})`
-				: `No active session for ${issueKey}: it has no stored session names`,
-		);
-		process.exit(1);
-	}
-
-	if (result === 'busy') {
-		console.error(
-			`Not sent: another send to ${issueKey} is still running after ${SEND_LOCK_TIMEOUT_MS / 1000}s`,
-		);
-		process.exit(1);
-	}
-
-	if (result === 'failed') {
-		console.error(`Failed to send to ${issueKey}`);
+	const refusal = sendRefusal(result, issueKey, {typedText: keys.length === 0});
+	if (refusal) {
+		console.error(refusal);
 		process.exit(1);
 	}
 
@@ -936,3 +907,45 @@ if (tmuxSocket && railPaneId)
 
 await renderer.closed;
 process.exit(0);
+
+/** What `pappardelle send` prints when the send did not go through. */
+function sendRefusal(
+	result: SendToSpaceAgentResult,
+	issueKey: string,
+	{typedText}: {typedText: boolean},
+): string | undefined {
+	switch (result) {
+		case 'sent': {
+			return undefined;
+		}
+
+		case 'prompt': {
+			return `Not sent: ${issueKey} is showing a permission prompt, a question or a Codex dialog. Answer it with \`pappardelle answer ${issueKey}\`; Escape can still be pressed on a prompt or question`;
+		}
+
+		case 'draft': {
+			return `Not sent: ${issueKey}'s input box has text that sending would clear. Check it with \`pappardelle screen ${issueKey}\`, or pass --force`;
+		}
+
+		case 'unsubmitted': {
+			return `Not submitted: the text is in ${issueKey}'s input box but two Enters did not send it. Check it with \`pappardelle screen ${issueKey}\` before sending again`;
+		}
+
+		case 'no-session': {
+			const session = spaceSessionNames(issueKey)?.agent;
+			return session
+				? `No active session for ${issueKey} (${session} on ${INNER_SOCKET})`
+				: `No active session for ${issueKey}: it has no stored session names`;
+		}
+
+		case 'busy': {
+			return `Not sent: another send to ${issueKey} is still running after ${SEND_LOCK_TIMEOUT_MS / 1000}s`;
+		}
+
+		case 'failed': {
+			return typedText
+				? `Failed to send to ${issueKey}. The text may still have reached its input box: check it with \`pappardelle screen ${issueKey}\``
+				: `Failed to press keys in ${issueKey}`;
+		}
+	}
+}

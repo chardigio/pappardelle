@@ -253,6 +253,19 @@ contractTest(
 );
 
 contractTest(
+	'a one-shot whose text stays unsubmitted in the input box is done, so a retry never sends it twice',
+	async (t, state) => {
+		const h = harness(state, [report('idle')], 'unsubmitted');
+		await h.store.save(afterLimit);
+		await h.store.queue('STA-1', 'the next step');
+		t.is(await h.fire(afterLimit), 'unsubmitted');
+		t.deepEqual(h.store.list(), []);
+		t.deepEqual(h.removed, ['al']);
+		t.is(h.store.queued('STA-1'), null);
+	},
+);
+
+contractTest(
 	'a one-shot for a space with no agent session is dropped',
 	async (t, state) => {
 		const h = harness(state, [report('no_session')]);

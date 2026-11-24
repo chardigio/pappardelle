@@ -89,10 +89,16 @@ export type AgentScreen = {
 	question: QuestionDialog | null;
 	usageLimit: UsageLimit | null;
 	/**
-	 * The agent's input box text, `''` when it shows only its placeholder. A
-	 * command typed in Claude's shell mode starts with `!`.
+	 * The agent's input box text, `''` when it shows only its placeholder, and
+	 * null while a dialog is open. A command typed in Claude's shell mode starts
+	 * with `!`.
 	 */
 	composer: string | null;
+	/**
+	 * Claude's input box is in shell mode (`!`), where Enter runs the box as a
+	 * shell command. Clearing the box leaves it.
+	 */
+	shellMode: boolean;
 	/** Codex's own dialogs (folder trust, model switch) that take the keyboard. */
 	codexDialog: CodexDialog | null;
 	/** The screen as text, with the input box's dim placeholder left out. */
@@ -572,15 +578,17 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 	const lines = raw.map(line => stripVTControlCharacters(line));
 	const codexDialog = parseCodexDialog(raw, lines);
 	const permission = parsePermission(lines);
-	// Codex's highlighted option starts with the same `›` as its input line.
+	const question = parseQuestion(lines);
+	// A dialog takes the keyboard and hides Claude's input box, and its own
+	// rows can look like one: a highlighted `❯ 4. Chat about this` under a rule,
+	// a `›` message echo left in the transcript, or Codex's highlighted `›`
+	// option.
 	const composer =
-		codexDialog || permission?.choose === 'shortcut'
-			? null
-			: parseComposer(raw, lines);
+		codexDialog || permission || question ? null : parseComposer(raw, lines);
 	// Claude Code shows a suggested next prompt as the placeholder. In plain
 	// text it reads as typed, so a supervisor would take it for a draft.
-	const input = composer === '' ? composerLine(lines) : null;
-	if (input) {
+	const input = composer === null ? null : composerLine(lines);
+	if (input && composer === '') {
 		const line = lines[input.at]!;
 		lines[input.at] = line.slice(0, line.indexOf(input.glyph) + 1);
 	}
@@ -590,9 +598,10 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 			line => CLAUDE_SPINNER.test(line) || CODEX_SPINNER.test(line),
 		),
 		permission,
-		question: parseQuestion(lines),
+		question,
 		usageLimit: parseUsageLimit(lines, now),
 		composer,
+		shellMode: input?.glyph === '!',
 		codexDialog,
 		lines,
 	};
