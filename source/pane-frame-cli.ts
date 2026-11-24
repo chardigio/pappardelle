@@ -17,8 +17,8 @@ import {ImageIds} from './pane-frame-image-ids.ts';
 import {OscScanner, type SizeQuery} from './pane-frame-osc.ts';
 import {
 	type FrameColors,
+	followTerminalColors,
 	paletteSequences,
-	queryPalette,
 } from './pane-frame-palette.ts';
 import {
 	CLIENT_TTY_OPTION,
@@ -244,7 +244,7 @@ function paneLabel(): string {
 
 // Loaded before the child starts so its first output is already in the
 // user's colors, and again whenever the terminal switches theme.
-const palette = await queryPalette(
+await followTerminalColors(
 	{
 		write(sequence) {
 			process.stdout.write(sequence);
@@ -256,22 +256,24 @@ const palette = await queryPalette(
 		removeInputHandler(handler) {
 			renderer.removeInputHandler(handler);
 		},
+		on(event, listener) {
+			renderer.on(event, listener);
+		},
+	},
+	({colors, ms, timedOut}, reason) => {
+		const environment =
+			reason === 'start'
+				? ` TERM=${process.env['TERM'] ?? ''} COLORTERM=${process.env['COLORTERM'] ?? ''} ssh=${process.env['SSH_CONNECTION'] ? 'yes' : 'no'}`
+				: '';
+		log.info(
+			`palette ${reason} ${paneLabel()} atMs=${Math.round(performance.now() - startedAt)} ms=${ms} timedOut=${timedOut} ${describeColors(colors)}${environment}`,
+		);
+		terminal.write(paletteSequences(colors));
+		terminal.invalidate();
+		renderer.requestRender();
 	},
 	PALETTE_TIMEOUT_MS,
 );
-const queryMs = Math.round(performance.now() - startedAt);
-log.info(
-	`palette query ${paneLabel()} ms=${queryMs} timedOut=${queryMs >= PALETTE_TIMEOUT_MS} ${describeColors(palette)} TERM=${process.env['TERM'] ?? ''} COLORTERM=${process.env['COLORTERM'] ?? ''} ssh=${process.env['SSH_CONNECTION'] ? 'yes' : 'no'}`,
-);
-terminal.write(paletteSequences(palette));
-renderer.on('palette', (colors: FrameColors) => {
-	log.info(
-		`palette event ${paneLabel()} atMs=${Math.round(performance.now() - startedAt)} ${describeColors(colors)}`,
-	);
-	terminal.write(paletteSequences(colors));
-	terminal.invalidate();
-	renderer.requestRender();
-});
 
 // Bun's pty carries no pixel size, so the nested tmux client asks for it, and
 // while that query is unanswered tmux holds every lone Escape for 500ms

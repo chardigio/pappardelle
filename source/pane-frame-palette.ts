@@ -30,7 +30,10 @@ function channel(digits: string): string {
  * report as null.
  *
  * A terminal answers queries in order, so the reply to the status report sent
- * last means every color that will be reported has been. The renderer's own
+ * last means every color that will be reported has been. tmux forwards a
+ * palette query to its client and holds every reply queued after it until the
+ * client answers or about 500ms pass, so the default colors are asked for
+ * first: a client that ignores palette queries still reports them. The renderer's own
  * palette detection waits for the cursor color as well, which tmux reports
  * only for a pane that has set one, and so loses 300ms in a pane that hasn't.
  */
@@ -70,13 +73,63 @@ export async function queryPalette(
 		terminal.prependInputHandler(onStatus);
 		const timer = setTimeout(finish, timeoutMs);
 		terminal.write(
-			Array.from(
-				{length: PALETTE_SIZE},
-				(_, index) => `\u001B]4;${index};?\u0007`,
-			).join('') +
-				'\u001B]10;?\u0007\u001B]11;?\u0007' +
+			'\u001B]10;?\u0007\u001B]11;?\u0007' +
+				Array.from(
+					{length: PALETTE_SIZE},
+					(_, index) => `\u001B]4;${index};?\u0007`,
+				).join('') +
 				STATUS_QUERY,
 		);
+	});
+}
+
+export type ColorSource = PaletteTerminal & {
+	on(event: 'theme_mode', listener: () => void): void;
+};
+
+export type ColorReport = {
+	colors: FrameColors;
+	ms: number;
+	timedOut: boolean;
+};
+
+/**
+ * Reads the terminal's colors before resolving, and again after every
+ * dark/light switch.
+ *
+ * The renderer's own refresh after a switch asks for the palette first and
+ * gives up on the default colors when nothing answers that, which reset the
+ * embedded terminal to white on black. Its `palette` event is not used.
+ *
+ * Queries never overlap: a second one would take the first one's status
+ * reply. A switch reported during a query runs one more query after it.
+ */
+export async function followTerminalColors(
+	source: ColorSource,
+	apply: (report: ColorReport, reason: 'start' | 'theme') => void,
+	timeoutMs: number,
+): Promise<void> {
+	const read = async (): Promise<ColorReport> => {
+		const startedAt = performance.now();
+		const colors = await queryPalette(source, timeoutMs);
+		const ms = Math.round(performance.now() - startedAt);
+		return {colors, ms, timedOut: ms >= timeoutMs};
+	};
+
+	apply(await read(), 'start');
+
+	let querying = false;
+	let switchedSinceQuery = false;
+	source.on('theme_mode', async () => {
+		switchedSinceQuery = true;
+		if (querying) return;
+		querying = true;
+		while (switchedSinceQuery) {
+			switchedSinceQuery = false;
+			apply(await read(), 'theme');
+		}
+
+		querying = false;
 	});
 }
 
@@ -123,9 +176,12 @@ function contrast(first: string, second: string): number {
  * would be unreadable falls back to the built-in white on black.
  */
 export function paletteSequences(colors: FrameColors): string {
-	const sequences = colors.palette.flatMap((hex, index) =>
-		hex ? [`\u001B]4;${index};${oscColor(hex)}\u001B\\`] : [],
-	);
+	const sequences = [
+		'\u001B]104\u001B\\',
+		...colors.palette.flatMap((hex, index) =>
+			hex ? [`\u001B]4;${index};${oscColor(hex)}\u001B\\`] : [],
+		),
+	];
 	let foreground = colors.defaultForeground;
 	let background = colors.defaultBackground;
 	if (
