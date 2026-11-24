@@ -216,8 +216,7 @@ if tmux has-session -t "=$VIEW_SESSION:" 2>/dev/null; then
     # exit, and a new-session that reaches the server on its way out fails with
     # it. One invocation, so nothing else reaches the window in between.
     tmux kill-pane -a -t "=$VIEW_SESSION:^" \; \
-        respawn-pane -k -t "=$VIEW_SESSION:^" -c "$START_DIR" "$AGENT_PANE" ||
-        tmux kill-session -t "=$VIEW_SESSION:" 2>/dev/null
+        respawn-pane -k -t "=$VIEW_SESSION:^" -c "$START_DIR" "$AGENT_PANE"
 fi
 
 tmux has-session -t "=$VIEW_SESSION:" 2>/dev/null ||

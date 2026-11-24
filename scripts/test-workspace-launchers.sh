@@ -186,10 +186,12 @@ open_viewer
 assert_eq "the last session on the server is the same one afterwards" "$BEFORE" \
     "$(vtmux display-message -p -t "$VIEWER" '#{pid} #{session_id}' 2>/dev/null)"
 assert_eq "it has the agent and companion panes" "2" "$(vtmux list-panes -t "$VIEWER" 2>/dev/null | wc -l | tr -d ' ')"
-sleep 0.5
+for _ in $(seq 50); do [[ "$(grep -c '' "$VIEW_TMP/inner" 2>/dev/null)" == 2 ]] && break; sleep 0.1; done
 assert_eq "both panes attach to the inner sessions" \
     "-L view_inner new-session -A -s agent-testrepo-QA-1"$'\n'"-L view_inner new-session -A -s companion-testrepo-QA-1" \
     "$(cut -d' ' -f1-6 "$VIEW_TMP/inner" 2>/dev/null | sort)"
+assert_eq "the agent pane is the active one" "1" \
+    "$(vtmux display-message -p -t "$VIEWER" '#{pane_start_command}' | grep -c 'agent-testrepo-QA-1' || true)"
 vtmux kill-server 2>/dev/null || true
 open_viewer
 assert_eq "a missing viewer is created with both panes" "2" "$(vtmux list-panes -t "$VIEWER" 2>/dev/null | wc -l | tr -d ' ')"
