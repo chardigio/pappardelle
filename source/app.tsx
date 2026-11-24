@@ -589,7 +589,7 @@ export default function App({
 		setStderrTerminalPassthrough(true);
 		await renderer.suspend();
 		runUpdateScript({waitOnFailure: true});
-		// Reruns the TUI through the shim the installer just re-pinned (which
+		// Reruns the TUI through the shim the installer just rewrote (which
 		// still points at the old build after a failed install).
 		restartOwnTui(
 			{

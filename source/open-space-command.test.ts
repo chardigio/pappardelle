@@ -20,8 +20,6 @@ const projectRoot = path.resolve(import.meta.dirname, '..');
 // the status socket once and found nothing there.
 const FIRST_CONNECT_ATTEMPT_MS = 500;
 const useStandalone = process.env['PAPPARDELLE_TEST_STANDALONE'] === '1';
-const useBuiltCli =
-	useStandalone || process.env['PAPPARDELLE_TEST_BUILT_CLI'] === '1';
 
 function fixture(t: ExecutionContext, provider = 'jira') {
 	const root = tempDir(t, 'papp-cli-space-');
@@ -35,14 +33,14 @@ function fixture(t: ExecutionContext, provider = 'jira') {
 		path.join(projectRoot, 'scripts', 'builtin-agents.json'),
 		path.join(install, 'scripts', 'builtin-agents.json'),
 	);
-	const directory = useBuiltCli ? 'dist' : 'source';
+	const directory = useStandalone ? 'dist' : 'source';
 	fs.cpSync(path.join(projectRoot, directory), path.join(install, directory), {
 		recursive: true,
-		filter: file =>
-			!file.endsWith('.test.ts') &&
-			!file.endsWith('.test.tsx') &&
-			(useStandalone || path.basename(file) !== 'pappardelle'),
+		filter: file => !file.endsWith('.test.ts') && !file.endsWith('.test.tsx'),
 	});
+	const cli = useStandalone
+		? [path.join(install, 'dist/pappardelle')]
+		: [process.execPath, path.join(install, 'source/cli.tsx')];
 	fs.symlinkSync(
 		path.join(projectRoot, 'node_modules'),
 		path.join(install, 'node_modules'),
@@ -123,22 +121,11 @@ setTimeout(() => {
 		IDOW_TEST_RECORD: record,
 	};
 	const start = (args: string[], overrides: NodeJS.ProcessEnv = {}) => {
-		const child = spawn(
-			useStandalone ? path.join(install, 'dist/pappardelle') : process.execPath,
-			[
-				...(useStandalone
-					? []
-					: [
-							path.join(install, directory, useBuiltCli ? 'cli.js' : 'cli.tsx'),
-						]),
-				...args,
-			],
-			{
-				cwd: repo,
-				env: {...env, ...overrides},
-				stdio: 'pipe',
-			},
-		);
+		const child = spawn(cli[0]!, [...cli.slice(1), ...args], {
+			cwd: repo,
+			env: {...env, ...overrides},
+			stdio: 'pipe',
+		});
 		t.teardown(() => child.kill());
 		return child;
 	};
@@ -208,7 +195,7 @@ setTimeout(() => {
 		repo,
 		home,
 		install,
-		directory,
+		cli,
 		env,
 		idow,
 		record,
@@ -339,14 +326,8 @@ test.serial(
 		);
 		await client.connect(
 			new StdioClientTransport({
-				command: process.execPath,
-				args: [
-					path.join(
-						f.install,
-						f.directory,
-						useBuiltCli ? 'mcp-cli.js' : 'mcp-cli.ts',
-					),
-				],
+				command: f.cli[0]!,
+				args: [...f.cli.slice(1), 'mcp'],
 				cwd: f.repo,
 				env: {...env, IDOW_TEST_BYTES: '200000'},
 				stderr: 'ignore',

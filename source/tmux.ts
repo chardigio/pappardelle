@@ -7,7 +7,6 @@ import {stat} from 'node:fs/promises';
 import {setTimeout as delay} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -179,7 +178,7 @@ import {
 	frameStartedChannel,
 } from './pane-frame-options.ts';
 import {type AgentScreen, parseAgentScreen} from './agent-screen.ts';
-import {bunIsolationArgs, isStandalone} from './runtime.ts';
+import {internalEntryCommand} from './runtime.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {PaneLayout} from './types.ts';
 import {
@@ -516,15 +515,6 @@ export function buildShellLaunchArgs(
 	];
 }
 
-function paneFrameEntry(): string[] {
-	if (isStandalone) return [process.execPath, '--internal-pane-frame'];
-	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
-	const entry = fileURLToPath(
-		new URL(`pane-frame-cli${extension}`, import.meta.url),
-	);
-	return [process.execPath, ...bunIsolationArgs, entry];
-}
-
 /**
  * The `respawn-pane` command for a viewer pane: the frame host running
  * `command`, then a login shell, inside the pane's frame. Starting it as the
@@ -563,7 +553,12 @@ const awaitingFrames = new Set<string>();
  * up, then overlaps everything between pane setup and the first attachment.
  */
 function awaitingFrameCommand(title: string): string {
-	return [...paneFrameEntry(), '--title', title, '--await']
+	return [
+		...internalEntryCommand('--internal-pane-frame', 'pane-frame-cli'),
+		'--title',
+		title,
+		'--await',
+	]
 		.map(value => shellQuote(value))
 		.join(' ');
 }
@@ -614,7 +609,7 @@ function frameHostCommand(
 	then: 'shell' | 'close' = 'shell',
 ): string {
 	return [
-		...paneFrameEntry(),
+		...internalEntryCommand('--internal-pane-frame', 'pane-frame-cli'),
 		...(title === undefined ? [] : ['--title', title]),
 		'--',
 		'/bin/sh',

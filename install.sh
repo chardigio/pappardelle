@@ -44,7 +44,7 @@ LOCAL_INSTALL_DIR="$PAPPARDELLE_DIR/local"
 LOCAL_BIN="$HOME/.local/bin"
 WORKTREES_DIR="$HOME/.worktrees"
 REPO_URL="https://github.com/chardigio/pappardelle.git"
-# Keep the runtime floor aligned with package.json and the launch shim.
+# Keep the build floor aligned with package.json.
 MIN_BUN_VERSION=1.4.4
 BUN_VERSION=1.4.4
 PRIVATE_BUN_DIR="$PAPPARDELLE_DIR/bun"
@@ -69,8 +69,8 @@ find_bun() {
         "$HOME/.bun/bin/bun" "$PRIVATE_BUN_DIR/current/bun"; do
         [[ -x "$candidate" ]] || continue
         if bun_supported "$candidate"; then
-            # Same isolation as the shim: the TUI runs this from a workspace,
-            # whose bunfig.toml preload would print into the captured path.
+            # Without Bun's .env and bunfig.toml: the TUI runs this from a
+            # workspace, whose bunfig.toml preload would print into the captured path.
             "$candidate" --no-env-file --config=/dev/null -p 'process.execPath'
             return 0
         fi
@@ -264,6 +264,23 @@ install_skill_scripts() {
     done
 }
 
+# Writes the `pappardelle` shim, which runs $INSTALL_DIR's executable.
+# Rendered from a template so install-shim.test.ts runs the shim this writes.
+install_shim() {
+    local template="$INSTALL_DIR/scripts/pappardelle-shim-template.sh" content
+    if [[ ! -f "$template" ]]; then
+        print_error "Shim template not found at $template"
+        return 1
+    fi
+    content="$(<"$template")"
+    mkdir -p "$LOCAL_BIN"
+    # Split around the placeholder rather than substitute it: bash 5.2 turns an
+    # unquoted & in the replacement into the match, and bash 3.2 (macOS's
+    # /bin/bash) keeps quotes around the replacement literally.
+    printf '%s%s%s\n' "${content%%__EXECUTABLE__*}" "$INSTALL_DIR/dist/pappardelle" "${content#*__EXECUTABLE__}" > "$LOCAL_BIN/pappardelle"
+    chmod +x "$LOCAL_BIN/pappardelle"
+}
+
 # Tests source this file to call the functions above without running the
 # installer.
 if [[ "${PAPPARDELLE_INSTALL_SOURCE_ONLY:-}" == 1 ]]; then
@@ -290,7 +307,7 @@ echo ""
 
 MISSING=()
 
-# Use the same verified Bun for installation, building, and the runtime shim.
+# Use the same verified Bun for installation and building.
 BUN_BIN=""
 if BUN_BIN="$(find_bun)"; then
     print_status "Bun $("$BUN_BIN" --version) at $BUN_BIN"
@@ -419,23 +436,8 @@ fi
 # Link pappardelle and idow to ~/.local/bin/
 mkdir -p "$LOCAL_BIN"
 
-# pappardelle — wrapper script with a pinned Bun runtime.
-# Rendered from a template so the shim's behavior is unit-tested
-# (install-shim.test.ts); the Bun binary is pinned to the one preflight
-# verified rather than PATH-resolved at runtime (STA-1682).
-SHIM_TEMPLATE="$INSTALL_DIR/scripts/pappardelle-shim-template.sh"
-if [[ ! -f "$SHIM_TEMPLATE" ]]; then
-    print_error "Shim template not found at $SHIM_TEMPLATE"
-    exit 1
-fi
-CLI_JS="$INSTALL_DIR/dist/cli.js"
-SHIM_CONTENT="$(<"$SHIM_TEMPLATE")"
-SHIM_CONTENT="${SHIM_CONTENT//__BUN_BIN__/$BUN_BIN}"
-SHIM_CONTENT="${SHIM_CONTENT//__CLI_JS__/$CLI_JS}"
-SHIM_CONTENT="${SHIM_CONTENT//__MIN_BUN_VERSION__/$MIN_BUN_VERSION}"
-printf '%s\n' "$SHIM_CONTENT" > "$LOCAL_BIN/pappardelle"
-chmod +x "$LOCAL_BIN/pappardelle"
-print_status "Linked 'pappardelle' command globally (Bun pinned to $BUN_BIN)"
+install_shim || exit 1
+print_status "Linked 'pappardelle' command globally"
 
 # idow
 IDOW_SRC="$INSTALL_DIR/scripts/idow"

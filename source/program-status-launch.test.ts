@@ -145,11 +145,11 @@ function fixture(t: ExecutionContext, python: boolean, staleNode = false) {
 			worker,
 			`
 import {execFileSync} from 'node:child_process';
-import {ensureAgentSession, initTmuxState} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/tmux.js')).href)};
-import {createStateDaos} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/state-daos.js')).href)};
-import {buildSpawnEnv} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/spawn-env.js')).href)};
-import {newSpaceIdentity} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/space-identity.js')).href)};
-import {statusSocket} from ${JSON.stringify(pathToFileURL(path.join(project, 'dist/program-status-monitor.js')).href)};
+import {ensureAgentSession, initTmuxState} from ${JSON.stringify(pathToFileURL(path.join(project, 'source/tmux.ts')).href)};
+import {createStateDaos} from ${JSON.stringify(pathToFileURL(path.join(project, 'source/state-daos.ts')).href)};
+import {buildSpawnEnv} from ${JSON.stringify(pathToFileURL(path.join(project, 'source/spawn-env.ts')).href)};
+import {newSpaceIdentity} from ${JSON.stringify(pathToFileURL(path.join(project, 'source/space-identity.ts')).href)};
+import {statusSocket} from ${JSON.stringify(pathToFileURL(path.join(project, 'source/program-status-monitor.ts')).href)};
 const profile = ${JSON.stringify(profile)};
 const daos = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(stateDir)}});
 initTmuxState(daos);

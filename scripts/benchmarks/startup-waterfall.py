@@ -1,7 +1,6 @@
 """Plot one actual sample, not a composite timeline.
 
 Run: uv run --with matplotlib python -P scripts/benchmarks/startup-waterfall.py
-The safe-path flag prevents the adjacent packaging.py from shadowing packaging.
 """
 import argparse
 import json

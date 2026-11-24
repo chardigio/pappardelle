@@ -28,7 +28,7 @@ export type UpdateCommandDeps = {
 	tmux: OuterTmuxRunner;
 	repoStateRoot: string;
 	tuiMarker: (repo: string) => Pick<TuiMarkerDao, 'read'>;
-	// Read after the install, which is what creates or re-pins the shim.
+	// Read after the install, which is what creates or rewrites the shim.
 	launchCommand: () => string;
 	timing?: Partial<RestartTiming>;
 	currentSession: () => string | null;

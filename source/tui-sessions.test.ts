@@ -536,8 +536,8 @@ test('q in a vertical layout closes its one viewer pane', t => {
 
 test('after an install, restarts go through the shim when there is one', t => {
 	const options = {
-		execPath: '/node',
-		cliPath: '/work/pappardelle/dist/cli.js',
+		execPath: '/bun',
+		cliPath: '/work/pappardelle/source/cli.tsx',
 		home: '/home/me',
 	};
 
@@ -547,46 +547,34 @@ test('after an install, restarts go through the shim when there is one', t => {
 	);
 	t.is(
 		installedLaunchCommand({...options, exists: () => false}),
-		"'/node' '--no-env-file' '--config=/dev/null' '/work/pappardelle/dist/cli.js'",
+		"'/bun' '--no-env-file' '--config=/dev/null' '/work/pappardelle/source/cli.tsx'",
 	);
 });
 
-test('a TUI started from the installed release launches through the shim', t => {
+test('a source run keeps its own Bun and entry file', t => {
 	t.is(
 		tuiLaunchCommand({
-			execPath: '/old/node',
-			cliPath: '/home/me/.pappardelle/repo/dist/cli.js',
-			args: [],
-			home: '/home/me',
-			exists: file => file === '/home/me/.local/bin/pappardelle',
-		}),
-		"'/home/me/.local/bin/pappardelle'",
-	);
-});
-
-test('a dev build keeps its own node and cli.js', t => {
-	t.is(
-		tuiLaunchCommand({
-			execPath: '/old/node',
-			cliPath: '/work/pappardelle/dist/cli.js',
+			execPath: '/old/bun',
+			cliPath: '/work/pappardelle/source/cli.tsx',
 			args: ['--foo'],
 			home: '/home/me',
 			exists: () => true,
 		}),
-		"'/old/node' '--no-env-file' '--config=/dev/null' '/work/pappardelle/dist/cli.js' --foo",
+		"'/old/bun' '--no-env-file' '--config=/dev/null' '/work/pappardelle/source/cli.tsx' --foo",
 	);
 });
 
-test('the release falls back to node and cli.js when the shim is missing', t => {
+test('the release runs its executable itself when the shim is missing', t => {
+	const release = '/home/me/.pappardelle/repo/dist/pappardelle';
 	t.is(
 		tuiLaunchCommand({
-			execPath: '/old/node',
-			cliPath: '/home/me/.pappardelle/repo/dist/cli.js',
+			execPath: release,
+			cliPath: release,
 			args: [],
 			home: '/home/me',
 			exists: () => false,
 		}),
-		"'/old/node' '--no-env-file' '--config=/dev/null' '/home/me/.pappardelle/repo/dist/cli.js'",
+		`'${release}'`,
 	);
 });
 

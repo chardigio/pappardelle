@@ -42,7 +42,7 @@ try:
         if name == 'ink':
             shutil.copyfile(fixture, script)
         else:
-            command(['bun', 'scripts/benchmarks/build-fixture.ts', 'bytecode', str(script)], checkout)
+            command(['bun', 'scripts/benchmarks/build-fixture.ts', str(script)], checkout)
         scripts.append(script)
         command(([str(checkout / 'dist/pappardelle')] if name == 'opentui' else [runtime, 'dist/cli.js']) + ['--version'], checkout)
     for _ in range(args.runs):

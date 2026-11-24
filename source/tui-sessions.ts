@@ -253,7 +253,7 @@ async function waitForTuiMarker(
 	}
 }
 
-// With an `expectedCliPath`, a TUI that comes up on any other cli.js is a
+// With an `expectedCliPath`, a TUI that comes up on any other build is a
 // failure. Returns whether the TUI is confirmed running.
 export async function restartAndVerifyTui(
 	tui: RunningTui,
@@ -346,10 +346,10 @@ export async function restartTuis(
 
 // The command a new TUI session runs, which every later restart reruns. A TUI
 // started from the installed release runs through the ~/.local/bin shim, which
-// each install re-pins to a runtime meeting that release's floor; baking in the
-// launching runtime would outlive it. Other builds (e.g. a dev build at
-// ~/.local/bin/pappardelle-sta862) keep their own Bun and cli.js so they don't
-// fall back to the release.
+// each install rewrites to run that install's executable, so a restart follows
+// a later local install instead of staying on the release. Other builds (e.g. a
+// dev build at ~/.local/bin/pappardelle-sta862, or a source run) keep their own
+// command so they don't fall back to the release.
 export function tuiLaunchCommand(options: {
 	execPath: string;
 	cliPath: string;
@@ -358,18 +358,16 @@ export function tuiLaunchCommand(options: {
 	exists?: (file: string) => boolean;
 }): string {
 	const exists = options.exists ?? existsSync;
-	const releaseCli = path.join(
+	const releaseExecutable = path.join(
 		options.home,
 		'.pappardelle',
 		'repo',
 		'dist',
-		'cli.js',
+		'pappardelle',
 	);
 	const shim = path.join(options.home, '.local', 'bin', 'pappardelle');
 	const command =
-		[releaseCli, path.join(path.dirname(releaseCli), 'pappardelle')].includes(
-			path.resolve(options.cliPath),
-		) && exists(shim)
+		path.resolve(options.cliPath) === releaseExecutable && exists(shim)
 			? shellQuote(shim)
 			: options.execPath === options.cliPath
 				? shellQuote(options.execPath)
@@ -379,7 +377,7 @@ export function tuiLaunchCommand(options: {
 	return [command, ...options.args].join(' ');
 }
 
-// What a restart runs after an install: the shim the installer just re-pinned,
+// What a restart runs after an install: the shim the installer just rewrote,
 // or this build when there is no shim.
 export function installedLaunchCommand(options: {
 	execPath: string;

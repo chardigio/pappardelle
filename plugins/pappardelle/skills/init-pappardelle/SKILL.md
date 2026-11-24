@@ -257,9 +257,9 @@ Now check the required tools and the provider-specific CLIs from the user's conf
 ```bash
 echo "=== Required ==="
 if pappardelle --version >/dev/null 2>&1; then
-  printf "%-10s %s\n" runtime '✓ verified by installed shim'
+  printf "%-10s %s\n" runtime '✓ installed executable runs'
 else
-  printf "%-10s %s\n" runtime '✗ re-run install.sh to restore the pinned Bun'
+  printf "%-10s %s\n" runtime '✗ executable missing or not executable: re-run install.sh'
 fi
 for cmd in git tmux jq yq claude; do
   printf "%-10s %s\n" "$cmd" "$(command -v "$cmd" >/dev/null 2>&1 && echo '✓' || echo '✗ MISSING')"
@@ -272,7 +272,7 @@ done
 
 Replace `<VCS_CLI>` with `gh` (GitHub) or `glab` (GitLab), and `<TRACKER_CLI>` with `linctl` (Linear), `acli` (Jira) or `bd` (Beads). `gitui` is the default companion-pane command — if `.pappardelle.yml` sets `companion_command` to a different tool, check that instead. When you took the existing-config path in Step 1B, read these values straight out of the parsed `.pappardelle.yml`.
 
-- If the installed shim fails its runtime check, re-run `install.sh`. If any other **required** tool is missing, **stop and do not proceed** to Step 4. Tell the user what failed and offer to install or upgrade it via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing. Re-run the check after installation and only proceed once all required tools pass.
+- If `pappardelle --version` fails, its executable is missing or not executable: re-run `install.sh`. If any other **required** tool is missing, **stop and do not proceed** to Step 4. Tell the user what failed and offer to install or upgrade it via `brew install <tool>` (or the appropriate install command for Claude Code: `curl -fsSL https://claude.ai/install.sh | bash`). Use `AskUserQuestion` to confirm before installing. Re-run the check after installation and only proceed once all required tools pass.
 - If any **provider CLIs** are missing, warn the user but allow proceeding — Pappardelle will work but some features will be degraded.
 - If all tools are present, move on.
 

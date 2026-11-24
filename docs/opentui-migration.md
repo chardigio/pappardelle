@@ -118,6 +118,8 @@ does not need them. No installation-size reduction is claimed.
 
 ## Packaging comparison
 
+_2026-11-23: the JavaScript build and the shim's Bun fallback were removed, and `scripts/benchmarks/packaging.py` with them; the table below reproduces from fd19896._
+
 Five alternating runs per mode. All times are milliseconds; CPU covers the
 two-second render stress phase. RSS is the rendering fixture’s high-water mark.
 

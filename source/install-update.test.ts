@@ -334,7 +334,7 @@ function toolsWithFakeBun(t: Teardown): string {
 function existingInstall(home: string): string {
 	const repoDir = path.join(home, '.pappardelle', 'repo');
 	fs.mkdirSync(path.join(repoDir, 'dist'), {recursive: true});
-	fs.writeFileSync(path.join(repoDir, 'dist', 'cli.js'), 'old build');
+	fs.writeFileSync(path.join(repoDir, 'dist', 'pappardelle'), 'old build');
 	return repoDir;
 }
 
@@ -350,7 +350,7 @@ test('a failed build leaves the current install in place', t => {
 
 	t.not(result.status, 0);
 	t.is(
-		fs.readFileSync(path.join(repoDir, 'dist', 'cli.js'), 'utf8'),
+		fs.readFileSync(path.join(repoDir, 'dist', 'pappardelle'), 'utf8'),
 		'old build',
 	);
 	const leftovers = fs
@@ -368,14 +368,14 @@ test('a clone that does not typecheck is never built and leaves the current inst
 		PATH: toolsWithFakeBun(t),
 		PAPPARDELLE_REPO_URL: sourceRepo(
 			t,
-			'mkdir -p dist && echo new build > dist/cli.js\n',
+			'mkdir -p dist && echo new build > dist/pappardelle\n',
 			'exit 2\n',
 		),
 	});
 
 	t.not(result.status, 0);
 	t.is(
-		fs.readFileSync(path.join(repoDir, 'dist', 'cli.js'), 'utf8'),
+		fs.readFileSync(path.join(repoDir, 'dist', 'pappardelle'), 'utf8'),
 		'old build',
 	);
 });
@@ -392,7 +392,7 @@ test('a clone failure leaves the current install in place', t => {
 
 	t.not(result.status, 0);
 	t.is(
-		fs.readFileSync(path.join(repoDir, 'dist', 'cli.js'), 'utf8'),
+		fs.readFileSync(path.join(repoDir, 'dist', 'pappardelle'), 'utf8'),
 		'old build',
 	);
 });
@@ -406,17 +406,20 @@ test('a successful build replaces the install and keeps the old one as a rollbac
 		PATH: toolsWithFakeBun(t),
 		PAPPARDELLE_REPO_URL: sourceRepo(
 			t,
-			'mkdir -p dist && echo new build > dist/cli.js\n',
+			'mkdir -p dist && echo new build > dist/pappardelle\n',
 		),
 	});
 
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
 	t.is(
-		fs.readFileSync(path.join(repoDir, 'dist', 'cli.js'), 'utf8').trim(),
+		fs.readFileSync(path.join(repoDir, 'dist', 'pappardelle'), 'utf8').trim(),
 		'new build',
 	);
 	t.is(
-		fs.readFileSync(path.join(`${repoDir}.previous`, 'dist', 'cli.js'), 'utf8'),
+		fs.readFileSync(
+			path.join(`${repoDir}.previous`, 'dist', 'pappardelle'),
+			'utf8',
+		),
 		'old build',
 	);
 });

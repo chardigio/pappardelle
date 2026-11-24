@@ -520,8 +520,8 @@ cd pappardelle
 > in `dist/pappardelle`, with startup bytecode. Running the installed app requires
 > neither Node nor a separate Bun. Bun 1.4.4+ is needed to build or update; the
 > installer supplies a private, checksum-verified copy when needed. Scripts,
-> hooks, and package metadata stay beside the executable. A pinned Bun fallback
-> remains available for JavaScript development builds. Updates build in a staging
+> hooks, and package metadata stay beside the executable. If the executable is
+> missing, run `install.sh` again to rebuild it. Updates build in a staging
 > folder, so a failed update keeps your current install.
 
 **Manual install:**
@@ -530,7 +530,7 @@ cd pappardelle
 git clone https://github.com/chardigio/pappardelle.git
 cd pappardelle
 bun install --frozen-lockfile
-bun run build           # production bundle + native executable with bytecode
+bun run build           # native executable with bytecode
 bun link                # makes `pappardelle` available globally
 pappardelle plugin install  # installs the plugin (skills, hooks and MCP tools) into Claude Code, Codex and agy
 ```
@@ -647,7 +647,7 @@ grep -lF "[$KEY]" ~/Library/Logs/stardust-workspace/idow-????????-??????.log
 
 ```bash
 bun run dev      # Watch mode (auto-rebuild on changes)
-bun run build    # Build native executable + JavaScript fallback
+bun run build    # Build the native executable
 bun run typecheck # Check TypeScript separately
 bun start        # Run the built binary
 bun run test         # Lint + format check + tests
