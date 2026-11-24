@@ -2,6 +2,8 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'ava';
+import {press} from '../test/helpers/key-press.ts';
+import {keysFromStdin} from '../test/helpers/render.ts';
 import {
 	applySkillCompletion,
 	clampSelection,
@@ -228,40 +230,55 @@ test('skillTokenLength matches the name exactly, not a prefix of it', t => {
 // ============================================================================
 
 test('handleSkillPickerKey clamps movement at both ends', t => {
-	t.deepEqual(handleSkillPickerKey({upArrow: true}, 0, 3), {
+	t.deepEqual(handleSkillPickerKey(press('up'), 0, 3), {
 		action: 'move',
 		index: 0,
 	});
-	t.deepEqual(handleSkillPickerKey({downArrow: true}, 2, 3), {
+	t.deepEqual(handleSkillPickerKey(press('down'), 2, 3), {
 		action: 'move',
 		index: 2,
 	});
-	t.deepEqual(handleSkillPickerKey({downArrow: true}, 0, 3), {
+	t.deepEqual(handleSkillPickerKey(press('down'), 0, 3), {
 		action: 'move',
 		index: 1,
 	});
 });
 
 test('handleSkillPickerKey ignores plain j and k so they stay typable', t => {
-	t.deepEqual(handleSkillPickerKey({}, 1, 3), {action: 'ignore', index: 1});
+	t.deepEqual(handleSkillPickerKey(press('j'), 1, 3), {
+		action: 'ignore',
+		index: 1,
+	});
+	t.deepEqual(handleSkillPickerKey(press('k'), 1, 3), {
+		action: 'ignore',
+		index: 1,
+	});
 });
 
 test('handleSkillPickerKey reports escape as a close', t => {
-	t.deepEqual(handleSkillPickerKey({escape: true}, 1, 3), {
+	t.deepEqual(handleSkillPickerKey(press('escape'), 1, 3), {
 		action: 'close',
 		index: 1,
 	});
 });
 
 test('handleSkillPickerKey accepts on tab, so the prompt never has to leave', t => {
-	t.deepEqual(handleSkillPickerKey({tab: true}, 2, 3), {
+	t.deepEqual(handleSkillPickerKey(press('tab'), 2, 3), {
 		action: 'accept',
 		index: 2,
 	});
 });
 
+test('handleSkillPickerKey accepts on Shift+Tab as OpenTUI delivers it', async t => {
+	const keys = await keysFromStdin('\x1b[Z');
+	t.deepEqual(
+		keys.map(key => handleSkillPickerKey(key, 2, 3)),
+		[{action: 'accept', index: 2}],
+	);
+});
+
 test('handleSkillPickerKey ignores tab when the list is empty', t => {
-	t.deepEqual(handleSkillPickerKey({tab: true}, 0, 0), {
+	t.deepEqual(handleSkillPickerKey(press('tab'), 0, 0), {
 		action: 'ignore',
 		index: 0,
 	});
@@ -272,52 +289,55 @@ test('handleSkillPickerKey ignores tab when the list is empty', t => {
 // ============================================================================
 
 test('handleSkillListKey moves on arrows and clamps at both ends', t => {
-	t.deepEqual(handleSkillListKey('', {upArrow: true}, 0, 3), {
+	t.deepEqual(handleSkillListKey(press('up'), 0, 3), {
 		action: 'move',
 		index: 0,
 	});
-	t.deepEqual(handleSkillListKey('', {downArrow: true}, 2, 3), {
+	t.deepEqual(handleSkillListKey(press('down'), 2, 3), {
 		action: 'move',
 		index: 2,
 	});
-	t.deepEqual(handleSkillListKey('', {downArrow: true}, 0, 3), {
+	t.deepEqual(handleSkillListKey(press('down'), 0, 3), {
 		action: 'move',
 		index: 1,
 	});
 });
 
 test('handleSkillListKey moves on j and k, which the frozen input no longer needs', t => {
-	t.deepEqual(handleSkillListKey('j', {}, 0, 3), {action: 'move', index: 1});
-	t.deepEqual(handleSkillListKey('k', {}, 2, 3), {action: 'move', index: 1});
+	t.deepEqual(handleSkillListKey(press('j'), 0, 3), {action: 'move', index: 1});
+	t.deepEqual(handleSkillListKey(press('k'), 2, 3), {action: 'move', index: 1});
 });
 
 test('handleSkillListKey accepts on both enter and tab', t => {
-	t.deepEqual(handleSkillListKey('', {return: true}, 1, 3), {
+	t.deepEqual(handleSkillListKey(press('return'), 1, 3), {
 		action: 'accept',
 		index: 1,
 	});
-	t.deepEqual(handleSkillListKey('', {tab: true}, 1, 3), {
+	t.deepEqual(handleSkillListKey(press('tab'), 1, 3), {
 		action: 'accept',
 		index: 1,
 	});
 });
 
 test('handleSkillListKey ignores an accept for a row that is not there', t => {
-	t.deepEqual(handleSkillListKey('', {return: true}, 0, 0), {
+	t.deepEqual(handleSkillListKey(press('return'), 0, 0), {
 		action: 'ignore',
 		index: 0,
 	});
 });
 
 test('handleSkillListKey hands the focus back on escape', t => {
-	t.deepEqual(handleSkillListKey('', {escape: true}, 2, 3), {
+	t.deepEqual(handleSkillListKey(press('escape'), 2, 3), {
 		action: 'back',
 		index: 2,
 	});
 });
 
 test('handleSkillListKey ignores an ordinary letter', t => {
-	t.deepEqual(handleSkillListKey('q', {}, 1, 3), {action: 'ignore', index: 1});
+	t.deepEqual(handleSkillListKey(press('q'), 1, 3), {
+		action: 'ignore',
+		index: 1,
+	});
 });
 
 // ============================================================================

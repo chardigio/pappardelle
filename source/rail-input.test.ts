@@ -1,8 +1,6 @@
-import {useKeyboard} from '@opentui/react';
-import {shortcutKey} from './tui-key.ts';
-import React from 'react';
-import {render, until} from '../test/helpers/render.ts';
 import test from 'ava';
+import {press} from '../test/helpers/key-press.ts';
+import {keysFromStdin} from '../test/helpers/render.ts';
 import {
 	isCloseSpaceKey,
 	isFocusAgentKey,
@@ -15,21 +13,28 @@ import {
 // ============================================================================
 
 test('Enter focuses the Claude pane', t => {
-	t.true(isFocusAgentKey({return: true}));
+	t.true(isFocusAgentKey(press('return')));
 });
 
 test('plain right arrow focuses the Claude pane', t => {
-	t.true(isFocusAgentKey({rightArrow: true}));
+	t.true(isFocusAgentKey(press('right')));
 });
 
 test('other arrows do not focus the Claude pane', t => {
-	t.false(isFocusAgentKey({}));
+	t.false(isFocusAgentKey(press('left')));
+	t.false(isFocusAgentKey(press('up')));
 });
 
 test('modified right arrows do not focus the Claude pane', t => {
-	t.false(isFocusAgentKey({rightArrow: true, meta: true}));
-	t.false(isFocusAgentKey({rightArrow: true, shift: true}));
-	t.false(isFocusAgentKey({rightArrow: true, ctrl: true}));
+	t.false(isFocusAgentKey(press('right', {meta: true})));
+	t.false(isFocusAgentKey(press('right', {shift: true})));
+	t.false(isFocusAgentKey(press('right', {ctrl: true})));
+});
+
+test('OpenTUI delivers Alt+Right as a modified right arrow', async t => {
+	const [key] = await keysFromStdin('\x1b[1;3C');
+	t.true(key !== undefined && isFocusAgentKey({...key, meta: false}));
+	t.false(key !== undefined && isFocusAgentKey(key));
 });
 
 // ============================================================================
@@ -37,21 +42,22 @@ test('modified right arrows do not focus the Claude pane', t => {
 // ============================================================================
 
 test('x closes the selected space', t => {
-	t.true(isCloseSpaceKey('x', {}));
+	t.true(isCloseSpaceKey(press('x')));
 });
 
 test('Backspace closes the selected space', t => {
-	t.true(isCloseSpaceKey('', {backspace: true}));
+	t.true(isCloseSpaceKey(press('backspace')));
 });
 
 test('forward delete (fn+Delete) closes the selected space', t => {
-	t.true(isCloseSpaceKey('', {delete: true}));
+	t.true(isCloseSpaceKey(press('delete')));
 });
 
 test('other keys do not close the selected space', t => {
-	t.false(isCloseSpaceKey('X', {}));
-	t.false(isCloseSpaceKey('n', {}));
-	t.false(isCloseSpaceKey('', {}));
+	t.false(isCloseSpaceKey(press('x', {shift: true})));
+	t.false(isCloseSpaceKey(press('x', {ctrl: true})));
+	t.false(isCloseSpaceKey(press('n')));
+	t.false(isCloseSpaceKey(press('return')));
 });
 
 // STA-2573: a framework upgrade once renamed the Mac Backspace byte (\x7f) from
@@ -59,25 +65,8 @@ test('other keys do not close the selected space', t => {
 // unbinding Backspace. Drive the real bytes through OpenTUI's parser so a
 // renamed key fails here.
 async function closesSpaceOnStdin(bytes: string): Promise<boolean> {
-	let received = false;
-	let closed = false;
-	function Rail() {
-		useKeyboard(event => {
-			received = true;
-			const {input, key} = shortcutKey(event);
-			if (isCloseSpaceKey(input, key)) closed = true;
-		});
-		return React.createElement('text', null, 'rail');
-	}
-
-	const view = await render(React.createElement(Rail));
-	try {
-		await view.stdin.write(bytes);
-		await until(() => received);
-		return closed;
-	} finally {
-		await view.unmount();
-	}
+	const [key] = await keysFromStdin(bytes);
+	return key !== undefined && isCloseSpaceKey(key);
 }
 
 test('OpenTUI delivers the Backspace byte as a close-space key', async t => {

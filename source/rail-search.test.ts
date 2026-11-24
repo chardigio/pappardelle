@@ -1,6 +1,6 @@
 import test from 'ava';
 import {filterSpaces, searchKeyStep, type RailSearch} from './rail-search.ts';
-import {shortcutKey} from './tui-key.ts';
+import {press} from '../test/helpers/key-press.ts';
 import type {SpaceData} from './types.ts';
 
 function makeSpace(name: string, opts?: Partial<SpaceData>): SpaceData {
@@ -60,16 +60,6 @@ test('a key typed in full comes ahead of longer keys that start with it', t => {
 		'STA-10',
 	]);
 });
-
-function press(name: string) {
-	return shortcutKey({
-		name,
-		ctrl: false,
-		meta: false,
-		shift: false,
-		option: false,
-	} as Parameters<typeof shortcutKey>[0]);
-}
 
 function step(search: RailSearch, name: string, rows = searchable) {
 	return searchKeyStep(search, rows, press(name), true);

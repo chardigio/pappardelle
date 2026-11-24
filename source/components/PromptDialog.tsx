@@ -1,5 +1,4 @@
 import {useKeyboard, usePaste} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {Fragment, useState, useMemo, useRef} from 'react';
 
@@ -262,8 +261,7 @@ export default function PromptDialog({
 
 	useKeyboard(event => {
 		if (!(isPromptStage && !isSkillFocused)) return;
-		const {input: _input, key} = shortcutKey(event);
-		if (!key.escape) return;
+		if (event.name !== 'escape') return;
 		// First Esc dismisses the completion list; a second one (now that the
 		// list is gone) cancels the dialog. Mirrors the profile picker's
 		// two-stage Esc so the key never means two things at once.
@@ -279,9 +277,8 @@ export default function PromptDialog({
 	// every printable key still has to reach it.
 	useKeyboard(event => {
 		if (!(isCompleting && !isSkillFocused)) return;
-		const {input: _input, key} = shortcutKey(event);
 		const result = handleSkillPickerKey(
-			key,
+			event,
 			completionNow.current,
 			completions.length,
 		);
@@ -297,10 +294,8 @@ export default function PromptDialog({
 	// this map can afford `j`/`k` and Enter.
 	useKeyboard(event => {
 		if (!isSkillFocused) return;
-		const {input, key} = shortcutKey(event);
 		const result = handleSkillListKey(
-			input,
-			key,
+			event,
 			completionNow.current,
 			completions.length,
 		);
@@ -342,13 +337,12 @@ export default function PromptDialog({
 
 	useKeyboard(event => {
 		if (!(isPicking && ready.closeTarget === null)) return;
-		const {input, key} = shortcutKey(event);
 		if (agentPopupOpen.current) return;
 		const {current} = pickerStateRef;
 		const shown = current.query
 			? filterProfileOptions(options, current.query)
 			: options;
-		const result = handleFilterablePickerKey(current, input, key, shown.length);
+		const result = handleFilterablePickerKey(current, event, shown.length);
 		updatePickerState(result.state);
 		switch (result.action) {
 			case 'submit': {

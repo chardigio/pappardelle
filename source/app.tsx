@@ -3,7 +3,7 @@ import {stripVTControlCharacters} from 'node:util';
 import {useKeyboard, useRenderer} from '@opentui/react';
 import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
 import type {CliRenderer, KeyEvent} from '@opentui/core';
-import {shortcutKey} from './tui-key.ts';
+import {typedText} from './key-press.ts';
 import {textAttributes, terminalColor, dimText} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
 
@@ -1720,7 +1720,7 @@ export default function App({
 		const step = searchKeyStep(
 			current,
 			displaySpacesRef.current,
-			shortcutKey(event),
+			event,
 			searchInputDrawn.current,
 		);
 		if (step.select) selectSpace(step.select);
@@ -1732,7 +1732,7 @@ export default function App({
 	useKeyboard(event => {
 		if (handleSearchKey(event)) return;
 		if (railInputBlockedNow()) return;
-		const {input, key} = shortcutKey(event);
+		const input = typedText(event);
 
 		// Check custom keybindings first — they can override default keys
 		const kb = keybindingMap.get(input);
@@ -1747,9 +1747,9 @@ export default function App({
 		if (rail && rail.rows.length > 0) {
 			const {rows, cursor} = rail;
 			const step =
-				key.upArrow || input === 'k'
+				event.name === 'up' || input === 'k'
 					? -1
-					: key.downArrow || input === 'j'
+					: event.name === 'down' || input === 'j'
 						? 1
 						: 0;
 			if (step !== 0) {
@@ -1760,17 +1760,17 @@ export default function App({
 		}
 
 		// Non-overridable built-in shortcuts
-		if (key.upArrow || input === 'k') {
+		if (event.name === 'up' || input === 'k') {
 			const {selectedIndex} = currentSelection();
 			if (selectedIndex > 0) {
 				setSelectedIndex(selectedIndex - 1);
 			}
-		} else if (key.downArrow || input === 'j') {
+		} else if (event.name === 'down' || input === 'j') {
 			const {spaces, selectedIndex} = currentSelection();
 			if (selectedIndex < spaces.length - 1) {
 				setSelectedIndex(selectedIndex + 1);
 			}
-		} else if (isFocusAgentKey(key)) {
+		} else if (isFocusAgentKey(event)) {
 			handleFocusAgent();
 		} else if (input === 'n') {
 			if (hasNoProfiles()) {
@@ -1782,7 +1782,7 @@ export default function App({
 				inlineDialogOpening.current = true;
 				setShowPromptDialog(true);
 			}
-		} else if (isCloseSpaceKey(input, key)) {
+		} else if (isCloseSpaceKey(event)) {
 			// Backspace, Delete, or 'x' closes the selected space
 			const space = selectedSpaceNow();
 			if (space?.isMainWorktree) {

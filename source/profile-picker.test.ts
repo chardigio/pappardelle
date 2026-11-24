@@ -1,4 +1,5 @@
 import test from 'ava';
+import {press} from '../test/helpers/key-press.ts';
 import {
 	buildProfileOptions,
 	computePickerWindow,
@@ -582,84 +583,83 @@ test('PICKER_MAX_VISIBLE is four rows', t => {
 // ============================================================================
 
 const KEY = {
-	up: {upArrow: true},
-	down: {downArrow: true},
-	enter: {return: true},
-	escape: {escape: true},
-	none: {},
+	up: press('up'),
+	down: press('down'),
+	enter: press('return'),
+	escape: press('escape'),
 } as const;
 
 test('handleProfilePickerKey moves down and clamps at the end', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.down, 0, 3), {
+	t.deepEqual(handleProfilePickerKey(KEY.down, 0, 3), {
 		action: 'move',
 		index: 1,
 	});
-	t.deepEqual(handleProfilePickerKey('', KEY.down, 2, 3), {
+	t.deepEqual(handleProfilePickerKey(KEY.down, 2, 3), {
 		action: 'move',
 		index: 2,
 	});
 });
 
 test('handleProfilePickerKey moves up and clamps at the start', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.up, 2, 3), {
+	t.deepEqual(handleProfilePickerKey(KEY.up, 2, 3), {
 		action: 'move',
 		index: 1,
 	});
-	t.deepEqual(handleProfilePickerKey('', KEY.up, 0, 3), {
+	t.deepEqual(handleProfilePickerKey(KEY.up, 0, 3), {
 		action: 'move',
 		index: 0,
 	});
 });
 
 test('handleProfilePickerKey opens the agent override on a', t => {
-	t.deepEqual(handleProfilePickerKey('a', KEY.none, 1, 3), {
+	t.deepEqual(handleProfilePickerKey(press('a'), 1, 3), {
 		action: 'agent',
 		index: 1,
 	});
-	t.deepEqual(handleProfilePickerKey('a', KEY.none, 0, 0), {
+	t.deepEqual(handleProfilePickerKey(press('a'), 0, 0), {
 		action: 'ignore',
 		index: 0,
 	});
-	t.deepEqual(handleProfilePickerKey('a', {ctrl: true}, 1, 3), {
+	t.deepEqual(handleProfilePickerKey(press('a', {ctrl: true}), 1, 3), {
 		action: 'ignore',
 		index: 1,
 	});
 });
 
 test('handleProfilePickerKey supports j/k like the main list', t => {
-	t.deepEqual(handleProfilePickerKey('j', KEY.none, 0, 3), {
+	t.deepEqual(handleProfilePickerKey(press('j'), 0, 3), {
 		action: 'move',
 		index: 1,
 	});
-	t.deepEqual(handleProfilePickerKey('k', KEY.none, 2, 3), {
+	t.deepEqual(handleProfilePickerKey(press('k'), 2, 3), {
 		action: 'move',
 		index: 1,
 	});
 });
 
 test('handleProfilePickerKey submits on Enter', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.enter, 1, 3), {
+	t.deepEqual(handleProfilePickerKey(KEY.enter, 1, 3), {
 		action: 'submit',
 		index: 1,
 	});
 });
 
 test('handleProfilePickerKey goes back on Escape', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.escape, 1, 3), {
+	t.deepEqual(handleProfilePickerKey(KEY.escape, 1, 3), {
 		action: 'back',
 		index: 1,
 	});
 });
 
 test('handleProfilePickerKey ignores unrelated keys', t => {
-	t.deepEqual(handleProfilePickerKey('x', KEY.none, 1, 3), {
+	t.deepEqual(handleProfilePickerKey(press('x'), 1, 3), {
 		action: 'ignore',
 		index: 1,
 	});
 });
 
 test('handleProfilePickerKey refuses to submit an empty list', t => {
-	t.deepEqual(handleProfilePickerKey('', KEY.enter, 0, 0), {
+	t.deepEqual(handleProfilePickerKey(KEY.enter, 0, 0), {
 		action: 'ignore',
 		index: 0,
 	});
@@ -753,39 +753,48 @@ test('focusFrame never marks two states the same', t => {
 // ============================================================================
 
 test('/ starts a filter where j, k and a are text, not keys', t => {
-	let {state} = handleFilterablePickerKey({query: null, index: 3}, '/', {}, 7);
+	let {state} = handleFilterablePickerKey(
+		{query: null, index: 3},
+		press('/'),
+		7,
+	);
 	t.deepEqual(state, {query: '', index: 0, indexBeforeQuery: 3});
 	for (const char of 'jka') {
-		({state} = handleFilterablePickerKey(state, char, {}, 7));
+		({state} = handleFilterablePickerKey(state, press(char), 7));
 	}
 
 	t.deepEqual(state, {query: 'jka', index: 0, indexBeforeQuery: 3});
-	({state} = handleFilterablePickerKey(state, '', {backspace: true}, 0));
+	({state} = handleFilterablePickerKey(state, press('backspace'), 0));
 	t.is(state.query, 'jk');
 });
 
 test('without a filter the picker keys pass through', t => {
-	t.deepEqual(handleFilterablePickerKey({query: null, index: 1}, 'a', {}, 3), {
-		state: {query: null, index: 1},
-		action: 'agent',
-	});
-	t.deepEqual(handleFilterablePickerKey({query: null, index: 1}, 'j', {}, 3), {
-		state: {query: null, index: 2},
-	});
+	t.deepEqual(
+		handleFilterablePickerKey({query: null, index: 1}, press('a'), 3),
+		{
+			state: {query: null, index: 1},
+			action: 'agent',
+		},
+	);
+	t.deepEqual(
+		handleFilterablePickerKey({query: null, index: 1}, press('j'), 3),
+		{
+			state: {query: null, index: 2},
+		},
+	);
 });
 
 test('Esc while filtering leaves the filter, not the picker', t => {
 	t.deepEqual(
 		handleFilterablePickerKey(
 			{query: 'so', index: 1, indexBeforeQuery: 4},
-			'',
-			{escape: true},
+			press('escape'),
 			2,
 		),
 		{state: {query: null, index: 4}},
 	);
 	t.is(
-		handleFilterablePickerKey({query: null, index: 1}, '', {escape: true}, 7)
+		handleFilterablePickerKey({query: null, index: 1}, press('escape'), 7)
 			.action,
 		'back',
 	);
@@ -793,22 +802,23 @@ test('Esc while filtering leaves the filter, not the picker', t => {
 
 test('Enter while filtering selects the highlighted match, if any', t => {
 	t.is(
-		handleFilterablePickerKey({query: 'so', index: 1}, '', {return: true}, 2)
+		handleFilterablePickerKey({query: 'so', index: 1}, press('return'), 2)
 			.action,
 		'select',
 	);
 	t.is(
-		handleFilterablePickerKey({query: 'zz', index: 0}, '', {return: true}, 0)
+		handleFilterablePickerKey({query: 'zz', index: 0}, press('return'), 0)
 			.action,
 		undefined,
 	);
 });
 
 test('arrows move within the filtered list', t => {
-	const move = (key: {upArrow?: boolean; downArrow?: boolean}) =>
-		handleFilterablePickerKey({query: 'h', index: 1}, '', key, 2).state.index;
-	t.is(move({downArrow: true}), 1);
-	t.is(move({upArrow: true}), 0);
+	const move = (name: string) =>
+		handleFilterablePickerKey({query: 'h', index: 1}, press(name), 2).state
+			.index;
+	t.is(move('down'), 1);
+	t.is(move('up'), 0);
 });
 
 test('filterProfileOptions matches a display name or a profile key', t => {

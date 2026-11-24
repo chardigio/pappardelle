@@ -1,6 +1,5 @@
 import {CliRenderEvents} from '@opentui/core';
 import {useKeyboard, useRenderer} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useEffect, useState, type ReactNode} from 'react';
 
@@ -90,12 +89,7 @@ export default function ConfirmDialog({
 	}, [confirm, renderer]);
 
 	useKeyboard(event => {
-		const {input, key} = shortcutKey(event);
-		const action = parseConfirmDialogInput(
-			input,
-			key,
-			processingFrame !== null,
-		);
+		const action = parseConfirmDialogInput(event, processingFrame !== null);
 		if (action === 'cancel') {
 			onCancel();
 		} else if (action === 'confirm') {

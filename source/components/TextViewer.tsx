@@ -1,5 +1,4 @@
 import {useKeyboard} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {execFile} from 'node:child_process';
 import {useEffect, useMemo, useRef, useState} from 'react';
@@ -58,8 +57,7 @@ export default function TextViewer({
 	}, [argv]);
 
 	useKeyboard(event => {
-		const {input, key} = shortcutKey(event);
-		const result = handleTextViewerKey(input, key, {
+		const result = handleTextViewerKey(event, {
 			top: topNow.current,
 			lineCount: lines?.length ?? 0,
 			viewHeight,

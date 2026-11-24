@@ -1,5 +1,5 @@
 import {rankByFuzzyMatch} from './profile-picker.ts';
-import type {shortcutKey} from './tui-key.ts';
+import {typedText, type KeyPress} from './key-press.ts';
 import type {SpaceData} from './types.ts';
 
 /** The rail's search: what was typed and which match is highlighted. */
@@ -32,13 +32,13 @@ export function highlightedIndex(
 export function searchKeyStep(
 	search: RailSearch,
 	rows: SpaceData[],
-	{input, key}: ReturnType<typeof shortcutKey>,
+	key: KeyPress,
 	inputDrawn: boolean,
 ): {search: RailSearch | null; select?: string} {
 	const matches = filterSpaces(rows, search.query);
 	const index = highlightedIndex(search, matches.length);
-	if (key.escape) return {search: null};
-	if (key.return) {
+	if (key.name === 'escape') return {search: null};
+	if (key.name === 'return') {
 		const choice = matches[index];
 		return {
 			search: null,
@@ -46,8 +46,9 @@ export function searchKeyStep(
 		};
 	}
 
-	if (key.upArrow) return {search: {...search, index: Math.max(0, index - 1)}};
-	if (key.downArrow) {
+	if (key.name === 'up')
+		return {search: {...search, index: Math.max(0, index - 1)}};
+	if (key.name === 'down') {
 		return {
 			search: {
 				...search,
@@ -57,9 +58,9 @@ export function searchKeyStep(
 	}
 
 	if (inputDrawn) return {search};
-	if (key.backspace)
+	if (key.name === 'backspace')
 		return {search: {query: search.query.slice(0, -1), index: 0}};
-	if (input && !key.ctrl && !key.meta)
-		return {search: {query: search.query + input, index: 0}};
+	const typed = typedText(key);
+	if (typed) return {search: {query: search.query + typed, index: 0}};
 	return {search};
 }

@@ -1,5 +1,5 @@
 import {useKeyboard} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
+import {typedText} from '../key-press.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useRef, useState} from 'react';
 
@@ -49,13 +49,16 @@ export default function HelpOverlay({
 	const isScrolling = viewHeight < lines.length;
 
 	useKeyboard(event => {
-		const {input, key} = shortcutKey(event);
-		if (key.escape || input === '?' || key.return) {
+		if (
+			event.name === 'escape' ||
+			event.name === 'return' ||
+			typedText(event) === '?'
+		) {
 			onClose();
 			return;
 		}
 
-		const result = handleTextViewerKey(input, key, {
+		const result = handleTextViewerKey(event, {
 			top: topNow.current,
 			lineCount: lines.length,
 			viewHeight,

@@ -1,5 +1,5 @@
 import {useKeyboard} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
+import {typedText} from '../key-press.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useEffect, useMemo, useState} from 'react';
 
@@ -100,20 +100,15 @@ export function useReadyWork(
 
 	useKeyboard(event => {
 		if (!(isActive && closeTarget === null)) return;
-		const {input, key} = shortcutKey(event);
-		if (key.downArrow || key.upArrow) {
+		if (event.name === 'down' || event.name === 'up') {
+			const direction = event.name;
 			setIndex(current =>
-				moveSelection(
-					current,
-					identifiers.length,
-					key.downArrow ? 'down' : 'up',
-				),
+				moveSelection(current, identifiers.length, direction),
 			);
 			return;
 		}
 
-		if (key.ctrl || key.meta) return;
-
+		const input = typedText(event);
 		const issue = issues[index];
 		if (!issue) return;
 

@@ -1,6 +1,5 @@
 import type {BoxRenderable} from '@opentui/core';
 import {useKeyboard} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
 import {terminalColor, dimText} from '../tui-style.ts';
 import {useEffect, useMemo, useRef, useState} from 'react';
 
@@ -114,9 +113,8 @@ export default function CloseSpaceDialog({
 
 	useKeyboard(event => {
 		if (!pickable) return;
-		const {input: _input, key} = shortcutKey(event);
-		if (!key.leftArrow && !key.rightArrow) return;
-		const direction = key.leftArrow ? 'left' : 'right';
+		if (event.name !== 'left' && event.name !== 'right') return;
+		const direction = event.name;
 		// Several arrows can arrive before the next render.
 		setSelectedKey(current => {
 			const from =

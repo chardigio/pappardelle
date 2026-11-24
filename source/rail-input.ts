@@ -3,27 +3,16 @@
  * can be tested without mounting the app.
  */
 
-export type FocusAgentKey = {
-	return?: boolean;
-	rightArrow?: boolean;
-	meta?: boolean;
-	shift?: boolean;
-	ctrl?: boolean;
-};
+import {typedText, type KeyPress} from './key-press.ts';
 
 /**
  * Enter or a plain right arrow moves focus into the Claude viewer pane.
  * Modified right arrows are left unbound for future shortcuts.
  */
-export function isFocusAgentKey(key: FocusAgentKey): boolean {
-	if (key.return) return true;
-	return Boolean(key.rightArrow && !key.meta && !key.shift && !key.ctrl);
+export function isFocusAgentKey(key: KeyPress): boolean {
+	if (key.name === 'return') return true;
+	return key.name === 'right' && !key.meta && !key.shift && !key.ctrl;
 }
-
-export type CloseSpaceKey = {
-	backspace?: boolean;
-	delete?: boolean;
-};
 
 /**
  * Backspace, forward delete, or `x` asks to close the selected space.
@@ -33,8 +22,10 @@ export type CloseSpaceKey = {
  * `\x7f` from `delete` to `backspace`, which silently unbound the key while
  * only one name was checked (STA-2573).
  */
-export function isCloseSpaceKey(input: string, key: CloseSpaceKey): boolean {
-	return Boolean(key.backspace || key.delete || input === 'x');
+export function isCloseSpaceKey(key: KeyPress): boolean {
+	return (
+		key.name === 'backspace' || key.name === 'delete' || typedText(key) === 'x'
+	);
 }
 
 export type RailDialogState = {

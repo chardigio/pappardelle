@@ -1,5 +1,7 @@
 /** Pure helpers for ConfirmDialog, so its key rules can be tested without rendering it. */
 
+import {typedText, type KeyPress} from '../key-press.ts';
+
 export type ConfirmAction = 'confirm' | 'cancel' | 'ignore';
 
 /**
@@ -9,13 +11,13 @@ export type ConfirmAction = 'confirm' | 'cancel' | 'ignore';
  * window unambiguous (no accidental re-cancel, no second confirm).
  */
 export function parseConfirmDialogInput(
-	input: string,
-	key: {escape?: boolean; return?: boolean},
+	key: KeyPress,
 	isProcessing: boolean,
 ): ConfirmAction {
 	if (isProcessing) return 'ignore';
-	if (key.escape || input === 'n' || input === 'N') return 'cancel';
-	if (key.return || input === 'y' || input === 'Y') return 'confirm';
+	const input = typedText(key);
+	if (key.name === 'escape' || input === 'n' || input === 'N') return 'cancel';
+	if (key.name === 'return' || input === 'y' || input === 'Y') return 'confirm';
 	return 'ignore';
 }
 

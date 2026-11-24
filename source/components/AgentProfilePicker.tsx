@@ -1,5 +1,4 @@
 import {useKeyboard, usePaste} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useRef, useState} from 'react';
 import {displayWidth, POPUP_WIDTH_METHOD} from '../text-measure.ts';
@@ -53,15 +52,13 @@ export default function AgentProfilePicker({
 	});
 
 	useKeyboard(event => {
-		const {input, key} = shortcutKey(event);
 		const shown = filterAgentProfiles(
 			request.options,
 			stateRef.current.query ?? '',
 		);
 		const result = handleFilterablePickerKey(
 			stateRef.current,
-			input,
-			key,
+			event,
 			shown.length,
 		);
 		stateRef.current = result.state;

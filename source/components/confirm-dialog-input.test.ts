@@ -1,4 +1,5 @@
 import test from 'ava';
+import {press} from '../../test/helpers/key-press.ts';
 import {
 	parseConfirmDialogInput,
 	isThenable,
@@ -13,26 +14,26 @@ const flushMicrotasks = async (): Promise<void> =>
 	});
 
 test('parseConfirmDialogInput: y confirms', t => {
-	t.is(parseConfirmDialogInput('y', {}, false), 'confirm');
-	t.is(parseConfirmDialogInput('Y', {}, false), 'confirm');
+	t.is(parseConfirmDialogInput(press('y'), false), 'confirm');
+	t.is(parseConfirmDialogInput(press('y', {shift: true}), false), 'confirm');
 });
 
 test('parseConfirmDialogInput: Enter confirms', t => {
-	t.is(parseConfirmDialogInput('', {return: true}, false), 'confirm');
+	t.is(parseConfirmDialogInput(press('return'), false), 'confirm');
 });
 
 test('parseConfirmDialogInput: n cancels', t => {
-	t.is(parseConfirmDialogInput('n', {}, false), 'cancel');
-	t.is(parseConfirmDialogInput('N', {}, false), 'cancel');
+	t.is(parseConfirmDialogInput(press('n'), false), 'cancel');
+	t.is(parseConfirmDialogInput(press('n', {shift: true}), false), 'cancel');
 });
 
 test('parseConfirmDialogInput: Escape cancels', t => {
-	t.is(parseConfirmDialogInput('', {escape: true}, false), 'cancel');
+	t.is(parseConfirmDialogInput(press('escape'), false), 'cancel');
 });
 
 test('parseConfirmDialogInput: unrelated keys are ignored', t => {
-	t.is(parseConfirmDialogInput('a', {}, false), 'ignore');
-	t.is(parseConfirmDialogInput(' ', {}, false), 'ignore');
+	t.is(parseConfirmDialogInput(press('a'), false), 'ignore');
+	t.is(parseConfirmDialogInput(press('space'), false), 'ignore');
 });
 
 test('parseConfirmDialogInput: every input is ignored while processing', t => {
@@ -40,13 +41,13 @@ test('parseConfirmDialogInput: every input is ignored while processing', t => {
 	// the dialog stays on screen showing "Closing space…" — any further key
 	// (including a second Enter or an Esc/n) must be a no-op so we don't
 	// accidentally fire a second cancel or stack up confirms.
-	t.is(parseConfirmDialogInput('y', {}, true), 'ignore');
-	t.is(parseConfirmDialogInput('Y', {}, true), 'ignore');
-	t.is(parseConfirmDialogInput('n', {}, true), 'ignore');
-	t.is(parseConfirmDialogInput('N', {}, true), 'ignore');
-	t.is(parseConfirmDialogInput('', {return: true}, true), 'ignore');
-	t.is(parseConfirmDialogInput('', {escape: true}, true), 'ignore');
-	t.is(parseConfirmDialogInput('a', {}, true), 'ignore');
+	t.is(parseConfirmDialogInput(press('y'), true), 'ignore');
+	t.is(parseConfirmDialogInput(press('y', {shift: true}), true), 'ignore');
+	t.is(parseConfirmDialogInput(press('n'), true), 'ignore');
+	t.is(parseConfirmDialogInput(press('n', {shift: true}), true), 'ignore');
+	t.is(parseConfirmDialogInput(press('return'), true), 'ignore');
+	t.is(parseConfirmDialogInput(press('escape'), true), 'ignore');
+	t.is(parseConfirmDialogInput(press('a'), true), 'ignore');
 });
 
 test('isThenable: detects native Promise', t => {

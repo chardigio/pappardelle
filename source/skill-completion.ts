@@ -6,6 +6,7 @@ import fs, {type FileHandle} from 'node:fs/promises';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {getRepoRoot} from './config.ts';
+import {typedText, type KeyPress} from './key-press.ts';
 
 const run = promisify(execFile);
 
@@ -145,13 +146,6 @@ export type SkillPickerKeyResult = {
 	index: number;
 };
 
-type SkillPickerKey = {
-	upArrow?: boolean;
-	downArrow?: boolean;
-	escape?: boolean;
-	tab?: boolean;
-};
-
 /**
  * The keymap while the text input still owns the cursor.
  *
@@ -162,24 +156,24 @@ type SkillPickerKey = {
  * list its focus instead.
  */
 export function handleSkillPickerKey(
-	key: SkillPickerKey,
+	key: KeyPress,
 	selectedIndex: number,
 	total: number,
 ): SkillPickerKeyResult {
-	if (key.escape) {
+	if (key.name === 'escape') {
 		return {action: 'close', index: selectedIndex};
 	}
 
-	if (key.tab) {
+	if (key.name === 'tab') {
 		if (total <= 0) return {action: 'ignore', index: selectedIndex};
 		return {action: 'accept', index: selectedIndex};
 	}
 
-	if (key.upArrow) {
+	if (key.name === 'up') {
 		return {action: 'move', index: Math.max(0, selectedIndex - 1)};
 	}
 
-	if (key.downArrow) {
+	if (key.name === 'down') {
 		return {action: 'move', index: Math.min(total - 1, selectedIndex + 1)};
 	}
 
@@ -191,8 +185,6 @@ export type SkillListKeyResult = {
 	index: number;
 };
 
-type SkillListKey = SkillPickerKey & {return?: boolean};
-
 /**
  * The keymap once Enter has moved the focus into the list.
  *
@@ -202,25 +194,25 @@ type SkillListKey = SkillPickerKey & {return?: boolean};
  * follow still mean "dismiss the list" and "cancel the dialog", in that order.
  */
 export function handleSkillListKey(
-	input: string,
-	key: SkillListKey,
+	key: KeyPress,
 	selectedIndex: number,
 	total: number,
 ): SkillListKeyResult {
-	if (key.escape) {
+	if (key.name === 'escape') {
 		return {action: 'back', index: selectedIndex};
 	}
 
-	if (key.return || key.tab) {
+	if (key.name === 'return' || key.name === 'tab') {
 		if (total <= 0) return {action: 'ignore', index: selectedIndex};
 		return {action: 'accept', index: selectedIndex};
 	}
 
-	if (key.upArrow || input === 'k') {
+	const input = typedText(key);
+	if (key.name === 'up' || input === 'k') {
 		return {action: 'move', index: Math.max(0, selectedIndex - 1)};
 	}
 
-	if (key.downArrow || input === 'j') {
+	if (key.name === 'down' || input === 'j') {
 		return {action: 'move', index: Math.min(total - 1, selectedIndex + 1)};
 	}
 

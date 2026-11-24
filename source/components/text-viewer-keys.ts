@@ -1,10 +1,4 @@
-export type ScrollKey = {
-	upArrow?: boolean;
-	downArrow?: boolean;
-	pageUp?: boolean;
-	pageDown?: boolean;
-	escape?: boolean;
-};
+import {typedText, type KeyPress} from '../key-press.ts';
 
 export type ScrollAction = {action: 'scroll'; top: number} | {action: 'close'};
 
@@ -14,15 +8,15 @@ export type ScrollAction = {action: 'scroll'; top: number} | {action: 'close'};
  * bottom of the view, so paging to the end leaves a full screen of text.
  */
 export function handleTextViewerKey(
-	input: string,
-	key: ScrollKey,
+	key: KeyPress,
 	{
 		top,
 		lineCount,
 		viewHeight,
 	}: {top: number; lineCount: number; viewHeight: number},
 ): ScrollAction {
-	if (key.escape || input === 'q') return {action: 'close'};
+	const input = typedText(key);
+	if (key.name === 'escape' || input === 'q') return {action: 'close'};
 
 	const maxTop = Math.max(0, lineCount - viewHeight);
 	const page = Math.max(1, viewHeight - 1);
@@ -31,10 +25,11 @@ export function handleTextViewerKey(
 		top: Math.min(maxTop, Math.max(0, next)),
 	});
 
-	if (key.downArrow || input === 'j') return to(top + 1);
-	if (key.upArrow || input === 'k') return to(top - 1);
-	if (key.pageDown || input === ' ' || input === 'f') return to(top + page);
-	if (key.pageUp || input === 'b') return to(top - page);
+	if (key.name === 'down' || input === 'j') return to(top + 1);
+	if (key.name === 'up' || input === 'k') return to(top - 1);
+	if (key.name === 'pagedown' || input === ' ' || input === 'f')
+		return to(top + page);
+	if (key.name === 'pageup' || input === 'b') return to(top - page);
 	if (input === 'g') return to(0);
 	if (input === 'G') return to(maxTop);
 	return to(top);
