@@ -285,6 +285,7 @@ for key in sys.argv[2:]:
 		{
 			env: {
 				PATH: process.env['PATH'],
+				TMPDIR: os.tmpdir(),
 				HOME: home,
 				PAPPARDELLE_SQLITE_STATE: '1',
 				PAPPARDELLE_STATE_DB: dbPath,

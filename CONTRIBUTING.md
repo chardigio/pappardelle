@@ -58,6 +58,8 @@ PAPPARDELLE_SQLITE_STATE=1 pytest plugins/pappardelle/hooks/ -v
 
 The hook tests need `bun` on `PATH` for that run: the CLI creates the database they write to.
 
+An ava run gets a **run tmpdir** of its own (`/tmp/ptr-*`, set up in `ava.config.js`) as `TMPDIR` for every test, removed when the run ends. Its **leak check** fails a run that otherwise passed when anything is still in the run tmpdir, and lists what is. Make temp dirs in tests with `tempDir(t, prefix)` from `test/helpers/temp-dir.ts`, which removes the dir when the test ends.
+
 ## Code style
 
 - TypeScript source lives in `source/`

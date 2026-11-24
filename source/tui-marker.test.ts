@@ -1,6 +1,5 @@
 import {execFile} from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import test from 'ava';
@@ -13,13 +12,10 @@ import {
 	tryRestartLock,
 	tuiMarkerPath,
 } from './tui-marker.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
 const exec = promisify(execFile);
 const daosUrl = new URL('state-daos.ts', import.meta.url).href;
-
-function root(): string {
-	return fs.mkdtempSync(path.join(os.tmpdir(), 'tui-marker-test-'));
-}
 
 const marker = {
 	pid: 4242,
@@ -130,7 +126,7 @@ test('the two stores leave the same marker file', async t => {
 });
 
 test('the restart lock is exclusive until released', t => {
-	const dir = root();
+	const dir = tempDir(t, 'tui-marker-test-');
 	const first = tryRestartLock(dir, 'app');
 	t.true(first.held);
 
@@ -142,13 +138,13 @@ test('the restart lock is exclusive until released', t => {
 });
 
 test('locks are per repo', t => {
-	const dir = root();
+	const dir = tempDir(t, 'tui-marker-test-');
 	t.true(tryRestartLock(dir, 'app').held);
 	t.true(tryRestartLock(dir, 'web').held);
 });
 
 test('a lock held by a dead process, or unreadable, is taken over', t => {
-	const dir = root();
+	const dir = tempDir(t, 'tui-marker-test-');
 	fs.mkdirSync(path.join(dir, 'app'));
 
 	fs.writeFileSync(restartLockPath(dir, 'app'), '777\n');
@@ -163,7 +159,7 @@ test('a lock held by a dead process, or unreadable, is taken over', t => {
 });
 
 test('a lock that cannot be created says why instead of throwing', t => {
-	const dir = root();
+	const dir = tempDir(t, 'tui-marker-test-');
 	fs.writeFileSync(path.join(dir, 'app'), 'not a directory');
 
 	const lock = tryRestartLock(dir, 'app');
@@ -173,7 +169,7 @@ test('a lock that cannot be created says why instead of throwing', t => {
 });
 
 test("a starting TUI clears its predecessor's lock but not a live restart's", t => {
-	const dir = root();
+	const dir = tempDir(t, 'tui-marker-test-');
 	fs.mkdirSync(path.join(dir, 'app'));
 	const file = restartLockPath(dir, 'app');
 

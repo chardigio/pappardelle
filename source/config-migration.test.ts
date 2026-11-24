@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 import {parse, stringify} from 'yaml';
@@ -23,8 +22,7 @@ import {
 import {getRecentErrors} from './logger.ts';
 import {getSpaceStateDir} from './space-state.ts';
 import {testState} from '../test/helpers/state.ts';
-
-const root = () => fs.mkdtempSync(path.join(os.tmpdir(), 'config-migration-'));
+import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
 
 /** A repo where no space has saved a profile or recorded a session. */
 const noSpaces = {read: () => null, async write() {}};
@@ -39,12 +37,14 @@ function writeConfig(dir: string, file: string, config: unknown) {
 }
 
 function setup(
+	t: Teardown,
 	home: unknown,
 	project?: unknown,
 	local?: unknown,
-	homeConfigDir = path.join(root(), 'home'),
 ): Required<Pick<ConfigPaths, 'homeConfigDir' | 'projectDir'>> {
-	const projectDir = path.join(root(), 'project');
+	const root = tempDir(t, 'config-migration-');
+	const homeConfigDir = path.join(root, 'home');
+	const projectDir = path.join(root, 'project');
 	fs.mkdirSync(projectDir);
 	if (home) writeConfig(homeConfigDir, '.pappardelle.yml', home);
 	if (project) writeConfig(projectDir, '.pappardelle.yml', project);
@@ -83,6 +83,7 @@ function migrate(paths: ConfigPaths): ConfigMigration[] {
 
 test('every profile launches the same way after the rewrite', t => {
 	const paths = setup(
+		t,
 		{
 			version: 1,
 			claude: {
@@ -149,18 +150,16 @@ test('the shared home config never takes on one repo’s settings', t => {
 		claude: {model: 'opus', extra_args: ['--verbose']},
 		profiles: {x: {display_name: 'X', claude: {effort: 'low'}}},
 	};
-	const repoP = setup(home, {
+	const repoP = setup(t, home, {
 		version: 1,
 		claude: {extra_args: ['--foo']},
 		agent_profiles: {'opus-max': {command: 'claude', effort: 'max'}},
 		profiles: {},
 	});
-	const repoQ = setup(
-		undefined,
-		{version: 1, profiles: {}},
-		undefined,
-		repoP.homeConfigDir,
-	);
+	const repoQ = {
+		...setup(t, undefined, {version: 1, profiles: {}}),
+		homeConfigDir: repoP.homeConfigDir,
+	};
 	const beforeP = launches(loadConfigFromPaths(repoP));
 	const beforeQ = launches(loadConfigFromPaths(repoQ));
 
@@ -172,6 +171,7 @@ test('the shared home config never takes on one repo’s settings', t => {
 
 test('extra args survive a higher file that sets the agent profile’s args', t => {
 	const paths = setup(
+		t,
 		{
 			version: 1,
 			claude: {extra_args: ['--verbose']},
@@ -189,6 +189,7 @@ test('extra args survive a higher file that sets the agent profile’s args', t 
 
 test('a block-scalar args value still loads once extra args join it', t => {
 	const paths = setup(
+		t,
 		[
 			'version: 1',
 			'claude:',
@@ -211,7 +212,7 @@ test('a block-scalar args value still loads once extra args join it', t => {
 });
 
 test('an agent profile named like the generated one is left alone', t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		agent_profiles: {'work-claude': {command: 'codex'}},
 		profiles: {work: {display_name: 'Work', claude: {model: 'opus'}}},
@@ -228,6 +229,7 @@ test('an agent profile named like the generated one is left alone', t => {
 
 test('no rewrite is offered when a higher file would undo it', t => {
 	const paths = setup(
+		t,
 		{
 			version: 1,
 			agent_profiles: {fast: {command: 'claude'}},
@@ -245,6 +247,7 @@ test('no rewrite is offered when a higher file would undo it', t => {
 
 test('comments and untouched keys keep their formatting', t => {
 	const paths = setup(
+		t,
 		[
 			'# my config',
 			'version: 1',
@@ -282,6 +285,7 @@ test('comments and untouched keys keep their formatting', t => {
 
 test('comments on moved keys follow them, and a header above claude: stays', t => {
 	const paths = setup(
+		t,
 		[
 			'# home config',
 			'claude:',
@@ -316,6 +320,7 @@ test('comments on moved keys follow them, and a header above claude: stays', t =
 
 test('an initialization_command written with its skill prefix loses it', t => {
 	const paths = setup(
+		t,
 		[
 			'version: 1',
 			"initialization_command: '/idow' # kick off",
@@ -345,7 +350,7 @@ test('an initialization_command written with its skill prefix loses it', t => {
 });
 
 test('dropping a skill prefix in the home config warns about nothing it doesn’t move', t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		initialization_command: '/idow',
 		profiles: {plain: {display_name: 'Plain'}},
@@ -357,7 +362,7 @@ test('dropping a skill prefix in the home config warns about nothing it doesn’
 });
 
 test('a config on the current format needs no rewrite', t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		initialization_command: 'idow',
 		agent_profiles: {claude: {command: 'claude', model: 'opus'}},
@@ -368,7 +373,7 @@ test('a config on the current format needs no rewrite', t => {
 });
 
 test('the rewrite clears the deprecation warnings from the error pane', t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		claude: {effort: 'xhigh'},
 		profiles: {plain: {display_name: 'Plain'}},
@@ -387,6 +392,7 @@ test('the rewrite clears the deprecation warnings from the error pane', t => {
 
 test('no file is rewritten when any of them cannot be written', t => {
 	const paths = setup(
+		t,
 		{version: 1, claude: {model: 'opus'}, profiles: {}},
 		{version: 1, claude: {effort: 'low'}, profiles: {}},
 	);
@@ -421,6 +427,7 @@ for (const [name, home, project] of [
 ] as const) {
 	test(`a higher file's empty ${name} still clears the one beneath it`, t => {
 		const paths = setup(
+			t,
 			{version: 1, profiles: {}, ...home},
 			{version: 1, profiles: {}, ...project},
 		);
@@ -434,6 +441,7 @@ for (const [name, home, project] of [
 
 test('YAML aliases make the rewrite unsupported rather than throw', t => {
 	const paths = setup(
+		t,
 		[
 			'version: 1',
 			'claude: &base {model: opus}',
@@ -447,8 +455,11 @@ test('YAML aliases make the rewrite unsupported rather than throw', t => {
 });
 
 test('a symlinked config is rewritten at its target with its permissions', t => {
-	const paths = setup(undefined, {version: 1, profiles: {}});
-	const dotfiles = path.join(root(), 'pappardelle.yml');
+	const paths = setup(t, undefined, {version: 1, profiles: {}});
+	const dotfiles = path.join(
+		tempDir(t, 'config-migration-'),
+		'pappardelle.yml',
+	);
 	fs.writeFileSync(dotfiles, stringify({version: 1, claude: {model: 'opus'}}));
 	fs.chmodSync(dotfiles, 0o664);
 	fs.mkdirSync(paths.homeConfigDir, {recursive: true});
@@ -468,7 +479,7 @@ test('a symlinked config is rewritten at its target with its permissions', t => 
 });
 
 test('a read-only config is not rewritten', t => {
-	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
+	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
 	const file = path.join(paths.homeConfigDir, '.pappardelle.yml');
 	const original = fs.readFileSync(file, 'utf8');
 	fs.chmodSync(file, 0o444);
@@ -480,7 +491,7 @@ test('a read-only config is not rewritten', t => {
 });
 
 test('warnings clear once the old keys are gone, even by hand', t => {
-	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
+	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
 	const isWarning = () =>
 		getRecentErrors().some(entry =>
 			entry.message.includes('claude.model is deprecated'),
@@ -499,7 +510,7 @@ test('warnings clear once the old keys are gone, even by hand', t => {
 });
 
 test('confirming rewrites the files the user was shown', async t => {
-	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
+	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 
 	t.deepEqual(
@@ -512,7 +523,7 @@ test('confirming rewrites the files the user was shown', async t => {
 });
 
 test('a space whose profile moves to a new agent profile keeps its session id', async t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		profiles: {
 			alpha: {display_name: 'Alpha', claude: {model: 'opus'}},
@@ -573,7 +584,7 @@ test('a space whose profile moves to a new agent profile keeps its session id', 
 });
 
 test('confirming keeps edits made while the dialog was open', async t => {
-	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
+	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 	writeConfig(paths.homeConfigDir, '.pappardelle.yml', {
 		version: 1,
@@ -592,6 +603,7 @@ test('confirming keeps edits made while the dialog was open', async t => {
 
 test('confirming writes nothing once the rewrite covers files the user was not shown', async t => {
 	const paths = setup(
+		t,
 		{version: 1, profiles: {}},
 		{version: 1, profiles: {b: {display_name: 'B', claude: {effort: 'low'}}}},
 	);
@@ -614,7 +626,7 @@ test('confirming writes nothing once the rewrite covers files the user was not s
 });
 
 test('confirming reports a failed write so it can be handed to Claude', async t => {
-	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
+	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 	fs.chmodSync(path.join(paths.homeConfigDir, '.pappardelle.yml'), 0o444);
 
@@ -624,7 +636,7 @@ test('confirming reports a failed write so it can be handed to Claude', async t 
 });
 
 test('a multi-line extra arg is named as the reason it cannot be rewritten', t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		claude: {extra_args: ['--append-system-prompt', 'line one\nline two']},
 		profiles: {},
@@ -638,7 +650,7 @@ test('a multi-line extra arg is named as the reason it cannot be rewritten', t =
 });
 
 test('an extra arg repeating the model flag blocks the rewrite', t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		claude: {model: 'opus', extra_args: ['--model', 'sonnet']},
 		profiles: {},
@@ -652,7 +664,7 @@ test('an extra arg repeating the model flag blocks the rewrite', t => {
 });
 
 test('an extra arg repeating a model flag written with = blocks the rewrite', t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		agent_profiles: {
 			wrapper: {
@@ -673,7 +685,7 @@ test('an extra arg repeating a model flag written with = blocks the rewrite', t 
 });
 
 test('an end-of-options marker in extra args blocks the rewrite', t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		claude: {model: 'opus', extra_args: ['--verbose', '--']},
 		profiles: {},
@@ -687,6 +699,7 @@ test('an end-of-options marker in extra args blocks the rewrite', t => {
 
 test('a partial fix clears the warnings for the keys that are gone', t => {
 	const paths = setup(
+		t,
 		{version: 1, claude: {model: 'opus'}, profiles: {}},
 		{version: 1, claude: {effort: 'low'}, profiles: {}},
 	);
@@ -717,7 +730,7 @@ profiles:
 `;
 
 test('agy profiles lose the -i workaround and built-in agents their default fields', t => {
-	const paths = setup(AGY_WORKAROUND);
+	const paths = setup(t, AGY_WORKAROUND);
 
 	const migrations = migrate(paths);
 
@@ -740,7 +753,7 @@ profiles:
 });
 
 test('the -i workaround is offered with a warning naming the field', t => {
-	const paths = setup(AGY_WORKAROUND);
+	const paths = setup(t, AGY_WORKAROUND);
 	loadConfigFromPaths(paths);
 
 	t.true(
@@ -759,7 +772,7 @@ test('the -i workaround is offered with a warning naming the field', t => {
 });
 
 test('fields that only repeat a built-in default never prompt a rewrite on their own', t => {
-	const paths = setup({
+	const paths = setup(t, {
 		version: 1,
 		agent_profiles: {
 			codex: {command: 'codex', resume_args: 'resume {session_id}'},
@@ -772,6 +785,7 @@ test('fields that only repeat a built-in default never prompt a rewrite on their
 
 test('a default-valued field stays when a lower file sets it differently', t => {
 	const paths = setup(
+		t,
 		{
 			version: 1,
 			agent_profiles: {codex: {command: 'codex', resume_args: ''}},
@@ -796,6 +810,7 @@ test('a default-valued field stays when a lower file sets it differently', t => 
 
 test('a default-valued field stays when a higher file changes the command', t => {
 	const paths = setup(
+		t,
 		{
 			version: 1,
 			agent_profiles: {
@@ -821,6 +836,7 @@ for (const [name, override] of [
 ] as const) {
 	test(`a trailing -i stays when a higher file ${name}`, t => {
 		const paths = setup(
+			t,
 			{
 				version: 1,
 				agent_profiles: {
@@ -843,6 +859,7 @@ for (const [name, override] of [
 
 test('a trailing -i is found in a file that sets only model_args', t => {
 	const paths = setup(
+		t,
 		{
 			version: 1,
 			agent_profiles: {argon: {command: 'agy', model: 'g'}},
@@ -866,6 +883,7 @@ test('a trailing -i is found in a file that sets only model_args', t => {
 
 test("a rewrite that would drop an agent profile's env from a higher layer is unsupported", t => {
 	const paths = setup(
+		t,
 		null,
 		{
 			version: 1,

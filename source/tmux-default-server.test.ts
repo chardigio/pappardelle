@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 import {
@@ -9,16 +8,7 @@ import {
 	isOnInnerServer,
 	type OuterTmuxRunner,
 } from './tmux.ts';
-
-let counter = 0;
-function temporaryDir(): string {
-	const dir = path.join(
-		os.tmpdir(),
-		`tmux-default-server-test-${process.pid}-${Date.now()}-${counter++}`,
-	);
-	fs.mkdirSync(dir, {recursive: true});
-	return dir;
-}
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
 // ============================================================================
 // Reaching the default tmux server from an inner pane
@@ -39,8 +29,7 @@ test('outer tmux calls drop TMUX so an inner pane still reaches the default serv
 });
 
 test('inner identity uses the selected named or absolute socket from its supplied environment', t => {
-	const root = temporaryDir();
-	t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+	const root = tempDir(t, 'tmux-default-server-test-');
 	const socketDir = path.join(root, `tmux-${process.getuid?.() ?? 0}`);
 	fs.mkdirSync(socketDir);
 	for (const selected of ['custom', path.join(root, "socket with ' quotes")]) {
@@ -67,7 +56,7 @@ test('inner identity uses the selected named or absolute socket from its supplie
 });
 
 test('the current outer session is unknown when TMUX names a non-default socket', t => {
-	const tmuxTmpdir = temporaryDir();
+	const tmuxTmpdir = tempDir(t, 'tmux-default-server-test-');
 	const uid = process.getuid?.() ?? 0;
 	const socketDir = path.join(tmuxTmpdir, `tmux-${uid}`);
 	fs.mkdirSync(socketDir);

@@ -12,6 +12,7 @@ import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'ava';
 import {testTmuxState, type TestState} from '../test/helpers/state.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
 	sessionNamesFor,
 	sessionPrefix,
@@ -213,9 +214,10 @@ test('session lookups and kills by name use exact targets', t => {
 });
 
 test('exactSessionTarget stops tmux prefix-matching another session', t => {
-	const socket = `pappardelle_exact_test_${process.pid}`;
+	// -S rather than -L: a named socket lands in /tmp/tmux-<uid>, outside TMPDIR.
+	const socket = join(tempDir(t, 'pappardelle-exact-'), 's');
 	const tmux = (...args: string[]) =>
-		spawnSync('tmux', ['-L', socket, ...args], {encoding: 'utf-8'});
+		spawnSync('tmux', ['-S', socket, ...args], {encoding: 'utf-8'});
 	if (tmux('-V').error) {
 		t.pass('tmux not installed');
 		return;

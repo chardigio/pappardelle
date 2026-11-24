@@ -45,17 +45,6 @@
 		"xo": "^1.0.0",
 		"@types/bun": "^1.4.0"
 	},
-	"ava": {
-		"extensions": {
-			"ts": "module",
-			"tsx": "module"
-		},
-		"require": [
-			"./test/helpers/state-db-setup.ts"
-		],
-		"workerThreads": false,
-		"timeout": "2m"
-	},
 	"xo": [
 		{
 			"react": true,

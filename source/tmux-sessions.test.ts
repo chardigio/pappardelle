@@ -1,5 +1,4 @@
-import {mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {readFileSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {sessionNamesFor, sessionPrefix} from './space-identity.ts';
 import test from 'ava';
@@ -8,6 +7,7 @@ import {
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	type ResolvedAgentProfile,
 } from './config.ts';
+import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
 
 // sessionPrefix: returns repo-qualified prefix
 test('sessionPrefix includes repo name for agent', t => {
@@ -41,13 +41,12 @@ test('getSessionNames works with different repo names', t => {
 
 // pretrustDirectoryForClaude: workspace trust management
 
-function makeTempConfigPath(): string {
-	const dir = mkdtempSync(join(tmpdir(), 'pretrust-test-'));
-	return join(dir, '.claude.json');
+function makeTempConfigPath(t: Teardown): string {
+	return join(tempDir(t, 'pretrust-test-'), '.claude.json');
 }
 
 test('pretrustDirectoryForClaude creates config with trust entry when file does not exist', t => {
-	const configPath = makeTempConfigPath();
+	const configPath = makeTempConfigPath(t);
 	pretrustDirectoryForClaude('/tmp/worktree/STA-100', configPath);
 	const config = JSON.parse(readFileSync(configPath, 'utf-8'));
 	t.deepEqual(config.projects['/tmp/worktree/STA-100'], {
@@ -56,7 +55,7 @@ test('pretrustDirectoryForClaude creates config with trust entry when file does 
 });
 
 test('pretrustDirectoryForClaude adds trust entry without clobbering existing config', t => {
-	const configPath = makeTempConfigPath();
+	const configPath = makeTempConfigPath(t);
 	const existing = {
 		someOtherSetting: 'keep-me',
 		projects: {
@@ -79,7 +78,7 @@ test('pretrustDirectoryForClaude adds trust entry without clobbering existing co
 });
 
 test('pretrustDirectoryForClaude is idempotent when path already trusted', t => {
-	const configPath = makeTempConfigPath();
+	const configPath = makeTempConfigPath(t);
 	const existing = {
 		projects: {
 			'/already/trusted': {hasTrustDialogAccepted: true},
@@ -97,7 +96,7 @@ test('pretrustDirectoryForClaude is idempotent when path already trusted', t => 
 });
 
 test('pretrustDirectoryForClaude handles corrupt JSON gracefully', t => {
-	const configPath = makeTempConfigPath();
+	const configPath = makeTempConfigPath(t);
 	writeFileSync(configPath, 'this is not valid json{{{');
 
 	// Should not throw — falls back to fresh config

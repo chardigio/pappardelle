@@ -1,17 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'ava';
 import {loadEnvrcIntoProcessEnv, parseEnvrc} from './envrc.ts';
+import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
 
-let tmpCounter = 0;
-function makeTmpRepo(envrc: string | null): string {
-	const dir = fs.mkdtempSync(
-		path.join(
-			os.tmpdir(),
-			`pappardelle-envrc-test-${process.pid}-${tmpCounter++}-`,
-		),
-	);
+function makeTmpRepo(t: Teardown, envrc: string | null): string {
+	const dir = tempDir(t, 'pappardelle-envrc-test-');
 	if (envrc !== null) {
 		fs.writeFileSync(path.join(dir, '.envrc'), envrc);
 	}
@@ -94,7 +88,7 @@ test('parseEnvrc: value containing = signs (e.g. base64 padding)', t => {
 // ============================================================================
 
 test('loadEnvrcIntoProcessEnv: applies vars when not already set', t => {
-	const repo = makeTmpRepo('export FROM_FILE=value-from-file');
+	const repo = makeTmpRepo(t, 'export FROM_FILE=value-from-file');
 	const env: NodeJS.ProcessEnv = {};
 	loadEnvrcIntoProcessEnv(repo, env);
 	t.is(env['FROM_FILE'], 'value-from-file');
@@ -104,14 +98,14 @@ test('loadEnvrcIntoProcessEnv: existing env vars take precedence over .envrc', t
 	// Real failure mode: someone exported a key in their shell to override
 	// homebase's default — pappardelle should respect that explicit value,
 	// not silently overwrite it from disk.
-	const repo = makeTmpRepo('export PRESET=from-file');
+	const repo = makeTmpRepo(t, 'export PRESET=from-file');
 	const env: NodeJS.ProcessEnv = {PRESET: 'from-shell'};
 	loadEnvrcIntoProcessEnv(repo, env);
 	t.is(env['PRESET'], 'from-shell');
 });
 
 test('loadEnvrcIntoProcessEnv: no-op when .envrc is absent', t => {
-	const repo = makeTmpRepo(null);
+	const repo = makeTmpRepo(t, null);
 	const env: NodeJS.ProcessEnv = {EXISTING: 'still here'};
 	loadEnvrcIntoProcessEnv(repo, env);
 	t.deepEqual(env, {EXISTING: 'still here'});
@@ -120,6 +114,7 @@ test('loadEnvrcIntoProcessEnv: no-op when .envrc is absent', t => {
 test('loadEnvrcIntoProcessEnv: skips unsupported direnv stdlib calls', t => {
 	// Non-export lines should be ignored, not break the load entirely.
 	const repo = makeTmpRepo(
+		t,
 		'dotenv\nuse nodejs 22\nexport LINCTL_API_KEY=lin_api_xyz\n',
 	);
 	const env: NodeJS.ProcessEnv = {};

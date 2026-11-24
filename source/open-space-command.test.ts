@@ -118,6 +118,9 @@ setTimeout(() => {
 	const env = {
 		...process.env,
 		HOME: home,
+		// The standalone executable unpacks its native libraries here and never
+		// removes them.
+		TMPDIR: root,
 		PAPPARDELLE_PROJECT_ROOT: repo,
 		PAPPARDELLE_MAIN_REPO_ROOT: repo,
 		IDOW_TEST_RECORD: record,
