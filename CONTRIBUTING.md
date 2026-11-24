@@ -60,6 +60,8 @@ The hook tests need `bun` on `PATH` for that run: the CLI creates the database t
 
 An ava run gets a **run tmpdir** of its own (`/tmp/ptr-*`, set up in `ava.config.js`) as `TMPDIR` for every test, removed when the run ends. Its **leak check** fails a run that otherwise passed when anything is still in the run tmpdir, and lists what is. Make temp dirs in tests with `tempDir(t, prefix)` from `test/helpers/temp-dir.ts`, which removes the dir when the test ends.
 
+The run also gets a **throwaway HOME** (`/tmp/ph-*`), so nothing a test starts writes to your `~/.pappardelle` or `~/.claude.json`. Bun reads `HOME` once at startup, so it is set in `ava.config.js` before the workers start, and `test/helpers/test-home-guard.ts` fails any test process that still has another HOME. `scripts/test-start-agent-session.sh` runs under a throwaway HOME of its own, with a `claude` shim in place of the real one.
+
 ## Code style
 
 - TypeScript source lives in `source/`

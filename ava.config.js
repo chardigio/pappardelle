@@ -9,6 +9,28 @@ if (isMainThread) {
 	// ~104-byte unix socket limit.
 	const runTmpdir = fs.mkdtempSync('/tmp/ptr-');
 	process.env.TMPDIR = runTmpdir;
+	// A run started inside a space, or by a timer service, inherits that space's
+	// PAPPARDELLE_*, and the state ones (PAPPARDELLE_STATE_DB,
+	// PAPPARDELLE_STATUS_SOCKET, ...) point past any HOME at the real database.
+	// A test run keeps only its state mode and its own PAPPARDELLE_TEST_* switches.
+	for (const name of Object.keys(process.env)) {
+		if (
+			name.startsWith('PAPPARDELLE_') &&
+			name !== 'PAPPARDELLE_SQLITE_STATE' &&
+			!name.startsWith('PAPPARDELLE_TEST_')
+		) {
+			delete process.env[name];
+		}
+	}
+
+	// Bun reads HOME once at startup, so the throwaway HOME has to be in the
+	// environment the workers are forked with. Everything under ~/.pappardelle
+	// (logs, state, the status daemon's socket) and ~/.claude.json then lands
+	// here for the workers and every process they start. Outside the run tmpdir,
+	// so what tests leave in HOME doesn't count against its leak check.
+	const throwawayHome = fs.mkdtempSync('/tmp/ph-');
+	process.env.HOME = throwawayHome;
+	process.env.PAPPARDELLE_TEST_HOME = throwawayHome;
 	process.on('exit', () => {
 		// A failed, timed-out or interrupted run kills workers before their own
 		// cleanup runs, so leftovers then say nothing about the tests.
@@ -24,12 +46,14 @@ if (isMainThread) {
 		}
 
 		// A status daemon a test started can still be writing as the run ends.
-		fs.rmSync(runTmpdir, {
-			recursive: true,
-			force: true,
-			maxRetries: 10,
-			retryDelay: 50,
-		});
+		for (const dir of [runTmpdir, throwawayHome]) {
+			fs.rmSync(dir, {
+				recursive: true,
+				force: true,
+				maxRetries: 10,
+				retryDelay: 50,
+			});
+		}
 	});
 	// On SIGTERM and SIGHUP Node exits at once, which orphans ava's workers to
 	// keep writing into the run tmpdir after the exit listener removed it. Ava's
@@ -46,7 +70,10 @@ const config = {
 		ts: 'module',
 		tsx: 'module',
 	},
-	require: ['./test/helpers/state-db-setup.ts'],
+	require: [
+		'./test/helpers/test-home-guard.ts',
+		'./test/helpers/state-db-setup.ts',
+	],
 	workerThreads: false,
 	timeout: '2m',
 };
