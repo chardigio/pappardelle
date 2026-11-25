@@ -1,11 +1,11 @@
 import path from 'node:path';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
 import {testState, writeClaudeStatus} from '../test/helpers/state.ts';
 import {waitForAgentStart} from './agent-start.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
 
-function fixture(t: ExecutionContext) {
-	const state = testState(t);
+function fixture() {
+	const state = testState();
 	const {daos, stateDir: dir} = state;
 	const statusKey = 'test-repo-TEST-1';
 	const worktree = path.join(dir, '.worktrees', 'test-repo', 'TEST-1');
@@ -32,61 +32,61 @@ function fixture(t: ExecutionContext) {
 	return {dir, worktree, since, write, wait};
 }
 
-test('a fresh SessionStart from the worktree confirms the agent', async t => {
-	const f = fixture(t);
+test('a fresh SessionStart from the worktree confirms the agent', async () => {
+	const f = fixture();
 	await f.write({event: 'SessionStart', cwd: f.worktree, lastUpdate: f.since});
-	t.true(await f.wait());
+	expect(await f.wait()).toBe(true);
 });
 
-test('a SessionStart from a subdirectory of the worktree counts', async t => {
-	const f = fixture(t);
+test('a SessionStart from a subdirectory of the worktree counts', async () => {
+	const f = fixture();
 	await f.write({
 		event: 'SessionStart',
 		cwd: path.join(f.worktree, 'packages', 'app'),
 		lastUpdate: f.since,
 	});
-	t.true(await f.wait());
+	expect(await f.wait()).toBe(true);
 });
 
-test('a later event that replaced SessionStart counts', async t => {
-	const f = fixture(t);
+test('a later event that replaced SessionStart counts', async () => {
+	const f = fixture();
 	await f.write({event: 'Stop', cwd: f.worktree, lastUpdate: f.since});
-	t.true(await f.wait());
+	expect(await f.wait()).toBe(true);
 });
 
-test('a status written before the open does not count', async t => {
-	const f = fixture(t);
+test('a status written before the open does not count', async () => {
+	const f = fixture();
 	await f.write({
 		event: 'SessionStart',
 		cwd: f.worktree,
 		lastUpdate: f.since - 1,
 	});
-	t.false(await f.wait());
+	expect(await f.wait()).toBe(false);
 });
 
-test("another repo's space with the same key does not count", async t => {
-	const f = fixture(t);
+test("another repo's space with the same key does not count", async () => {
+	const f = fixture();
 	await f.write({
 		event: 'SessionStart',
 		cwd: path.join(f.dir, '.worktrees', 'test-repo-other', 'TEST-1'),
 		lastUpdate: f.since,
 	});
-	t.false(await f.wait());
+	expect(await f.wait()).toBe(false);
 });
 
-test('an ended agent does not count', async t => {
-	const f = fixture(t);
+test('an ended agent does not count', async () => {
+	const f = fixture();
 	await f.write({event: 'SessionEnd', cwd: f.worktree, lastUpdate: f.since});
-	t.false(await f.wait());
+	expect(await f.wait()).toBe(false);
 });
 
-test('no status file times out', async t => {
-	const f = fixture(t);
-	t.false(await f.wait());
+test('no status file times out', async () => {
+	const f = fixture();
+	expect(await f.wait()).toBe(false);
 });
 
-test('an agent that starts during the wait is confirmed', async t => {
-	const f = fixture(t);
+test('an agent that starts during the wait is confirmed', async () => {
+	const f = fixture();
 	setTimeout(() => {
 		void f.write({
 			event: 'SessionStart',
@@ -94,5 +94,5 @@ test('an agent that starts during the wait is confirmed', async t => {
 			lastUpdate: Date.now(),
 		});
 	}, 100);
-	t.true(await f.wait(5000));
+	expect(await f.wait(5000)).toBe(true);
 });

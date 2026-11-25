@@ -1,35 +1,37 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {GitLabProvider} from './providers/gitlab-provider.ts';
 
 // ============================================================================
 // GitLabProvider Unit Tests
 // ============================================================================
 
-test('GitLabProvider has name "gitlab"', t => {
+test('GitLabProvider has name "gitlab"', () => {
 	const provider = new GitLabProvider();
-	t.is(provider.name, 'gitlab');
+	expect(provider.name).toBe('gitlab');
 });
 
-test('buildPRUrl for gitlab.com', async t => {
+test('buildPRUrl for gitlab.com', async () => {
 	const provider = new GitLabProvider();
-	t.is(await provider.buildPRUrl(42), 'https://gitlab.com/-/merge_requests/42');
+	expect(await provider.buildPRUrl(42)).toBe(
+		'https://gitlab.com/-/merge_requests/42',
+	);
 });
 
-test('buildPRUrl for self-hosted', async t => {
+test('buildPRUrl for self-hosted', async () => {
 	const provider = new GitLabProvider('gitlab.example.com');
-	t.is(
-		await provider.buildPRUrl(99),
+	expect(await provider.buildPRUrl(99)).toBe(
 		'https://gitlab.example.com/-/merge_requests/99',
 	);
 });
 
-test('self-hosted configuration does not change the process environment', t => {
+test('self-hosted configuration does not change the process environment', () => {
 	const originalHost = process.env['GITLAB_HOST'];
 	const _provider = new GitLabProvider('gitlab.example.com');
-	t.is(process.env['GITLAB_HOST'], originalHost);
+	expect(process.env['GITLAB_HOST']).toBe(originalHost);
 });
 
-test('opening an MR returns its canonical URL without downloading a diff', async t => {
+test('opening an MR returns its canonical URL without downloading a diff', async () => {
 	const calls: string[][] = [];
 	const provider = new GitLabProvider('gitlab.example.com', async args => {
 		calls.push(args);
@@ -40,17 +42,17 @@ test('opening an MR returns its canonical URL without downloading a diff', async
 			},
 		]);
 	});
-	t.deepEqual(await provider.getPRLink('STA-42'), {
+	expect(await provider.getPRLink('STA-42')).toStrictEqual({
 		number: 42,
 		url: 'https://gitlab.example.com/team/project/-/merge_requests/42',
 	});
-	t.deepEqual(calls, [
+	expect(calls).toStrictEqual([
 		['mr', 'list', '--source-branch', 'STA-42', '-F', 'json'],
 	]);
 });
 
 for (const diff of ['', 'diff --git a/file b/file\n+changed']) {
-	test(`commit checking still inspects the MR diff: ${diff ? 'changed' : 'empty'}`, async t => {
+	test(`commit checking still inspects the MR diff: ${diff ? 'changed' : 'empty'}`, async () => {
 		const calls: string[][] = [];
 		const provider = new GitLabProvider(undefined, async args => {
 			calls.push(args);
@@ -64,47 +66,47 @@ for (const diff of ['', 'diff --git a/file b/file\n+changed']) {
 				: diff;
 		});
 		const result = await provider.checkIssueHasPRWithCommits('STA-42');
-		t.true(result.hasPR);
-		t.is(result.hasCommits, Boolean(diff));
-		t.deepEqual(calls[1], ['mr', 'diff', '42', '--color=never']);
+		expect(result.hasPR).toBe(true);
+		expect(result.hasCommits).toBe(Boolean(diff));
+		expect(calls[1]).toStrictEqual(['mr', 'diff', '42', '--color=never']);
 	});
 }
 
-test('missing MR returns no link and skips diff checking', async t => {
+test('missing MR returns no link and skips diff checking', async () => {
 	const calls: string[][] = [];
 	const provider = new GitLabProvider(undefined, async args => {
 		calls.push(args);
 		return '[]';
 	});
-	t.is(await provider.getPRLink('STA-404'), null);
-	t.deepEqual(await provider.checkIssueHasPRWithCommits('STA-404'), {
+	expect(await provider.getPRLink('STA-404')).toBe(null);
+	expect(await provider.checkIssueHasPRWithCommits('STA-404')).toStrictEqual({
 		hasPR: false,
 		hasCommits: false,
 	});
-	t.true(calls.every(args => args[1] === 'list'));
+	expect(calls.every(args => args[1] === 'list')).toBe(true);
 });
 
-test('MR lookup failures propagate for opening but preserve commit-check fallback', async t => {
+test('MR lookup failures propagate for opening but preserve commit-check fallback', async () => {
 	const provider = new GitLabProvider(undefined, async () => {
 		throw new Error('glab unavailable');
 	});
-	await t.throwsAsync(provider.getPRLink('STA-1'), {
-		message: 'glab unavailable',
+	await rejectionOf(provider.getPRLink('STA-1')).then(error => {
+		expect(error.message).toBe('glab unavailable');
 	});
-	t.deepEqual(await provider.checkIssueHasPRWithCommits('STA-1'), {
+	expect(await provider.checkIssueHasPRWithCommits('STA-1')).toStrictEqual({
 		hasPR: false,
 		hasCommits: false,
 	});
 });
 
-test('a failed diff lookup preserves the MR link', async t => {
+test('a failed diff lookup preserves the MR link', async () => {
 	const provider = new GitLabProvider(undefined, async args => {
 		if (args[1] === 'diff') throw new Error('diff unavailable');
 		return JSON.stringify([
 			{iid: 42, web_url: 'https://gitlab.com/team/project/-/merge_requests/42'},
 		]);
 	});
-	t.deepEqual(await provider.checkIssueHasPRWithCommits('STA-42'), {
+	expect(await provider.checkIssueHasPRWithCommits('STA-42')).toStrictEqual({
 		hasPR: true,
 		hasCommits: false,
 		prNumber: 42,

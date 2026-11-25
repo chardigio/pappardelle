@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
+import {thrownBy} from '../test/helpers/thrown.ts';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {
@@ -38,44 +40,45 @@ const link = (rest: Partial<SpacePrLink> = {}): SpacePrLink => ({
 	...rest,
 });
 
-contractTest('a space with nothing recorded reads as null', (t, s) => {
-	t.is(s.daos.spaceState.read('STA-999'), null);
-	t.is(
-		s.daos.spaceState.file('STA-999'),
+contractTest('a space with nothing recorded reads as null', s => {
+	expect(s.daos.spaceState.read('STA-999')).toBe(null);
+	expect(s.daos.spaceState.file('STA-999')).toBe(
 		path.join(s.stateDir, 'repos', 'repo', 'space-state', 'STA-999.json'),
 	);
 });
 
-contractTest('a file that is not JSON reads as nothing recorded', (t, s) => {
+contractTest('a file that is not JSON reads as nothing recorded', s => {
 	fs.mkdirSync(path.dirname(stateFile(s, 'STA-100')), {recursive: true});
 	fs.writeFileSync(stateFile(s, 'STA-100'), 'not json{{{');
-	t.is(s.daos.spaceState.read('STA-100'), null);
+	expect(s.daos.spaceState.read('STA-100')).toBe(null);
 });
 
 contractTest(
 	'a lookup tells a recorded space from one with nothing recorded',
-	async (t, s) => {
-		t.deepEqual(s.daos.spaceState.lookup('STA-1'), {kind: 'none'});
+	async s => {
+		expect(s.daos.spaceState.lookup('STA-1')).toStrictEqual({kind: 'none'});
 		await s.daos.spaceState.write('STA-1', {profile: 'dev'});
 		const lookup = s.daos.spaceState.lookup('STA-1');
-		t.is(lookup.kind === 'state' ? lookup.state.profile : undefined, 'dev');
+		expect(lookup.kind === 'state' ? lookup.state.profile : undefined).toBe(
+			'dev',
+		);
 	},
 );
 
-test('json: a lookup of a file that cannot be read is unreadable, not nothing recorded', t => {
-	const s = testState(t, {sqlite: false});
+test('json: a lookup of a file that cannot be read is unreadable, not nothing recorded', () => {
+	const s = testState({sqlite: false});
 	writeStateFile(s, 'STA-1', {});
 	fs.writeFileSync(stateFile(s, 'STA-1'), 'not json{{{');
 	fs.mkdirSync(stateFile(s, 'STA-2'), {recursive: true});
-	t.is(s.daos.spaceState.lookup('STA-1').kind, 'unreadable');
-	t.is(s.daos.spaceState.lookup('STA-2').kind, 'unreadable');
+	expect(s.daos.spaceState.lookup('STA-1').kind).toBe('unreadable');
+	expect(s.daos.spaceState.lookup('STA-2').kind).toBe('unreadable');
 });
 
 // Another build, or a hand edit, can leave a value this build does not use.
 // The rail rewrites the file on its next poll, from what was read.
 contractTest(
 	'a file with a field that cannot be used keeps its other fields, through a rail write too',
-	async (t, s) => {
+	async s => {
 		const {spaceState} = s.daos;
 		writeStateFile(s, 'STA-150', {
 			profile: 'codex',
@@ -89,23 +92,23 @@ contractTest(
 			prLinks: [link()],
 			recap: {lastPrompt: 'Prompt'},
 		};
-		t.like(spaceState.read('STA-150'), expected);
+		expect(spaceState.read('STA-150')).toMatchObject(expected);
 
 		await spaceState.writeMany([
 			{key: 'STA-150', patch: {unresolvedCommentCount: 4}},
 		]);
-		t.like(spaceState.read('STA-150'), {
+		expect(spaceState.read('STA-150')).toMatchObject({
 			...expected,
 			unresolvedCommentCount: 4,
 		});
-		t.like(fileContent(s, 'STA-150'), {
+		expect(fileContent(s, 'STA-150')).toMatchObject({
 			...expected,
 			unresolvedCommentCount: 4,
 		});
 	},
 );
 
-test('parseSpaceState leaves out each value that is not what its field holds, and keeps the rest', t => {
+test('parseSpaceState leaves out each value that is not what its field holds, and keeps the rest', () => {
 	const valid = {
 		prLinks: [link(), link({localBranch: 'STA-2', number: 2})],
 		pipeline: null,
@@ -118,10 +121,10 @@ test('parseSpaceState leaves out each value that is not what its field holds, an
 		issueTitle: 'Fix the rail',
 		agentProfile: {name: 'codex-high', isClaude: false},
 	};
-	t.deepEqual(parseSpaceState(JSON.stringify(valid)), valid);
+	expect(parseSpaceState(JSON.stringify(valid))).toStrictEqual(valid);
 
 	const {number: _number, ...incompleteLink} = link({localBranch: 'STA-3'});
-	t.deepEqual(
+	expect(
 		parseSpaceState(
 			JSON.stringify({
 				prLinks: [link(), incompleteLink, 'not a link'],
@@ -136,20 +139,24 @@ test('parseSpaceState leaves out each value that is not what its field holds, an
 				agentProfile: {name: 'codex'},
 			}),
 		),
-		{prLinks: [link()], recap: {lastPrompt: 'Prompt'}, profile: 'codex'},
-	);
+	).toStrictEqual({
+		prLinks: [link()],
+		recap: {lastPrompt: 'Prompt'},
+		profile: 'codex',
+	});
 
-	t.deepEqual(
+	expect(
 		parseSpaceState(JSON.stringify({prLinks: 'none', recap: 'none'})),
-		{},
-	);
-	for (const content of ['[]', '"profile"', 'null'])
-		t.throws(() => parseSpaceState(content), {message: 'Not a space state'});
+	).toStrictEqual({});
+	for (const content of ['[]', '"profile"', 'null']) {
+		const error = thrownBy(() => parseSpaceState(content));
+		expect(error.message).toBe('Not a space state');
+	}
 });
 
 for (const sqlite of [false, true]) {
-	test(`${sqlite ? 'sqlite' : 'json'}: a write records its fields with the time of the write, in the store and in the file`, async t => {
-		const s = testState(t, {
+	test(`${sqlite ? 'sqlite' : 'json'}: a write records its fields with the time of the write, in the store and in the file`, async () => {
+		const s = testState({
 			sqlite,
 			clock: () => new Date('2026-01-02T03:04:05.678Z'),
 		});
@@ -164,14 +171,14 @@ for (const sqlite of [false, true]) {
 			hasConflict: false,
 			updatedAt: '2026-01-02T03:04:05.678Z',
 		};
-		t.deepEqual(s.daos.spaceState.read('STA-200'), expected);
-		t.deepEqual(fileContent(s, 'STA-200'), expected);
+		expect(s.daos.spaceState.read('STA-200')).toStrictEqual(expected);
+		expect(fileContent(s, 'STA-200')).toStrictEqual(expected);
 	});
 }
 
 contractTest(
 	'a write keeps the fields its patch does not name',
-	async (t, {daos: {spaceState}}) => {
+	async ({daos: {spaceState}}) => {
 		await spaceState.write('STA-300', {
 			pipeline: 'failing',
 			unresolvedCommentCount: 5,
@@ -182,15 +189,15 @@ contractTest(
 			unresolvedCommentCount: 0,
 		});
 		const state = spaceState.read('STA-300');
-		t.is(state?.pipeline, 'passing');
-		t.is(state?.unresolvedCommentCount, 0);
-		t.deepEqual(state?.recap, {customTitle: 'Initial title'});
+		expect(state?.pipeline).toBe('passing');
+		expect(state?.unresolvedCommentCount).toBe(0);
+		expect(state?.recap).toStrictEqual({customTitle: 'Initial title'});
 	},
 );
 
 contractTest(
 	'the issue title is read back, and kept through a profile write and a rail poll',
-	async (t, s) => {
+	async s => {
 		const {spaceState} = s.daos;
 		await spaceState.write('STA-320', {issueTitle: 'Fix the rail'});
 		await spaceState.write('STA-320', {profile: 'dev'});
@@ -198,7 +205,7 @@ contractTest(
 			{key: 'STA-320', patch: {pipeline: 'passing'}},
 		]);
 		for (const state of [spaceState.read('STA-320'), fileContent(s, 'STA-320')])
-			t.like(state, {
+			expect(state).toMatchObject({
 				issueTitle: 'Fix the rail',
 				profile: 'dev',
 				pipeline: 'passing',
@@ -208,20 +215,22 @@ contractTest(
 
 contractTest(
 	'the launched agent profile is read back from the store and from a file written without it, and kept through a rail poll',
-	async (t, s) => {
+	async s => {
 		const {spaceState} = s.daos;
 		const agentProfile = {name: 'codex-high', isClaude: false};
 		await spaceState.write('STA-330', {agentProfile});
 		await spaceState.writeMany([
 			{key: 'STA-330', patch: {pipeline: 'passing'}},
 		]);
-		t.deepEqual(spaceState.read('STA-330')?.agentProfile, agentProfile);
-		t.deepEqual(fileContent(s, 'STA-330').agentProfile, agentProfile);
+		expect(spaceState.read('STA-330')?.agentProfile).toStrictEqual(
+			agentProfile,
+		);
+		expect(fileContent(s, 'STA-330').agentProfile).toStrictEqual(agentProfile);
 
 		writeStateFile(s, 'STA-331', {
 			agentProfile: {name: 'opus', isClaude: true},
 		});
-		t.deepEqual(spaceState.read('STA-331')?.agentProfile, {
+		expect(spaceState.read('STA-331')?.agentProfile).toStrictEqual({
 			name: 'opus',
 			isClaude: true,
 		});
@@ -230,7 +239,7 @@ contractTest(
 
 contractTest(
 	'a patch key with no value removes the field, and a recap replaces the whole recap',
-	async (t, s) => {
+	async s => {
 		const {spaceState} = s.daos;
 		await spaceState.write('STA-310', {
 			prNumber: 12,
@@ -248,8 +257,8 @@ contractTest(
 			spaceState.read('STA-310'),
 			fileContent(s, 'STA-310'),
 		]) {
-			t.false('prNumber' in state!);
-			t.deepEqual(state?.recap, {lastPrompt: 'Newer prompt'});
+			expect('prNumber' in state!).toBe(false);
+			expect(state?.recap).toStrictEqual({lastPrompt: 'Newer prompt'});
 		}
 	},
 );
@@ -258,7 +267,7 @@ contractTest(
 // leaves it out for a space the rail has not polled.
 contractTest(
 	'a pipeline of null is kept apart from no pipeline at all',
-	async (t, s) => {
+	async s => {
 		const {spaceState} = s.daos;
 		await spaceState.write('POLLED', {
 			pipeline: null,
@@ -266,24 +275,24 @@ contractTest(
 		});
 		await spaceState.write('UNPOLLED', {profile: 'dev'});
 		for (const state of [spaceState.read('POLLED'), fileContent(s, 'POLLED')]) {
-			t.true('pipeline' in state!);
-			t.is(state?.pipeline, null);
+			expect('pipeline' in state!).toBe(true);
+			expect(state?.pipeline).toBe(null);
 		}
 
 		for (const state of [
 			spaceState.read('UNPOLLED'),
 			fileContent(s, 'UNPOLLED'),
 		])
-			t.false('pipeline' in state!);
+			expect('pipeline' in state!).toBe(false);
 
 		await spaceState.write('POLLED', {pipeline: undefined});
-		t.false('pipeline' in spaceState.read('POLLED')!);
+		expect('pipeline' in spaceState.read('POLLED')!).toBe(false);
 	},
 );
 
 contractTest(
 	'a rail poll leaves the profile, the recap and the PR links as they were',
-	async (t, s) => {
+	async s => {
 		const {spaceState} = s.daos;
 		await spaceState.write('STA-1', {profile: 'stardust_jams'});
 		await spaceState.addPrLink('STA-1', link());
@@ -315,7 +324,7 @@ contractTest(
 			},
 		]);
 		for (const state of [spaceState.read('STA-1'), fileContent(s, 'STA-1')]) {
-			t.like(state, {
+			expect(state).toMatchObject({
 				profile: 'stardust_jams',
 				pipeline: 'failing',
 				unresolvedCommentCount: 3,
@@ -323,32 +332,32 @@ contractTest(
 				recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
 				prLinks: [link()],
 			});
-			t.false('prNumber' in state!);
+			expect('prNumber' in state!).toBe(false);
 		}
 
-		t.is(spaceState.read('STA-2')?.pipeline, null);
+		expect(spaceState.read('STA-2')?.pipeline).toBe(null);
 	},
 );
 
 contractTest(
 	'a PR link replaces the one for the same checkout and becomes the newest',
-	async (t, s) => {
+	async s => {
 		const {spaceState} = s.daos;
 		const nested = link({project: 'user/nested', localBranch: 'local'});
 		await spaceState.addPrLink('STA-1', link());
 		await spaceState.addPrLink('STA-1', nested);
-		t.deepEqual(spaceState.read('STA-1')?.prLinks, [link(), nested]);
+		expect(spaceState.read('STA-1')?.prLinks).toStrictEqual([link(), nested]);
 
 		const republished = link({remoteBranch: 'published-again', number: 2});
 		await spaceState.addPrLink('STA-1', republished);
 		for (const state of [spaceState.read('STA-1'), fileContent(s, 'STA-1')])
-			t.deepEqual(state?.prLinks, [nested, republished]);
+			expect(state?.prLinks).toStrictEqual([nested, republished]);
 	},
 );
 
 contractTest(
 	'a file written by a process without the database is what the next read returns',
-	async (t, s) => {
+	async s => {
 		const {spaceState} = s.daos;
 		await spaceState.write('STA-1', {profile: 'dev', prNumber: 4});
 		const edited = {
@@ -362,36 +371,33 @@ contractTest(
 			updatedAt: '2026-05-06T07:08:09Z',
 		};
 		writeStateFile(s, 'STA-1', edited);
-		t.deepEqual(spaceState.read('STA-1'), edited);
+		expect(spaceState.read('STA-1')).toStrictEqual(edited);
 
 		await spaceState.write('STA-1', {prNumber: 9});
 		const {updatedAt, ...kept} = edited;
 		const {updatedAt: rewrittenAt, ...rewritten} = fileContent(s, 'STA-1');
-		t.deepEqual(rewritten, {...kept, prNumber: 9});
-		t.not(rewrittenAt, updatedAt);
+		expect(rewritten).toStrictEqual({...kept, prNumber: 9});
+		expect(rewrittenAt).not.toBe(updatedAt);
 	},
 );
 
-contractTest(
-	'a space whose file was deleted has nothing recorded',
-	async (t, s) => {
-		const {spaceState} = s.daos;
-		await spaceState.write('STA-1', {profile: 'dev'});
-		await spaceState.addPrLink('STA-1', link());
-		fs.rmSync(stateFile(s, 'STA-1'));
-		t.is(spaceState.read('STA-1'), null);
+contractTest('a space whose file was deleted has nothing recorded', async s => {
+	const {spaceState} = s.daos;
+	await spaceState.write('STA-1', {profile: 'dev'});
+	await spaceState.addPrLink('STA-1', link());
+	fs.rmSync(stateFile(s, 'STA-1'));
+	expect(spaceState.read('STA-1')).toBe(null);
 
-		await spaceState.write('STA-1', {prNumber: 3});
-		t.deepEqual(Object.keys(fileContent(s, 'STA-1')).sort(), [
-			'prNumber',
-			'updatedAt',
-		]);
-	},
-);
+	await spaceState.write('STA-1', {prNumber: 3});
+	expect(Object.keys(fileContent(s, 'STA-1')).sort()).toStrictEqual([
+		'prNumber',
+		'updatedAt',
+	]);
+});
 
-test('both stores leave the same files for the same writes', async t => {
+test('both stores leave the same files for the same writes', async () => {
 	const files = async (sqlite: boolean) => {
-		const s = testState(t, {sqlite});
+		const s = testState({sqlite});
 		const {spaceState} = s.daos;
 		await spaceState.write('STA-1', {profile: 'dev'});
 		await spaceState.write('STA-1', {
@@ -447,8 +453,12 @@ test('both stores leave the same files for the same writes', async t => {
 	};
 
 	const json = await files(false);
-	t.deepEqual(Object.keys(json), ['STA-1.json', 'STA-2.json', 'STA-3.json']);
-	t.deepEqual(await files(true), json);
+	expect(Object.keys(json)).toStrictEqual([
+		'STA-1.json',
+		'STA-2.json',
+		'STA-3.json',
+	]);
+	expect(await files(true)).toStrictEqual(json);
 });
 
 // ============================================================================
@@ -463,18 +473,18 @@ function writeJsonl(filePath: string, entries: unknown[]): void {
 	);
 }
 
-test('extractRecapFromJsonl returns null when file does not exist', async t => {
-	const d = tempDir(t, 'pappardelle-space-state-');
-	t.is(await extractRecapFromJsonl(path.join(d, 'nope.jsonl')), null);
+test('extractRecapFromJsonl returns null when file does not exist', async () => {
+	const d = tempDir('pappardelle-space-state-');
+	expect(await extractRecapFromJsonl(path.join(d, 'nope.jsonl'))).toBe(null);
 });
 
-test('transcript stream errors return without hanging the rail poll', async t => {
-	const dir = tempDir(t, 'pappardelle-space-state-');
-	t.is(await extractRecapFromJsonl(dir), null);
+test('transcript stream errors return without hanging the rail poll', async () => {
+	const dir = tempDir('pappardelle-space-state-');
+	expect(await extractRecapFromJsonl(dir)).toBe(null);
 });
 
-test('extractRecapFromJsonl pulls custom-title and last-prompt', async t => {
-	const d = tempDir(t, 'pappardelle-space-state-');
+test('extractRecapFromJsonl pulls custom-title and last-prompt', async () => {
+	const d = tempDir('pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
 		{
@@ -490,13 +500,13 @@ test('extractRecapFromJsonl pulls custom-title and last-prompt', async t => {
 		{type: 'last-prompt', lastPrompt: 'keep going', sessionId: 'abc'},
 	]);
 	const recap = await extractRecapFromJsonl(p);
-	t.truthy(recap);
-	t.is(recap!.customTitle, 'STA-870 persist state');
-	t.is(recap!.lastPrompt, 'keep going');
+	expect(recap).toBeTruthy();
+	expect(recap!.customTitle).toBe('STA-870 persist state');
+	expect(recap!.lastPrompt).toBe('keep going');
 });
 
-test('extractRecapFromJsonl takes the most recent custom-title when duplicated', async t => {
-	const d = tempDir(t, 'pappardelle-space-state-');
+test('extractRecapFromJsonl takes the most recent custom-title when duplicated', async () => {
+	const d = tempDir('pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
 		{type: 'custom-title', customTitle: 'old title'},
@@ -504,11 +514,11 @@ test('extractRecapFromJsonl takes the most recent custom-title when duplicated',
 		{type: 'custom-title', customTitle: 'fresh title'},
 	]);
 	const recap = await extractRecapFromJsonl(p);
-	t.is(recap!.customTitle, 'fresh title');
+	expect(recap!.customTitle).toBe('fresh title');
 });
 
-test('extractRecapFromJsonl captures the last assistant text snippet', async t => {
-	const d = tempDir(t, 'pappardelle-space-state-');
+test('extractRecapFromJsonl captures the last assistant text snippet', async () => {
+	const d = tempDir('pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
 		{
@@ -527,22 +537,22 @@ test('extractRecapFromJsonl captures the last assistant text snippet', async t =
 		{type: 'user', message: {content: 'ok'}},
 	]);
 	const recap = await extractRecapFromJsonl(p);
-	t.is(recap!.lastAssistantExcerpt, 'second reply with more detail');
+	expect(recap!.lastAssistantExcerpt).toBe('second reply with more detail');
 });
 
-test('extractRecapFromJsonl truncates long assistant excerpts', async t => {
-	const d = tempDir(t, 'pappardelle-space-state-');
+test('extractRecapFromJsonl truncates long assistant excerpts', async () => {
+	const d = tempDir('pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	const longText = 'x'.repeat(1000);
 	writeJsonl(p, [
 		{type: 'assistant', message: {content: [{type: 'text', text: longText}]}},
 	]);
 	const recap = await extractRecapFromJsonl(p);
-	t.true(recap!.lastAssistantExcerpt!.length <= 500);
+	expect(recap!.lastAssistantExcerpt!.length <= 500).toBe(true);
 });
 
-test('extractRecapFromJsonl skips malformed lines without crashing', async t => {
-	const d = tempDir(t, 'pappardelle-space-state-');
+test('extractRecapFromJsonl skips malformed lines without crashing', async () => {
+	const d = tempDir('pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	fs.writeFileSync(
 		p,
@@ -553,21 +563,21 @@ test('extractRecapFromJsonl skips malformed lines without crashing', async t => 
 		].join('\n'),
 	);
 	const recap = await extractRecapFromJsonl(p);
-	t.is(recap!.customTitle, 'valid');
+	expect(recap!.customTitle).toBe('valid');
 });
 
 // ============================================================================
 // findLatestSessionJsonl
 // ============================================================================
 
-test('findLatestSessionJsonl returns null when project dir is missing', async t => {
-	const projectsDir = tempDir(t, 'pappardelle-space-state-');
+test('findLatestSessionJsonl returns null when project dir is missing', async () => {
+	const projectsDir = tempDir('pappardelle-space-state-');
 	const worktree = path.join('/Users/x', '.worktrees', 'repo', 'STA-111');
-	t.is(await findLatestSessionJsonl(worktree, projectsDir), null);
+	expect(await findLatestSessionJsonl(worktree, projectsDir)).toBe(null);
 });
 
-test('findLatestSessionJsonl returns the newest top-level jsonl', async t => {
-	const projectsDir = tempDir(t, 'pappardelle-space-state-');
+test('findLatestSessionJsonl returns the newest top-level jsonl', async () => {
+	const projectsDir = tempDir('pappardelle-space-state-');
 	const worktree = '/Users/x/.worktrees/repo/STA-222';
 	const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
 	const projectDir = path.join(projectsDir, encoded);
@@ -582,11 +592,11 @@ test('findLatestSessionJsonl returns the newest top-level jsonl', async t => {
 	fs.utimesSync(older, now / 1000 - 60, now / 1000 - 60);
 	fs.utimesSync(newer, now / 1000, now / 1000);
 
-	t.is(await findLatestSessionJsonl(worktree, projectsDir), newer);
+	expect(await findLatestSessionJsonl(worktree, projectsDir)).toBe(newer);
 });
 
-test('findLatestSessionJsonl ignores subagent jsonls in nested dirs', async t => {
-	const projectsDir = tempDir(t, 'pappardelle-space-state-');
+test('findLatestSessionJsonl ignores subagent jsonls in nested dirs', async () => {
+	const projectsDir = tempDir('pappardelle-space-state-');
 	const worktree = '/Users/x/.worktrees/repo/STA-333';
 	const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
 	const projectDir = path.join(projectsDir, encoded);
@@ -595,56 +605,62 @@ test('findLatestSessionJsonl ignores subagent jsonls in nested dirs', async t =>
 	const nested = path.join(projectDir, 'subagents', 'agent.jsonl');
 	fs.writeFileSync(nested, '');
 
-	t.is(await findLatestSessionJsonl(worktree, projectsDir), null);
+	expect(await findLatestSessionJsonl(worktree, projectsDir)).toBe(null);
 });
 
-test('extractRecapFromJsonl returns null when no recap-worthy entries exist', async t => {
-	const d = tempDir(t, 'pappardelle-space-state-');
+test('extractRecapFromJsonl returns null when no recap-worthy entries exist', async () => {
+	const d = tempDir('pappardelle-space-state-');
 	const p = path.join(d, 'conv.jsonl');
 	writeJsonl(p, [
 		{type: 'agent-setting', agentSetting: {}},
 		{type: 'permission-mode', mode: 'default'},
 	]);
-	t.is(await extractRecapFromJsonl(p), null);
+	expect(await extractRecapFromJsonl(p)).toBe(null);
 });
 
-test('recaps reuse unchanged snapshots and refresh after append, rewrite, and replacement', async t => {
-	const dir = tempDir(t, 'pappardelle-space-state-');
+test('recaps reuse unchanged snapshots and refresh after append, rewrite, and replacement', async () => {
+	const dir = tempDir('pappardelle-space-state-');
 	const file = path.join(dir, 'session.jsonl');
 	writeJsonl(file, [{type: 'custom-title', customTitle: 'first'}]);
 	const first = await extractRecapFromJsonl(file);
-	t.is(await extractRecapFromJsonl(file), first);
+	expect(await extractRecapFromJsonl(file)).toBe(first);
 	fs.appendFileSync(
 		file,
 		JSON.stringify({type: 'last-prompt', lastPrompt: 'continue'}) + '\n',
 	);
-	t.deepEqual(await extractRecapFromJsonl(file), {
+	expect(await extractRecapFromJsonl(file)).toStrictEqual({
 		customTitle: 'first',
 		lastPrompt: 'continue',
 	});
 	writeJsonl(file, [{type: 'custom-title', customTitle: 'reset'}]);
-	t.deepEqual(await extractRecapFromJsonl(file), {customTitle: 'reset'});
+	expect(await extractRecapFromJsonl(file)).toStrictEqual({
+		customTitle: 'reset',
+	});
 	const previous = fs.statSync(file);
 	const replacement = path.join(dir, 'replacement.jsonl');
 	writeJsonl(replacement, [{type: 'custom-title', customTitle: 'other'}]);
 	fs.utimesSync(replacement, previous.atime, previous.mtime);
 	fs.renameSync(replacement, file);
-	t.deepEqual(await extractRecapFromJsonl(file), {customTitle: 'other'});
+	expect(await extractRecapFromJsonl(file)).toStrictEqual({
+		customTitle: 'other',
+	});
 	fs.unlinkSync(file);
-	t.is(await extractRecapFromJsonl(file), null);
+	expect(await extractRecapFromJsonl(file)).toBe(null);
 });
 
-test('an incomplete last line is picked up when the writer finishes it', async t => {
-	const dir = tempDir(t, 'pappardelle-space-state-');
+test('an incomplete last line is picked up when the writer finishes it', async () => {
+	const dir = tempDir('pappardelle-space-state-');
 	const file = path.join(dir, 'session.jsonl');
 	fs.writeFileSync(file, '{"type":"last-prompt","lastPrompt":"keep');
-	t.is(await extractRecapFromJsonl(file), null);
+	expect(await extractRecapFromJsonl(file)).toBe(null);
 	fs.appendFileSync(file, ' going"}\n');
-	t.deepEqual(await extractRecapFromJsonl(file), {lastPrompt: 'keep going'});
+	expect(await extractRecapFromJsonl(file)).toStrictEqual({
+		lastPrompt: 'keep going',
+	});
 });
 
-test('large transcript scans service UI timers before completing', async t => {
-	const dir = tempDir(t, 'pappardelle-space-state-');
+test('large transcript scans service UI timers before completing', async () => {
+	const dir = tempDir('pappardelle-space-state-');
 	const file = path.join(dir, 'session.jsonl');
 	const line =
 		JSON.stringify({type: 'assistant', message: {content: 'x'.repeat(1024)}}) +
@@ -658,16 +674,16 @@ test('large transcript scans service UI timers before completing', async t => {
 	const timer = setInterval(() => {
 		ticks++;
 	}, 1);
-	t.teardown(() => clearInterval(timer));
+	teardown(() => clearInterval(timer));
 	const recap = await extractRecapFromJsonl(file);
 	clearInterval(timer);
-	t.true(ticks > 1);
-	t.is(recap?.lastPrompt, 'latest');
-	t.is(recap?.lastAssistantExcerpt, 'x'.repeat(500));
+	expect(ticks > 1).toBe(true);
+	expect(recap?.lastPrompt).toBe('latest');
+	expect(recap?.lastAssistantExcerpt).toBe('x'.repeat(500));
 });
 
-test('a 20 MiB line spanning chunks preserves its recap and following lines', async t => {
-	const dir = tempDir(t, 'pappardelle-space-state-');
+test('a 20 MiB line spanning chunks preserves its recap and following lines', async () => {
+	const dir = tempDir('pappardelle-space-state-');
 	const file = path.join(dir, 'long-line.jsonl');
 	fs.writeFileSync(
 		file,
@@ -685,9 +701,9 @@ test('a 20 MiB line spanning chunks preserves its recap and following lines', as
 	);
 	const start = performance.now();
 	const recap = await extractRecapFromJsonl(file);
-	t.is(recap?.lastAssistantExcerpt, 'x'.repeat(500));
-	t.is(recap?.lastPrompt, 'final line');
-	t.log(
+	expect(recap?.lastAssistantExcerpt).toBe('x'.repeat(500));
+	expect(recap?.lastPrompt).toBe('final line');
+	console.log(
 		`20 MiB single-line transcript: ${(performance.now() - start).toFixed(1)} ms`,
 	);
 });

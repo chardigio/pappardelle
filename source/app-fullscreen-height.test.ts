@@ -3,7 +3,7 @@
  * Blank filler rows let the renderer erase stale results when a search shrinks
  * the list after zooming.
  */
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import React from 'react';
 import {render} from '../test/helpers/render.ts';
 
@@ -43,16 +43,16 @@ const frameLineCount = async (
 
 const TERM_HEIGHT = 30;
 
-test('STA-1539: numeric terminal height includes blank rows below the filtered list', async t => {
-	t.is(await frameLineCount(TERM_HEIGHT), TERM_HEIGHT);
+test('STA-1539: numeric terminal height includes blank rows below the filtered list', async () => {
+	expect(await frameLineCount(TERM_HEIGHT)).toBe(TERM_HEIGHT);
 });
 
-test('OpenTUI percentage height also fills the terminal', async t => {
+test('OpenTUI percentage height also fills the terminal', async () => {
 	// Ink collapsed a 100% root to its content, which is why app.tsx passes a
 	// numeric height. OpenTUI resolves it against the renderer's 80 rows.
-	t.is(await frameLineCount('100%'), 80);
+	expect(await frameLineCount('100%')).toBe(80);
 });
 
-test('STA-1539 regression: a content-sized root (no height) also collapses', async t => {
-	t.true((await frameLineCount(undefined)) < TERM_HEIGHT);
+test('STA-1539 regression: a content-sized root (no height) also collapses', async () => {
+	expect((await frameLineCount(undefined)) < TERM_HEIGHT).toBe(true);
 });

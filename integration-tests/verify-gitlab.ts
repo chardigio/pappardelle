@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Local verification script for GitLabProvider against a real GitLab instance.
- * NOT an ava test — run manually with `bun integration-tests/verify-gitlab.ts`
+ * NOT a unit test — run manually with `bun integration-tests/verify-gitlab.ts`
  *
  * Must be run from inside a git repo with a GitLab remote.
  * Rail status is compared with REST data for an existing open MR.

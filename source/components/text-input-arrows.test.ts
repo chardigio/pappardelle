@@ -1,7 +1,7 @@
 import React, {useState} from 'react';
 import {render} from '../../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import TextInput from './TextInput.tsx';
 
 async function typeAfterUp(isKeepingVerticalArrows: boolean) {
@@ -27,10 +27,10 @@ async function typeAfterUp(isKeepingVerticalArrows: boolean) {
 	return latest;
 }
 
-test('with no list to hand Up to, Up moves the caret to the line above', async t => {
-	t.is(await typeAfterUp(true), 'firstX\nsecond');
+test('with no list to hand Up to, Up moves the caret to the line above', async () => {
+	expect(await typeAfterUp(true)).toBe('firstX\nsecond');
 });
 
-test('while a list owns the arrows, Up leaves the caret where it was', async t => {
-	t.is(await typeAfterUp(false), 'first\nsecondX');
+test('while a list owns the arrows, Up leaves the caret where it was', async () => {
+	expect(await typeAfterUp(false)).toBe('first\nsecondX');
 });

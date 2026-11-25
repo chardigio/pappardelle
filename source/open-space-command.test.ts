@@ -5,7 +5,8 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {newSpaceIdentity} from './space-identity.ts';
 import {gatherSpaces} from './spaces-command.ts';
 import {createStateDaos} from './state-daos.ts';
@@ -21,8 +22,8 @@ const projectRoot = path.resolve(import.meta.dirname, '..');
 const FIRST_CONNECT_ATTEMPT_MS = 500;
 const useStandalone = process.env['PAPPARDELLE_TEST_STANDALONE'] === '1';
 
-function fixture(t: ExecutionContext, provider = 'jira') {
-	const root = tempDir(t, 'papp-cli-space-');
+function fixture(provider = 'jira') {
+	const root = tempDir('papp-cli-space-');
 	const repo = path.join(root, 'project');
 	const home = path.join(root, 'home');
 	const install = path.join(root, 'install');
@@ -126,7 +127,7 @@ setTimeout(() => {
 			env: {...env, ...overrides},
 			stdio: 'pipe',
 		});
-		t.teardown(() => child.kill());
+		teardown(() => child.kill());
 		return child;
 	};
 	const run = async (args: string[], overrides: NodeJS.ProcessEnv = {}) => {
@@ -210,71 +211,67 @@ setTimeout(() => {
 	};
 }
 
-test.serial(
-	'CLI saves a normalized issue from a non-TTY sous-chef invocation',
-	async t => {
-		const f = fixture(t);
-		const result = await f.run(['20']);
-		t.is(result.code, 0);
-		t.deepEqual(f.readRegistry(), ['STE-20']);
-		t.deepEqual(f.readRecord(), {
-			args: ['STE-20'],
-			cwd: f.repo,
-			projectRoot: f.repo,
-			mainRepoRoot: f.repo,
-			stdin: '2\n',
-			stdinIsTTY: false,
-		});
-		t.true(result.stdout.includes('Workspace STE-20 is ready!'));
-		t.true(result.stderr.includes('idow diagnostic'));
-		const stateDir = path.join(f.home, '.pappardelle');
-		const daos = createStateDaos({
-			repo: 'project',
-			stateDir,
-			sqlite: sqliteRun,
-		});
-		t.teardown(() => {
-			daos.disconnectStatusDaemon();
-			closeStateDb(stateDbPath(stateDir));
-		});
-		const spaces = await gatherSpaces({
-			repoName: 'project',
-			...daos,
-			home: f.home,
-			fetchTitles: async () => new Map(),
-			gitSummary: async () => null,
-		});
-		t.deepEqual(
-			'error' in spaces ? spaces.error : spaces.spaces.map(space => space.name),
-			['STE-20'],
-		);
-	},
-);
+test('CLI saves a normalized issue from a non-TTY sous-chef invocation', async () => {
+	const f = fixture();
+	const result = await f.run(['20']);
+	expect(result.code).toBe(0);
+	expect(f.readRegistry()).toStrictEqual(['STE-20']);
+	expect(f.readRecord()).toStrictEqual({
+		args: ['STE-20'],
+		cwd: f.repo,
+		projectRoot: f.repo,
+		mainRepoRoot: f.repo,
+		stdin: '2\n',
+		stdinIsTTY: false,
+	});
+	expect(result.stdout.includes('Workspace STE-20 is ready!')).toBe(true);
+	expect(result.stderr.includes('idow diagnostic')).toBe(true);
+	const stateDir = path.join(f.home, '.pappardelle');
+	const daos = createStateDaos({
+		repo: 'project',
+		stateDir,
+		sqlite: sqliteRun,
+	});
+	teardown(() => {
+		daos.disconnectStatusDaemon();
+		closeStateDb(stateDbPath(stateDir));
+	});
+	const spaces = await gatherSpaces({
+		repoName: 'project',
+		...daos,
+		home: f.home,
+		fetchTitles: async () => new Map(),
+		gitSummary: async () => null,
+	});
+	expect(
+		'error' in spaces ? spaces.error : spaces.spaces.map(space => space.name),
+	).toStrictEqual(['STE-20']);
+});
 
 // With the flag on the agent's hook reports to the status daemon, and a status
 // file is not read.
-(sqliteRun ? test.serial.skip : test.serial)(
+(sqliteRun ? test.skip : test)(
 	'CLI --wait succeeds once the reopened space reports its agent started',
-	async t => {
-		const f = fixture(t);
+	async () => {
+		const f = fixture();
 		await f.existingWorktree('STE-20');
 		const statusDir = path.join(f.root, 'status');
 		const result = await f.run(['--resume', '--wait', 'STE-20'], {
 			PAPPARDELLE_STATUS_DIR: statusDir,
 			IDOW_TEST_STATUS_DIR: statusDir,
 		});
-		t.is(result.code, 0, result.stderr);
-		t.deepEqual(f.readRecord().args, ['--resume', 'STE-20']);
-		t.deepEqual(f.readRegistry(), ['STE-20']);
+		expect(result.code, result.stderr).toBe(0);
+		expect(f.readRecord().args).toStrictEqual(['--resume', 'STE-20']);
+		expect(f.readRegistry()).toStrictEqual(['STE-20']);
 	},
 );
 
 // A CLI verb never starts the daemon. The agent's pane monitor does, which
 // can be after `open --wait` has begun to wait.
-(sqliteRun ? test.serial : test.serial.skip)(
+(sqliteRun ? test : test.skip)(
 	'CLI --wait begun before any status daemon runs succeeds once one starts and the agent reports to it',
-	async t => {
-		const f = fixture(t);
+	async () => {
+		const f = fixture();
 		await f.existingWorktree('STE-20');
 		const socketPath = statusSocketPath(path.join(f.home, '.pappardelle'));
 		const child = f.start(['--resume', '--wait', 'STE-20']);
@@ -294,10 +291,10 @@ test.serial(
 			20_000,
 		);
 		await delay(FIRST_CONNECT_ATTEMPT_MS);
-		t.is(child.exitCode, null, stderr);
-		t.false(fs.existsSync(socketPath));
+		expect(child.exitCode, stderr).toBe(null);
+		expect(fs.existsSync(socketPath)).toBe(false);
 
-		await serveTestDaemon(t, socketPath);
+		await serveTestDaemon(socketPath);
 		await sendHookEvent(socketPath, {
 			sessionId: 'session',
 			workspaceName: 'project-STE-20',
@@ -308,653 +305,563 @@ test.serial(
 		});
 
 		const [code] = await closed;
-		t.is(code, 0, stderr);
+		expect(code, stderr).toBe(0);
 	},
 );
 
-test.serial(
-	"space_open over MCP keeps idow's output off the protocol channel",
-	async t => {
-		const f = fixture(t);
-		const client = new Client({name: 'test', version: '1'});
-		// This suite may itself run inside a space.
-		const env = Object.fromEntries(
-			Object.entries(f.env).filter(
-				(entry): entry is [string, string] =>
-					entry[1] !== undefined && entry[0] !== 'PAPPARDELLE_SPACE',
-			),
-		);
-		await client.connect(
-			new StdioClientTransport({
-				command: f.cli[0]!,
-				args: [...f.cli.slice(1), 'mcp'],
-				cwd: f.repo,
-				env: {...env, IDOW_TEST_BYTES: '200000'},
-				stderr: 'ignore',
-			}),
-		);
-		t.teardown(async () => client.close());
+test("space_open over MCP keeps idow's output off the protocol channel", async () => {
+	const f = fixture();
+	const client = new Client({name: 'test', version: '1'});
+	// This suite may itself run inside a space.
+	const env = Object.fromEntries(
+		Object.entries(f.env).filter(
+			(entry): entry is [string, string] =>
+				entry[1] !== undefined && entry[0] !== 'PAPPARDELLE_SPACE',
+		),
+	);
+	await client.connect(
+		new StdioClientTransport({
+			command: f.cli[0]!,
+			args: [...f.cli.slice(1), 'mcp'],
+			cwd: f.repo,
+			env: {...env, IDOW_TEST_BYTES: '200000'},
+			stderr: 'ignore',
+		}),
+	);
+	teardown(async () => client.close());
 
-		const result = await client.callTool({
-			name: 'space_open',
-			arguments: {input: 'STE-20'},
+	const result = await client.callTool({
+		name: 'space_open',
+		arguments: {input: 'STE-20'},
+	});
+
+	expect(result.isError).toBeFalsy();
+	const [output] = result.content as Array<{text: string}>;
+	expect(output!.text.endsWith('Workspace STE-20 is ready!')).toBe(true);
+	expect(f.readRecord().args).toStrictEqual(['STE-20']);
+	expect(f.readRegistry()).toStrictEqual(['STE-20']);
+	const {tools} = await client.listTools();
+	expect(tools.length > 0).toBe(true);
+});
+
+test('CLI resumes with the flag first and preserves existing spaces without duplicates', async () => {
+	const f = fixture();
+	f.seed();
+	for (const argv of [
+		['--resume', 'ste-20'],
+		['STE-20', '--resume'],
+	]) {
+		const result = await f.run(argv);
+		expect(result.code).toBe(0);
+		expect(f.readRecord().args).toStrictEqual(['--resume', 'STE-20']);
+		expect(f.readRegistry()).toStrictEqual(['STE-1', 'STE-20']);
+	}
+});
+
+test('CLI forwards an explicit profile before a workspace description', async () => {
+	const f = fixture();
+	const input = 'fix auth bug';
+	for (const args of [
+		['--profile', 'test', input],
+		[input, '--profile', 'test'],
+	]) {
+		const result = await f.run(args, {
+			IDOW_TEST_OUTPUT: 'Workspace STE-99 is ready!\n',
 		});
+		expect(result.code).toBe(0);
+		expect(f.readRecord().args).toStrictEqual(['--profile', 'test', input]);
+		expect(f.readRegistry()).toStrictEqual(['STE-99']);
+	}
+});
 
-		t.falsy(result.isError);
-		const [output] = result.content as Array<{text: string}>;
-		t.true(output!.text.endsWith('Workspace STE-20 is ready!'));
-		t.deepEqual(f.readRecord().args, ['STE-20']);
-		t.deepEqual(f.readRegistry(), ['STE-20']);
-		const {tools} = await client.listTools();
-		t.true(tools.length > 0);
-	},
-);
-
-test.serial(
-	'CLI resumes with the flag first and preserves existing spaces without duplicates',
-	async t => {
-		const f = fixture(t);
-		f.seed();
-		for (const argv of [
-			['--resume', 'ste-20'],
-			['STE-20', '--resume'],
-		]) {
-			const result = await f.run(argv);
-			t.is(result.code, 0);
-			t.deepEqual(f.readRecord().args, ['--resume', 'STE-20']);
-			t.deepEqual(f.readRegistry(), ['STE-1', 'STE-20']);
-		}
-	},
-);
-
-test.serial(
-	'CLI forwards an explicit profile before a workspace description',
-	async t => {
-		const f = fixture(t);
-		const input = 'fix auth bug';
-		for (const args of [
-			['--profile', 'test', input],
-			[input, '--profile', 'test'],
-		]) {
-			const result = await f.run(args, {
-				IDOW_TEST_OUTPUT: 'Workspace STE-99 is ready!\n',
-			});
-			t.is(result.code, 0);
-			t.deepEqual(f.readRecord().args, ['--profile', 'test', input]);
-			t.deepEqual(f.readRegistry(), ['STE-99']);
-		}
-	},
-);
-
-test.serial(
-	'CLI orders resume before the forced profile for an existing worktree',
-	async t => {
-		const f = fixture(t);
-		f.worktreeOnly('STE-20');
-		for (const args of [
-			['--profile', 'test', 'STE-20'],
-			['--resume', '--profile', 'test', 'STE-20'],
-		]) {
-			const result = await f.run(args);
-			t.is(result.code, 0);
-			t.deepEqual(f.readRecord().args, [
-				'--resume',
-				'--profile',
-				'test',
-				'STE-20',
-			]);
-			t.deepEqual(f.readRegistry(), ['STE-20']);
-		}
-	},
-);
-
-test.serial(
-	'CLI forwards an agent profile to idow after the profile, where idow reads it',
-	async t => {
-		const f = fixture(t);
-		fs.appendFileSync(
-			path.join(f.repo, '.pappardelle.yml'),
-			'agent_profiles:\n  codex:\n    command: codex\n',
-		);
-		f.worktreeOnly('STE-20');
-		const result = await f.run([
-			'--agent-profile',
-			'codex',
-			'--profile',
-			'test',
-			'STE-20',
-		]);
-		t.is(result.code, 0, result.stderr);
-		t.deepEqual(f.readRecord().args, [
+test('CLI orders resume before the forced profile for an existing worktree', async () => {
+	const f = fixture();
+	f.worktreeOnly('STE-20');
+	for (const args of [
+		['--profile', 'test', 'STE-20'],
+		['--resume', '--profile', 'test', 'STE-20'],
+	]) {
+		const result = await f.run(args);
+		expect(result.code).toBe(0);
+		expect(f.readRecord().args).toStrictEqual([
 			'--resume',
 			'--profile',
 			'test',
-			'--agent-profile',
-			'codex',
 			'STE-20',
 		]);
-		t.deepEqual(f.readRegistry(), ['STE-20']);
-	},
-);
+		expect(f.readRegistry()).toStrictEqual(['STE-20']);
+	}
+});
 
-test.serial(
-	'CLI rejects an unknown agent profile with the valid names before running idow',
-	async t => {
-		const f = fixture(t);
-		fs.appendFileSync(
-			path.join(f.repo, '.pappardelle.yml'),
-			'agent_profiles:\n  codex:\n    command: codex\n',
-		);
-		const result = await f.run(['--agent-profile', 'codx', 'STE-20']);
-		t.is(result.code, 1);
-		t.regex(
-			result.stderr,
-			/Unknown agent profile "codx"\. Agent profiles: claude, codex/,
-		);
-		t.false(fs.existsSync(f.record));
-		t.false(fs.existsSync(f.registry));
-	},
-);
+test('CLI forwards an agent profile to idow after the profile, where idow reads it', async () => {
+	const f = fixture();
+	fs.appendFileSync(
+		path.join(f.repo, '.pappardelle.yml'),
+		'agent_profiles:\n  codex:\n    command: codex\n',
+	);
+	f.worktreeOnly('STE-20');
+	const result = await f.run([
+		'--agent-profile',
+		'codex',
+		'--profile',
+		'test',
+		'STE-20',
+	]);
+	expect(result.code, result.stderr).toBe(0);
+	expect(f.readRecord().args).toStrictEqual([
+		'--resume',
+		'--profile',
+		'test',
+		'--agent-profile',
+		'codex',
+		'STE-20',
+	]);
+	expect(f.readRegistry()).toStrictEqual(['STE-20']);
+});
 
-test.serial(
-	'CLI rejects an agent profile with no workspace input instead of starting the TUI',
-	async t => {
-		const f = fixture(t);
-		for (const [args, message] of [
-			[['--agent-profile', 'claude'], /Usage: pappardelle --agent-profile/],
-			[
-				['--agent-profile=', 'STE-20'],
-				/--agent-profile needs an agent profile name/,
-			],
-		] as const) {
-			const result = await f.run([...args, '--no-layout']);
-			t.is(result.code, 1);
-			t.regex(result.stderr, message);
-			t.false(fs.existsSync(f.record));
-		}
-	},
-);
+test('CLI rejects an unknown agent profile with the valid names before running idow', async () => {
+	const f = fixture();
+	fs.appendFileSync(
+		path.join(f.repo, '.pappardelle.yml'),
+		'agent_profiles:\n  codex:\n    command: codex\n',
+	);
+	const result = await f.run(['--agent-profile', 'codx', 'STE-20']);
+	expect(result.code).toBe(1);
+	expect(result.stderr).toMatch(
+		/Unknown agent profile "codx"\. Agent profiles: claude, codex/,
+	);
+	expect(fs.existsSync(f.record)).toBe(false);
+	expect(fs.existsSync(f.registry)).toBe(false);
+});
 
-test.serial(
-	'CLI warns, and still succeeds, when idow leaves a running agent on its old profile',
-	async t => {
-		const f = fixture(t);
-		const result = await f.run(['--agent-profile', 'claude', 'STE-20'], {
-			IDOW_TEST_OUTPUT:
-				'PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped\nWorkspace STE-20 is ready!\n',
+test('CLI rejects an agent profile with no workspace input instead of starting the TUI', async () => {
+	const f = fixture();
+	for (const [args, message] of [
+		[['--agent-profile', 'claude'], /Usage: pappardelle --agent-profile/],
+		[
+			['--agent-profile=', 'STE-20'],
+			/--agent-profile needs an agent profile name/,
+		],
+	] as const) {
+		const result = await f.run([...args, '--no-layout']);
+		expect(result.code).toBe(1);
+		expect(result.stderr).toMatch(message);
+		expect(fs.existsSync(f.record)).toBe(false);
+	}
+});
+
+test('CLI warns, and still succeeds, when idow leaves a running agent on its old profile', async () => {
+	const f = fixture();
+	const result = await f.run(['--agent-profile', 'claude', 'STE-20'], {
+		IDOW_TEST_OUTPUT:
+			'PAPPARDELLE_AGENT_PROFILE_OVERRIDE=skipped\nWorkspace STE-20 is ready!\n',
+	});
+	expect(result.code, result.stderr).toBe(0);
+	expect(result.stderr).toMatch(
+		/STE-20: agent already running, claude not applied/,
+	);
+	expect(result.stdout.includes('PAPPARDELLE_AGENT_PROFILE_OVERRIDE')).toBe(
+		false,
+	);
+	expect(result.stdout).toMatch(/Workspace STE-20 is ready!/);
+	expect(f.readRegistry()).toStrictEqual(['STE-20']);
+});
+
+test('CLI uses the forced profile team prefix when normalizing a bare issue number', async () => {
+	const f = fixture();
+	fs.appendFileSync(
+		path.join(f.repo, '.pappardelle.yml'),
+		'    team_prefix: APP\n',
+	);
+	const result = await f.run(['--profile', 'test', '20']);
+	expect(result.code).toBe(0);
+	expect(f.readRecord().args).toStrictEqual(['--profile', 'test', 'APP-20']);
+	expect(f.readRegistry()).toStrictEqual(['APP-20']);
+});
+
+test('CLI rejects missing profile names and missing workspace input before running idow', async () => {
+	const f = fixture();
+	for (const args of [
+		['--profile'],
+		['--profile', 'test'],
+		['--profile=', 'STE-20'],
+	]) {
+		const result = await f.run([...args, '--no-layout']);
+		expect(result.code).toBe(1);
+		expect(result.stderr).toMatch(/Usage: pappardelle --profile/);
+		expect(fs.existsSync(f.record)).toBe(false);
+		expect(fs.existsSync(f.registry)).toBe(false);
+	}
+});
+
+test('CLI automatically resumes an existing worktree even when it is not registered', async () => {
+	const f = fixture();
+	f.worktreeOnly('STE-20');
+	for (const input of ['20', 'ste-20']) {
+		const result = await f.run([input]);
+		expect(result.code).toBe(0);
+		expect(f.readRecord().args).toStrictEqual(['--resume', 'STE-20']);
+		expect(f.readRegistry()).toStrictEqual(['STE-20']);
+	}
+});
+
+test('CLI --no-resume overrides automatic resume for an existing worktree', async () => {
+	const f = fixture();
+	f.worktreeOnly('STE-20');
+	const result = await f.run(['STE-20', '--no-resume']);
+	expect(result.code).toBe(0);
+	expect(f.readRecord().args).toStrictEqual(['STE-20']);
+	expect(f.readRegistry()).toStrictEqual(['STE-20']);
+});
+
+test('CLI initializes a saved space again if its worktree is gone', async () => {
+	const f = fixture();
+	f.seed();
+	const result = await f.run(['STE-1']);
+	expect(result.code).toBe(0);
+	expect(f.readRecord().args).toStrictEqual(['STE-1']);
+	expect(f.readRegistry()).toStrictEqual(['STE-1']);
+});
+
+test('CLI saves the generated key from split, colored output for description and URL inputs', async () => {
+	const f = fixture();
+	for (const input of [
+		'fix auth bug',
+		'https://linear.app/team/issue/STE-99/fix-auth',
+	]) {
+		const result = await f.run(['--resume', input], {
+			IDOW_TEST_OUTPUT: '\u001b[32mWorkspace STE-99 is ready!\u001b[0m\n',
 		});
-		t.is(result.code, 0, result.stderr);
-		t.regex(result.stderr, /STE-20: agent already running, claude not applied/);
-		t.false(result.stdout.includes('PAPPARDELLE_AGENT_PROFILE_OVERRIDE'));
-		t.regex(result.stdout, /Workspace STE-20 is ready!/);
-		t.deepEqual(f.readRegistry(), ['STE-20']);
-	},
-);
+		expect(result.code).toBe(0);
+		expect(f.readRegistry()).toStrictEqual(['STE-99']);
+		expect(f.readRecord().args).toStrictEqual(['--resume', input]);
+	}
+});
 
-test.serial(
-	'CLI uses the forced profile team prefix when normalizing a bare issue number',
-	async t => {
-		const f = fixture(t);
-		fs.appendFileSync(
-			path.join(f.repo, '.pappardelle.yml'),
-			'    team_prefix: APP\n',
-		);
-		const result = await f.run(['--profile', 'test', '20']);
-		t.is(result.code, 0);
-		t.deepEqual(f.readRecord().args, ['--profile', 'test', 'APP-20']);
-		t.deepEqual(f.readRegistry(), ['APP-20']);
-	},
-);
+test('CLI preserves lowercase beads keys and child issue suffixes', async () => {
+	const f = fixture('beads');
+	const result = await f.run(['STE-a1b2.1']);
+	expect(result.code).toBe(0);
+	expect(f.readRegistry()).toStrictEqual(['ste-a1b2.1']);
+	expect(f.readRecord().args).toStrictEqual(['ste-a1b2.1']);
+});
 
-test.serial(
-	'CLI rejects missing profile names and missing workspace input before running idow',
-	async t => {
-		const f = fixture(t);
-		for (const args of [
-			['--profile'],
-			['--profile', 'test'],
-			['--profile=', 'STE-20'],
-		]) {
-			const result = await f.run([...args, '--no-layout']);
-			t.is(result.code, 1);
-			t.regex(result.stderr, /Usage: pappardelle --profile/);
-			t.false(fs.existsSync(f.record));
-			t.false(fs.existsSync(f.registry));
-		}
-	},
-);
+test('CLI registers the final summary key when the description quotes another ready message', async () => {
+	const f = fixture();
+	const input = 'fix the misleading Workspace STE-1 is ready! message';
+	const result = await f.run([input], {
+		IDOW_TEST_OUTPUT:
+			`[2026-10-12 15:00:00] [startup] Input: ${input}\n` +
+			'\u001b[0;32mWorkspace STE-99 is ready!\u001b[0m\n',
+	});
+	expect(result.code).toBe(0);
+	expect(f.readRegistry()).toStrictEqual(['STE-99']);
+});
 
-test.serial(
-	'CLI automatically resumes an existing worktree even when it is not registered',
-	async t => {
-		const f = fixture(t);
-		f.worktreeOnly('STE-20');
-		for (const input of ['20', 'ste-20']) {
-			const result = await f.run([input]);
-			t.is(result.code, 0);
-			t.deepEqual(f.readRecord().args, ['--resume', 'STE-20']);
-			t.deepEqual(f.readRegistry(), ['STE-20']);
-		}
-	},
-);
+test('CLI handles a broken stdout pipe and stops idow before returning failure', async () => {
+	const f = fixture();
+	f.seed();
+	const pidFile = path.join(f.root, 'idow.pid');
+	const child = f.start(['STE-20'], {
+		IDOW_TEST_PID_FILE: pidFile,
+		IDOW_TEST_KEEP_ALIVE: '1',
+	});
+	child.stdin.end();
+	const closed = once(child, 'close');
+	let stderr = '';
+	child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+		stderr += chunk;
+	});
+	child.stdout.once('data', () => child.stdout.destroy());
+	const [code] = await once(child, 'exit');
+	const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+	let idowAlive = false;
+	try {
+		process.kill(pid, 0);
+		idowAlive = true;
+	} catch {}
+	if (idowAlive) process.kill(pid, 'SIGKILL');
+	await closed;
+	expect(code).toBe(1);
+	expect(idowAlive).toBe(false);
+	expect(stderr).toMatch(/Failed to run idow:.*EPIPE/);
+	expect(stderr.includes('Unhandled')).toBe(false);
+	expect(f.readRegistry()).toStrictEqual(['STE-1']);
+});
 
-test.serial(
-	'CLI --no-resume overrides automatic resume for an existing worktree',
-	async t => {
-		const f = fixture(t);
-		f.worktreeOnly('STE-20');
-		const result = await f.run(['STE-20', '--no-resume']);
-		t.is(result.code, 0);
-		t.deepEqual(f.readRecord().args, ['STE-20']);
-		t.deepEqual(f.readRegistry(), ['STE-20']);
-	},
-);
-
-test.serial(
-	'CLI initializes a saved space again if its worktree is gone',
-	async t => {
-		const f = fixture(t);
+test('CLI cancels idow subprocesses on a broken pipe even after the shell exits', async () => {
+	for (const background of [false, true]) {
+		const f = fixture();
 		f.seed();
-		const result = await f.run(['STE-1']);
-		t.is(result.code, 0);
-		t.deepEqual(f.readRecord().args, ['STE-1']);
-		t.deepEqual(f.readRegistry(), ['STE-1']);
-	},
-);
-
-test.serial(
-	'CLI saves the generated key from split, colored output for description and URL inputs',
-	async t => {
-		const f = fixture(t);
-		for (const input of [
-			'fix auth bug',
-			'https://linear.app/team/issue/STE-99/fix-auth',
-		]) {
-			const result = await f.run(['--resume', input], {
-				IDOW_TEST_OUTPUT: '\u001b[32mWorkspace STE-99 is ready!\u001b[0m\n',
-			});
-			t.is(result.code, 0);
-			t.deepEqual(f.readRegistry(), ['STE-99']);
-			t.deepEqual(f.readRecord().args, ['--resume', input]);
-		}
-	},
-);
-
-test.serial(
-	'CLI preserves lowercase beads keys and child issue suffixes',
-	async t => {
-		const f = fixture(t, 'beads');
-		const result = await f.run(['STE-a1b2.1']);
-		t.is(result.code, 0);
-		t.deepEqual(f.readRegistry(), ['ste-a1b2.1']);
-		t.deepEqual(f.readRecord().args, ['ste-a1b2.1']);
-	},
-);
-
-test.serial(
-	'CLI registers the final summary key when the description quotes another ready message',
-	async t => {
-		const f = fixture(t);
-		const input = 'fix the misleading Workspace STE-1 is ready! message';
-		const result = await f.run([input], {
-			IDOW_TEST_OUTPUT:
-				`[2026-10-12 15:00:00] [startup] Input: ${input}\n` +
-				'\u001b[0;32mWorkspace STE-99 is ready!\u001b[0m\n',
-		});
-		t.is(result.code, 0);
-		t.deepEqual(f.readRegistry(), ['STE-99']);
-	},
-);
-
-test.serial(
-	'CLI handles a broken stdout pipe and stops idow before returning failure',
-	async t => {
-		const f = fixture(t);
-		f.seed();
-		const pidFile = path.join(f.root, 'idow.pid');
-		const child = f.start(['STE-20'], {
-			IDOW_TEST_PID_FILE: pidFile,
-			IDOW_TEST_KEEP_ALIVE: '1',
-		});
-		child.stdin.end();
-		const closed = once(child, 'close');
-		let stderr = '';
-		child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
-			stderr += chunk;
-		});
-		child.stdout.once('data', () => child.stdout.destroy());
-		const [code] = await once(child, 'exit');
-		const pid = Number(fs.readFileSync(pidFile, 'utf8'));
-		let idowAlive = false;
-		try {
-			process.kill(pid, 0);
-			idowAlive = true;
-		} catch {}
-		if (idowAlive) process.kill(pid, 'SIGKILL');
-		await closed;
-		t.is(code, 1);
-		t.false(idowAlive);
-		t.regex(stderr, /Failed to run idow:.*EPIPE/);
-		t.false(stderr.includes('Unhandled'));
-		t.deepEqual(f.readRegistry(), ['STE-1']);
-	},
-);
-
-test.serial(
-	'CLI cancels idow subprocesses on a broken pipe even after the shell exits',
-	async t => {
-		t.timeout(30_000);
-		for (const background of [false, true]) {
-			const f = fixture(t);
-			f.seed();
-			const pidFile = path.join(f.root, 'worker.pid');
-			const sideEffect = path.join(f.root, 'worker.finished');
-			const worker = path.join(f.root, 'worker.mjs');
-			fs.writeFileSync(
-				worker,
-				`import fs from 'node:fs';
+		const pidFile = path.join(f.root, 'worker.pid');
+		const sideEffect = path.join(f.root, 'worker.finished');
+		const worker = path.join(f.root, 'worker.mjs');
+		fs.writeFileSync(
+			worker,
+			`import fs from 'node:fs';
 fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
 process.stdout.write('worker started\\n');
 // The CLI only learns its stdout broke on its next write, so keep writing.
 setInterval(() => process.stdout.write('worker progress\\n'), 50);
 setTimeout(() => fs.writeFileSync(process.env.IDOW_TEST_SIDE_EFFECT, 'finished'), 500);
 `,
-			);
-			fs.writeFileSync(
-				f.idow,
-				'#!/bin/bash\n"$IDOW_TEST_NODE" "$IDOW_TEST_WORKER"' +
-					(background ? ' &\nexit 0\n' : '\n:\n'),
-			);
-			t.teardown(() => {
-				if (!fs.existsSync(pidFile)) return;
-				try {
-					process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL');
-				} catch {}
-			});
-			const child = f.start(['STE-20'], {
-				IDOW_TEST_NODE: process.execPath,
-				IDOW_TEST_WORKER: worker,
-				IDOW_TEST_PID_FILE: pidFile,
-				IDOW_TEST_SIDE_EFFECT: sideEffect,
-			});
-			child.stdin.end();
-			const completion = once(child, 'close');
-			let stderr = '';
-			child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
-				stderr += chunk;
-			});
-			let stdout = '';
-			child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-				stdout += chunk;
-				if (stdout.includes('worker started')) child.stdout.destroy();
-			});
-			const [code] = await once(child, 'exit');
-			await delay(600);
-			const workerFinished = fs.existsSync(sideEffect);
+		);
+		fs.writeFileSync(
+			f.idow,
+			'#!/bin/bash\n"$IDOW_TEST_NODE" "$IDOW_TEST_WORKER"' +
+				(background ? ' &\nexit 0\n' : '\n:\n'),
+		);
+		teardown(() => {
+			if (!fs.existsSync(pidFile)) return;
 			try {
 				process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL');
 			} catch {}
-			await completion;
-			t.is(code, 1);
-			t.false(workerFinished);
-			t.regex(stderr, /Failed to run idow:.*EPIPE/);
-			t.deepEqual(f.readRegistry(), ['STE-1']);
-		}
-	},
-);
+		});
+		const child = f.start(['STE-20'], {
+			IDOW_TEST_NODE: process.execPath,
+			IDOW_TEST_WORKER: worker,
+			IDOW_TEST_PID_FILE: pidFile,
+			IDOW_TEST_SIDE_EFFECT: sideEffect,
+		});
+		child.stdin.end();
+		const completion = once(child, 'close');
+		let stderr = '';
+		child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+			stderr += chunk;
+		});
+		let stdout = '';
+		child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+			stdout += chunk;
+			if (stdout.includes('worker started')) child.stdout.destroy();
+		});
+		const [code] = await once(child, 'exit');
+		await delay(600);
+		const workerFinished = fs.existsSync(sideEffect);
+		try {
+			process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL');
+		} catch {}
+		await completion;
+		expect(code).toBe(1);
+		expect(workerFinished).toBe(false);
+		expect(stderr).toMatch(/Failed to run idow:.*EPIPE/);
+		expect(f.readRegistry()).toStrictEqual(['STE-1']);
+	}
+}, 30_000);
 
-test.serial(
-	'CLI forwards termination signals to idow subprocesses and preserves its signal exit',
-	async t => {
-		t.timeout(30_000);
-		for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-			const f = fixture(t);
-			f.seed();
-			const pidFile = path.join(f.root, 'worker.pid');
-			const sideEffect = path.join(f.root, 'worker.finished');
-			const worker = path.join(f.root, 'worker.mjs');
-			fs.writeFileSync(
-				worker,
-				`import fs from 'node:fs';
+test('CLI forwards termination signals to idow subprocesses and preserves its signal exit', async () => {
+	for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+		const f = fixture();
+		f.seed();
+		const pidFile = path.join(f.root, 'worker.pid');
+		const sideEffect = path.join(f.root, 'worker.finished');
+		const worker = path.join(f.root, 'worker.mjs');
+		fs.writeFileSync(
+			worker,
+			`import fs from 'node:fs';
 fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
 process.stdout.write('worker started\\n');
 setTimeout(() => fs.writeFileSync(process.env.IDOW_TEST_SIDE_EFFECT, 'finished'), 500);
 setTimeout(() => {}, 30000);
 `,
-			);
-			fs.writeFileSync(
-				f.idow,
-				'#!/bin/bash\n"$IDOW_TEST_NODE" "$IDOW_TEST_WORKER"\n:\n',
-			);
-			const child = f.start(['STE-20'], {
-				IDOW_TEST_NODE: process.execPath,
-				IDOW_TEST_WORKER: worker,
-				IDOW_TEST_PID_FILE: pidFile,
-				IDOW_TEST_SIDE_EFFECT: sideEffect,
-			});
-			child.stdin.end();
-			child.stderr.resume();
-			const completion = once(child, 'close');
-			let stdout = '';
-			child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-				stdout += chunk;
-				if (stdout.includes('worker started')) child.kill(signal);
-			});
-			const exit = await once(child, 'exit');
-			await delay(600);
-			const workerFinished = fs.existsSync(sideEffect);
-			try {
-				process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL');
-			} catch {}
-			await completion;
-			t.deepEqual(exit, [null, signal]);
-			t.false(workerFinished);
-			t.deepEqual(f.readRegistry(), ['STE-1']);
-		}
-	},
-);
-
-test.serial(
-	'CLI preserves idow failure status without saving a space even after a ready message',
-	async t => {
-		const f = fixture(t);
-		f.seed();
-		const result = await f.run(['STE-20'], {IDOW_TEST_STATUS: '7'});
-		t.is(result.code, 7);
-		t.deepEqual(f.readRegistry(), ['STE-1']);
-	},
-);
-
-test.serial(
-	'CLI reports spawn failure instead of succeeding or saving a space',
-	async t => {
-		const f = fixture(t);
-		f.seed();
-		fs.rmSync(f.idow);
-		const result = await f.run(['STE-20']);
-		t.is(result.code, 1);
-		t.regex(result.stderr, /ENOENT/);
-		t.deepEqual(f.readRegistry(), ['STE-1']);
-	},
-);
-
-test.serial(
-	'CLI treats idow signal termination as failure without registering',
-	async t => {
-		const f = fixture(t);
-		f.seed();
-		const result = await f.run(['STE-20'], {IDOW_TEST_SIGNAL: '1'});
-		t.is(result.code, 1);
-		t.regex(result.stderr, /SIGTERM/);
-		t.deepEqual(f.readRegistry(), ['STE-1']);
-	},
-);
-
-test.serial(
-	'CLI explains successful setup with an unresolved space key and fails',
-	async t => {
-		const f = fixture(t);
-		const result = await f.run(['fix auth bug'], {
-			IDOW_TEST_OUTPUT: 'Setup complete\n',
+		);
+		fs.writeFileSync(
+			f.idow,
+			'#!/bin/bash\n"$IDOW_TEST_NODE" "$IDOW_TEST_WORKER"\n:\n',
+		);
+		const child = f.start(['STE-20'], {
+			IDOW_TEST_NODE: process.execPath,
+			IDOW_TEST_WORKER: worker,
+			IDOW_TEST_PID_FILE: pidFile,
+			IDOW_TEST_SIDE_EFFECT: sideEffect,
 		});
-		t.is(result.code, 1);
-		t.regex(result.stderr, /setup completed.*register.*issue key/i);
-		t.false(fs.existsSync(f.registry));
-	},
-);
-
-test.serial(
-	'CLI explains registration failure and leaves invalid registry state intact',
-	async t => {
-		const f = fixture(t);
-		f.seed();
-		fs.writeFileSync(f.registry, '{');
-		const result = await f.run(['STE-20']);
-		t.is(result.code, 1);
-		t.regex(result.stderr, /setup completed.*register/i);
-		t.is(fs.readFileSync(f.registry, 'utf8'), '{');
-		t.false(fs.existsSync(`${f.registry}.lock`));
-	},
-);
-
-test.serial(
-	'CLI streams output while setup is running and waits for registry persistence',
-	async t => {
-		const f = fixture(t);
-		f.seed();
-		const lock = `${f.registry}.lock`;
-		fs.mkdirSync(lock);
-		fs.writeFileSync(path.join(lock, `${process.pid}-abcdef`), '');
-		const child = f.start(['STE-20']);
-		child.stdin.end();
-		child.stderr.resume();
-		let output = '';
-		let exited = false;
-		const completion = once(child, 'close').then(([code]) => {
-			exited = true;
-			return code;
-		});
-		const outputReady = new Promise<void>(resolve => {
-			child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-				output += chunk;
-				if (output.includes('Workspace STE')) resolve();
-			});
-		});
-		await Promise.race([
-			outputReady,
-			completion.then(() => {
-				throw new Error(`CLI exited before streaming idow output: ${output}`);
-			}),
-		]);
-		t.false(exited);
-		await delay(100);
-		t.false(exited);
-		t.deepEqual(f.readRegistry(), ['STE-1']);
-		fs.rmSync(lock, {recursive: true});
-		t.is(await completion, 0);
-		t.deepEqual(f.readRegistry(), ['STE-1', 'STE-20']);
-	},
-);
-
-test.serial(
-	'CLI drains substantial forwarded stdout before exiting to a slow reader',
-	async t => {
-		const f = fixture(t);
-		const bytes = 2 * 1024 * 1024;
-		const child = f.start(['STE-20'], {IDOW_TEST_BYTES: String(bytes)});
 		child.stdin.end();
 		child.stderr.resume();
 		const completion = once(child, 'close');
 		let stdout = '';
-		for await (const chunk of child.stdout) {
-			stdout += String(chunk);
-			await delay(2);
-		}
-		t.deepEqual(await completion, [0, null]);
-		t.is(
-			stdout,
-			'Starting new session with: "STE-20"\n' +
-				'x'.repeat(bytes) +
-				'Workspace STE-20 is ready!\n',
-		);
-		t.deepEqual(f.readRegistry(), ['STE-20']);
-	},
-);
+		child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+			stdout += chunk;
+			if (stdout.includes('worker started')) child.kill(signal);
+		});
+		const exit = await once(child, 'exit');
+		await delay(600);
+		const workerFinished = fs.existsSync(sideEffect);
+		try {
+			process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL');
+		} catch {}
+		await completion;
+		expect(exit).toStrictEqual([null, signal]);
+		expect(workerFinished).toBe(false);
+		expect(f.readRegistry()).toStrictEqual(['STE-1']);
+	}
+}, 30_000);
 
-test.serial(
-	'CLI --resume without input fails with usage before running idow or the TUI',
-	async t => {
-		const f = fixture(t);
-		const result = await f.run(['--resume', '--no-layout']);
-		t.is(result.code, 1);
-		t.regex(result.stderr, /Usage: pappardelle --resume/);
-		t.false(fs.existsSync(f.record));
-		t.false(fs.existsSync(f.registry));
-	},
-);
-
-test.serial('CLI help documents --resume', async t => {
-	const f = fixture(t);
-	const result = await f.run(['--help']);
-	t.is(result.code, 0);
-	t.true(result.stdout.includes('--resume'));
-	t.false(fs.existsSync(f.record));
+test('CLI preserves idow failure status without saving a space even after a ready message', async () => {
+	const f = fixture();
+	f.seed();
+	const result = await f.run(['STE-20'], {IDOW_TEST_STATUS: '7'});
+	expect(result.code).toBe(7);
+	expect(f.readRegistry()).toStrictEqual(['STE-1']);
 });
 
-test.serial(
-	'CLI highlight asks a running Pappardelle to select the space',
-	async t => {
-		const f = fixture(t);
-		const stateDir = path.join(f.home, '.pappardelle');
-		t.teardown(() => {
-			closeStateDb(stateDbPath(stateDir));
+test('CLI reports spawn failure instead of succeeding or saving a space', async () => {
+	const f = fixture();
+	f.seed();
+	fs.rmSync(f.idow);
+	const result = await f.run(['STE-20']);
+	expect(result.code).toBe(1);
+	expect(result.stderr).toMatch(/ENOENT/);
+	expect(f.readRegistry()).toStrictEqual(['STE-1']);
+});
+
+test('CLI treats idow signal termination as failure without registering', async () => {
+	const f = fixture();
+	f.seed();
+	const result = await f.run(['STE-20'], {IDOW_TEST_SIGNAL: '1'});
+	expect(result.code).toBe(1);
+	expect(result.stderr).toMatch(/SIGTERM/);
+	expect(f.readRegistry()).toStrictEqual(['STE-1']);
+});
+
+test('CLI explains successful setup with an unresolved space key and fails', async () => {
+	const f = fixture();
+	const result = await f.run(['fix auth bug'], {
+		IDOW_TEST_OUTPUT: 'Setup complete\n',
+	});
+	expect(result.code).toBe(1);
+	expect(result.stderr).toMatch(/setup completed.*register.*issue key/i);
+	expect(fs.existsSync(f.registry)).toBe(false);
+});
+
+test('CLI explains registration failure and leaves invalid registry state intact', async () => {
+	const f = fixture();
+	f.seed();
+	fs.writeFileSync(f.registry, '{');
+	const result = await f.run(['STE-20']);
+	expect(result.code).toBe(1);
+	expect(result.stderr).toMatch(/setup completed.*register/i);
+	expect(fs.readFileSync(f.registry, 'utf8')).toBe('{');
+	expect(fs.existsSync(`${f.registry}.lock`)).toBe(false);
+});
+
+test('CLI streams output while setup is running and waits for registry persistence', async () => {
+	const f = fixture();
+	f.seed();
+	const lock = `${f.registry}.lock`;
+	fs.mkdirSync(lock);
+	fs.writeFileSync(path.join(lock, `${process.pid}-abcdef`), '');
+	const child = f.start(['STE-20']);
+	child.stdin.end();
+	child.stderr.resume();
+	let output = '';
+	let exited = false;
+	const completion = once(child, 'close').then(([code]) => {
+		exited = true;
+		return code;
+	});
+	const outputReady = new Promise<void>(resolve => {
+		child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+			output += chunk;
+			if (output.includes('Workspace STE')) resolve();
 		});
-		const {highlight} = createStateDaos({
-			repo: 'project',
-			stateDir,
-			sqlite: sqliteRun,
-		});
-		const selected: string[] = [];
-		t.teardown(highlight.watch(request => selected.push(request.issueKey)));
+	});
+	await Promise.race([
+		outputReady,
+		completion.then(() => {
+			throw new Error(`CLI exited before streaming idow output: ${output}`);
+		}),
+	]);
+	expect(exited).toBe(false);
+	await delay(100);
+	expect(exited).toBe(false);
+	expect(f.readRegistry()).toStrictEqual(['STE-1']);
+	fs.rmSync(lock, {recursive: true});
+	expect(await completion).toBe(0);
+	expect(f.readRegistry()).toStrictEqual(['STE-1', 'STE-20']);
+});
 
-		const result = await f.run(['highlight', 'STE-7']);
-		t.is(result.code, 0);
-		await waitUntil(() => selected.length > 0, 'a highlight request');
-		t.is(selected[0], 'STE-7');
-		t.false(fs.existsSync(f.record));
-	},
-);
+test('CLI drains substantial forwarded stdout before exiting to a slow reader', async () => {
+	const f = fixture();
+	const bytes = 2 * 1024 * 1024;
+	const child = f.start(['STE-20'], {IDOW_TEST_BYTES: String(bytes)});
+	child.stdin.end();
+	child.stderr.resume();
+	const completion = once(child, 'close');
+	let stdout = '';
+	for await (const chunk of child.stdout) {
+		stdout += String(chunk);
+		await delay(2);
+	}
+	expect(await completion).toStrictEqual([0, null]);
+	expect(stdout).toBe(
+		'Starting new session with: "STE-20"\n' +
+			'x'.repeat(bytes) +
+			'Workspace STE-20 is ready!\n',
+	);
+	expect(f.readRegistry()).toStrictEqual(['STE-20']);
+});
 
-test.serial(
-	'CLI commands reject experimental.sqliteState in project or local config',
-	async t => {
-		const f = fixture(t);
-		const localPath = path.join(f.repo, '.pappardelle.local.yml');
-		fs.writeFileSync(localPath, 'experimental:\n  sqliteState: true\n');
-		const localResult = await f.run(['highlight', 'STE-7']);
-		t.is(localResult.code, 1);
-		t.regex(localResult.stderr, /experimental\.sqliteState/);
+test('CLI --resume without input fails with usage before running idow or the TUI', async () => {
+	const f = fixture();
+	const result = await f.run(['--resume', '--no-layout']);
+	expect(result.code).toBe(1);
+	expect(result.stderr).toMatch(/Usage: pappardelle --resume/);
+	expect(fs.existsSync(f.record)).toBe(false);
+	expect(fs.existsSync(f.registry)).toBe(false);
+});
 
-		fs.unlinkSync(localPath);
-		fs.appendFileSync(
-			path.join(f.repo, '.pappardelle.yml'),
-			'\nexperimental:\n  sqliteState: true\n',
-		);
-		const projectResult = await f.run(['highlight', 'STE-7']);
-		t.is(projectResult.code, 1);
-		t.regex(projectResult.stderr, /experimental\.sqliteState/);
-	},
-);
+test('CLI help documents --resume', async () => {
+	const f = fixture();
+	const result = await f.run(['--help']);
+	expect(result.code).toBe(0);
+	expect(result.stdout.includes('--resume')).toBe(true);
+	expect(fs.existsSync(f.record)).toBe(false);
+});
 
-test.serial(
-	'CLI commands still run when an unrelated config section is invalid',
-	async t => {
-		const f = fixture(t);
-		fs.writeFileSync(
-			path.join(f.repo, '.pappardelle.local.yml'),
-			'profiles:\n  broken:\n    agent_profile: nonexistent-agent\n',
-		);
-		const result = await f.run(['highlight', 'STE-7']);
-		t.is(result.code, 0, result.stderr);
-	},
-);
+test('CLI highlight asks a running Pappardelle to select the space', async () => {
+	const f = fixture();
+	const stateDir = path.join(f.home, '.pappardelle');
+	teardown(() => {
+		closeStateDb(stateDbPath(stateDir));
+	});
+	const {highlight} = createStateDaos({
+		repo: 'project',
+		stateDir,
+		sqlite: sqliteRun,
+	});
+	const selected: string[] = [];
+	teardown(highlight.watch(request => selected.push(request.issueKey)));
+
+	const result = await f.run(['highlight', 'STE-7']);
+	expect(result.code).toBe(0);
+	await waitUntil(() => selected.length > 0, 'a highlight request');
+	expect(selected[0]).toBe('STE-7');
+	expect(fs.existsSync(f.record)).toBe(false);
+});
+
+test('CLI commands reject experimental.sqliteState in project or local config', async () => {
+	const f = fixture();
+	const localPath = path.join(f.repo, '.pappardelle.local.yml');
+	fs.writeFileSync(localPath, 'experimental:\n  sqliteState: true\n');
+	const localResult = await f.run(['highlight', 'STE-7']);
+	expect(localResult.code).toBe(1);
+	expect(localResult.stderr).toMatch(/experimental\.sqliteState/);
+
+	fs.unlinkSync(localPath);
+	fs.appendFileSync(
+		path.join(f.repo, '.pappardelle.yml'),
+		'\nexperimental:\n  sqliteState: true\n',
+	);
+	const projectResult = await f.run(['highlight', 'STE-7']);
+	expect(projectResult.code).toBe(1);
+	expect(projectResult.stderr).toMatch(/experimental\.sqliteState/);
+});
+
+test('CLI commands still run when an unrelated config section is invalid', async () => {
+	const f = fixture();
+	fs.writeFileSync(
+		path.join(f.repo, '.pappardelle.local.yml'),
+		'profiles:\n  broken:\n    agent_profile: nonexistent-agent\n',
+	);
+	const result = await f.run(['highlight', 'STE-7']);
+	expect(result.code, result.stderr).toBe(0);
+});

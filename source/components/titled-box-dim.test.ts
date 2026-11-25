@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import React from 'react';
 import {parseColor, TextAttributes} from '@opentui/core';
 import {render} from '../../test/helpers/render.ts';
@@ -33,26 +33,30 @@ async function topEdge(isDim: boolean) {
 // eslint-disable-next-line no-bitwise
 const has = (attributes: number, flag: number) => (attributes & flag) !== 0;
 
-test('an unfocused frame is dimmed with SGR 2 on its palette colors, not blended toward black', async t => {
+test('an unfocused frame is dimmed with SGR 2 on its palette colors, not blended toward black', async () => {
 	const {corner, title, side} = await topEdge(true);
 	for (const span of [corner, side]) {
-		t.true(has(span.attributes, TextAttributes.DIM), `"${span.text}"`);
-		t.true(
+		expect(has(span.attributes, TextAttributes.DIM), `"${span.text}"`).toBe(
+			true,
+		);
+		expect(
 			span.fg.equals(parseColor(terminalColor('green'))),
 			`"${span.text}"`,
+		).toBe(true);
+	}
+
+	expect(has(title.attributes, TextAttributes.DIM)).toBe(true);
+	expect(title.fg.equals(parseColor(terminalColor('greenBright')))).toBe(true);
+});
+
+test('a focused frame is undimmed and its title is bold', async () => {
+	const {corner, title, side} = await topEdge(false);
+	for (const span of [corner, side, title]) {
+		expect(has(span.attributes, TextAttributes.DIM), `"${span.text}"`).toBe(
+			false,
 		);
 	}
 
-	t.true(has(title.attributes, TextAttributes.DIM));
-	t.true(title.fg.equals(parseColor(terminalColor('greenBright'))));
-});
-
-test('a focused frame is undimmed and its title is bold', async t => {
-	const {corner, title, side} = await topEdge(false);
-	for (const span of [corner, side, title]) {
-		t.false(has(span.attributes, TextAttributes.DIM), `"${span.text}"`);
-	}
-
-	t.true(has(title.attributes, TextAttributes.BOLD));
-	t.is(title.text.trim(), 'Profile');
+	expect(has(title.attributes, TextAttributes.BOLD)).toBe(true);
+	expect(title.text.trim()).toBe('Profile');
 });

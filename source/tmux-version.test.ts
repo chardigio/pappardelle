@@ -1,23 +1,23 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {tmuxVersionTooOld} from './tmux-version.ts';
 
-test('releases before 3.3 are too old', t => {
+test('releases before 3.3 are too old', () => {
 	for (const version of ['3.2a', '3.2', '3.1c', '2.9', '1.8']) {
-		t.true(tmuxVersionTooOld(version), `version ${version}`);
+		expect(tmuxVersionTooOld(version), `version ${version}`).toBe(true);
 	}
 });
 
-test('3.3 and later meet the floor', t => {
+test('3.3 and later meet the floor', () => {
 	for (const version of ['3.3', '3.3a', '3.6', '3.8', '3.10', '4.0']) {
-		t.false(tmuxVersionTooOld(version), `version ${version}`);
+		expect(tmuxVersionTooOld(version), `version ${version}`).toBe(false);
 	}
 });
 
-test('preview builds compare by their release number', t => {
-	t.false(tmuxVersionTooOld('next-3.9'));
+test('preview builds compare by their release number', () => {
+	expect(tmuxVersionTooOld('next-3.9')).toBe(false);
 });
 
-test('a version without a release number never blocks startup', t => {
-	t.false(tmuxVersionTooOld('master'));
-	t.false(tmuxVersionTooOld(''));
+test('a version without a release number never blocks startup', () => {
+	expect(tmuxVersionTooOld('master')).toBe(false);
+	expect(tmuxVersionTooOld('')).toBe(false);
 });

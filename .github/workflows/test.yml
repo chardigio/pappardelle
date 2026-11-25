@@ -63,7 +63,7 @@ jobs:
 
       # Formatting and lint are checked here, not just in the monorepo, because
       # sync-back pushes a merged PR's diff *directly to monorepo master* — no
-      # PR, no gate. When this workflow only ran ava, a chardigio-side PR could
+      # PR, no gate. When this workflow only ran the unit tests, a chardigio-side PR could
       # (and did, in #5) land a prettier violation straight onto a red master
       # with every check green here. These steps have to mirror the monorepo's
       # .github/workflows/pappardelle.yml or that hole reopens.
@@ -74,12 +74,12 @@ jobs:
         run: bun --bun xo
 
       - name: Run tests
-        run: bun --bun ava 'source/**/*.test.ts'
+        run: bun run test:unit
 
       - name: Test the compiled CLI after relocation
         env:
           PAPPARDELLE_TEST_STANDALONE: '1'
-        run: bun --bun ava --serial source/open-space-command.test.ts
+        run: bun run test:unit source/open-space-command.test.ts
 
       - name: Verify program status transport, lifecycle, cleanup and app
         run: |
@@ -93,6 +93,9 @@ jobs:
 
       - name: Verify tmux popups close and release their pty
         run: bun integration-tests/verify-popup-close.ts
+
+      - name: Verify the rail's boxes and row layout
+        run: bun integration-tests/verify-rail-boxes.ts
 
   tmux-floor:
     name: Program status on tmux 3.3a (sqliteState ${{ matrix.sqlite_state }})

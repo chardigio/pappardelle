@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
 import {testState} from '../test/helpers/state.ts';
 import {
 	JiraProvider,
@@ -28,8 +28,8 @@ function tempCache(): StateColorCache {
 }
 
 /** A color store on a temp directory, and the file it keeps. */
-function colorStore(t: ExecutionContext) {
-	const {daos, stateDir} = testState(t);
+function colorStore() {
+	const {daos, stateDir} = testState();
 	return {
 		dao: daos.stateColors,
 		cachePath: getStateColorsPath('repo', stateDir),
@@ -40,7 +40,7 @@ function colorStore(t: ExecutionContext) {
 // mapJiraIssue — pure parsing logic
 // ============================================================================
 
-test('mapJiraIssue extracts title from standard Jira response', t => {
+test('mapJiraIssue extracts title from standard Jira response', () => {
 	const raw = {
 		key: 'CHEX-300',
 		fields: {
@@ -52,13 +52,13 @@ test('mapJiraIssue extracts title from standard Jira response', t => {
 		},
 	};
 	const issue = mapJiraIssue(raw);
-	t.is(issue.identifier, 'CHEX-300');
-	t.is(issue.title, 'Refactor OrderService for PRISM accept flow');
-	t.is(issue.state.name, 'Done');
-	t.is(issue.state.color, '#4caf50');
+	expect(issue.identifier).toBe('CHEX-300');
+	expect(issue.title).toBe('Refactor OrderService for PRISM accept flow');
+	expect(issue.state.name).toBe('Done');
+	expect(issue.state.color).toBe('#4caf50');
 });
 
-test('mapJiraIssue handles missing project field', t => {
+test('mapJiraIssue handles missing project field', () => {
 	const raw = {
 		key: 'CHEX-123',
 		fields: {
@@ -67,11 +67,11 @@ test('mapJiraIssue handles missing project field', t => {
 		},
 	};
 	const issue = mapJiraIssue(raw);
-	t.is(issue.title, 'Fix bug');
-	t.is(issue.project, null);
+	expect(issue.title).toBe('Fix bug');
+	expect(issue.project).toBe(null);
 });
 
-test('mapJiraIssue carries the Jira project key alongside its name', t => {
+test('mapJiraIssue carries the Jira project key alongside its name', () => {
 	// STA-1649: profile resolution matches tracker_projects against the Jira
 	// project key as well as its name, so both must survive the mapping.
 	const raw = {
@@ -83,10 +83,13 @@ test('mapJiraIssue carries the Jira project key alongside its name', t => {
 		},
 	};
 	const issue = mapJiraIssue(raw);
-	t.deepEqual(issue.project, {name: 'Pappardelle Testing', key: 'KAN'});
+	expect(issue.project).toStrictEqual({
+		name: 'Pappardelle Testing',
+		key: 'KAN',
+	});
 });
 
-test('mapJiraIssue leaves project key undefined when the response lacks it', t => {
+test('mapJiraIssue leaves project key undefined when the response lacks it', () => {
 	const raw = {
 		key: 'KAN-9',
 		fields: {
@@ -96,11 +99,11 @@ test('mapJiraIssue leaves project key undefined when the response lacks it', t =
 		},
 	};
 	const issue = mapJiraIssue(raw);
-	t.is(issue.project?.name, 'Pappardelle Testing');
-	t.is(issue.project?.key, undefined);
+	expect(issue.project?.name).toBe('Pappardelle Testing');
+	expect(issue.project?.key).toBe(undefined);
 });
 
-test('mapJiraIssue maps statusCategory to color', t => {
+test('mapJiraIssue maps statusCategory to color', () => {
 	const raw = {
 		key: 'CHEX-1',
 		fields: {
@@ -108,14 +111,14 @@ test('mapJiraIssue maps statusCategory to color', t => {
 			status: {name: 'To Do', statusCategory: {name: 'To Do'}},
 		},
 	};
-	t.is(mapJiraIssue(raw).state.color, '#95a2b3');
+	expect(mapJiraIssue(raw).state.color).toBe('#95a2b3');
 });
 
 // ============================================================================
 // mapJiraIssue — label parsing
 // ============================================================================
 
-test('mapJiraIssue extracts labels from fields.labels', t => {
+test('mapJiraIssue extracts labels from fields.labels', () => {
 	const raw = {
 		key: 'CHEX-400',
 		fields: {
@@ -125,10 +128,10 @@ test('mapJiraIssue extracts labels from fields.labels', t => {
 		},
 	};
 	const issue = mapJiraIssue(raw);
-	t.deepEqual(issue.labels, ['pappardelle', 'platform']);
+	expect(issue.labels).toStrictEqual(['pappardelle', 'platform']);
 });
 
-test('mapJiraIssue returns undefined labels when fields.labels is missing', t => {
+test('mapJiraIssue returns undefined labels when fields.labels is missing', () => {
 	const raw = {
 		key: 'CHEX-401',
 		fields: {
@@ -137,10 +140,10 @@ test('mapJiraIssue returns undefined labels when fields.labels is missing', t =>
 		},
 	};
 	const issue = mapJiraIssue(raw);
-	t.is(issue.labels, undefined);
+	expect(issue.labels).toBe(undefined);
 });
 
-test('mapJiraIssue filters out non-string entries from fields.labels', t => {
+test('mapJiraIssue filters out non-string entries from fields.labels', () => {
 	const raw = {
 		key: 'CHEX-402',
 		fields: {
@@ -150,7 +153,7 @@ test('mapJiraIssue filters out non-string entries from fields.labels', t => {
 		},
 	};
 	const issue = mapJiraIssue(raw);
-	t.deepEqual(issue.labels, ['valid', 'also-valid']);
+	expect(issue.labels).toStrictEqual(['valid', 'also-valid']);
 });
 
 // ============================================================================
@@ -175,7 +178,7 @@ function makeJiraResponse(
 	});
 }
 
-test('getIssue populates cache and getIssueCached returns issue', async t => {
+test('getIssue populates cache and getIssueCached returns issue', async () => {
 	const json = makeJiraResponse('CHEX-100', 'Add feature X');
 	const provider = new JiraProvider(
 		'https://example.com',
@@ -185,15 +188,15 @@ test('getIssue populates cache and getIssueCached returns issue', async t => {
 	);
 
 	const issue = await provider.getIssue('CHEX-100');
-	t.truthy(issue);
-	t.is(issue!.title, 'Add feature X');
+	expect(issue).toBeTruthy();
+	expect(issue!.title).toBe('Add feature X');
 
 	const cached = provider.getIssueCached('CHEX-100');
-	t.truthy(cached);
-	t.is(cached!.title, 'Add feature X');
+	expect(cached).toBeTruthy();
+	expect(cached!.title).toBe('Add feature X');
 });
 
-test('getIssue extracts issue when CLI exits non-zero but stdout has valid JSON', async t => {
+test('getIssue extracts issue when CLI exits non-zero but stdout has valid JSON', async () => {
 	// acli returns valid JSON but exits with code 1 — execFile rejects
 	const json = makeJiraResponse('CHEX-200', 'Fix authentication bug');
 	const provider = new JiraProvider(
@@ -212,15 +215,15 @@ test('getIssue extracts issue when CLI exits non-zero but stdout has valid JSON'
 	);
 
 	const issue = await provider.getIssue('CHEX-200');
-	t.truthy(issue, 'should extract issue from error.stdout');
-	t.is(issue!.title, 'Fix authentication bug');
+	expect(issue, 'should extract issue from error.stdout').toBeTruthy();
+	expect(issue!.title).toBe('Fix authentication bug');
 
 	const cached = provider.getIssueCached('CHEX-200');
-	t.truthy(cached, 'cache should have the issue');
-	t.is(cached!.title, 'Fix authentication bug');
+	expect(cached, 'cache should have the issue').toBeTruthy();
+	expect(cached!.title).toBe('Fix authentication bug');
 });
 
-test('getIssue returns null when CLI truly fails (no stdout)', async t => {
+test('getIssue returns null when CLI truly fails (no stdout)', async () => {
 	const provider = new JiraProvider(
 		'https://example.com',
 		async () => {
@@ -231,68 +234,66 @@ test('getIssue returns null when CLI truly fails (no stdout)', async t => {
 	);
 
 	const issue = await provider.getIssue('CHEX-999');
-	t.is(issue, null);
-	t.is(provider.getIssueCached('CHEX-999'), null);
+	expect(issue).toBe(null);
+	expect(provider.getIssueCached('CHEX-999')).toBe(null);
 });
 
 // ============================================================================
 // Existing unit tests
 // ============================================================================
 
-test('JiraProvider has name "jira"', t => {
+test('JiraProvider has name "jira"', () => {
 	const provider = new JiraProvider(
 		'https://mycompany.atlassian.net',
 		undefined,
 		undefined,
 		tempCache(),
 	);
-	t.is(provider.name, 'jira');
+	expect(provider.name).toBe('jira');
 });
 
-test('buildIssueUrl uses base_url', t => {
+test('buildIssueUrl uses base_url', () => {
 	const provider = new JiraProvider(
 		'https://mycompany.atlassian.net',
 		undefined,
 		undefined,
 		tempCache(),
 	);
-	t.is(
-		provider.buildIssueUrl('PROJ-123'),
+	expect(provider.buildIssueUrl('PROJ-123')).toBe(
 		'https://mycompany.atlassian.net/browse/PROJ-123',
 	);
 });
 
-test('buildIssueUrl strips trailing slash from base_url', t => {
+test('buildIssueUrl strips trailing slash from base_url', () => {
 	const provider = new JiraProvider(
 		'https://mycompany.atlassian.net/',
 		undefined,
 		undefined,
 		tempCache(),
 	);
-	t.is(
-		provider.buildIssueUrl('PROJ-456'),
+	expect(provider.buildIssueUrl('PROJ-456')).toBe(
 		'https://mycompany.atlassian.net/browse/PROJ-456',
 	);
 });
 
-test('getIssueCached returns null for uncached issues', t => {
+test('getIssueCached returns null for uncached issues', () => {
 	const provider = new JiraProvider(
 		'https://mycompany.atlassian.net',
 		undefined,
 		undefined,
 		tempCache(),
 	);
-	t.is(provider.getIssueCached('PROJ-999'), null);
+	expect(provider.getIssueCached('PROJ-999')).toBe(null);
 });
 
-test('getWorkflowStateColor returns null for unknown state', t => {
+test('getWorkflowStateColor returns null for unknown state', () => {
 	const provider = new JiraProvider(
 		'https://mycompany.atlassian.net',
 		undefined,
 		undefined,
 		tempCache(),
 	);
-	t.is(provider.getWorkflowStateColor('Unknown State'), null);
+	expect(provider.getWorkflowStateColor('Unknown State')).toBe(null);
 });
 
 // ============================================================================
@@ -303,7 +304,7 @@ test('getWorkflowStateColor returns null for unknown state', t => {
 // colored correctly without needing to fetch an issue first.
 // ============================================================================
 
-test('getWorkflowStateColor returns blue for "In Progress" without any fetched issues', t => {
+test('getWorkflowStateColor returns blue for "In Progress" without any fetched issues', () => {
 	const provider = new JiraProvider(
 		'https://mycompany.atlassian.net',
 		undefined,
@@ -311,10 +312,10 @@ test('getWorkflowStateColor returns blue for "In Progress" without any fetched i
 		tempCache(),
 	);
 	const color = provider.getWorkflowStateColor('In Progress');
-	t.is(color, '#4b9fea');
+	expect(color).toBe('#4b9fea');
 });
 
-test('getWorkflowStateColor returns green for "Done" without any fetched issues', t => {
+test('getWorkflowStateColor returns green for "Done" without any fetched issues', () => {
 	const provider = new JiraProvider(
 		'https://mycompany.atlassian.net',
 		undefined,
@@ -322,10 +323,10 @@ test('getWorkflowStateColor returns green for "Done" without any fetched issues'
 		tempCache(),
 	);
 	const color = provider.getWorkflowStateColor('Done');
-	t.is(color, '#4caf50');
+	expect(color).toBe('#4caf50');
 });
 
-test('getWorkflowStateColor returns gray for "To Do" without any fetched issues', t => {
+test('getWorkflowStateColor returns gray for "To Do" without any fetched issues', () => {
 	const provider = new JiraProvider(
 		'https://mycompany.atlassian.net',
 		undefined,
@@ -333,24 +334,24 @@ test('getWorkflowStateColor returns gray for "To Do" without any fetched issues'
 		tempCache(),
 	);
 	const color = provider.getWorkflowStateColor('To Do');
-	t.is(color, '#95a2b3');
+	expect(color).toBe('#95a2b3');
 });
 
-test('clearCache does not throw', t => {
+test('clearCache does not throw', () => {
 	const provider = new JiraProvider(
 		'https://mycompany.atlassian.net',
 		undefined,
 		undefined,
 		tempCache(),
 	);
-	t.notThrows(() => provider.clearCache());
+	expect(() => provider.clearCache()).not.toThrow();
 });
 
 // ============================================================================
 // getIssue: retry logic
 // ============================================================================
 
-test('getIssue succeeds on first attempt — no retry', async t => {
+test('getIssue succeeds on first attempt — no retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -365,13 +366,13 @@ test('getIssue succeeds on first attempt — no retry', async t => {
 	);
 	const issue = await provider.getIssue('CHEX-100');
 
-	t.is(callCount, 1);
-	t.truthy(issue);
-	t.is(issue!.title, 'First try');
-	t.is(issue!.identifier, 'CHEX-100');
+	expect(callCount).toBe(1);
+	expect(issue).toBeTruthy();
+	expect(issue!.title).toBe('First try');
+	expect(issue!.identifier).toBe('CHEX-100');
 });
 
-test('getIssue fails once then succeeds on retry', async t => {
+test('getIssue fails once then succeeds on retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -390,12 +391,12 @@ test('getIssue fails once then succeeds on retry', async t => {
 	);
 	const issue = await provider.getIssue('CHEX-200');
 
-	t.is(callCount, 2);
-	t.truthy(issue);
-	t.is(issue!.title, 'Retry success');
+	expect(callCount).toBe(2);
+	expect(issue).toBeTruthy();
+	expect(issue!.title).toBe('Retry success');
 });
 
-test('getIssue fails all retries — returns null and caches null', async t => {
+test('getIssue fails all retries — returns null and caches null', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -410,12 +411,12 @@ test('getIssue fails all retries — returns null and caches null', async t => {
 	);
 	const issue = await provider.getIssue('CHEX-300');
 
-	t.is(callCount, MAX_RETRIES);
-	t.is(issue, null);
-	t.is(provider.getIssueCached('CHEX-300'), null);
+	expect(callCount).toBe(MAX_RETRIES);
+	expect(issue).toBe(null);
+	expect(provider.getIssueCached('CHEX-300')).toBe(null);
 });
 
-test('getIssue with ENOENT — fails immediately, no retry', async t => {
+test('getIssue with ENOENT — fails immediately, no retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -430,11 +431,11 @@ test('getIssue with ENOENT — fails immediately, no retry', async t => {
 	);
 	const issue = await provider.getIssue('CHEX-400');
 
-	t.is(callCount, 1, 'should not retry on ENOENT');
-	t.is(issue, null);
+	expect(callCount, 'should not retry on ENOENT').toBe(1);
+	expect(issue).toBe(null);
 });
 
-test('getIssue with ENOENT — subsequent calls return cached without CLI call', async t => {
+test('getIssue with ENOENT — subsequent calls return cached without CLI call', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -448,15 +449,15 @@ test('getIssue with ENOENT — subsequent calls return cached without CLI call',
 		tempCache(),
 	);
 	await provider.getIssue('CHEX-410');
-	t.is(callCount, 1);
+	expect(callCount).toBe(1);
 
 	// Second call should not invoke exec at all
 	const issue2 = await provider.getIssue('CHEX-420');
-	t.is(callCount, 1, 'acliMissing should prevent further calls');
-	t.is(issue2, null);
+	expect(callCount, 'acliMissing should prevent further calls').toBe(1);
+	expect(issue2).toBe(null);
 });
 
-test('getIssue sleep is called between retries, not after final attempt', async t => {
+test('getIssue sleep is called between retries, not after final attempt', async () => {
 	const sleepCalls: number[] = [];
 	const sleepSpy: SleepFn = async (ms: number) => {
 		sleepCalls.push(ms);
@@ -474,17 +475,15 @@ test('getIssue sleep is called between retries, not after final attempt', async 
 	);
 	await provider.getIssue('CHEX-500');
 
-	t.is(
-		sleepCalls.length,
+	expect(sleepCalls.length, 'sleep should be called between retries only').toBe(
 		MAX_RETRIES - 1,
-		'sleep should be called between retries only',
 	);
 	for (const ms of sleepCalls) {
-		t.is(ms, 500, 'sleep delay should be RETRY_DELAY_MS');
+		expect(ms, 'sleep delay should be RETRY_DELAY_MS').toBe(500);
 	}
 });
 
-test('getIssue extracts issue from non-zero exit stdout without retrying', async t => {
+test('getIssue extracts issue from non-zero exit stdout without retrying', async () => {
 	let callCount = 0;
 	const json = makeJiraResponse('CHEX-600', 'Stdout extraction');
 	const exec: CliExecutor = async () => {
@@ -506,12 +505,12 @@ test('getIssue extracts issue from non-zero exit stdout without retrying', async
 	);
 	const issue = await provider.getIssue('CHEX-600');
 
-	t.is(callCount, 1, 'should not retry when stdout has valid JSON');
-	t.truthy(issue);
-	t.is(issue!.title, 'Stdout extraction');
+	expect(callCount, 'should not retry when stdout has valid JSON').toBe(1);
+	expect(issue).toBeTruthy();
+	expect(issue!.title).toBe('Stdout extraction');
 });
 
-test('getIssue returns cached result within TTL without calling CLI', async t => {
+test('getIssue returns cached result within TTL without calling CLI', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -525,20 +524,20 @@ test('getIssue returns cached result within TTL without calling CLI', async t =>
 		tempCache(),
 	);
 	await provider.getIssue('CHEX-700');
-	t.is(callCount, 1);
+	expect(callCount).toBe(1);
 
 	// Second call should use cache
 	const issue2 = await provider.getIssue('CHEX-700');
-	t.is(callCount, 1, 'should not call CLI again within TTL');
-	t.truthy(issue2);
-	t.is(issue2!.title, 'Cached');
+	expect(callCount, 'should not call CLI again within TTL').toBe(1);
+	expect(issue2).toBeTruthy();
+	expect(issue2!.title).toBe('Cached');
 });
 
 // ============================================================================
 // createComment: retry logic
 // ============================================================================
 
-test('createComment succeeds on first attempt', async t => {
+test('createComment succeeds on first attempt', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -553,11 +552,11 @@ test('createComment succeeds on first attempt', async t => {
 	);
 	const result = await provider.createComment('CHEX-100', 'Hello');
 
-	t.is(callCount, 1);
-	t.true(result);
+	expect(callCount).toBe(1);
+	expect(result).toBe(true);
 });
 
-test('createComment fails once then succeeds on retry', async t => {
+test('createComment fails once then succeeds on retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -576,11 +575,11 @@ test('createComment fails once then succeeds on retry', async t => {
 	);
 	const result = await provider.createComment('CHEX-200', 'Hello');
 
-	t.is(callCount, 2);
-	t.true(result);
+	expect(callCount).toBe(2);
+	expect(result).toBe(true);
 });
 
-test('createComment fails all retries — returns false', async t => {
+test('createComment fails all retries — returns false', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -595,11 +594,11 @@ test('createComment fails all retries — returns false', async t => {
 	);
 	const result = await provider.createComment('CHEX-300', 'Hello');
 
-	t.is(callCount, MAX_RETRIES);
-	t.false(result);
+	expect(callCount).toBe(MAX_RETRIES);
+	expect(result).toBe(false);
 });
 
-test('createComment with ENOENT — fails immediately, no retry', async t => {
+test('createComment with ENOENT — fails immediately, no retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -614,16 +613,16 @@ test('createComment with ENOENT — fails immediately, no retry', async t => {
 	);
 	const result = await provider.createComment('CHEX-400', 'Hello');
 
-	t.is(callCount, 1, 'should not retry on ENOENT');
-	t.false(result);
+	expect(callCount, 'should not retry on ENOENT').toBe(1);
+	expect(result).toBe(false);
 });
 
 // ============================================================================
 // State color disk persistence (STA-590)
 // ============================================================================
 
-test('getIssue persists state colors to disk via shared cache', async t => {
-	const {dao, cachePath} = colorStore(t);
+test('getIssue persists state colors to disk via shared cache', async () => {
+	const {dao, cachePath} = colorStore();
 	const exec: CliExecutor = async () =>
 		makeJiraResponse('CHEX-800', 'Persist test', 'In Progress', 'In Progress');
 
@@ -635,16 +634,18 @@ test('getIssue persists state colors to disk via shared cache', async t => {
 	);
 	await provider.getIssue('CHEX-800');
 
-	t.true(fs.existsSync(cachePath), 'state-colors.json should be created');
+	expect(fs.existsSync(cachePath), 'state-colors.json should be created').toBe(
+		true,
+	);
 	const data = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-	t.is(data['In Progress'], '#4b9fea');
+	expect(data['In Progress']).toBe('#4b9fea');
 });
 
 // ============================================================================
 // getIssues: batch fetching (STA-608)
 // ============================================================================
 
-test('getIssues returns empty map for empty keys array', async t => {
+test('getIssues returns empty map for empty keys array', async () => {
 	const provider = new JiraProvider(
 		'https://example.com',
 		async () => '[]',
@@ -652,10 +653,10 @@ test('getIssues returns empty map for empty keys array', async t => {
 		tempCache(),
 	);
 	const result = await provider.getIssues([]);
-	t.is(result.size, 0);
+	expect(result.size).toBe(0);
 });
 
-test('getIssues fetches multiple issues via single JQL search', async t => {
+test('getIssues fetches multiple issues via single JQL search', async () => {
 	let callCount = 0;
 	let lastArgs: string[] = [];
 	const exec: CliExecutor = async (_cmd, args) => {
@@ -690,14 +691,14 @@ test('getIssues fetches multiple issues via single JQL search', async t => {
 	);
 	const result = await provider.getIssues(['CHEX-1', 'CHEX-2']);
 
-	t.is(callCount, 1, 'should make a single CLI call');
-	t.true(lastArgs.includes('--jql'), 'should use JQL search');
-	t.is(result.size, 2);
-	t.is(result.get('CHEX-1')!.title, 'First');
-	t.is(result.get('CHEX-2')!.title, 'Second');
+	expect(callCount, 'should make a single CLI call').toBe(1);
+	expect(lastArgs.includes('--jql'), 'should use JQL search').toBe(true);
+	expect(result.size).toBe(2);
+	expect(result.get('CHEX-1')!.title).toBe('First');
+	expect(result.get('CHEX-2')!.title).toBe('Second');
 });
 
-test('getIssues populates cache and stateColors', async t => {
+test('getIssues populates cache and stateColors', async () => {
 	const exec: CliExecutor = async () =>
 		JSON.stringify([
 			{
@@ -717,11 +718,11 @@ test('getIssues populates cache and stateColors', async t => {
 	);
 	await provider.getIssues(['CHEX-10']);
 
-	t.is(provider.getIssueCached('CHEX-10')!.title, 'Cache test');
-	t.is(provider.getWorkflowStateColor('Done'), '#4caf50');
+	expect(provider.getIssueCached('CHEX-10')!.title).toBe('Cache test');
+	expect(provider.getWorkflowStateColor('Done')).toBe('#4caf50');
 });
 
-test('getIssues caches null for keys not found in results', async t => {
+test('getIssues caches null for keys not found in results', async () => {
 	const exec: CliExecutor = async (_cmd, args) => {
 		if (args.includes('search')) {
 			return JSON.stringify([
@@ -748,9 +749,9 @@ test('getIssues caches null for keys not found in results', async t => {
 	);
 	const result = await provider.getIssues(['CHEX-20', 'CHEX-21']);
 
-	t.truthy(result.get('CHEX-20'));
-	t.is(result.get('CHEX-21'), null);
-	t.is(provider.getIssueCached('CHEX-21'), null);
+	expect(result.get('CHEX-20')).toBeTruthy();
+	expect(result.get('CHEX-21')).toBe(null);
+	expect(provider.getIssueCached('CHEX-21')).toBe(null);
 });
 
 // ============================================================================
@@ -763,7 +764,7 @@ test('getIssues caches null for keys not found in results', async t => {
 // issue's data back to the requested key.
 // ============================================================================
 
-test('getIssue aliases a moved issue back to the requested key', async t => {
+test('getIssue aliases a moved issue back to the requested key', async () => {
 	// `view CHAZ-7` follows the move, returning the destination keyed FXAI-54.
 	const json = makeJiraResponse('FXAI-54', 'Moved issue title');
 	const provider = new JiraProvider(
@@ -774,21 +775,19 @@ test('getIssue aliases a moved issue back to the requested key', async t => {
 	);
 
 	const issue = await provider.getIssue('CHAZ-7');
-	t.truthy(issue);
-	t.is(
+	expect(issue).toBeTruthy();
+	expect(
 		issue!.identifier,
-		'CHAZ-7',
 		'identifier should be aliased to the requested key',
-	);
-	t.is(issue!.title, 'Moved issue title');
-	t.is(
+	).toBe('CHAZ-7');
+	expect(issue!.title).toBe('Moved issue title');
+	expect(
 		provider.getIssueCached('CHAZ-7')!.identifier,
-		'CHAZ-7',
 		'cache should be keyed and aliased to the requested key',
-	);
+	).toBe('CHAZ-7');
 });
 
-test('getIssue aliases a moved issue from non-zero exit stdout', async t => {
+test('getIssue aliases a moved issue from non-zero exit stdout', async () => {
 	// `view --json` on a moved issue prints valid JSON to stdout but exits 1.
 	const json = makeJiraResponse('FXAI-54', 'Moved via stderr exit');
 	const provider = new JiraProvider(
@@ -807,12 +806,12 @@ test('getIssue aliases a moved issue from non-zero exit stdout', async t => {
 	);
 
 	const issue = await provider.getIssue('CHAZ-7');
-	t.truthy(issue);
-	t.is(issue!.identifier, 'CHAZ-7');
-	t.is(issue!.title, 'Moved via stderr exit');
+	expect(issue).toBeTruthy();
+	expect(issue!.identifier).toBe('CHAZ-7');
+	expect(issue!.title).toBe('Moved via stderr exit');
 });
 
-test('getIssues resolves a moved issue back to the requested key', async t => {
+test('getIssues resolves a moved issue back to the requested key', async () => {
 	const exec: CliExecutor = async (_cmd, args) => {
 		if (args.includes('search')) {
 			// JQL `key in (CHAZ-7)` follows the move → destination key FXAI-54.
@@ -848,17 +847,19 @@ test('getIssues resolves a moved issue back to the requested key', async t => {
 	const result = await provider.getIssues(['CHAZ-7']);
 
 	const issue = result.get('CHAZ-7');
-	t.truthy(issue, 'moved issue should resolve under the requested key');
-	t.is(issue!.identifier, 'CHAZ-7');
-	t.is(issue!.title, 'Moved batch issue');
-	t.is(
+	expect(
+		issue,
+		'moved issue should resolve under the requested key',
+	).toBeTruthy();
+	expect(issue!.identifier).toBe('CHAZ-7');
+	expect(issue!.title).toBe('Moved batch issue');
+	expect(
 		result.get('FXAI-54'),
-		undefined,
 		'should not pollute results with the destination key',
-	);
+	).toBe(undefined);
 });
 
-test('getIssues resolves mixed direct and moved issues', async t => {
+test('getIssues resolves mixed direct and moved issues', async () => {
 	const exec: CliExecutor = async (_cmd, args) => {
 		if (args.includes('search')) {
 			return JSON.stringify([
@@ -891,13 +892,13 @@ test('getIssues resolves mixed direct and moved issues', async t => {
 	);
 	const result = await provider.getIssues(['CHEX-1', 'CHAZ-7']);
 
-	t.is(result.get('CHEX-1')!.title, 'Direct');
-	t.is(result.get('CHEX-1')!.identifier, 'CHEX-1');
-	t.is(result.get('CHAZ-7')!.title, 'Moved');
-	t.is(result.get('CHAZ-7')!.identifier, 'CHAZ-7');
+	expect(result.get('CHEX-1')!.title).toBe('Direct');
+	expect(result.get('CHEX-1')!.identifier).toBe('CHEX-1');
+	expect(result.get('CHAZ-7')!.title).toBe('Moved');
+	expect(result.get('CHAZ-7')!.identifier).toBe('CHAZ-7');
 });
 
-test('getIssues falls back to individual calls when search fails', async t => {
+test('getIssues falls back to individual calls when search fails', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async (_cmd, args) => {
 		callCount++;
@@ -918,12 +919,12 @@ test('getIssues falls back to individual calls when search fails', async t => {
 	);
 	const result = await provider.getIssues(['CHEX-30', 'CHEX-31']);
 
-	t.true(callCount > 1, 'should fall back to individual calls');
-	t.is(result.get('CHEX-30')!.title, 'Issue CHEX-30');
-	t.is(result.get('CHEX-31')!.title, 'Issue CHEX-31');
+	expect(callCount > 1, 'should fall back to individual calls').toBe(true);
+	expect(result.get('CHEX-30')!.title).toBe('Issue CHEX-30');
+	expect(result.get('CHEX-31')!.title).toBe('Issue CHEX-31');
 });
 
-test('getIssues returns cached values when acliMissing', async t => {
+test('getIssues returns cached values when acliMissing', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -938,16 +939,16 @@ test('getIssues returns cached values when acliMissing', async t => {
 	);
 	// Trigger acliMissing
 	await provider.getIssue('CHEX-40');
-	t.is(callCount, 1);
+	expect(callCount).toBe(1);
 
 	// getIssues should not make any CLI calls
 	const result = await provider.getIssues(['CHEX-40', 'CHEX-41']);
-	t.is(callCount, 1, 'should not make CLI calls when acliMissing');
-	t.is(result.get('CHEX-40'), null);
-	t.is(result.get('CHEX-41'), null);
+	expect(callCount, 'should not make CLI calls when acliMissing').toBe(1);
+	expect(result.get('CHEX-40')).toBe(null);
+	expect(result.get('CHEX-41')).toBe(null);
 });
 
-test('getIssues sets acliMissing on ENOENT during batch search', async t => {
+test('getIssues sets acliMissing on ENOENT during batch search', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -961,20 +962,20 @@ test('getIssues sets acliMissing on ENOENT during batch search', async t => {
 		tempCache(),
 	);
 	const result = await provider.getIssues(['CHEX-50']);
-	t.is(callCount, 1);
-	t.is(result.get('CHEX-50'), null);
+	expect(callCount).toBe(1);
+	expect(result.get('CHEX-50')).toBe(null);
 
 	// Subsequent call should not invoke CLI
 	const result2 = await provider.getIssues(['CHEX-51']);
-	t.is(callCount, 1, 'acliMissing should prevent further calls');
-	t.is(result2.get('CHEX-51'), null);
+	expect(callCount, 'acliMissing should prevent further calls').toBe(1);
+	expect(result2.get('CHEX-51')).toBe(null);
 });
 
 // ============================================================================
 // searchAssignedIssues
 // ============================================================================
 
-test('searchAssignedIssues calls acli with JQL for assignee and statuses', async t => {
+test('searchAssignedIssues calls acli with JQL for assignee and statuses', async () => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {
 		calls.push(args);
@@ -1000,19 +1001,19 @@ test('searchAssignedIssues calls acli with JQL for assignee and statuses', async
 		'In Progress',
 	]);
 
-	t.is(calls.length, 1);
-	t.true(calls[0]!.includes('--jql'));
+	expect(calls.length).toBe(1);
+	expect(calls[0]!.includes('--jql')).toBe(true);
 	const jqlIndex = calls[0]!.indexOf('--jql');
 	const jql = calls[0]![jqlIndex + 1]!;
-	t.true(jql.includes('assignee'));
-	t.true(jql.includes('currentUser()'));
-	t.true(jql.includes('To Do'));
-	t.true(jql.includes('In Progress'));
-	t.is(result.length, 1);
-	t.is(result[0]!.identifier, 'CHEX-100');
+	expect(jql.includes('assignee')).toBe(true);
+	expect(jql.includes('currentUser()')).toBe(true);
+	expect(jql.includes('To Do')).toBe(true);
+	expect(jql.includes('In Progress')).toBe(true);
+	expect(result.length).toBe(1);
+	expect(result[0]!.identifier).toBe('CHEX-100');
 });
 
-test('searchAssignedIssues uses currentUser() for "me" in JQL', async t => {
+test('searchAssignedIssues uses currentUser() for "me" in JQL', async () => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {
 		calls.push(args);
@@ -1028,13 +1029,13 @@ test('searchAssignedIssues uses currentUser() for "me" in JQL', async t => {
 	await provider.searchAssignedIssues('me', ['To Do']);
 
 	const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
-	t.true(
+	expect(
 		jql.includes('currentUser()'),
 		'should use currentUser() for "me" assignee',
-	);
+	).toBe(true);
 });
 
-test('searchAssignedIssues omits assignee clause when assignee is undefined', async t => {
+test('searchAssignedIssues omits assignee clause when assignee is undefined', async () => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {
 		calls.push(args);
@@ -1050,14 +1051,16 @@ test('searchAssignedIssues omits assignee clause when assignee is undefined', as
 	await provider.searchAssignedIssues(undefined, ['To Do', 'In Progress']);
 
 	const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
-	t.false(
+	expect(
 		jql.includes('assignee'),
 		'should not include assignee clause when undefined',
+	).toBe(false);
+	expect(jql.includes('status IN'), 'should still include status clause').toBe(
+		true,
 	);
-	t.true(jql.includes('status IN'), 'should still include status clause');
 });
 
-test('searchAssignedIssues uses quoted assignee for explicit usernames', async t => {
+test('searchAssignedIssues uses quoted assignee for explicit usernames', async () => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {
 		calls.push(args);
@@ -1073,14 +1076,14 @@ test('searchAssignedIssues uses quoted assignee for explicit usernames', async t
 	await provider.searchAssignedIssues('charlie@example.com', ['To Do']);
 
 	const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
-	t.true(
+	expect(
 		jql.includes('"charlie@example.com"'),
 		'should quote explicit assignee',
-	);
+	).toBe(true);
 });
 
 for (const assignee of ['me', undefined]) {
-	test(`searchAssignedIssues orders by creation date (assignee: ${String(assignee)})`, async t => {
+	test(`searchAssignedIssues orders by creation date (assignee: ${String(assignee)})`, async () => {
 		const calls: string[][] = [];
 		const exec: CliExecutor = async (_cmd, args) => {
 			calls.push(args);
@@ -1096,11 +1099,14 @@ for (const assignee of ['me', undefined]) {
 		await provider.searchAssignedIssues(assignee, ['To Do']);
 
 		const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
-		t.true(jql.endsWith(' ORDER BY created DESC'), `unexpected JQL: ${jql}`);
+		expect(
+			jql.endsWith(' ORDER BY created DESC'),
+			`unexpected JQL: ${jql}`,
+		).toBe(true);
 	});
 }
 
-test('searchAssignedIssues returns the newest-first page oldest first', async t => {
+test('searchAssignedIssues returns the newest-first page oldest first', async () => {
 	const exec: CliExecutor = async () =>
 		JSON.stringify(
 			['STE-30', 'STE-20', 'STE-10'].map(key => ({
@@ -1120,13 +1126,14 @@ test('searchAssignedIssues returns the newest-first page oldest first', async t 
 	);
 	const result = await provider.searchAssignedIssues('me', ['To Do']);
 
-	t.deepEqual(
-		result.map(issue => issue.identifier),
-		['STE-10', 'STE-20', 'STE-30'],
-	);
+	expect(result.map(issue => issue.identifier)).toStrictEqual([
+		'STE-10',
+		'STE-20',
+		'STE-30',
+	]);
 });
 
-test('searchAssignedIssues returns empty array when acliMissing', async t => {
+test('searchAssignedIssues returns empty array when acliMissing', async () => {
 	const exec: CliExecutor = async () => {
 		throw makeEnoentError();
 	};
@@ -1141,10 +1148,10 @@ test('searchAssignedIssues returns empty array when acliMissing', async t => {
 	await provider.getIssue('CHEX-1');
 
 	const result = await provider.searchAssignedIssues('me', ['To Do']);
-	t.deepEqual(result, []);
+	expect(result).toStrictEqual([]);
 });
 
-test('searchAssignedIssues returns empty array for empty statuses', async t => {
+test('searchAssignedIssues returns empty array for empty statuses', async () => {
 	const exec: CliExecutor = async () => '[]';
 
 	const provider = new JiraProvider(
@@ -1154,10 +1161,10 @@ test('searchAssignedIssues returns empty array for empty statuses', async t => {
 		tempCache(),
 	);
 	const result = await provider.searchAssignedIssues('me', []);
-	t.deepEqual(result, []);
+	expect(result).toStrictEqual([]);
 });
 
-test('searchAssignedIssues skips malformed issues without discarding valid ones', async t => {
+test('searchAssignedIssues skips malformed issues without discarding valid ones', async () => {
 	const exec: CliExecutor = async () => {
 		return JSON.stringify([
 			{
@@ -1190,12 +1197,12 @@ test('searchAssignedIssues skips malformed issues without discarding valid ones'
 
 	// Should get both valid issues, skipping the null entry that causes mapJiraIssue to throw
 	// (results come back reversed: acli returns newest first)
-	t.is(result.length, 2);
-	t.is(result[0]!.identifier, 'CHEX-3');
-	t.is(result[1]!.identifier, 'CHEX-1');
+	expect(result.length).toBe(2);
+	expect(result[0]!.identifier).toBe('CHEX-3');
+	expect(result[1]!.identifier).toBe('CHEX-1');
 });
 
-test('searchAssignedIssues escapes double quotes in assignee', async t => {
+test('searchAssignedIssues escapes double quotes in assignee', async () => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {
 		calls.push(args);
@@ -1211,13 +1218,13 @@ test('searchAssignedIssues escapes double quotes in assignee', async t => {
 	await provider.searchAssignedIssues('user"name', ['To Do']);
 
 	const jql = calls[0]![calls[0]!.indexOf('--jql') + 1]!;
-	t.true(
+	expect(
 		jql.includes('assignee = "user\\"name"'),
 		'should escape double quotes in assignee',
-	);
+	).toBe(true);
 });
 
-test('searchAssignedIssues returns empty array on CLI error', async t => {
+test('searchAssignedIssues returns empty array on CLI error', async () => {
 	const exec: CliExecutor = async (_cmd, args) => {
 		if (args.includes('search')) {
 			throw new Error('API error');
@@ -1233,11 +1240,11 @@ test('searchAssignedIssues returns empty array on CLI error', async t => {
 		tempCache(),
 	);
 	const result = await provider.searchAssignedIssues('me', ['To Do']);
-	t.deepEqual(result, []);
+	expect(result).toStrictEqual([]);
 });
 
-test('new Jira provider loads persisted state colors from disk', t => {
-	const {dao, cachePath} = colorStore(t);
+test('new Jira provider loads persisted state colors from disk', () => {
+	const {dao, cachePath} = colorStore();
 	fs.writeFileSync(
 		cachePath,
 		JSON.stringify({Done: '#custom00', 'In Progress': '#custom11'}) + '\n',
@@ -1250,15 +1257,15 @@ test('new Jira provider loads persisted state colors from disk', t => {
 		new StateColorCache(dao),
 	);
 	// Persisted cache should take priority over STATUS_CATEGORY_COLORS
-	t.is(provider.getWorkflowStateColor('Done'), '#custom00');
-	t.is(provider.getWorkflowStateColor('In Progress'), '#custom11');
+	expect(provider.getWorkflowStateColor('Done')).toBe('#custom00');
+	expect(provider.getWorkflowStateColor('In Progress')).toBe('#custom11');
 });
 
 // ============================================================================
 // mapJiraIssue — status category to state.type normalization (STA-2139)
 // ============================================================================
 
-test('mapJiraIssue normalizes the Done category to "completed"', t => {
+test('mapJiraIssue normalizes the Done category to "completed"', () => {
 	const raw = {
 		key: 'CHEX-500',
 		fields: {
@@ -1269,10 +1276,10 @@ test('mapJiraIssue normalizes the Done category to "completed"', t => {
 			},
 		},
 	};
-	t.is(mapJiraIssue(raw).state.type, 'completed');
+	expect(mapJiraIssue(raw).state.type).toBe('completed');
 });
 
-test('mapJiraIssue normalizes the In Progress category to "started"', t => {
+test('mapJiraIssue normalizes the In Progress category to "started"', () => {
 	const raw = {
 		key: 'CHEX-501',
 		fields: {
@@ -1283,10 +1290,10 @@ test('mapJiraIssue normalizes the In Progress category to "started"', t => {
 			},
 		},
 	};
-	t.is(mapJiraIssue(raw).state.type, 'started');
+	expect(mapJiraIssue(raw).state.type).toBe('started');
 });
 
-test('mapJiraIssue normalizes the To Do category to "unstarted"', t => {
+test('mapJiraIssue normalizes the To Do category to "unstarted"', () => {
 	const raw = {
 		key: 'CHEX-502',
 		fields: {
@@ -1297,10 +1304,10 @@ test('mapJiraIssue normalizes the To Do category to "unstarted"', t => {
 			},
 		},
 	};
-	t.is(mapJiraIssue(raw).state.type, 'unstarted');
+	expect(mapJiraIssue(raw).state.type).toBe('unstarted');
 });
 
-test('mapJiraIssue normalizes by category name when the key is absent', t => {
+test('mapJiraIssue normalizes by category name when the key is absent', () => {
 	const raw = {
 		key: 'CHEX-503',
 		fields: {
@@ -1308,10 +1315,10 @@ test('mapJiraIssue normalizes by category name when the key is absent', t => {
 			status: {name: 'Shipped', statusCategory: {name: 'Done'}},
 		},
 	};
-	t.is(mapJiraIssue(raw).state.type, 'completed');
+	expect(mapJiraIssue(raw).state.type).toBe('completed');
 });
 
-test('mapJiraIssue prefers the category key over a localized category name', t => {
+test('mapJiraIssue prefers the category key over a localized category name', () => {
 	const raw = {
 		key: 'CHEX-504',
 		fields: {
@@ -1320,11 +1327,11 @@ test('mapJiraIssue prefers the category key over a localized category name', t =
 		},
 	};
 	const issue = mapJiraIssue(raw);
-	t.is(issue.state.type, 'completed');
-	t.is(issue.state.color, '#4caf50');
+	expect(issue.state.type).toBe('completed');
+	expect(issue.state.color).toBe('#4caf50');
 });
 
-test('mapJiraIssue falls back to "unstarted" for an unknown category', t => {
+test('mapJiraIssue falls back to "unstarted" for an unknown category', () => {
 	const raw = {
 		key: 'CHEX-505',
 		fields: {
@@ -1333,11 +1340,11 @@ test('mapJiraIssue falls back to "unstarted" for an unknown category', t => {
 		},
 	};
 	const issue = mapJiraIssue(raw);
-	t.is(issue.state.type, 'unstarted');
-	t.is(issue.state.color, '#95a2b3');
+	expect(issue.state.type).toBe('unstarted');
+	expect(issue.state.color).toBe('#95a2b3');
 });
 
-test('mapJiraIssue defaults to "unstarted" when status is missing', t => {
+test('mapJiraIssue defaults to "unstarted" when status is missing', () => {
 	const raw = {key: 'CHEX-506', fields: {summary: 'No status at all'}};
-	t.is(mapJiraIssue(raw).state.type, 'unstarted');
+	expect(mapJiraIssue(raw).state.type).toBe('unstarted');
 });

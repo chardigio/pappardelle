@@ -3,7 +3,7 @@
  * Local verification of workspace-deinit against real shell execution.
  * Tests: command execution, variable expansion, continue_on_error, real cwd handling.
  *
- * NOT an ava test — run manually with `bun integration-tests/verify-workspace-deinit.ts`
+ * NOT a unit test — run manually with `bun integration-tests/verify-workspace-deinit.ts`
  *
  * Creates a temp directory to simulate a worktree, then cleans up after.
  */

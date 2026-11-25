@@ -1,12 +1,13 @@
 import React, {useState} from 'react';
 import {render} from '../../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../../test/helpers/teardown.ts';
 import TextInput from './TextInput.tsx';
 
 // Terminals and tmux deliver a long paste as several stdin reads, which can all
 // land before React re-renders the input with the first chunk applied.
-test('a paste split across stdin reads keeps every chunk', async t => {
+test('a paste split across stdin reads keeps every chunk', async () => {
 	let latest = '';
 	function Field() {
 		const [value, setValue] = useState('');
@@ -15,7 +16,7 @@ test('a paste split across stdin reads keeps every chunk', async t => {
 	}
 
 	const view = await render(React.createElement(Field));
-	t.teardown(async () => {
+	teardown(async () => {
 		await view.unmount();
 	});
 	await delay(10);
@@ -25,8 +26,7 @@ test('a paste split across stdin reads keeps every chunk', async t => {
 	await view.stdin.write('411');
 	await delay(50);
 
-	t.is(
-		latest,
+	expect(latest).toBe(
 		'https://gitlab.seatgeekadmin.com/rex/catalyst/-/merge_requests/2411',
 	);
 });

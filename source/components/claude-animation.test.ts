@@ -1,10 +1,11 @@
 import React, {Profiler} from 'react';
 import {render} from '../../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../../test/helpers/teardown.ts';
 import ClaudeAnimation from './ClaudeAnimation.tsx';
 
-test('twenty active rows animate in one React commit per frame', async t => {
+test('twenty active rows animate in one React commit per frame', async () => {
 	let commits = 0;
 	const view = await render(
 		React.createElement(
@@ -19,15 +20,21 @@ test('twenty active rows animate in one React commit per frame', async t => {
 			),
 		),
 	);
-	t.teardown(async () => {
+	teardown(async () => {
 		await view.unmount();
 	});
 	await delay(50);
 	commits = 0;
 	await delay(500);
-	t.true(commits > 0, 'Spinners must still animate');
-	t.true(commits <= 5, `Expected shared frames, received ${commits} commits`);
+	expect(commits > 0, 'Spinners must still animate').toBe(true);
+	expect(
+		commits <= 5,
+		`Expected shared frames, received ${commits} commits`,
+	).toBe(true);
 	const frame = view.lastFrame() ?? '';
-	t.is(frame.length, 20);
-	t.is(new Set(frame).size, 1, 'Every row must show the same animation frame');
+	expect(frame.length).toBe(20);
+	expect(
+		new Set(frame).size,
+		'Every row must show the same animation frame',
+	).toBe(1);
 });

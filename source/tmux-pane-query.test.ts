@@ -7,11 +7,11 @@
  * claude pane. The list then laid its rows out for a width the pane didn't
  * have, and Yoga's shrink chewed the issue key and title off every row.
  */
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {paneQueryArgs} from './tmux.ts';
 
-test('a pane id is passed through as an explicit -t target', t => {
-	t.deepEqual(paneQueryArgs('#{pane_width}', '%7'), [
+test('a pane id is passed through as an explicit -t target', () => {
+	expect(paneQueryArgs('#{pane_width}', '%7')).toStrictEqual([
 		'display-message',
 		'-p',
 		'-t',
@@ -20,21 +20,21 @@ test('a pane id is passed through as an explicit -t target', t => {
 	]);
 });
 
-test('the target precedes the format string (tmux rejects the other order)', t => {
+test('the target precedes the format string (tmux rejects the other order)', () => {
 	const args = paneQueryArgs('#{pane_height}', '%12');
-	t.true(args.indexOf('-t') < args.indexOf('#{pane_height}'));
-	t.is(args.at(-1), '#{pane_height}');
+	expect(args.indexOf('-t') < args.indexOf('#{pane_height}')).toBe(true);
+	expect(args.at(-1)).toBe('#{pane_height}');
 });
 
-test('without a pane id the query falls back to the untargeted form', t => {
+test('without a pane id the query falls back to the untargeted form', () => {
 	// Outside tmux $TMUX_PANE is unset; the spawn fails and the caller's
 	// fallback dimension is used, so the untargeted form is harmless here.
-	t.deepEqual(paneQueryArgs('#{pane_width}', undefined), [
+	expect(paneQueryArgs('#{pane_width}', undefined)).toStrictEqual([
 		'display-message',
 		'-p',
 		'#{pane_width}',
 	]);
-	t.deepEqual(paneQueryArgs('#{pane_width}', ''), [
+	expect(paneQueryArgs('#{pane_width}', '')).toStrictEqual([
 		'display-message',
 		'-p',
 		'#{pane_width}',

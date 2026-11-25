@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,9 +15,9 @@ const BROKEN = 'agent_profiles:\n  opus:\n    command: claude\n    model: 7\n';
 const BROKEN_ELSEWHERE =
 	'agent_profiles:\n  opus:\n    command: claude\n    effort: 7\n';
 
-function project(t: {teardown: (fn: () => void) => void}) {
+function project() {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-report-'));
-	t.teardown(() => {
+	teardown(() => {
 		fs.rmSync(dir, {recursive: true, force: true});
 	});
 	const file = path.join(dir, '.pappardelle.yml');
@@ -34,80 +35,74 @@ const stateLines = () =>
 		message.startsWith('.pappardelle.yml is invalid'),
 	);
 
-test.serial('an invalid config raises one state line naming the field', t => {
+test('an invalid config raises one state line naming the field', () => {
 	clearRecentErrors();
-	const {paths, write} = project(t);
+	const {paths, write} = project();
 	write(BROKEN);
 	readReportedConfig(paths);
 	readReportedConfig(paths);
-	t.is(stateLines().length, 1);
-	t.true(stateLines()[0]!.includes('agent_profiles.opus.model'));
+	expect(stateLines().length).toBe(1);
+	expect(stateLines()[0]!.includes('agent_profiles.opus.model')).toBe(true);
 });
 
-test.serial('a config broken another way replaces the state line', t => {
+test('a config broken another way replaces the state line', () => {
 	clearRecentErrors();
-	const {paths, write} = project(t);
+	const {paths, write} = project();
 	write(BROKEN);
 	readReportedConfig(paths);
 	write(BROKEN_ELSEWHERE);
 	readReportedConfig(paths);
-	t.is(stateLines().length, 1);
-	t.true(stateLines()[0]!.includes('agent_profiles.opus.effort'));
+	expect(stateLines().length).toBe(1);
+	expect(stateLines()[0]!.includes('agent_profiles.opus.effort')).toBe(true);
 });
 
-test.serial('the state line comes back after the rail drops it', t => {
+test('the state line comes back after the rail drops it', () => {
 	clearRecentErrors();
-	const {paths, write} = project(t);
+	const {paths, write} = project();
 	write(BROKEN);
 	readReportedConfig(paths);
 	clearRecentErrors();
 	readReportedConfig(paths);
-	t.is(stateLines().length, 1);
+	expect(stateLines().length).toBe(1);
 });
 
-test.serial(
-	'fixing the config clears the state line and what held while it was invalid, not events',
-	t => {
-		clearRecentErrors();
-		const {paths, write} = project(t);
-		write(BROKEN);
-		readReportedConfig(paths);
-		reportWhileInvalid('Sessions of A-1 not started: the config is invalid');
-		reportConfigEvent(
-			'Skipped the deinit commands of A-2: the config is invalid',
-		);
-		write('version: 1\nprofiles: {}\n');
-		readReportedConfig(paths);
-		t.deepEqual(messages(), [
-			'Skipped the deinit commands of A-2: the config is invalid',
-		]);
-	},
-);
-
-test.serial(
-	'a TUI started on an invalid config asks for a restart once the file loads',
-	t => {
-		clearRecentErrors();
-		const {paths, write} = project(t);
-		write(BROKEN);
-		readReportedConfig(paths);
-		reportStartedWithInvalidConfig();
-		write('version: 1\nprofiles: {}\n');
-		readReportedConfig(paths);
-		readReportedConfig(paths);
-		t.deepEqual(messages(), [
-			'.pappardelle.yml loads now: restart Pappardelle to turn keybindings, watchlists, auto-remove and rail settings back on',
-		]);
-	},
-);
-
-test.serial('deleting the broken file does not say it loads', t => {
+test('fixing the config clears the state line and what held while it was invalid, not events', () => {
 	clearRecentErrors();
-	const {paths, write} = project(t);
+	const {paths, write} = project();
+	write(BROKEN);
+	readReportedConfig(paths);
+	reportWhileInvalid('Sessions of A-1 not started: the config is invalid');
+	reportConfigEvent(
+		'Skipped the deinit commands of A-2: the config is invalid',
+	);
+	write('version: 1\nprofiles: {}\n');
+	readReportedConfig(paths);
+	expect(messages()).toStrictEqual([
+		'Skipped the deinit commands of A-2: the config is invalid',
+	]);
+});
+
+test('a TUI started on an invalid config asks for a restart once the file loads', () => {
+	clearRecentErrors();
+	const {paths, write} = project();
+	write(BROKEN);
+	readReportedConfig(paths);
+	reportStartedWithInvalidConfig();
+	write('version: 1\nprofiles: {}\n');
+	readReportedConfig(paths);
+	readReportedConfig(paths);
+	expect(messages()).toStrictEqual([
+		'.pappardelle.yml loads now: restart Pappardelle to turn keybindings, watchlists, auto-remove and rail settings back on',
+	]);
+});
+
+test('deleting the broken file does not say it loads', () => {
+	clearRecentErrors();
+	const {paths, write} = project();
 	write(BROKEN);
 	readReportedConfig(paths);
 	reportStartedWithInvalidConfig();
 	fs.rmSync(path.join(paths.projectDir, '.pappardelle.yml'));
 	readReportedConfig(paths);
-	t.false(messages().some(message => message.includes('loads now')));
+	expect(messages().some(message => message.includes('loads now'))).toBe(false);
 });

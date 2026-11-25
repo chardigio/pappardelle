@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
 import {testState} from '../test/helpers/state.ts';
 import {
 	StateColorCache,
@@ -9,8 +9,8 @@ import {openStateDb, stateDbPath} from './state-db.ts';
 
 type Row = {rowid: number; name: string; color: string};
 
-function fixture(t: ExecutionContext) {
-	const {daos, stateDir} = testState(t, {sqlite: true});
+function fixture() {
+	const {daos, stateDir} = testState({sqlite: true});
 	const file = getStateColorsPath('repo', stateDir);
 	return {
 		dao: daos.stateColors,
@@ -28,8 +28,8 @@ function fixture(t: ExecutionContext) {
 
 // Each running Pappardelle remembers the colors it loaded at startup. Two
 // of them learning different colors must not undo each other.
-test('a color update writes its own row and leaves the others', t => {
-	const f = fixture(t);
+test('a color update writes its own row and leaves the others', () => {
+	const f = fixture();
 	const first = new StateColorCache(f.dao);
 	const second = new StateColorCache(f.dao);
 	first.update('Done', '#aaa');
@@ -37,69 +37,70 @@ test('a color update writes its own row and leaves the others', t => {
 	const before = f.rows();
 
 	second.update('In Progress', '#ccc');
-	t.deepEqual(f.rows(), [
+	expect(f.rows()).toStrictEqual([
 		...before,
 		{rowid: 3, name: 'In Progress', color: '#ccc'},
 	]);
-	t.is(f.content(), '{"Done":"#aaa","Todo":"#bbb","In Progress":"#ccc"}\n');
+	expect(f.content()).toBe(
+		'{"Done":"#aaa","Todo":"#bbb","In Progress":"#ccc"}\n',
+	);
 
 	second.update('Done', '#ddd');
-	t.deepEqual(f.rows(), [
+	expect(f.rows()).toStrictEqual([
 		{rowid: 1, name: 'Done', color: '#ddd'},
 		{rowid: 2, name: 'Todo', color: '#bbb'},
 		{rowid: 3, name: 'In Progress', color: '#ccc'},
 	]);
 });
 
-test('learning a color another process already stored rewrites nothing', t => {
-	const f = fixture(t);
+test('learning a color another process already stored rewrites nothing', () => {
+	const f = fixture();
 	const first = new StateColorCache(f.dao);
 	const second = new StateColorCache(f.dao);
 	first.update('Done', '#aaa');
 	const before = fs.statSync(f.file, {bigint: true});
 	second.update('Done', '#aaa');
 	const after = fs.statSync(f.file, {bigint: true});
-	t.is(after.ino, before.ino);
-	t.is(after.mtimeNs, before.mtimeNs);
+	expect(after.ino).toBe(before.ino);
+	expect(after.mtimeNs).toBe(before.mtimeNs);
 });
 
-test('a color file edited without the database replaces the rows on the next load', t => {
-	const f = fixture(t);
+test('a color file edited without the database replaces the rows on the next load', () => {
+	const f = fixture();
 	new StateColorCache(f.dao).update('Done', '#aaa');
 	fs.writeFileSync(f.file, JSON.stringify({Todo: '#bbb'}) + '\n');
 
 	const cache = new StateColorCache(f.dao);
-	t.is(cache.get('Done'), null);
-	t.is(cache.get('Todo'), '#bbb');
-	t.deepEqual(
-		f.rows().map(row => row.name),
-		['Todo'],
-	);
+	expect(cache.get('Done')).toBe(null);
+	expect(cache.get('Todo')).toBe('#bbb');
+	expect(f.rows().map(row => row.name)).toStrictEqual(['Todo']);
 });
 
-test('an update keeps what another process wrote to the file since the last one', t => {
-	const f = fixture(t);
+test('an update keeps what another process wrote to the file since the last one', () => {
+	const f = fixture();
 	const cache = new StateColorCache(f.dao);
 	cache.update('Done', '#aaa');
 	fs.writeFileSync(f.file, JSON.stringify({Done: '#aaa', Todo: '#bbb'}) + '\n');
 	cache.update('In Progress', '#ccc');
-	t.is(f.content(), '{"Done":"#aaa","Todo":"#bbb","In Progress":"#ccc"}\n');
+	expect(f.content()).toBe(
+		'{"Done":"#aaa","Todo":"#bbb","In Progress":"#ccc"}\n',
+	);
 });
 
-test('a color file that vanished keeps the rows, and the next update writes it again', t => {
-	const f = fixture(t);
+test('a color file that vanished keeps the rows, and the next update writes it again', () => {
+	const f = fixture();
 	const cache = new StateColorCache(f.dao);
 	cache.update('Done', '#aaa');
 	fs.rmSync(f.file);
 
-	t.is(new StateColorCache(f.dao).get('Done'), '#aaa');
+	expect(new StateColorCache(f.dao).get('Done')).toBe('#aaa');
 	cache.update('Todo', '#bbb');
-	t.is(f.content(), '{"Done":"#aaa","Todo":"#bbb"}\n');
+	expect(f.content()).toBe('{"Done":"#aaa","Todo":"#bbb"}\n');
 });
 
-test('a color file that is not JSON keeps the rows', t => {
-	const f = fixture(t);
+test('a color file that is not JSON keeps the rows', () => {
+	const f = fixture();
 	new StateColorCache(f.dao).update('Done', '#aaa');
 	fs.writeFileSync(f.file, '{{not json');
-	t.is(new StateColorCache(f.dao).get('Done'), '#aaa');
+	expect(new StateColorCache(f.dao).get('Done')).toBe('#aaa');
 });

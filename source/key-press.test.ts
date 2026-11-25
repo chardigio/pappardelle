@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {keysFromStdin} from '../test/helpers/render.ts';
 import {typedText} from './key-press.ts';
 
@@ -12,19 +12,13 @@ for (const [label, bytes, typed] of [
 	['Alt+q', '\x1bq', ''],
 	['space', ' ', ' '],
 ] as const) {
-	test.serial(`${label} types ${JSON.stringify(typed)}`, async t => {
+	test(`${label} types ${JSON.stringify(typed)}`, async () => {
 		const keys = await keysFromStdin(bytes);
-		t.deepEqual(
-			keys.map(key => typedText(key)),
-			[typed],
-		);
+		expect(keys.map(key => typedText(key))).toStrictEqual([typed]);
 	});
 }
 
-test.serial('Kitty key releases do not repeat application actions', async t => {
+test('Kitty key releases do not repeat application actions', async () => {
 	const keys = await keysFromStdin('\x1b[106;1:1u\x1b[106;1:2u\x1b[106;1:3u');
-	t.deepEqual(
-		keys.map(key => typedText(key)),
-		['j', 'j'],
-	);
+	expect(keys.map(key => typedText(key))).toStrictEqual(['j', 'j']);
 });

@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {unreachable} from '../test/helpers/unreachable.ts';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import {shouldShowLoadingTitle, tearDownSpace} from './space-utils.ts';
 import type {SpaceData} from './types.ts';
@@ -19,24 +20,26 @@ function makeSpace(name: string, opts?: Partial<SpaceData>): SpaceData {
 // shouldShowLoadingTitle
 // ============================================================================
 
-test('shows loading when linearIssue is undefined and space is not pending or main', t => {
-	t.true(shouldShowLoadingTitle(makeSpace('STA-123')));
+test('shows loading when linearIssue is undefined and space is not pending or main', () => {
+	expect(shouldShowLoadingTitle(makeSpace('STA-123'))).toBe(true);
 });
 
-test('does not show loading for main worktree rows', t => {
-	t.false(shouldShowLoadingTitle(makeSpace('main', {isMainWorktree: true})));
+test('does not show loading for main worktree rows', () => {
+	expect(
+		shouldShowLoadingTitle(makeSpace('main', {isMainWorktree: true})),
+	).toBe(false);
 });
 
-test('does not show loading when pendingTitle is set', t => {
-	t.false(
+test('does not show loading when pendingTitle is set', () => {
+	expect(
 		shouldShowLoadingTitle(
 			makeSpace('STA-123', {pendingTitle: 'Starting new session…'}),
 		),
-	);
+	).toBe(false);
 });
 
-test('does not show loading when linearIssue title is available', t => {
-	t.false(
+test('does not show loading when linearIssue title is available', () => {
+	expect(
 		shouldShowLoadingTitle(
 			makeSpace('STA-123', {
 				linearIssue: {
@@ -46,11 +49,11 @@ test('does not show loading when linearIssue title is available', t => {
 				},
 			}),
 		),
-	);
+	).toBe(false);
 });
 
-test('does not show loading when name is empty', t => {
-	t.false(shouldShowLoadingTitle(makeSpace('')));
+test('does not show loading when name is empty', () => {
+	expect(shouldShowLoadingTitle(makeSpace(''))).toBe(false);
 });
 
 // ============================================================================
@@ -63,7 +66,7 @@ test('does not show loading when name is empty', t => {
 // (which post-STA-1416 has no `seedFromTmux` reaper to mop it up).
 // ============================================================================
 
-test('tearDownSpace waits for an asynchronous kill before unregistering', async t => {
+test('tearDownSpace waits for an asynchronous kill before unregistering', async () => {
 	let finish = (_success: boolean) => {};
 	const killed = new Promise<boolean>(resolve => {
 		finish = resolve;
@@ -79,14 +82,14 @@ test('tearDownSpace waits for an asynchronous kill before unregistering', async 
 			removed.push(key);
 		},
 		onKillFailure() {
-			t.fail('kill should succeed');
+			unreachable('kill should succeed');
 		},
 	});
 	await nextTurn();
-	t.deepEqual(removed, []);
+	expect(removed).toStrictEqual([]);
 	finish(true);
-	t.deepEqual(await result, {outcome: 'closed'});
-	t.deepEqual(removed, ['A']);
+	expect(await result).toStrictEqual({outcome: 'closed'});
+	expect(removed).toStrictEqual(['A']);
 });
 
 /** Teardown deps that record the order they were called in. */
@@ -122,13 +125,13 @@ function recordingDeps(
 	return {deps, sequence};
 }
 
-test('tearDownSpace records the close, kills, then unregisters (order matters for STA-1420)', async t => {
+test('tearDownSpace records the close, kills, then unregisters (order matters for STA-1420)', async () => {
 	// If remove ran first and kill then failed, the registry would advertise
 	// "closed" while the inner socket still has the session — exactly the bug
 	// STA-1420 fixes.
 	const {deps, sequence} = recordingDeps();
-	t.deepEqual(await tearDownSpace('STA-7', deps), {outcome: 'closed'});
-	t.deepEqual(sequence, [
+	expect(await tearDownSpace('STA-7', deps)).toStrictEqual({outcome: 'closed'});
+	expect(sequence).toStrictEqual([
 		'mark STA-7',
 		'kill STA-7',
 		'remove STA-7',
@@ -136,20 +139,22 @@ test('tearDownSpace records the close, kills, then unregisters (order matters fo
 	]);
 });
 
-test('tearDownSpace: a close that cannot be recorded kills nothing', async t => {
+test('tearDownSpace: a close that cannot be recorded kills nothing', async () => {
 	const error = new Error('database is locked');
 	const {deps, sequence} = recordingDeps({mark: error});
-	t.deepEqual(await tearDownSpace('STA-100', deps), {
+	expect(await tearDownSpace('STA-100', deps)).toStrictEqual({
 		outcome: 'mark-failed',
 		error,
 	});
-	t.deepEqual(sequence, ['mark STA-100']);
+	expect(sequence).toStrictEqual(['mark STA-100']);
 });
 
-test('tearDownSpace: a failed kill reopens the space and leaves it registered', async t => {
+test('tearDownSpace: a failed kill reopens the space and leaves it registered', async () => {
 	const {deps, sequence} = recordingDeps({kill: true});
-	t.deepEqual(await tearDownSpace('STA-100', deps), {outcome: 'kill-failed'});
-	t.deepEqual(sequence, [
+	expect(await tearDownSpace('STA-100', deps)).toStrictEqual({
+		outcome: 'kill-failed',
+	});
+	expect(sequence).toStrictEqual([
 		'mark STA-100',
 		'kill STA-100',
 		'reopen STA-100',
@@ -157,21 +162,27 @@ test('tearDownSpace: a failed kill reopens the space and leaves it registered', 
 	]);
 });
 
-test('tearDownSpace: a failed kill is still reported when the reopen fails too', async t => {
+test('tearDownSpace: a failed kill is still reported when the reopen fails too', async () => {
 	const {deps, sequence} = recordingDeps({
 		kill: true,
 		reopen: new Error('database is locked'),
 	});
-	t.deepEqual(await tearDownSpace('STA-100', deps), {outcome: 'kill-failed'});
-	t.is(sequence.at(-1), 'kill-failure STA-100');
+	expect(await tearDownSpace('STA-100', deps)).toStrictEqual({
+		outcome: 'kill-failed',
+	});
+	expect(sequence.at(-1)).toBe('kill-failure STA-100');
 });
 
-test('tearDownSpace: a failed removal is an outcome, with the sessions gone and nothing cleaned up', async t => {
+test('tearDownSpace: a failed removal is an outcome, with the sessions gone and nothing cleaned up', async () => {
 	const error = new Error('database is locked');
 	const {deps, sequence} = recordingDeps({remove: error});
-	t.deepEqual(await tearDownSpace('STA-100', deps), {
+	expect(await tearDownSpace('STA-100', deps)).toStrictEqual({
 		outcome: 'unregister-failed',
 		error,
 	});
-	t.deepEqual(sequence, ['mark STA-100', 'kill STA-100', 'remove STA-100']);
+	expect(sequence).toStrictEqual([
+		'mark STA-100',
+		'kill STA-100',
+		'remove STA-100',
+	]);
 });

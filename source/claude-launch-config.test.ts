@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {thrownBy} from '../test/helpers/thrown.ts';
 import type {PappardelleConfig} from './config.ts';
 import {getAgentProfile, getCompanionCommand} from './config.ts';
 import {validateConfig} from './config-validation.ts';
@@ -51,144 +52,140 @@ function makeConfig(
 // The permutations below walk every field-set / field-unset combination across
 // the two layers so no state silently misbehaves.
 
-test('model + effort: unset everywhere → empty strings', t => {
+test('model + effort: unset everywhere → empty strings', () => {
 	const config = makeConfig();
-	t.is(getAgentProfile(config).model, '');
-	t.is(getAgentProfile(config).effort, '');
-	t.is(getAgentProfile(config, 'backend work').model, '');
-	t.is(getAgentProfile(config, 'backend work').effort, '');
+	expect(getAgentProfile(config).model).toBe('');
+	expect(getAgentProfile(config).effort).toBe('');
+	expect(getAgentProfile(config, 'backend work').model).toBe('');
+	expect(getAgentProfile(config, 'backend work').effort).toBe('');
 });
 
-test('model + effort: top-level only → applies to every profile', t => {
+test('model + effort: top-level only → applies to every profile', () => {
 	const config = makeConfig({claude: {model: 'opus', effort: 'high'}});
-	t.is(getAgentProfile(config, 'backend work').model, 'opus');
-	t.is(getAgentProfile(config, 'backend work').effort, 'high');
-	t.is(getAgentProfile(config, 'frontend work').model, 'opus');
-	t.is(getAgentProfile(config, 'frontend work').effort, 'high');
+	expect(getAgentProfile(config, 'backend work').model).toBe('opus');
+	expect(getAgentProfile(config, 'backend work').effort).toBe('high');
+	expect(getAgentProfile(config, 'frontend work').model).toBe('opus');
+	expect(getAgentProfile(config, 'frontend work').effort).toBe('high');
 });
 
-test('model + effort: top-level applies when no issue title is given', t => {
+test('model + effort: top-level applies when no issue title is given', () => {
 	const config = makeConfig({claude: {model: 'opus', effort: 'high'}});
-	t.is(getAgentProfile(config).model, 'opus');
-	t.is(getAgentProfile(config).effort, 'high');
+	expect(getAgentProfile(config).model).toBe('opus');
+	expect(getAgentProfile(config).effort).toBe('high');
 });
 
-test('model + effort: profile-only → applies to that profile alone', t => {
+test('model + effort: profile-only → applies to that profile alone', () => {
 	const config = makeConfig({}, {model: 'sonnet', effort: 'medium'});
-	t.is(getAgentProfile(config, 'backend work').model, 'sonnet');
-	t.is(getAgentProfile(config, 'backend work').effort, 'medium');
+	expect(getAgentProfile(config, 'backend work').model).toBe('sonnet');
+	expect(getAgentProfile(config, 'backend work').effort).toBe('medium');
 	// A profile without its own values, and the no-title case, stay empty.
-	t.is(getAgentProfile(config, 'frontend work').model, '');
-	t.is(getAgentProfile(config, 'frontend work').effort, '');
-	t.is(getAgentProfile(config).model, '');
-	t.is(getAgentProfile(config).effort, '');
+	expect(getAgentProfile(config, 'frontend work').model).toBe('');
+	expect(getAgentProfile(config, 'frontend work').effort).toBe('');
+	expect(getAgentProfile(config).model).toBe('');
+	expect(getAgentProfile(config).effort).toBe('');
 });
 
-test('model + effort: profile beats top-level', t => {
+test('model + effort: profile beats top-level', () => {
 	const config = makeConfig(
 		{claude: {model: 'opus', effort: 'high'}},
 		{model: 'sonnet', effort: 'medium'},
 	);
-	t.is(getAgentProfile(config, 'backend work').model, 'sonnet');
-	t.is(getAgentProfile(config, 'backend work').effort, 'medium');
+	expect(getAgentProfile(config, 'backend work').model).toBe('sonnet');
+	expect(getAgentProfile(config, 'backend work').effort).toBe('medium');
 	// The unconfigured profile still inherits the top-level values.
-	t.is(getAgentProfile(config, 'frontend work').model, 'opus');
-	t.is(getAgentProfile(config, 'frontend work').effort, 'high');
+	expect(getAgentProfile(config, 'frontend work').model).toBe('opus');
+	expect(getAgentProfile(config, 'frontend work').effort).toBe('high');
 });
 
-test('model + effort: profile can set one field and inherit the other', t => {
+test('model + effort: profile can set one field and inherit the other', () => {
 	const config = makeConfig({claude: {model: 'opus', effort: 'high'}}, {
 		effort: 'max',
 	} as PappardelleConfig['claude']);
-	t.is(getAgentProfile(config, 'backend work').model, 'opus');
-	t.is(getAgentProfile(config, 'backend work').effort, 'max');
+	expect(getAgentProfile(config, 'backend work').model).toBe('opus');
+	expect(getAgentProfile(config, 'backend work').effort).toBe('max');
 });
 
-test('model + effort: explicit empty string at profile level clears the global', t => {
+test('model + effort: explicit empty string at profile level clears the global', () => {
 	const config = makeConfig(
 		{claude: {model: 'opus', effort: 'high'}},
 		{model: '', effort: ''},
 	);
-	t.is(getAgentProfile(config, 'backend work').model, '');
-	t.is(getAgentProfile(config, 'backend work').effort, '');
+	expect(getAgentProfile(config, 'backend work').model).toBe('');
+	expect(getAgentProfile(config, 'backend work').effort).toBe('');
 	// Sibling profile is unaffected.
-	t.is(getAgentProfile(config, 'frontend work').model, 'opus');
+	expect(getAgentProfile(config, 'frontend work').model).toBe('opus');
 });
 
-test('model + effort: explicit empty string at top level behaves as unset', t => {
+test('model + effort: explicit empty string at top level behaves as unset', () => {
 	const config = makeConfig({claude: {model: '', effort: ''}});
-	t.is(getAgentProfile(config, 'backend work').model, '');
-	t.is(getAgentProfile(config, 'backend work').effort, '');
+	expect(getAgentProfile(config, 'backend work').model).toBe('');
+	expect(getAgentProfile(config, 'backend work').effort).toBe('');
 });
 
-test('model + effort: unmatched issue title falls back to top-level', t => {
+test('model + effort: unmatched issue title falls back to top-level', () => {
 	const config = makeConfig(
 		{claude: {model: 'opus', effort: 'high'}},
 		{model: 'sonnet', effort: 'medium'},
 	);
-	t.is(getAgentProfile(config, 'something unrelated').model, 'opus');
-	t.is(getAgentProfile(config, 'something unrelated').effort, 'high');
+	expect(getAgentProfile(config, 'something unrelated').model).toBe('opus');
+	expect(getAgentProfile(config, 'something unrelated').effort).toBe('high');
 });
 
-test('model + effort: a profile claude section without them inherits top-level', t => {
+test('model + effort: a profile claude section without them inherits top-level', () => {
 	const config = makeConfig(
 		{claude: {model: 'opus', effort: 'high'}},
 		{initialization_command: '/do'},
 	);
-	t.is(getAgentProfile(config, 'backend work').model, 'opus');
-	t.is(getAgentProfile(config, 'backend work').effort, 'high');
+	expect(getAgentProfile(config, 'backend work').model).toBe('opus');
+	expect(getAgentProfile(config, 'backend work').effort).toBe('high');
 });
 
 // ============================================================================
 // Validation
 // ============================================================================
 
-test('validateConfig accepts model + effort at top level and per profile', t => {
-	t.notThrows(() => {
+test('validateConfig accepts model + effort at top level and per profile', () => {
+	expect(() => {
 		validateConfig(
 			makeConfig(
 				{claude: {model: 'opus', effort: 'high'}},
 				{model: 'claude-opus-5[1m]', effort: 'max'},
 			),
 		);
-	});
+	}).not.toThrow();
 });
 
-test('validateConfig accepts an explicit empty string (means "no flag")', t => {
-	t.notThrows(() => {
+test('validateConfig accepts an explicit empty string (means "no flag")', () => {
+	expect(() => {
 		validateConfig(makeConfig({claude: {model: '', effort: ''}}, {model: ''}));
-	});
+	}).not.toThrow();
 });
 
-test('validateConfig rejects a non-string top-level model', t => {
+test('validateConfig rejects a non-string top-level model', () => {
 	const config = makeConfig({
 		claude: {model: 5 as unknown as string},
 	});
-	const error = t.throws(
-		() => {
-			validateConfig(config);
-		},
-		{instanceOf: ConfigValidationError},
-	);
-	t.true(error!.errors.some(e => e.includes('claude.model: must be a string')));
+	const error = thrownBy(() => {
+		validateConfig(config);
+	}, ConfigValidationError);
+	expect(
+		error!.errors.some(e => e.includes('claude.model: must be a string')),
+	).toBe(true);
 });
 
-test('validateConfig rejects a non-string top-level effort', t => {
+test('validateConfig rejects a non-string top-level effort', () => {
 	const config = makeConfig({
 		claude: {effort: true as unknown as string},
 	});
-	const error = t.throws(
-		() => {
-			validateConfig(config);
-		},
-		{instanceOf: ConfigValidationError},
-	);
-	t.true(
+	const error = thrownBy(() => {
+		validateConfig(config);
+	}, ConfigValidationError);
+	expect(
 		error!.errors.some(e => e.includes('claude.effort: must be a string')),
-	);
+	).toBe(true);
 });
 
-test('validateConfig rejects a non-string per-profile model/effort', t => {
+test('validateConfig rejects a non-string per-profile model/effort', () => {
 	const config = makeConfig(
 		{},
 		{
@@ -196,56 +193,51 @@ test('validateConfig rejects a non-string per-profile model/effort', t => {
 			effort: [] as unknown as string,
 		},
 	);
-	const error = t.throws(
-		() => {
-			validateConfig(config);
-		},
-		{instanceOf: ConfigValidationError},
-	);
-	t.true(
+	const error = thrownBy(() => {
+		validateConfig(config);
+	}, ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('profiles.backend.claude.model: must be a string'),
 		),
-	);
-	t.true(
+	).toBe(true);
+	expect(
 		error!.errors.some(e =>
 			e.includes('profiles.backend.claude.effort: must be a string'),
 		),
-	);
+	).toBe(true);
 });
 
 // ============================================================================
 // buildAgentResumeCommand
 // ============================================================================
 
-test('buildAgentResumeCommand: no model/effort → byte-identical to master', t => {
+test('buildAgentResumeCommand: no model/effort → byte-identical to master', () => {
 	// Off-by-default regression guard. This is the exact string master
 	// produces; if a launch flag ever leaks in when nothing is configured,
 	// this test fails.
 	const expected =
 		"claude --name STA-1 --resume sess-1 || { printf '\\033[A\\033[2K'; false; } || claude --name STA-1";
-	t.is(
+	expect(
 		buildAgentResumeCommand(
 			'STA-1',
 			false,
 			DEFAULT_RESOLVED_AGENT_PROFILE,
 			'sess-1',
 		),
-		expected,
-	);
-	t.is(
+	).toBe(expected);
+	expect(
 		buildAgentResumeCommand(
 			'STA-1',
 			false,
 			DEFAULT_RESOLVED_AGENT_PROFILE,
 			'sess-1',
 		),
-		expected,
-	);
+	).toBe(expected);
 });
 
-test('buildAgentResumeCommand: a launch renames the agent and starts both branches on its prompt', t => {
-	t.is(
+test('buildAgentResumeCommand: a launch renames the agent and starts both branches on its prompt', () => {
+	expect(
 		buildAgentResumeCommand(
 			'main',
 			false,
@@ -253,78 +245,82 @@ test('buildAgentResumeCommand: a launch renames the agent and starts both branch
 			'sess-1',
 			{name: 'sous-chef', prompt: '/sous-chef'},
 		),
+	).toBe(
 		"claude --name sous-chef --resume sess-1 '/sous-chef' || { printf '\\033[A\\033[2K'; false; } || claude --name sous-chef '/sous-chef'",
 	);
 });
 
-test('buildAgentResumeCommand: skip-permissions only is unchanged', t => {
+test('buildAgentResumeCommand: skip-permissions only is unchanged', () => {
 	const expected =
 		"claude --dangerously-skip-permissions --name STA-1 --resume sess-1 || { printf '\\033[A\\033[2K'; false; } || claude --dangerously-skip-permissions --name STA-1";
-	t.is(
+	expect(
 		buildAgentResumeCommand(
 			'STA-1',
 			true,
 			DEFAULT_RESOLVED_AGENT_PROFILE,
 			'sess-1',
 		),
-		expected,
-	);
+	).toBe(expected);
 });
 
-test('buildAgentResumeCommand: model only', t => {
+test('buildAgentResumeCommand: model only', () => {
 	const cmd = buildAgentResumeCommand(
 		'STA-1',
 		false,
 		{...DEFAULT_RESOLVED_AGENT_PROFILE, model: 'sonnet'},
 		'sess-1',
 	);
-	t.true(cmd.startsWith('claude --model sonnet --name STA-1 --resume sess-1'));
+	expect(
+		cmd.startsWith('claude --model sonnet --name STA-1 --resume sess-1'),
+	).toBe(true);
 	// Both branches of the || fallback carry the flag.
-	t.is(cmd.split('--model sonnet').length - 1, 2);
-	t.false(cmd.includes('--effort'));
+	expect(cmd.split('--model sonnet').length - 1).toBe(2);
+	expect(cmd.includes('--effort')).toBe(false);
 });
 
-test('buildAgentResumeCommand: effort only', t => {
+test('buildAgentResumeCommand: effort only', () => {
 	const cmd = buildAgentResumeCommand(
 		'STA-1',
 		false,
 		{...DEFAULT_RESOLVED_AGENT_PROFILE, effort: 'high'},
 		'sess-1',
 	);
-	t.true(cmd.startsWith('claude --effort high --name STA-1 --resume sess-1'));
-	t.is(cmd.split('--effort high').length - 1, 2);
-	t.false(cmd.includes('--model'));
+	expect(
+		cmd.startsWith('claude --effort high --name STA-1 --resume sess-1'),
+	).toBe(true);
+	expect(cmd.split('--effort high').length - 1).toBe(2);
+	expect(cmd.includes('--model')).toBe(false);
 });
 
-test('buildAgentResumeCommand: full flag order is dsp → model → effort → name', t => {
+test('buildAgentResumeCommand: full flag order is dsp → model → effort → name', () => {
 	const cmd = buildAgentResumeCommand(
 		'STA-1',
 		true,
 		{...DEFAULT_RESOLVED_AGENT_PROFILE, model: 'opus', effort: 'max'},
 		'sess-1',
 	);
-	t.true(
+	expect(
 		cmd.startsWith(
 			'claude --dangerously-skip-permissions --model opus --effort max --name STA-1 --resume sess-1',
 		),
-	);
+	).toBe(true);
 });
 
-test('buildAgentResumeCommand: shell-quotes exotic model values', t => {
+test('buildAgentResumeCommand: shell-quotes exotic model values', () => {
 	const cmd = buildAgentResumeCommand('STA-1', false, {
 		...DEFAULT_RESOLVED_AGENT_PROFILE,
 		model: 'claude-opus-5[1m]',
 	});
-	t.true(cmd.includes(`--model 'claude-opus-5[1m]'`));
-	t.false(cmd.includes('--model claude-opus-5[1m] '));
+	expect(cmd.includes(`--model 'claude-opus-5[1m]'`)).toBe(true);
+	expect(cmd.includes('--model claude-opus-5[1m] ')).toBe(false);
 });
 
-test('buildAgentResumeCommand: escapes embedded single quotes', t => {
+test('buildAgentResumeCommand: escapes embedded single quotes', () => {
 	const cmd = buildAgentResumeCommand('STA-1', false, {
 		...DEFAULT_RESOLVED_AGENT_PROFILE,
 		model: "we'ird",
 	});
-	t.true(cmd.includes(`--model 'we'\\''ird'`));
+	expect(cmd.includes(`--model 'we'\\''ird'`)).toBe(true);
 });
 
 // ============================================================================
@@ -345,35 +341,35 @@ const extraArgs = (
 	profileName?: string,
 ) => getAgentProfile(config, issueTitle, profileName).extraArgs;
 
-test('extra_args: unset everywhere → empty list', t => {
-	t.deepEqual(extraArgs(makeConfig()), []);
-	t.deepEqual(extraArgs(makeConfig(), 'backend work'), []);
+test('extra_args: unset everywhere → empty list', () => {
+	expect(extraArgs(makeConfig())).toStrictEqual([]);
+	expect(extraArgs(makeConfig(), 'backend work')).toStrictEqual([]);
 });
 
-test('extra_args: top-level applies to every profile', t => {
+test('extra_args: top-level applies to every profile', () => {
 	const config = makeConfig({claude: {extra_args: ['--no-chrome']}});
-	t.deepEqual(extraArgs(config), ['--no-chrome']);
-	t.deepEqual(extraArgs(config, 'frontend work'), ['--no-chrome']);
+	expect(extraArgs(config)).toStrictEqual(['--no-chrome']);
+	expect(extraArgs(config, 'frontend work')).toStrictEqual(['--no-chrome']);
 });
 
-test('extra_args: profile list replaces the top-level list', t => {
+test('extra_args: profile list replaces the top-level list', () => {
 	const config = makeConfig(
 		{claude: {extra_args: ['--no-chrome']}},
 		{extra_args: QA_ARGS},
 	);
-	t.deepEqual(extraArgs(config, 'backend work'), QA_ARGS);
-	t.deepEqual(extraArgs(config, 'frontend work'), ['--no-chrome']);
+	expect(extraArgs(config, 'backend work')).toStrictEqual(QA_ARGS);
+	expect(extraArgs(config, 'frontend work')).toStrictEqual(['--no-chrome']);
 });
 
-test('extra_args: an empty profile list clears the top-level list', t => {
+test('extra_args: an empty profile list clears the top-level list', () => {
 	const config = makeConfig(
 		{claude: {extra_args: ['--no-chrome']}},
 		{extra_args: []},
 	);
-	t.deepEqual(extraArgs(config, 'backend work'), []);
+	expect(extraArgs(config, 'backend work')).toStrictEqual([]);
 });
 
-test('extra_args: only claude agent profiles get them', t => {
+test('extra_args: only claude agent profiles get them', () => {
 	const config = makeConfig(
 		{
 			agent_profiles: {codex: {command: 'codex'}},
@@ -381,10 +377,10 @@ test('extra_args: only claude agent profiles get them', t => {
 		},
 		{extra_args: QA_ARGS},
 	);
-	t.deepEqual(extraArgs(config, 'backend work'), []);
+	expect(extraArgs(config, 'backend work')).toStrictEqual([]);
 });
 
-test("extra_args: an agent profile's own args don't drop them", t => {
+test("extra_args: an agent profile's own args don't drop them", () => {
 	const config = makeConfig(
 		{
 			agent_profiles: {verbose: {command: 'claude', args: '--verbose'}},
@@ -397,18 +393,18 @@ test("extra_args: an agent profile's own args don't drop them", t => {
 		false,
 		getAgentProfile(config, 'backend work'),
 	);
-	t.true(
+	expect(
 		cmd.startsWith(
 			"claude --verbose --strict-mcp-config --tools 'Bash,Read' --name QA-1",
 		),
-	);
+	).toBe(true);
 });
 
 // The saved profile (idow writes it to space-state) beats the title match. A
 // dev issue titled with the runner's keyword must not get the runner's
 // locked-down tools when the TUI starts its session again.
 
-test('saved profile: beats a title that matches a different profile', t => {
+test('saved profile: beats a title that matches a different profile', () => {
 	const config = makeConfig(
 		{companion_command: 'gitui'},
 		{model: 'sonnet', effort: 'high', extra_args: QA_ARGS},
@@ -417,94 +413,90 @@ test('saved profile: beats a title that matches a different profile', t => {
 	config.profiles['frontend']!.companion_command = '';
 	const title = 'backend work';
 	const frontend = getAgentProfile(config, title, 'frontend');
-	t.deepEqual(frontend.extraArgs, []);
-	t.is(frontend.model, 'opus');
-	t.is(frontend.effort, 'low');
-	t.is(getCompanionCommand(config, title, 'frontend'), '');
-	t.deepEqual(extraArgs(config, 'frontend work', 'backend'), QA_ARGS);
+	expect(frontend.extraArgs).toStrictEqual([]);
+	expect(frontend.model).toBe('opus');
+	expect(frontend.effort).toBe('low');
+	expect(getCompanionCommand(config, title, 'frontend')).toBe('');
+	expect(extraArgs(config, 'frontend work', 'backend')).toStrictEqual(QA_ARGS);
 });
 
-test('saved profile: a name that no longer exists falls back to the title', t => {
+test('saved profile: a name that no longer exists falls back to the title', () => {
 	// A profile rename leaves the old name in space-state.
 	const config = makeConfig({}, {extra_args: QA_ARGS});
-	t.deepEqual(extraArgs(config, 'backend work', 'renamed'), QA_ARGS);
-	t.is(
-		getCompanionCommand(config, 'backend work', 'renamed'),
+	expect(extraArgs(config, 'backend work', 'renamed')).toStrictEqual(QA_ARGS);
+	expect(getCompanionCommand(config, 'backend work', 'renamed')).toBe(
 		'GIT_OPTIONAL_LOCKS=0 gitui',
 	);
 });
 
-test('validateConfig accepts extra_args at top level and per profile', t => {
-	t.notThrows(() => {
+test('validateConfig accepts extra_args at top level and per profile', () => {
+	expect(() => {
 		validateConfig(
 			makeConfig({claude: {extra_args: ['--no-chrome']}}, {extra_args: []}),
 		);
-	});
+	}).not.toThrow();
 });
 
-test('validateConfig rejects extra_args that is not a list of strings', t => {
+test('validateConfig rejects extra_args that is not a list of strings', () => {
 	const config = makeConfig(
 		{claude: {extra_args: '--no-chrome' as unknown as string[]}},
 		{extra_args: ['--tools', 5] as unknown as string[]},
 	);
-	const error = t.throws(
-		() => {
-			validateConfig(config);
-		},
-		{instanceOf: ConfigValidationError},
-	);
-	t.true(
+	const error = thrownBy(() => {
+		validateConfig(config);
+	}, ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('claude.extra_args: must be a list of strings'),
 		),
-	);
-	t.true(
+	).toBe(true);
+	expect(
 		error!.errors.some(e =>
 			e.includes(
 				'profiles.backend.claude.extra_args: must be a list of strings',
 			),
 		),
-	);
+	).toBe(true);
 });
 
-test('buildAgentResumeCommand: extra args go after effort and before name, on both branches', t => {
+test('buildAgentResumeCommand: extra args go after effort and before name, on both branches', () => {
 	const cmd = buildAgentResumeCommand(
 		'QA-1',
 		true,
 		{...DEFAULT_RESOLVED_AGENT_PROFILE, effort: 'high', extraArgs: QA_ARGS},
 		'sess-1',
 	);
-	t.true(
+	expect(
 		cmd.startsWith(
 			"claude --dangerously-skip-permissions --effort high --strict-mcp-config --tools 'Bash,Read' --name QA-1 --resume sess-1",
 		),
-	);
-	t.is(cmd.split('--strict-mcp-config').length - 1, 2);
+	).toBe(true);
+	expect(cmd.split('--strict-mcp-config').length - 1).toBe(2);
 });
 
-test('buildAgentResumeCommand: shell-quotes each extra arg', t => {
+test('buildAgentResumeCommand: shell-quotes each extra arg', () => {
 	const cmd = buildAgentResumeCommand('QA-1', false, {
 		...DEFAULT_RESOLVED_AGENT_PROFILE,
 		extraArgs: ['--mcp-config', '{"mcpServers": {}}'],
 	});
-	t.true(cmd.includes(`--mcp-config '{"mcpServers": {}}' --name QA-1`));
+	expect(cmd.includes(`--mcp-config '{"mcpServers": {}}' --name QA-1`)).toBe(
+		true,
+	);
 });
 
 // agy refuses a bare prompt, so its relaunch must not end in a prompt flag that
 // would swallow the next argument or exit with "flag needs an argument".
-test('buildAgentResumeCommand: a minimal agy profile relaunches without a prompt flag', t => {
+test('buildAgentResumeCommand: a minimal agy profile relaunches without a prompt flag', () => {
 	const agentProfile = getAgentProfile(
 		makeConfig({
 			agent_profiles: {argon: {command: 'agy', model: 'gemini-4-argon-medium'}},
 			agent_profile: 'argon',
 		}),
 	);
-	t.is(
-		buildAgentResumeCommand('STA-1', false, agentProfile),
+	expect(buildAgentResumeCommand('STA-1', false, agentProfile)).toBe(
 		'agy --model gemini-4-argon-medium',
 	);
-	t.is(
-		buildAgentResumeCommand('STA-1', false, agentProfile, 'conv-1'),
+	expect(buildAgentResumeCommand('STA-1', false, agentProfile, 'conv-1')).toBe(
 		"agy --model gemini-4-argon-medium --conversation conv-1 || { printf '\\033[A\\033[2K'; false; } || agy --model gemini-4-argon-medium",
 	);
 });

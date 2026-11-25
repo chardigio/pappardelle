@@ -4,7 +4,8 @@ import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
 import {
 	sqliteRun,
@@ -21,20 +22,19 @@ import {
 } from './tmux.ts';
 
 // tmux.ts names a space's sessions from the stores, as idow recorded them.
-const stateTeardowns: Array<() => void> = [];
+const stateTeardowns: Array<() => unknown> = [];
 let state: TestState;
-test.before(async () => {
-	state = await testTmuxSpaces({teardown: fn => stateTeardowns.push(fn)}, 'r', [
-		'agc.17',
-		'STA-1',
-	]);
+beforeAll(async () => {
+	state = await testTmuxSpaces('r', ['agc.17', 'STA-1'], fn =>
+		stateTeardowns.push(fn),
+	);
 });
-test.after.always(() => {
-	for (const teardown of stateTeardowns) teardown();
+afterAll(async () => {
+	for (const step of stateTeardowns.reverse()) await step();
 });
 
 const lockDir = mkdtempSync(path.join(tmpdir(), 'pappa-send-test-'));
-test.after.always(() => {
+afterAll(() => {
 	rmSync(lockDir, {recursive: true, force: true});
 });
 
@@ -102,25 +102,24 @@ function submitsOnEnter(
 	};
 }
 
-test('resolveInnerSessionTarget returns an exact-match session target', async t => {
+test('resolveInnerSessionTarget returns an exact-match session target', async () => {
 	const {runner} = makeRunner({sessions: ['agent-r-main', 'agent-r-STA-1']});
-	t.is(
-		await resolveInnerSessionTarget('agent-r-STA-1', runner),
+	expect(await resolveInnerSessionTarget('agent-r-STA-1', runner)).toBe(
 		'=agent-r-STA-1:',
 	);
 });
 
-test('resolveInnerSessionTarget does not prefix-match a longer session name', async t => {
+test('resolveInnerSessionTarget does not prefix-match a longer session name', async () => {
 	const {runner} = makeRunner({sessions: ['agent-r-STA-12']});
-	t.is(await resolveInnerSessionTarget('agent-r-STA-1', runner), null);
+	expect(await resolveInnerSessionTarget('agent-r-STA-1', runner)).toBe(null);
 });
 
-test('resolveInnerSessionTarget returns null when no inner server is running', async t => {
+test('resolveInnerSessionTarget returns null when no inner server is running', async () => {
 	const {runner} = makeRunner({listFails: true});
-	t.is(await resolveInnerSessionTarget('agent-r-STA-1', runner), null);
+	expect(await resolveInnerSessionTarget('agent-r-STA-1', runner)).toBe(null);
 });
 
-test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-mode, empties the composer, pastes the text from stdin as a bracketed paste, then sends Enter as its own call', async t => {
+test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-mode, empties the composer, pastes the text from stdin as a bracketed paste, then sends Enter as its own call', async () => {
 	const text = `-it's "quoted" \`tick\` $HOME\nline two; rm -rf nope`;
 	const {runner, calls, inputs} = makeRunner({
 		sessions: ['agent-r-agc_17'],
@@ -128,8 +127,10 @@ test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-
 
 	const buffer = `pappardelle-send-${process.pid}`;
 
-	t.is(await sendToSpaceAgent('agc.17', text, {runner, lockDir}), 'sent');
-	t.deepEqual(calls, [
+	expect(await sendToSpaceAgent('agc.17', text, {runner, lockDir})).toBe(
+		'sent',
+	);
+	expect(calls).toStrictEqual([
 		['copy-mode', '-q', '-t', '=agent-r-agc_17:'],
 		...Array.from(
 			{length: CLEAR_COMPOSER_ROUNDS / CLEAR_COMPOSER_ROUNDS_PER_CALL},
@@ -149,28 +150,27 @@ test('sendToSpaceAgent targets the encoded session of a dotted key, leaves copy-
 		['paste-buffer', '-p', '-d', '-r', '-b', buffer, '-t', '=agent-r-agc_17:'],
 		['send-keys', '-t', '=agent-r-agc_17:', 'Enter'],
 	]);
-	t.is(inputs.filter(input => input !== undefined).length, 1);
-	t.is(inputs[calls.findIndex(args => args[0] === 'load-buffer')], text);
+	expect(inputs.filter(input => input !== undefined).length).toBe(1);
+	expect(inputs[calls.findIndex(args => args[0] === 'load-buffer')]).toBe(text);
 });
 
 // STA-3087: Claude Code reads one large chunk of keys as a paste. In that paste
 // C-k becomes a newline and the prompt then does not submit. 8 rounds (32 keys)
 // in one call submitted and 16 rounds failed, so each call stays well under.
-test('sendToSpaceAgent sends at most 16 clear keys in each send-keys call, so the agent does not read the clear as a paste', async t => {
+test('sendToSpaceAgent sends at most 16 clear keys in each send-keys call, so the agent does not read the clear as a paste', async () => {
 	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1']});
 	await sendToSpaceAgent('STA-1', '/context', {runner, lockDir});
 	const clears = calls.filter(
 		args => args[0] === 'send-keys' && args.at(-1) !== 'Enter',
 	);
-	t.true(clears.length > 1);
-	for (const args of clears) t.true(args.length - 3 <= 16);
-	t.is(
-		clears.reduce((sum, args) => sum + args.length - 3, 0),
+	expect(clears.length > 1).toBe(true);
+	for (const args of clears) expect(args.length - 3 <= 16).toBe(true);
+	expect(clears.reduce((sum, args) => sum + args.length - 3, 0)).toBe(
 		CLEAR_COMPOSER_ROUNDS * 4,
 	);
 });
 
-test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced', async t => {
+test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced', async () => {
 	const draft = '\u001B[1m›\u001B[0m half a thought\n  gpt-6 · ~/repo\n';
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
@@ -179,23 +179,21 @@ test('sendToSpaceAgent leaves a draft in the Codex composer alone unless forced'
 			return sent.cleared ? agentScreenFixture('codex-sent') : draft;
 		},
 	});
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep})).toBe(
 		'draft',
 	);
-	t.deepEqual(calls, []);
-	t.is(
+	expect(calls).toStrictEqual([]);
+	expect(
 		await sendToSpaceAgent('STA-1', 'hi', {
 			runner,
 			lockDir,
 			force: true,
 			sleep,
 		}),
-		'sent',
-	);
+	).toBe('sent');
 });
 
-test("sendToSpaceAgent leaves a command typed in Claude's shell mode alone unless forced", async t => {
+test("sendToSpaceAgent leaves a command typed in Claude's shell mode alone unless forced", async () => {
 	const draft = agentScreenFixture('claude-shell-draft');
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
@@ -204,20 +202,21 @@ test("sendToSpaceAgent leaves a command typed in Claude's shell mode alone unles
 			return sent.cleared ? agentScreenFixture('codex-sent') : draft;
 		},
 	});
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'draft');
-	t.deepEqual(calls, []);
-	t.is(
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir})).toBe(
+		'draft',
+	);
+	expect(calls).toStrictEqual([]);
+	expect(
 		await sendToSpaceAgent('STA-1', 'hi', {
 			runner,
 			lockDir,
 			force: true,
 			sleep,
 		}),
-		'sent',
-	);
+	).toBe('sent');
 });
 
-test('sendToSpaceAgent never types into a permission prompt, even forced', async t => {
+test('sendToSpaceAgent never types into a permission prompt, even forced', async () => {
 	const prompt = [
 		'────────',
 		' Bash command',
@@ -231,39 +230,39 @@ test('sendToSpaceAgent never types into a permission prompt, even forced', async
 		screen: prompt,
 	});
 	for (const force of [false, true]) {
-		t.is(
+		expect(
 			await sendToSpaceAgent('STA-1', '1', {
 				runner,
 				lockDir,
 				force,
 			}),
-			'prompt',
-		);
+		).toBe('prompt');
 	}
 
-	t.deepEqual(calls, []);
+	expect(calls).toStrictEqual([]);
 });
 
-test('sendToSpaceAgent sends nothing when it cannot read the screen for a prompt', async t => {
+test('sendToSpaceAgent sends nothing when it cannot read the screen for a prompt', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		captureFails: true,
 	});
-	t.is(
+	expect(
 		await sendToSpaceAgent('STA-1', '1', {repoName: 'r', runner, lockDir}),
-		'failed',
-	);
-	t.deepEqual(calls, []);
+	).toBe('failed');
+	expect(calls).toStrictEqual([]);
 });
 
-test('a dim placeholder in the Codex composer is not a draft', async t => {
+test('a dim placeholder in the Codex composer is not a draft', async () => {
 	const placeholder =
 		'\u001B[1m›\u001B[0m \u001B[2mAsk Codex to do anything\u001B[0m\n';
 	const {runner} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen: sent => (sent.pasted ? submitsOnEnter(1)(sent) : placeholder),
 	});
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep})).toBe(
+		'sent',
+	);
 });
 
 const enters = (calls: string[][]) =>
@@ -271,7 +270,7 @@ const enters = (calls: string[][]) =>
 
 // pappardelle-hrdr: a new Codex session takes the clear keys at about 100 a
 // second and draws a paste only after them, seconds later.
-test('a send clears the box only when it was not read empty', async t => {
+test('a send clears the box only when it was not read empty', async () => {
 	const clears = async (screen: string) => {
 		const {runner, calls} = makeRunner({
 			sessions: ['agent-r-STA-1'],
@@ -286,22 +285,24 @@ test('a send clears the box only when it was not read empty', async t => {
 		return calls.some(args => args.includes('C-u'));
 	};
 
-	t.false(await clears(agentScreenFixture('codex-sent')));
-	t.true(await clears(agentScreenFixture('codex-draft')));
-	t.true(await clears('$ '));
+	expect(await clears(agentScreenFixture('codex-sent'))).toBe(false);
+	expect(await clears(agentScreenFixture('codex-draft'))).toBe(true);
+	expect(await clears('$ ')).toBe(true);
 });
 
-test('a send presses Enter once the agent shows the pasted text, and is sent when the box empties', async t => {
+test('a send presses Enter once the agent shows the pasted text, and is sent when the box empties', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen: submitsOnEnter(1),
 	});
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
-	t.is(enters(calls), 1);
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep})).toBe(
+		'sent',
+	);
+	expect(enters(calls)).toBe(1);
 });
 
 // pappardelle-hrdr: Codex has left a sent prompt in its box until the next key.
-test('a forced send pastes only once the cleared box reads empty', async t => {
+test('a forced send pastes only once the cleared box reads empty', async () => {
 	const draft = '\u001B[1m›\u001B[0m half a thought\n  gpt-6 · ~/repo\n';
 	let readsAfterClear = 0;
 	let pastedEarly = false;
@@ -324,13 +325,13 @@ test('a forced send pastes only once the cleared box reads empty', async t => {
 		sleep,
 		force: true,
 	});
-	t.is(result, 'sent');
-	t.false(pastedEarly);
-	t.is(enters(calls), 1);
+	expect(result).toBe('sent');
+	expect(pastedEarly).toBe(false);
+	expect(enters(calls)).toBe(1);
 });
 
 // The draft left by an unsubmitted send, sent again with --force.
-test('a forced send of the same text as the draft is sent', async t => {
+test('a forced send of the same text as the draft is sent', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen(sent) {
@@ -339,21 +340,20 @@ test('a forced send of the same text as the draft is sent', async t => {
 			return agentScreenFixture('codex-sent');
 		},
 	});
-	t.is(
+	expect(
 		await sendToSpaceAgent('STA-1', 'a draft I have not sent yet', {
 			runner,
 			lockDir,
 			sleep,
 			force: true,
 		}),
-		'sent',
-	);
-	t.is(enters(calls), 1);
+	).toBe('sent');
+	expect(enters(calls)).toBe(1);
 });
 
 // Clearing the box is what takes Claude out of shell mode; pasted into it, the
 // prompt would run as a shell command.
-test("a send clears Claude's empty shell-mode box, so the prompt is not run as a command", async t => {
+test("a send clears Claude's empty shell-mode box, so the prompt is not run as a command", async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen(sent) {
@@ -363,44 +363,46 @@ test("a send clears Claude's empty shell-mode box, so the prompt is not run as a
 				: agentScreenFixture('claude-placeholder');
 		},
 	});
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
-	t.true(calls.some(args => args.includes('C-u')));
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep})).toBe(
+		'sent',
+	);
+	expect(calls.some(args => args.includes('C-u'))).toBe(true);
 });
 
-test('a send presses Enter again when the first leaves the text in the box', async t => {
+test('a send presses Enter again when the first leaves the text in the box', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen: submitsOnEnter(2),
 	});
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
-	t.is(enters(calls), 2);
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep})).toBe(
+		'sent',
+	);
+	expect(enters(calls)).toBe(2);
 });
 
-test('a send whose text stays in the box after two Enters is unsubmitted', async t => {
+test('a send whose text stays in the box after two Enters is unsubmitted', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen: submitsOnEnter(Number.POSITIVE_INFINITY),
 	});
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep})).toBe(
 		'unsubmitted',
 	);
-	t.is(enters(calls), 2);
+	expect(enters(calls)).toBe(2);
 });
 
-test('a send presses no Enter when the pasted text never shows in the box', async t => {
+test('a send presses no Enter when the pasted text never shows in the box', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen: agentScreenFixture('codex-sent'),
 	});
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep})).toBe(
 		'failed',
 	);
-	t.is(enters(calls), 0);
+	expect(enters(calls)).toBe(0);
 });
 
-test('a send presses nothing more when a dialog replaces the box before the paste shows', async t => {
+test('a send presses nothing more when a dialog replaces the box before the paste shows', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen: sent =>
@@ -408,29 +410,30 @@ test('a send presses nothing more when a dialog replaces the box before the past
 				? agentScreenFixture('claude-permission-bash')
 				: agentScreenFixture('claude-placeholder'),
 	});
-	t.is(
-		await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep})).toBe(
 		'failed',
 	);
-	t.is(enters(calls), 0);
+	expect(enters(calls)).toBe(0);
 });
 
-test('a permission prompt that opens after the Enter means the text was sent, and gets no second Enter', async t => {
+test('a permission prompt that opens after the Enter means the text was sent, and gets no second Enter', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen: submitsOnEnter(1, agentScreenFixture('claude-permission-bash')),
 	});
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}), 'sent');
-	t.is(enters(calls), 1);
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep})).toBe(
+		'sent',
+	);
+	expect(enters(calls)).toBe(1);
 });
 
-test('an agent whose input box is not read gets the paste and one Enter, unwatched', async t => {
+test('an agent whose input box is not read gets the paste and one Enter, unwatched', async () => {
 	let reads = 0;
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen: '$ ',
 	});
-	t.is(
+	expect(
 		await sendToSpaceAgent('STA-1', 'hi', {
 			async runner(args, input) {
 				if (args[0] === 'capture-pane') reads++;
@@ -439,30 +442,33 @@ test('an agent whose input box is not read gets the paste and one Enter, unwatch
 			lockDir,
 			sleep,
 		}),
-		'sent',
-	);
-	t.is(enters(calls), 1);
-	t.is(reads, 1);
+	).toBe('sent');
+	expect(enters(calls)).toBe(1);
+	expect(reads).toBe(1);
 });
 
-test('sendToSpaceAgent stops before pasting or pressing Enter when load-buffer fails', async t => {
+test('sendToSpaceAgent stops before pasting or pressing Enter when load-buffer fails', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		failOn: args => args[0] === 'load-buffer',
 	});
 
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'failed');
-	t.is(calls.at(-1)?.[0], 'load-buffer');
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir})).toBe(
+		'failed',
+	);
+	expect(calls.at(-1)?.[0]).toBe('load-buffer');
 });
 
-test('sendToSpaceAgent deletes the loaded buffer and never presses Enter when paste-buffer fails', async t => {
+test('sendToSpaceAgent deletes the loaded buffer and never presses Enter when paste-buffer fails', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		failOn: args => args[0] === 'paste-buffer',
 	});
 
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'failed');
-	t.deepEqual(calls.slice(-2), [
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir})).toBe(
+		'failed',
+	);
+	expect(calls.slice(-2)).toStrictEqual([
 		[
 			'paste-buffer',
 			'-p',
@@ -477,16 +483,18 @@ test('sendToSpaceAgent deletes the loaded buffer and never presses Enter when pa
 	]);
 });
 
-test('sendToSpaceAgent reports no-session and sends nothing when the space has no agent session', async t => {
+test('sendToSpaceAgent reports no-session and sends nothing when the space has no agent session', async () => {
 	const {runner, calls} = makeRunner({
 		sessions: ['companion-r-STA-1', 'agent-other-STA-1'],
 	});
 
-	t.is(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir}), 'no-session');
-	t.deepEqual(calls, []);
+	expect(await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir})).toBe(
+		'no-session',
+	);
+	expect(calls).toStrictEqual([]);
 });
 
-test('two sends to one session at once submit one whole prompt after the other', async t => {
+test('two sends to one session at once submit one whole prompt after the other', async () => {
 	const calls: string[] = [];
 	const runner: SendTmuxRunner = async (args, input) => {
 		if (args[0] === 'list-sessions') {
@@ -503,13 +511,13 @@ test('two sends to one session at once submit one whole prompt after the other',
 		sendToSpaceAgent('STA-1', 'second', {runner, lockDir}),
 	]);
 	const prompts = calls.filter(call => call === 'first' || call === 'second');
-	t.deepEqual([...prompts].sort(), ['first', 'second']);
-	t.true(calls.indexOf('Enter') < calls.indexOf(prompts[1]!));
+	expect([...prompts].sort()).toStrictEqual(['first', 'second']);
+	expect(calls.indexOf('Enter') < calls.indexOf(prompts[1]!)).toBe(true);
 });
 
-test('sendToSpaceAgent reports busy and sends nothing while another live sender holds the lock', async t => {
+test('sendToSpaceAgent reports busy and sends nothing while another live sender holds the lock', async () => {
 	const heldDir = mkdtempSync(path.join(tmpdir(), 'pappa-send-held-'));
-	t.teardown(() => {
+	teardown(() => {
 		rmSync(heldDir, {recursive: true, force: true});
 	});
 	writeFileSync(path.join(heldDir, 'agent-r-STA-1.lock'), `${process.pid}\n`);
@@ -521,40 +529,34 @@ test('sendToSpaceAgent reports busy and sends nothing while another live sender 
 			stdout: args[0] === 'list-sessions' ? 'agent-r-STA-1\n' : '',
 		};
 	};
-	t.is(
+	expect(
 		await sendToSpaceAgent('STA-1', 'hi', {
 			runner,
 			lockDir: heldDir,
 			lockTimeoutMs: 100,
 		}),
-		'busy',
-	);
-	t.deepEqual(
-		calls.map(call => call[0]),
-		['list-sessions'],
-	);
+	).toBe('busy');
+	expect(calls.map(call => call[0])).toStrictEqual(['list-sessions']);
 });
 
-test('resolveSpaceKey expands a bare number with the team prefix', t => {
-	t.is(resolveSpaceKey('696', 'sta', 'linear', []), 'STA-696');
+test('resolveSpaceKey expands a bare number with the team prefix', () => {
+	expect(resolveSpaceKey('696', 'sta', 'linear', [])).toBe('STA-696');
 });
 
-test('resolveSpaceKey uppercases a tracker key', t => {
-	t.is(resolveSpaceKey('sta-696', 'STA', 'linear', []), 'STA-696');
+test('resolveSpaceKey uppercases a tracker key', () => {
+	expect(resolveSpaceKey('sta-696', 'STA', 'linear', [])).toBe('STA-696');
 });
 
-test('resolveSpaceKey lowercases a beads key so it matches the space name', t => {
-	t.is(
+test('resolveSpaceKey lowercases a beads key so it matches the space name', () => {
+	expect(
 		resolveSpaceKey('Sausage-Race-AGC.17', 'sausage-race', 'beads', [
 			'sausage-race',
 		]),
-		'sausage-race-agc.17',
-	);
+	).toBe('sausage-race-agc.17');
 });
 
-test('resolveSpaceKey keeps a key outside the tracker grammar as typed', t => {
-	t.is(
-		resolveSpaceKey(' pappardelle-tqq ', 'STA', 'linear', []),
+test('resolveSpaceKey keeps a key outside the tracker grammar as typed', () => {
+	expect(resolveSpaceKey(' pappardelle-tqq ', 'STA', 'linear', [])).toBe(
 		'pappardelle-tqq',
 	);
 });
@@ -617,7 +619,7 @@ function composer(lines: string[], row: number, col: number) {
 	};
 }
 
-test('the keys sent before a prompt empty a multi-line draft wherever the cursor is', async t => {
+test('the keys sent before a prompt empty a multi-line draft wherever the cursor is', async () => {
 	const {runner, calls} = makeRunner({sessions: ['agent-r-STA-1']});
 	await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir});
 	const clearKeys = calls
@@ -632,12 +634,12 @@ test('the keys sent before a prompt empty a multi-line draft wherever the cursor
 	] as const) {
 		const box = composer(draft, row, col);
 		for (const key of clearKeys) box.press(key);
-		t.is(box.value, '', `cursor at line ${row}, column ${col}`);
+		expect(box.value, `cursor at line ${row}, column ${col}`).toBe('');
 	}
 });
 
 if (sqliteRun) {
-	test('sendToSpaceAgent sends to the agent session stored for the space', async t => {
+	test('sendToSpaceAgent sends to the agent session stored for the space', async () => {
 		await state.daos.spaceIdentities.record({
 			repo: 'r',
 			key: 'HAND-1',
@@ -651,11 +653,12 @@ if (sqliteRun) {
 		const {runner, calls} = makeRunner({
 			sessions: ['hand-named-agent', 'agent-r-HAND-1'],
 		});
-		t.is(await sendToSpaceAgent('HAND-1', 'hi', {runner, lockDir}), 'sent');
-		t.is(
-			calls.find(args => args[0] === 'paste-buffer')?.at(-1),
+		expect(await sendToSpaceAgent('HAND-1', 'hi', {runner, lockDir})).toBe(
+			'sent',
+		);
+		expect(calls.find(args => args[0] === 'paste-buffer')?.at(-1)).toBe(
 			'=hand-named-agent:',
 		);
-		t.false(calls.some(args => args.includes('=agent-r-HAND-1:')));
+		expect(calls.some(args => args.includes('=agent-r-HAND-1:'))).toBe(false);
 	});
 }

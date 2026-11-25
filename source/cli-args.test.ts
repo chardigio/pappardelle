@@ -1,18 +1,20 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
 
-test('--restart-tuis is unset unless passed, so update can ask on a TTY', t => {
-	t.is(parseCli(['update']).flags.restartTuis, undefined);
-	t.is(parseCli(['update', '--restart-tuis']).flags.restartTuis, true);
-	t.is(parseCli(['update', '--no-restart-tuis']).flags.restartTuis, false);
+test('--restart-tuis is unset unless passed, so update can ask on a TTY', () => {
+	expect(parseCli(['update']).flags.restartTuis).toBe(undefined);
+	expect(parseCli(['update', '--restart-tuis']).flags.restartTuis).toBe(true);
+	expect(parseCli(['update', '--no-restart-tuis']).flags.restartTuis).toBe(
+		false,
+	);
 });
 
-test('--layout still defaults on', t => {
-	t.true(parseCli([]).flags.layout);
-	t.false(parseCli(['--no-layout']).flags.layout);
+test('--layout still defaults on', () => {
+	expect(parseCli([]).flags.layout).toBe(true);
+	expect(parseCli(['--no-layout']).flags.layout).toBe(false);
 });
 
-test("--help on close, restart or update prints that command's help and runs nothing", t => {
+test("--help on close, restart or update prints that command's help and runs nothing", () => {
 	for (const argv of [
 		['close', '--help'],
 		['close', 'STA-1', '--yes', '-h'],
@@ -21,28 +23,28 @@ test("--help on close, restart or update prints that command's help and runs not
 		['update', '--help'],
 	]) {
 		const gate = subcommandGate(argv);
-		t.is(gate.action, 'help');
+		expect(gate.action).toBe('help');
 		if (gate.action === 'help') {
-			t.true(gate.text.includes(`$ pappardelle ${argv[0]}`));
+			expect(gate.text.includes(`$ pappardelle ${argv[0]}`)).toBe(true);
 		}
 	}
 });
 
-test('plugin install answers --help and rejects flags instead of installing', t => {
+test('plugin install answers --help and rejects flags instead of installing', () => {
 	const help = subcommandGate(['plugin', 'install', '--help']);
-	t.is(help.action, 'help');
+	expect(help.action).toBe('help');
 	if (help.action === 'help') {
-		t.true(help.text.includes('$ pappardelle plugin install'));
+		expect(help.text.includes('$ pappardelle plugin install')).toBe(true);
 	}
 
-	t.deepEqual(subcommandGate(['plugin', 'install', '--yes']), {
+	expect(subcommandGate(['plugin', 'install', '--yes'])).toStrictEqual({
 		action: 'reject',
 		message:
 			'Unknown flag --yes for pappardelle plugin install\nUsage: pappardelle plugin install\nRun pappardelle plugin install --help for details',
 	});
 });
 
-test('close, restart and update reject flags that are not theirs', t => {
+test('close, restart and update reject flags that are not theirs', () => {
 	const usages: Record<string, string> = {
 		close: 'Usage: pappardelle close <issue-key> [--yes]',
 		restart: 'Usage: pappardelle restart [--hard [--yes]]',
@@ -57,9 +59,9 @@ test('close, restart and update reject flags that are not theirs', t => {
 		[['update', '--restart-tuis', '--no-layout'], '--no-layout'],
 	] as const) {
 		const gate = subcommandGate(argv);
-		t.is(gate.action, 'reject');
+		expect(gate.action).toBe('reject');
 		if (gate.action === 'reject') {
-			t.deepEqual(gate.message.split('\n'), [
+			expect(gate.message.split('\n')).toStrictEqual([
 				`Unknown flag ${flag} for pappardelle ${argv[0]}`,
 				usages[argv[0]],
 				`Run pappardelle ${argv[0]} --help for details`,
@@ -68,32 +70,32 @@ test('close, restart and update reject flags that are not theirs', t => {
 	}
 });
 
-test('update rejects asking to both restart and leave TUIs', t => {
+test('update rejects asking to both restart and leave TUIs', () => {
 	const gate = subcommandGate([
 		'update',
 		'--restart-tuis',
 		'--no-restart-tuis',
 	]);
-	t.is(gate.action, 'reject');
+	expect(gate.action).toBe('reject');
 });
 
-test('plugin commands other than install are rejected, not run as a prompt', t => {
+test('plugin commands other than install are rejected, not run as a prompt', () => {
 	for (const argv of [
 		['plugin'],
 		['plugin', 'instal'],
 		['plugin', 'uninstall'],
 		['plugin', 'install', 'extra'],
 	]) {
-		t.deepEqual(subcommandGate(argv), {
+		expect(subcommandGate(argv)).toStrictEqual({
 			action: 'reject',
 			message: `Unknown command pappardelle ${argv.join(' ')}\nUsage: pappardelle plugin install`,
 		});
 	}
 
-	t.is(subcommandGate(['plugin', '--help']).action, 'help');
+	expect(subcommandGate(['plugin', '--help']).action).toBe('help');
 });
 
-test('known flags and every other command pass through', t => {
+test('known flags and every other command pass through', () => {
 	for (const argv of [
 		['close', 'STA-1'],
 		['close', 'STA-1', '--yes'],
@@ -108,30 +110,32 @@ test('known flags and every other command pass through', t => {
 		['send', 'STA-1', '--help'],
 		['plugin', 'install'],
 	]) {
-		t.deepEqual(subcommandGate(argv), {action: 'run'});
+		expect(subcommandGate(argv)).toStrictEqual({action: 'run'});
 	}
 });
 
-test('send takes everything after the key as the text, flags included', t => {
-	t.deepEqual(parseSendArgs(['send', 'STE-1', 'hi', '-x', 'there']), {
+test('send takes everything after the key as the text, flags included', () => {
+	expect(parseSendArgs(['send', 'STE-1', 'hi', '-x', 'there'])).toStrictEqual({
 		key: 'STE-1',
 		text: 'hi -x there',
 		keys: [],
 		force: false,
 	});
-	t.deepEqual(parseSendArgs(['send', 'STE-1', '--help']), {
+	expect(parseSendArgs(['send', 'STE-1', '--help'])).toStrictEqual({
 		key: 'STE-1',
 		text: '--help',
 		keys: [],
 		force: false,
 	});
-	t.deepEqual(parseSendArgs(['send', 'STE-1', '-x']), {
+	expect(parseSendArgs(['send', 'STE-1', '-x'])).toStrictEqual({
 		key: 'STE-1',
 		text: '-x',
 		keys: [],
 		force: false,
 	});
-	t.deepEqual(parseSendArgs(['--no-layout', 'send', 'STE-1', '--yes']), {
+	expect(
+		parseSendArgs(['--no-layout', 'send', 'STE-1', '--yes']),
+	).toStrictEqual({
 		key: 'STE-1',
 		text: '--yes',
 		keys: [],
@@ -139,12 +143,18 @@ test('send takes everything after the key as the text, flags included', t => {
 	});
 });
 
-test('send takes --keys and --force only right after the key', t => {
-	t.deepEqual(
+test('send takes --keys and --force only right after the key', () => {
+	expect(
 		parseSendArgs(['send', 'STE-1', '--keys', 'Escape', '--keys=S-Tab']),
-		{key: 'STE-1', text: '', keys: ['Escape', 'S-Tab'], force: false},
-	);
-	t.deepEqual(parseSendArgs(['send', 'STE-1', 'use', '--keys', 'Escape']), {
+	).toStrictEqual({
+		key: 'STE-1',
+		text: '',
+		keys: ['Escape', 'S-Tab'],
+		force: false,
+	});
+	expect(
+		parseSendArgs(['send', 'STE-1', 'use', '--keys', 'Escape']),
+	).toStrictEqual({
 		key: 'STE-1',
 		text: 'use --keys Escape',
 		keys: [],
@@ -152,8 +162,8 @@ test('send takes --keys and --force only right after the key', t => {
 	});
 });
 
-test('send without text leaves it empty so stdin is read', t => {
-	t.deepEqual(parseSendArgs(['send', 'STE-1']), {
+test('send without text leaves it empty so stdin is read', () => {
+	expect(parseSendArgs(['send', 'STE-1'])).toStrictEqual({
 		key: 'STE-1',
 		text: '',
 		keys: [],
@@ -161,67 +171,73 @@ test('send without text leaves it empty so stdin is read', t => {
 	});
 });
 
-test('send with a flag where the key goes has no key, so usage is printed', t => {
-	t.is(parseSendArgs(['send', '--help']).key, undefined);
-	t.is(parseSendArgs(['send']).key, undefined);
+test('send with a flag where the key goes has no key, so usage is printed', () => {
+	expect(parseSendArgs(['send', '--help']).key).toBe(undefined);
+	expect(parseSendArgs(['send']).key).toBe(undefined);
 });
 
-test('--resume accepts either position without consuming the input', t => {
+test('--resume accepts either position without consuming the input', () => {
 	for (const argv of [
 		['--resume', 'STE-20'],
 		['STE-20', '--resume'],
 	]) {
 		const cli = parseCli(argv);
-		t.true(cli.flags.resume);
-		t.deepEqual(cli.input, ['STE-20']);
+		expect(cli.flags.resume).toBe(true);
+		expect(cli.input).toStrictEqual(['STE-20']);
 	}
 
-	t.is(parseCli(['STE-20']).flags.resume, undefined);
-	t.false(parseCli(['STE-20', '--no-resume']).flags.resume);
-	t.deepEqual(parseCli(['--resume', 'fix auth bug']).input, ['fix auth bug']);
+	expect(parseCli(['STE-20']).flags.resume).toBe(undefined);
+	expect(parseCli(['STE-20', '--no-resume']).flags.resume).toBe(false);
+	expect(parseCli(['--resume', 'fix auth bug']).input).toStrictEqual([
+		'fix auth bug',
+	]);
 });
 
-test('--profile preserves its name and positional input in either order', t => {
+test('--profile preserves its name and positional input in either order', () => {
 	for (const argv of [
 		['--profile', 'mobile', 'STE-20'],
 		['STE-20', '--profile', 'mobile'],
 	]) {
 		const cli = parseCli(argv);
-		t.is(cli.flags.profile, 'mobile');
-		t.deepEqual(cli.input, ['STE-20']);
+		expect(cli.flags.profile).toBe('mobile');
+		expect(cli.input).toStrictEqual(['STE-20']);
 	}
-	t.is(parseCli(['--profile', '123', 'STE-20']).flags.profile, '123');
-	t.is(parseCli(['STE-20']).flags.profile, undefined);
+	expect(parseCli(['--profile', '123', 'STE-20']).flags.profile).toBe('123');
+	expect(parseCli(['STE-20']).flags.profile).toBe(undefined);
 });
 
-test('close --help documents --yes but not the internal --teardown-only', t => {
+test('close --help documents --yes but not the internal --teardown-only', () => {
 	const gate = subcommandGate(['close', '--help']);
-	t.is(gate.action, 'help');
+	expect(gate.action).toBe('help');
 	if (gate.action === 'help') {
-		t.true(gate.text.includes('--yes'));
-		t.false(gate.text.includes('--teardown-only'));
+		expect(gate.text.includes('--yes')).toBe(true);
+		expect(gate.text.includes('--teardown-only')).toBe(false);
 	}
 
-	t.false(parseCli([]).help.includes('--teardown-only'));
-	t.true(parseCli(['close', 'STA-1', '--teardown-only']).flags.teardownOnly);
+	expect(parseCli([]).help.includes('--teardown-only')).toBe(false);
+	expect(
+		parseCli(['close', 'STA-1', '--teardown-only']).flags.teardownOnly,
+	).toBe(true);
 });
 
-test("send's text never reaches the top-level flag checks", t => {
+test("send's text never reaches the top-level flag checks", () => {
 	const cli = parseCli(['send', 'STA-1', 'run with', '--profile']);
-	t.is(cli.flags.profile, undefined);
-	t.deepEqual(cli.input, ['send']);
+	expect(cli.flags.profile).toBe(undefined);
+	expect(cli.input).toStrictEqual(['send']);
 });
 
-test('mcp answers --help and rejects flags it does not know', t => {
-	t.is(subcommandGate(['mcp']).action, 'run');
-	t.is(subcommandGate(['mcp', '--help']).action, 'help');
-	t.is(subcommandGate(['mcp', '--nope']).action, 'reject');
-	t.is(subcommandGate(['mcp', 'install']).action, 'run');
-	t.is(subcommandGate(['mcp', 'nope']).action, 'reject');
+test('mcp answers --help and rejects flags it does not know', () => {
+	expect(subcommandGate(['mcp']).action).toBe('run');
+	expect(subcommandGate(['mcp', '--help']).action).toBe('help');
+	expect(subcommandGate(['mcp', '--nope']).action).toBe('reject');
+	expect(subcommandGate(['mcp', 'install']).action).toBe('run');
+	expect(subcommandGate(['mcp', 'nope']).action).toBe('reject');
 });
 
-test('a --force after the text is the flag, not part of the message', t => {
-	t.deepEqual(parseSendArgs(['send', 'STE-1', 'hello', 'there', '--force']), {
+test('a --force after the text is the flag, not part of the message', () => {
+	expect(
+		parseSendArgs(['send', 'STE-1', 'hello', 'there', '--force']),
+	).toStrictEqual({
 		key: 'STE-1',
 		text: 'hello there',
 		keys: [],
@@ -229,8 +245,10 @@ test('a --force after the text is the flag, not part of the message', t => {
 	});
 });
 
-test('a --force inside the message stays text', t => {
-	t.like(parseSendArgs(['send', 'STE-1', 'why', '--force', 'is', 'risky']), {
+test('a --force inside the message stays text', () => {
+	expect(
+		parseSendArgs(['send', 'STE-1', 'why', '--force', 'is', 'risky']),
+	).toMatchObject({
 		text: 'why --force is risky',
 		force: false,
 	});

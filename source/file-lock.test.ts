@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {withFileLock} from './file-lock.ts';
 
 const execute = promisify(execFile);
@@ -21,9 +22,9 @@ async function lockFromAnotherProcess(target: string): Promise<string> {
 	return stdout.trim();
 }
 
-test('another process does not enter while the first caller’s async callback is pending', async t => {
+test('another process does not enter while the first caller’s async callback is pending', async () => {
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-lock-'));
-	t.teardown(() => {
+	teardown(() => {
 		fs.rmSync(directory, {recursive: true, force: true});
 	});
 	const target = path.join(directory, 'guarded');
@@ -42,9 +43,9 @@ test('another process does not enter while the first caller’s async callback i
 		return 'done';
 	});
 	await inside;
-	t.is(await lockFromAnotherProcess(target), 'kept out');
+	expect(await lockFromAnotherProcess(target)).toBe('kept out');
 
 	finish();
-	t.is(await first, 'done');
-	t.is(await lockFromAnotherProcess(target), 'entered');
+	expect(await first).toBe('done');
+	expect(await lockFromAnotherProcess(target)).toBe('entered');
 });

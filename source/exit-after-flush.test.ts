@@ -1,8 +1,8 @@
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 
-test('output larger than a pipe buffer arrives whole before the exit', t => {
+test('output larger than a pipe buffer arrives whole before the exit', () => {
 	const module = path.join(import.meta.dirname, 'exit-after-flush.ts');
 	const script = `import {exitAfterFlush} from ${JSON.stringify(module)};
 process.stdout.write('x'.repeat(300_000));
@@ -12,11 +12,11 @@ await exitAfterFlush(3);`;
 		encoding: 'utf8',
 		maxBuffer: 10_000_000,
 	});
-	t.is(result.status, 3, `stderr: ${result.stderr}`);
-	t.is(result.stdout.length, 300_000);
+	expect(result.status, `stderr: ${result.stderr}`).toBe(3);
+	expect(result.stdout.length).toBe(300_000);
 });
 
-test('a slow reader still gets all of it', t => {
+test('a slow reader still gets all of it', () => {
 	const module = path.join(import.meta.dirname, 'exit-after-flush.ts');
 	const script = `import {exitAfterFlush} from ${JSON.stringify(module)};
 process.stdout.write('x'.repeat(300_000));
@@ -26,5 +26,5 @@ await exitAfterFlush(3);`;
 		['-c', `"$0" -e "$1" | (sleep 0.3; wc -c)`, process.execPath, script],
 		{encoding: 'utf8'},
 	);
-	t.is(result.stdout.trim(), '300000', `stderr: ${result.stderr}`);
+	expect(result.stdout.trim(), `stderr: ${result.stderr}`).toBe('300000');
 });

@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import React from 'react';
 import {RGBA} from '@opentui/core';
 import {render} from '../../test/helpers/render.ts';
@@ -20,17 +20,17 @@ async function keySpan(space: SpaceData) {
 	return spans.find(span => span.text.includes(space.name))!;
 }
 
-test('a pending row draws its key in the default foreground, not ANSI white', async t => {
+test('a pending row draws its key in the default foreground, not ANSI white', async () => {
 	const key = await keySpan({
 		name: 'PAP-9',
 		worktreePath: null,
 		isPending: true,
 		pendingTitle: 'Opening…',
 	});
-	t.true(key.fg.equals(RGBA.defaultForeground()));
+	expect(key.fg.equals(RGBA.defaultForeground())).toBe(true);
 });
 
-test('a key whose tracker state is gray stays off the Solarized background', async t => {
+test('a key whose tracker state is gray stays off the Solarized background', async () => {
 	const key = await keySpan({
 		name: 'bd-1',
 		worktreePath: null,
@@ -40,5 +40,5 @@ test('a key whose tracker state is gray stays off the Solarized background', asy
 			state: {name: 'open', type: 'open', color: 'gray'},
 		},
 	});
-	t.true(key.fg.equals(RGBA.defaultForeground()));
+	expect(key.fg.equals(RGBA.defaultForeground())).toBe(true);
 });

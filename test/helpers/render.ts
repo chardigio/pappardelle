@@ -1,13 +1,12 @@
-/* eslint-disable ava/no-ignored-test-files -- Shared AVA cleanup for native renderer fixtures. */
 import {setTimeout as delay} from 'node:timers/promises';
 import type {KeyEvent} from '@opentui/core';
 import {useKeyboard} from '@opentui/react';
-import test from 'ava';
+import {afterAll} from 'bun:test';
 import React from 'react';
 import {render as renderOpenTui} from './opentui-render.ts';
 
 const views = new Set<Awaited<ReturnType<typeof renderOpenTui>>>();
-test.after.always(async () => {
+afterAll(async () => {
 	await Promise.all([...views].map(view => view.unmount()));
 });
 export async function render(...args: Parameters<typeof renderOpenTui>) {

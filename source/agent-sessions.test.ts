@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {newSpaceIdentity} from './space-identity.ts';
@@ -48,9 +49,8 @@ const entry = (id: string, started: string | null = STARTED): Entry => ({
 
 contractTest(
 	"a space's file is in the space-state directory, where the hook writes it",
-	(t, state) => {
-		t.is(
-			state.daos.agentSessions.file('STA-1'),
+	state => {
+		expect(state.daos.agentSessions.file('STA-1')).toBe(
 			path.join(
 				state.stateDir,
 				'repos',
@@ -64,69 +64,69 @@ contractTest(
 
 contractTest(
 	'a session id is read back under the agent profile that recorded it',
-	(t, state) => {
+	state => {
 		const f = fixture(state);
-		t.is(f.dao.read('STA-1', 'claude'), undefined);
+		expect(f.dao.read('STA-1', 'claude')).toBe(undefined);
 		f.record('STA-1', {claude: entry('a'), codex: entry('b')});
-		t.is(f.dao.read('STA-1', 'claude'), 'a');
-		t.is(f.dao.read('STA-1', 'codex'), 'b');
-		t.is(f.dao.read('STA-1', 'pi'), undefined);
-		t.is(f.dao.read('STA-2', 'claude'), undefined);
+		expect(f.dao.read('STA-1', 'claude')).toBe('a');
+		expect(f.dao.read('STA-1', 'codex')).toBe('b');
+		expect(f.dao.read('STA-1', 'pi')).toBe(undefined);
+		expect(f.dao.read('STA-2', 'claude')).toBe(undefined);
 	},
 );
 
 contractTest(
 	'the agent running in a space is the one that started last',
-	(t, state) => {
+	state => {
 		const f = fixture(state);
-		t.is(f.dao.latestProfile('STA-1'), undefined);
+		expect(f.dao.latestProfile('STA-1')).toBe(undefined);
 		f.record('STA-1', {
 			claude: entry('a', 'Mon Nov  2 10:00:00 2026'),
 			codex: entry('b', 'Mon Nov  2 11:30:00 2026'),
 			old: entry('c', 'Sun Nov  1 23:00:00 2026'),
 			unknown: entry('d', null),
 		});
-		t.is(f.dao.latestProfile('STA-1'), 'codex');
+		expect(f.dao.latestProfile('STA-1')).toBe('codex');
 	},
 );
 
-contractTest(
-	'a file that is not a set of sessions records nothing',
-	(t, state) => {
-		const f = fixture(state);
-		fs.mkdirSync(path.dirname(f.file('STA-1')), {recursive: true});
-		fs.writeFileSync(f.file('STA-1'), '{"claude": {"session_id": "a"');
-		t.is(f.dao.read('STA-1', 'claude'), undefined);
-		t.is(f.dao.latestProfile('STA-1'), undefined);
-	},
-);
+contractTest('a file that is not a set of sessions records nothing', state => {
+	const f = fixture(state);
+	fs.mkdirSync(path.dirname(f.file('STA-1')), {recursive: true});
+	fs.writeFileSync(f.file('STA-1'), '{"claude": {"session_id": "a"');
+	expect(f.dao.read('STA-1', 'claude')).toBe(undefined);
+	expect(f.dao.latestProfile('STA-1')).toBe(undefined);
+});
 
 contractTest(
 	'a hook write made after an earlier read is the one read next',
-	(t, state) => {
+	state => {
 		const f = fixture(state);
 		f.record('STA-1', {claude: entry('first')});
-		t.is(f.dao.read('STA-1', 'claude'), 'first');
+		expect(f.dao.read('STA-1', 'claude')).toBe('first');
 		f.record('STA-1', {claude: entry('second'), codex: entry('other')});
-		t.is(f.dao.read('STA-1', 'claude'), 'second');
-		t.is(f.dao.read('STA-1', 'codex'), 'other');
+		expect(f.dao.read('STA-1', 'claude')).toBe('second');
+		expect(f.dao.read('STA-1', 'codex')).toBe('other');
 	},
 );
 
-contractTest("a space's sessions are listed by agent profile", (t, state) => {
+contractTest("a space's sessions are listed by agent profile", state => {
 	const f = fixture(state);
-	t.deepEqual(f.dao.sessions('STA-1'), {kind: 'sessions', sessions: {}});
+	expect(f.dao.sessions('STA-1')).toStrictEqual({
+		kind: 'sessions',
+		sessions: {},
+	});
 	f.record('STA-1', {claude: entry('a'), codex: entry('b', null)});
 	f.record('STA-2', {claude: entry('c')});
-	t.deepEqual(f.dao.sessions('STA-1'), {
+	expect(f.dao.sessions('STA-1')).toStrictEqual({
 		kind: 'sessions',
 		sessions: {claude: 'a', codex: 'b'},
 	});
 });
 
-contractTest('the spaces with sessions are listed', (t, state) => {
+contractTest('the spaces with sessions are listed', state => {
 	const f = fixture(state);
-	t.deepEqual(f.dao.keys(), []);
+	expect(f.dao.keys()).toStrictEqual([]);
 	f.record('STA-1', {claude: entry('a')});
 	f.record('main', {claude: entry('b')});
 	// The space-state file of a space sits in the same directory.
@@ -134,14 +134,14 @@ contractTest('the spaces with sessions are listed', (t, state) => {
 		path.join(path.dirname(f.file('STA-1')), 'STA-3.json'),
 		JSON.stringify({profile: 'dev'}),
 	);
-	t.deepEqual(f.dao.keys().sort(), ['STA-1', 'main']);
+	expect(f.dao.keys().sort()).toStrictEqual(['STA-1', 'main']);
 	fs.rmSync(f.file('STA-1'));
-	t.deepEqual(f.dao.keys(), ['main']);
+	expect(f.dao.keys()).toStrictEqual(['main']);
 });
 
 contractTest(
 	'renaming a profile moves its session and keeps the others in place',
-	async (t, state) => {
+	async state => {
 		const f = fixture(state);
 		f.record('STA-1', {
 			pi: entry('p'),
@@ -149,56 +149,56 @@ contractTest(
 			codex: entry('b'),
 		});
 		await f.dao.renameProfile('STA-1', 'claude', 'alpha-claude');
-		t.deepEqual(f.recorded('STA-1'), {
+		expect(f.recorded('STA-1')).toStrictEqual({
 			pi: entry('p'),
 			'alpha-claude': entry('a'),
 			codex: entry('b'),
 		});
-		t.deepEqual(Object.keys(f.recorded('STA-1')), [
+		expect(Object.keys(f.recorded('STA-1'))).toStrictEqual([
 			'pi',
 			'alpha-claude',
 			'codex',
 		]);
-		t.is(f.dao.read('STA-1', 'alpha-claude'), 'a');
-		t.is(f.dao.read('STA-1', 'claude'), undefined);
+		expect(f.dao.read('STA-1', 'alpha-claude')).toBe('a');
+		expect(f.dao.read('STA-1', 'claude')).toBe(undefined);
 	},
 );
 
 contractTest(
 	'a rename changes nothing when the old name has no session or the new one has its own',
-	async (t, state) => {
+	async state => {
 		const f = fixture(state);
 		f.record('STA-1', {claude: entry('a'), codex: entry('b')});
 		const before = fs.readFileSync(f.file('STA-1'), 'utf8');
 		await f.dao.renameProfile('STA-1', 'pi', 'pi-fast');
 		await f.dao.renameProfile('STA-1', 'claude', 'codex');
 		await f.dao.renameProfile('STA-2', 'claude', 'alpha-claude');
-		t.is(fs.readFileSync(f.file('STA-1'), 'utf8'), before);
-		t.false(fs.existsSync(f.file('STA-2')));
-		t.is(f.dao.read('STA-1', 'claude'), 'a');
-		t.is(f.dao.read('STA-1', 'codex'), 'b');
+		expect(fs.readFileSync(f.file('STA-1'), 'utf8')).toBe(before);
+		expect(fs.existsSync(f.file('STA-2'))).toBe(false);
+		expect(f.dao.read('STA-1', 'claude')).toBe('a');
+		expect(f.dao.read('STA-1', 'codex')).toBe('b');
 	},
 );
 
 contractTest(
 	'clearing a space forgets its sessions and leaves other spaces alone',
-	async (t, state) => {
+	async state => {
 		const f = fixture(state);
 		f.record('STA-1', {claude: entry('a')});
 		f.record('STA-2', {claude: entry('b')});
-		t.is(f.dao.read('STA-1', 'claude'), 'a');
+		expect(f.dao.read('STA-1', 'claude')).toBe('a');
 		await f.dao.clear('STA-1');
-		t.is(f.dao.read('STA-1', 'claude'), undefined);
-		t.false(fs.existsSync(f.file('STA-1')));
-		t.is(f.dao.read('STA-2', 'claude'), 'b');
+		expect(f.dao.read('STA-1', 'claude')).toBe(undefined);
+		expect(fs.existsSync(f.file('STA-1'))).toBe(false);
+		expect(f.dao.read('STA-2', 'claude')).toBe('b');
 		await f.dao.clear('STA-9');
 	},
 );
 
-test('the two stores leave the same files for the same history', async t => {
+test('the two stores leave the same files for the same history', async () => {
 	const files = [];
 	for (const sqlite of [false, true]) {
-		const f = fixture(testState(t, {sqlite}));
+		const f = fixture(testState({sqlite}));
 		f.record('STA-1', {
 			claude: entry('a'),
 			codex: entry('b', null),
@@ -213,23 +213,23 @@ test('the two stores leave the same files for the same history', async t => {
 		});
 	}
 
-	t.deepEqual(files[0], files[1]);
-	t.deepEqual(JSON.parse(files[0]!.one), {
+	expect(files[0]).toStrictEqual(files[1]);
+	expect(JSON.parse(files[0]!.one)).toStrictEqual({
 		'alpha-claude': entry('a'),
 		'codex-high': entry('b', null),
 	});
-	t.false(files[0]!.two);
+	expect(files[0]!.two).toBe(false);
 });
 
 // The hook and a config migration both rewrite the whole file. Without the
 // database either could write back what it read before the other's change.
-test('sqlite: a session recorded by the hook and a profile renamed by another process both survive', async t => {
+test('sqlite: a session recorded by the hook and a profile renamed by another process both survive', async () => {
 	// The hook finds the files under its home directory.
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-hook-home-'));
-	t.teardown(() => {
+	teardown(() => {
 		fs.rmSync(home, {recursive: true, force: true});
 	});
-	const state = testState(t, {
+	const state = testState({
 		sqlite: true,
 		stateDir: path.join(home, '.pappardelle'),
 	});
@@ -285,6 +285,8 @@ for key in sys.argv[2:]:
 		{
 			env: {
 				PATH: process.env['PATH'],
+				// tmux falls back to the live tmux directory without it.
+				TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
 				// This env is an allow-list, and without TMPDIR the hook would write
 				// to /tmp instead of the run tmpdir.
 				TMPDIR: os.tmpdir(),
@@ -302,28 +304,28 @@ for key in sys.argv[2:]:
 	]);
 
 	for (const key of keys) {
-		t.is(f.dao.read(key, 'alpha-claude'), `${key}-claude`);
-		t.is(f.dao.read(key, 'codex'), `${key}-codex`);
-		t.deepEqual(
+		expect(f.dao.read(key, 'alpha-claude')).toBe(`${key}-claude`);
+		expect(f.dao.read(key, 'codex')).toBe(`${key}-codex`);
+		expect(
 			Object.fromEntries(
 				Object.entries(f.recorded(key)).map(([name, session]) => [
 					name,
 					session.session_id,
 				]),
 			),
-			{'alpha-claude': `${key}-claude`, codex: `${key}-codex`},
-		);
+		).toStrictEqual({'alpha-claude': `${key}-claude`, codex: `${key}-codex`});
 	}
 
 	// Each hook write went through the database: nothing was left to import.
-	t.is(
+	expect(
 		openStateDb(dbPath)
 			.db.query<
 				{rows: number},
 				[]
 			>(`SELECT COUNT(*) AS rows FROM agent_sessions WHERE repo = 'repo'`)
 			.get()!.rows,
-		keys.length * 2,
-	);
-	t.false(fs.existsSync(path.join(state.stateDir, 'logs', 'hook-events.log')));
+	).toBe(keys.length * 2);
+	expect(
+		fs.existsSync(path.join(state.stateDir, 'logs', 'hook-events.log')),
+	).toBe(false);
 });

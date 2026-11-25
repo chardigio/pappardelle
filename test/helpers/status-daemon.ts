@@ -21,8 +21,9 @@ import {
 	type DaemonMessage,
 	type StatusTimers,
 } from '../../source/status-protocol.ts';
-import {tempDir, type Teardown} from './temp-dir.ts';
+import {tempDir, type Cleanup} from './temp-dir.ts';
 import {waitUntil} from './wait.ts';
+import {teardown} from './teardown.ts';
 
 /** Timers that run only when a test fires them. */
 export function manualTimers(): {
@@ -56,13 +57,12 @@ export function manualTimers(): {
  * A socket path in a directory of the test's own. Unix socket paths are
  * limited to about 104 bytes, so the directory name is kept short.
  */
-export function testSocketPath(t: Teardown): string {
-	return path.join(tempDir(t, 'papp-sd-'), 'status-1.sock');
+export function testSocketPath(): string {
+	return path.join(tempDir('papp-sd-'), 'status-1.sock');
 }
 
 /** A daemon in this process, closed when the test ends. */
 export async function serveTestDaemon(
-	t: Teardown,
 	socketPath: string,
 	options: StatusDaemonOptions = {},
 ): Promise<StatusDaemon> {
@@ -72,7 +72,7 @@ export async function serveTestDaemon(
 	});
 	if (start.kind !== 'serving')
 		throw new Error(`The test daemon did not start: ${start.kind}`);
-	t.teardown(async () => start.daemon.close());
+	teardown(async () => start.daemon.close());
 	return start.daemon;
 }
 
@@ -81,10 +81,13 @@ export async function serveTestDaemon(
  * client built right after it connects on its first attempt. Starting a
  * whole daemon takes several turns of the event loop.
  */
-export function serveTestHub(t: Teardown, socketPath: string): void {
+export function serveTestHub(
+	socketPath: string,
+	cleanup: Cleanup = teardown,
+): void {
 	const {server, disconnectAll} = createStatusServer();
 	server.listen(socketPath);
-	t.teardown(() => {
+	cleanup(() => {
 		disconnectAll();
 		server.close();
 	});
@@ -142,10 +145,7 @@ export type RawConnection = {
 };
 
 /** A socket to the daemon that speaks the protocol and nothing more. */
-export async function connectRaw(
-	t: Teardown,
-	socketPath: string,
-): Promise<RawConnection> {
+export async function connectRaw(socketPath: string): Promise<RawConnection> {
 	const socket = net.connect(socketPath);
 	const reader = new LineReader();
 	const messages: DaemonMessage[] = [];
@@ -157,7 +157,7 @@ export async function connectRaw(
 		}
 	});
 	socket.on('error', () => {});
-	t.teardown(() => {
+	teardown(() => {
 		socket.destroy();
 	});
 	await new Promise((resolve, reject) => {
@@ -178,11 +178,10 @@ export async function connectRaw(
 
 /** A subscriber that has received the daemon's state. */
 export async function subscribeRaw(
-	t: Teardown,
 	socketPath: string,
 	repo: string,
 ): Promise<RawConnection> {
-	const connection = await connectRaw(t, socketPath);
+	const connection = await connectRaw(socketPath);
 	connection.send({type: 'subscribe', repo});
 	await connection.received(
 		message => message.type === 'state',

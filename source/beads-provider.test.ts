@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	BeadsProvider,
 	MAX_RETRIES,
@@ -70,217 +70,218 @@ const OPEN_ISSUE = {
 
 // unwrapBeadsJson — payload shapes bd can emit
 
-test('unwrapBeadsJson reads a bare array (legacy --json)', t => {
+test('unwrapBeadsJson reads a bare array (legacy --json)', () => {
 	const rows = unwrapBeadsJson(JSON.stringify([OPEN_ISSUE]));
-	t.is(rows.length, 1);
-	t.is(rows[0]!['id'], 'sddamico-hic');
+	expect(rows.length).toBe(1);
+	expect(rows[0]!['id']).toBe('sddamico-hic');
 });
 
-test('unwrapBeadsJson unwraps the schema envelope', t => {
+test('unwrapBeadsJson unwraps the schema envelope', () => {
 	// BD_JSON_ENVELOPE=1 today, the default from beads 2.0 on.
 	const rows = unwrapBeadsJson(
 		JSON.stringify({schema_version: 1, data: [OPEN_ISSUE]}),
 	);
-	t.is(rows.length, 1);
-	t.is(rows[0]!['id'], 'sddamico-hic');
+	expect(rows.length).toBe(1);
+	expect(rows[0]!['id']).toBe('sddamico-hic');
 });
 
-test('unwrapBeadsJson wraps a lone object into a list', t => {
+test('unwrapBeadsJson wraps a lone object into a list', () => {
 	const rows = unwrapBeadsJson(JSON.stringify(OPEN_ISSUE));
-	t.is(rows.length, 1);
-	t.is(rows[0]!['title'], "better-sqlite3 can't build");
+	expect(rows.length).toBe(1);
+	expect(rows[0]!['title']).toBe("better-sqlite3 can't build");
 });
 
-test('unwrapBeadsJson unwraps an enveloped lone object', t => {
+test('unwrapBeadsJson unwraps an enveloped lone object', () => {
 	const rows = unwrapBeadsJson(
 		JSON.stringify({schema_version: 1, data: OPEN_ISSUE}),
 	);
-	t.is(rows.length, 1);
-	t.is(rows[0]!['id'], 'sddamico-hic');
+	expect(rows.length).toBe(1);
+	expect(rows[0]!['id']).toBe('sddamico-hic');
 });
 
-test('unwrapBeadsJson returns nothing for an empty or scalar payload', t => {
-	t.deepEqual(unwrapBeadsJson('[]'), []);
-	t.deepEqual(unwrapBeadsJson('null'), []);
-	t.deepEqual(unwrapBeadsJson('"nope"'), []);
+test('unwrapBeadsJson returns nothing for an empty or scalar payload', () => {
+	expect(unwrapBeadsJson('[]')).toStrictEqual([]);
+	expect(unwrapBeadsJson('null')).toStrictEqual([]);
+	expect(unwrapBeadsJson('"nope"')).toStrictEqual([]);
 });
 
-test('unwrapBeadsJson drops non-object rows rather than mapping them', t => {
+test('unwrapBeadsJson drops non-object rows rather than mapping them', () => {
 	const rows = unwrapBeadsJson(JSON.stringify([OPEN_ISSUE, null, 3]));
-	t.is(rows.length, 1);
+	expect(rows.length).toBe(1);
 });
 
 // beadsIssuePrefix — the stand-in for Linear/Jira's project field
 
-test('beadsIssuePrefix splits on the last hyphen', t => {
-	t.is(beadsIssuePrefix('bd-a1b2'), 'bd');
-	t.is(beadsIssuePrefix('sddamico-hic'), 'sddamico');
+test('beadsIssuePrefix splits on the last hyphen', () => {
+	expect(beadsIssuePrefix('bd-a1b2')).toBe('bd');
+	expect(beadsIssuePrefix('sddamico-hic')).toBe('sddamico');
 });
 
-test('beadsIssuePrefix keeps hyphens inside the prefix', t => {
+test('beadsIssuePrefix keeps hyphens inside the prefix', () => {
 	// The prefix defaults to the repo directory name, which routinely has them.
-	t.is(
-		beadsIssuePrefix('seatgeek-ticket-management-cli-bqm'),
+	expect(beadsIssuePrefix('seatgeek-ticket-management-cli-bqm')).toBe(
 		'seatgeek-ticket-management-cli',
 	);
 });
 
-test('beadsIssuePrefix ignores hierarchical child suffixes', t => {
-	t.is(beadsIssuePrefix('bd-a3f8e9.1'), 'bd');
-	t.is(beadsIssuePrefix('bd-a3f8e9.1.2'), 'bd');
+test('beadsIssuePrefix ignores hierarchical child suffixes', () => {
+	expect(beadsIssuePrefix('bd-a3f8e9.1')).toBe('bd');
+	expect(beadsIssuePrefix('bd-a3f8e9.1.2')).toBe('bd');
 });
 
-test('beadsIssuePrefix returns empty for an ID with no hyphen', t => {
-	t.is(beadsIssuePrefix('nohyphen'), '');
+test('beadsIssuePrefix returns empty for an ID with no hyphen', () => {
+	expect(beadsIssuePrefix('nohyphen')).toBe('');
 });
 
 // Status mapping
 
-test('beadsStateType reports closed as completed for auto-remove', t => {
+test('beadsStateType reports closed as completed for auto-remove', () => {
 	// auto-remove.ts keys off the Linear-flavored 'completed'/'canceled'.
-	t.is(beadsStateType('closed'), 'completed');
+	expect(beadsStateType('closed')).toBe('completed');
 });
 
-test('beadsStateType passes every other status through untouched', t => {
+test('beadsStateType passes every other status through untouched', () => {
 	// Including user-defined ones, which beads allows via its status.custom key.
 	for (const status of ['open', 'in_progress', 'blocked', 'needs_review']) {
-		t.is(beadsStateType(status), status);
+		expect(beadsStateType(status)).toBe(status);
 	}
 });
 
-test('beadsStateName title-cases the snake_case status', t => {
-	t.is(beadsStateName('in_progress'), 'In Progress');
-	t.is(beadsStateName('open'), 'Open');
+test('beadsStateName title-cases the snake_case status', () => {
+	expect(beadsStateName('in_progress')).toBe('In Progress');
+	expect(beadsStateName('open')).toBe('Open');
 });
 
 // mapBeadsIssue — pure parsing logic
 
-test('mapBeadsIssue maps a standard bd row', t => {
+test('mapBeadsIssue maps a standard bd row', () => {
 	const issue = mapBeadsIssue(OPEN_ISSUE);
-	t.is(issue.identifier, 'sddamico-hic');
-	t.is(issue.title, "better-sqlite3 can't build");
-	t.is(issue.state.name, 'Open');
-	t.is(issue.state.type, 'open');
-	t.is(issue.state.color, 'gray');
+	expect(issue.identifier).toBe('sddamico-hic');
+	expect(issue.title).toBe("better-sqlite3 can't build");
+	expect(issue.state.name).toBe('Open');
+	expect(issue.state.type).toBe('open');
+	expect(issue.state.color).toBe('gray');
 });
 
-test('mapBeadsIssue carries created_at through as createdAt', t => {
+test('mapBeadsIssue carries created_at through as createdAt', () => {
 	const issue = mapBeadsIssue({
 		id: 'sddamico-hic',
 		title: 'x',
 		created_at: '2026-07-21T23:34:43Z',
 	});
-	t.is(issue.createdAt, '2026-07-21T23:34:43Z');
-	t.is(mapBeadsIssue({id: 'sddamico-hic', title: 'x'}).createdAt, undefined);
+	expect(issue.createdAt).toBe('2026-07-21T23:34:43Z');
+	expect(mapBeadsIssue({id: 'sddamico-hic', title: 'x'}).createdAt).toBe(
+		undefined,
+	);
 });
 
-test('mapBeadsIssue never uppercases the identifier', t => {
+test('mapBeadsIssue never uppercases the identifier', () => {
 	// A beads ID is case-sensitive; uppercasing yields one bd cannot resolve.
-	t.is(mapBeadsIssue({id: 'bd-a1b2', title: 'x'}).identifier, 'bd-a1b2');
+	expect(mapBeadsIssue({id: 'bd-a1b2', title: 'x'}).identifier).toBe('bd-a1b2');
 });
 
-test('mapBeadsIssue exposes the prefix as the project', t => {
+test('mapBeadsIssue exposes the prefix as the project', () => {
 	const issue = mapBeadsIssue({id: 'sddamico-hic', title: 'x', status: 'open'});
-	t.deepEqual(issue.project, {name: 'sddamico', key: 'sddamico'});
+	expect(issue.project).toStrictEqual({name: 'sddamico', key: 'sddamico'});
 });
 
-test('mapBeadsIssue reports no project for a prefixless ID', t => {
-	t.is(mapBeadsIssue({id: 'nohyphen', title: 'x'}).project, null);
+test('mapBeadsIssue reports no project for a prefixless ID', () => {
+	expect(mapBeadsIssue({id: 'nohyphen', title: 'x'}).project).toBe(null);
 });
 
-test('mapBeadsIssue maps a closed issue to the terminal state type', t => {
+test('mapBeadsIssue maps a closed issue to the terminal state type', () => {
 	const issue = mapBeadsIssue({...OPEN_ISSUE, status: 'closed'});
-	t.is(issue.state.type, 'completed');
-	t.is(issue.state.name, 'Closed');
-	t.is(issue.state.color, 'green');
+	expect(issue.state.type).toBe('completed');
+	expect(issue.state.name).toBe('Closed');
+	expect(issue.state.color).toBe('green');
 });
 
-test('mapBeadsIssue gives an unknown status the fallback color', t => {
+test('mapBeadsIssue gives an unknown status the fallback color', () => {
 	const issue = mapBeadsIssue({...OPEN_ISSUE, status: 'needs_review'});
-	t.is(issue.state.name, 'Needs Review');
-	t.is(issue.state.color, 'gray');
+	expect(issue.state.name).toBe('Needs Review');
+	expect(issue.state.color).toBe('gray');
 });
 
-test('mapBeadsIssue keeps string labels and drops the rest', t => {
+test('mapBeadsIssue keeps string labels and drops the rest', () => {
 	const issue = mapBeadsIssue({...OPEN_ISSUE, labels: ['bug', 7, 'infra']});
-	t.deepEqual(issue.labels, ['bug', 'infra']);
+	expect(issue.labels).toStrictEqual(['bug', 'infra']);
 });
 
-test('mapBeadsIssue omits labels when bd sent none', t => {
-	t.is(mapBeadsIssue(OPEN_ISSUE).labels, undefined);
+test('mapBeadsIssue omits labels when bd sent none', () => {
+	expect(mapBeadsIssue(OPEN_ISSUE).labels).toBe(undefined);
 });
 
-test('mapBeadsIssue tolerates a row missing title and status', t => {
+test('mapBeadsIssue tolerates a row missing title and status', () => {
 	const issue = mapBeadsIssue({id: 'bd-a1b2'});
-	t.is(issue.title, '');
-	t.is(issue.state.type, 'open');
+	expect(issue.title).toBe('');
+	expect(issue.state.type).toBe('open');
 });
 
 // getIssue
 
-test('getIssue fetches and maps an issue', async t => {
+test('getIssue fetches and maps an issue', async () => {
 	const {provider, calls} = providerReturning(JSON.stringify([OPEN_ISSUE]));
 	const issue = await provider.getIssue('sddamico-hic');
-	t.is(issue?.title, "better-sqlite3 can't build");
-	t.deepEqual(calls[0], ['show', '--id=sddamico-hic', '--json']);
+	expect(issue?.title).toBe("better-sqlite3 can't build");
+	expect(calls[0]).toStrictEqual(['show', '--id=sddamico-hic', '--json']);
 });
 
-test('getIssue picks the row whose id was asked for', async t => {
+test('getIssue picks the row whose id was asked for', async () => {
 	const other = {...OPEN_ISSUE, id: 'sddamico-zzz', title: 'Other'};
 	const {provider} = providerReturning(
 		JSON.stringify([other, {...OPEN_ISSUE, title: 'Wanted'}]),
 	);
 	const issue = await provider.getIssue('sddamico-hic');
-	t.is(issue?.title, 'Wanted');
+	expect(issue?.title).toBe('Wanted');
 });
 
-test('getIssue returns null when bd reports no rows', async t => {
+test('getIssue returns null when bd reports no rows', async () => {
 	const {provider} = providerReturning('[]');
-	t.is(await provider.getIssue('sddamico-nope'), null);
+	expect(await provider.getIssue('sddamico-nope')).toBe(null);
 });
 
-test('getIssue serves a second call from cache', async t => {
+test('getIssue serves a second call from cache', async () => {
 	const {provider, calls} = providerReturning(JSON.stringify([OPEN_ISSUE]));
 	await provider.getIssue('sddamico-hic');
 	await provider.getIssue('sddamico-hic');
-	t.is(calls.length, 1);
+	expect(calls.length).toBe(1);
 });
 
-test('getIssue retries a failing bd call', async t => {
+test('getIssue retries a failing bd call', async () => {
 	const {provider, calls} = providerReturning(
 		new Error('database locked'),
 		JSON.stringify([OPEN_ISSUE]),
 	);
 	const issue = await provider.getIssue('sddamico-hic');
-	t.is(issue?.title, "better-sqlite3 can't build");
-	t.is(calls.length, 2);
+	expect(issue?.title).toBe("better-sqlite3 can't build");
+	expect(calls.length).toBe(2);
 });
 
-test('getIssue gives up after MAX_RETRIES', async t => {
+test('getIssue gives up after MAX_RETRIES', async () => {
 	const {provider, calls} = providerReturning(new Error('nope'));
-	t.is(await provider.getIssue('sddamico-hic'), null);
-	t.is(calls.length, MAX_RETRIES);
+	expect(await provider.getIssue('sddamico-hic')).toBe(null);
+	expect(calls.length).toBe(MAX_RETRIES);
 });
 
-test('a missing bd binary disables the provider instead of retrying', async t => {
+test('a missing bd binary disables the provider instead of retrying', async () => {
 	const {provider, calls} = providerReturning(makeEnoentError());
-	t.is(await provider.getIssue('sddamico-hic'), null);
-	t.is(await provider.getIssue('sddamico-other'), null);
+	expect(await provider.getIssue('sddamico-hic')).toBe(null);
+	expect(await provider.getIssue('sddamico-other')).toBe(null);
 	// One attempt total: ENOENT is sticky, and no retry can fix it.
-	t.is(calls.length, 1);
+	expect(calls.length).toBe(1);
 });
 
 // getIssues
 
-test('getIssues fetches a batch in one bd list call', async t => {
+test('getIssues fetches a batch in one bd list call', async () => {
 	const second = {...OPEN_ISSUE, id: 'sddamico-ck8', title: 'Second'};
 	const {provider, calls} = providerReturning(
 		JSON.stringify([OPEN_ISSUE, second]),
 	);
 	const map = await provider.getIssues(['sddamico-hic', 'sddamico-ck8']);
-	t.is(map.get('sddamico-hic')?.title, "better-sqlite3 can't build");
-	t.is(map.get('sddamico-ck8')?.title, 'Second');
-	t.deepEqual(calls[0], [
+	expect(map.get('sddamico-hic')?.title).toBe("better-sqlite3 can't build");
+	expect(map.get('sddamico-ck8')?.title).toBe('Second');
+	expect(calls[0]).toStrictEqual([
 		'list',
 		'--id=sddamico-hic,sddamico-ck8',
 		'--json',
@@ -289,17 +290,17 @@ test('getIssues fetches a batch in one bd list call', async t => {
 	]);
 });
 
-test('getIssues resolves keys the batch missed individually', async t => {
+test('getIssues resolves keys the batch missed individually', async () => {
 	const {provider, calls} = providerReturning(
 		JSON.stringify([OPEN_ISSUE]),
 		JSON.stringify([{...OPEN_ISSUE, id: 'sddamico-ck8', title: 'Second'}]),
 	);
 	const map = await provider.getIssues(['sddamico-hic', 'sddamico-ck8']);
-	t.is(map.get('sddamico-ck8')?.title, 'Second');
-	t.is(calls[1]?.[0], 'show');
+	expect(map.get('sddamico-ck8')?.title).toBe('Second');
+	expect(calls[1]?.[0]).toBe('show');
 });
 
-test('getIssues falls back to individual fetches when the batch errors', async t => {
+test('getIssues falls back to individual fetches when the batch errors', async () => {
 	let call = 0;
 	const exec: CliExecutor = async (_cmd, args) => {
 		call++;
@@ -308,24 +309,24 @@ test('getIssues falls back to individual fetches when the batch errors', async t
 	};
 	const provider = new BeadsProvider(exec, noopSleep, tempCache(), resolveCwd);
 	const map = await provider.getIssues(['sddamico-hic']);
-	t.is(map.get('sddamico-hic')?.title, "better-sqlite3 can't build");
-	t.true(call > 1);
+	expect(map.get('sddamico-hic')?.title).toBe("better-sqlite3 can't build");
+	expect(call > 1).toBe(true);
 });
 
-test('getIssues short-circuits on an empty key list', async t => {
+test('getIssues short-circuits on an empty key list', async () => {
 	const {provider, calls} = providerReturning('[]');
 	const map = await provider.getIssues([]);
-	t.is(map.size, 0);
-	t.is(calls.length, 0);
+	expect(map.size).toBe(0);
+	expect(calls.length).toBe(0);
 });
 
 // searchAssignedIssues — the watchlist, sourced from `bd ready`
 
-test('searchAssignedIssues reads bd ready', async t => {
+test('searchAssignedIssues reads bd ready', async () => {
 	const {provider, calls} = providerReturning(JSON.stringify([OPEN_ISSUE]));
 	const issues = await provider.searchAssignedIssues(undefined, []);
-	t.is(issues.length, 1);
-	t.deepEqual(calls[0], [
+	expect(issues.length).toBe(1);
+	expect(calls[0]).toStrictEqual([
 		'ready',
 		'--json',
 		'-n',
@@ -335,39 +336,33 @@ test('searchAssignedIssues reads bd ready', async t => {
 	]);
 });
 
-test('searchAssignedIssues narrows bd ready by configured status', async t => {
+test('searchAssignedIssues narrows bd ready by configured status', async () => {
 	const started = {...OPEN_ISSUE, id: 'sddamico-ck8', status: 'in_progress'};
 	const {provider} = providerReturning(JSON.stringify([OPEN_ISSUE, started]));
 	const issues = await provider.searchAssignedIssues(undefined, ['open']);
-	t.deepEqual(
-		issues.map(i => i.identifier),
-		['sddamico-hic'],
-	);
+	expect(issues.map(i => i.identifier)).toStrictEqual(['sddamico-hic']);
 });
 
-test('searchAssignedIssues matches a status by display name too', async t => {
+test('searchAssignedIssues matches a status by display name too', async () => {
 	const started = {...OPEN_ISSUE, id: 'sddamico-ck8', status: 'in_progress'};
 	const {provider} = providerReturning(JSON.stringify([OPEN_ISSUE, started]));
 	const issues = await provider.searchAssignedIssues(undefined, [
 		'In Progress',
 	]);
-	t.deepEqual(
-		issues.map(i => i.identifier),
-		['sddamico-ck8'],
-	);
+	expect(issues.map(i => i.identifier)).toStrictEqual(['sddamico-ck8']);
 });
 
-test('searchAssignedIssues takes every ready issue when no status is set', async t => {
+test('searchAssignedIssues takes every ready issue when no status is set', async () => {
 	const started = {...OPEN_ISSUE, id: 'sddamico-ck8', status: 'in_progress'};
 	const {provider} = providerReturning(JSON.stringify([OPEN_ISSUE, started]));
 	const issues = await provider.searchAssignedIssues(undefined, []);
-	t.is(issues.length, 2);
+	expect(issues.length).toBe(2);
 });
 
-test('searchAssignedIssues passes an explicit assignee through', async t => {
+test('searchAssignedIssues passes an explicit assignee through', async () => {
 	const {provider, calls} = providerReturning('[]');
 	await provider.searchAssignedIssues('alice@example.com', []);
-	t.deepEqual(calls[0], [
+	expect(calls[0]).toStrictEqual([
 		'ready',
 		'--json',
 		'-n',
@@ -382,12 +377,12 @@ test('searchAssignedIssues passes an explicit assignee through', async t => {
 // A watchlist match spawns a worktree with no one in the loop, so the container
 // and bookkeeping types have to be filtered at the query — bd accepts an
 // unknown --exclude-type silently, so this is the only place a typo shows up.
-test('the watchlist does not offer a container or a bookkeeping row', async t => {
+test('the watchlist does not offer a container or a bookkeeping row', async () => {
 	const {provider, calls} = providerReturning('[]');
 	await provider.searchAssignedIssues(undefined, []);
 	const argv = calls[0]!;
 	const excluded = argv[argv.indexOf('--exclude-type') + 1]!.split(',');
-	t.deepEqual(excluded, [
+	expect(excluded).toStrictEqual([
 		'epic',
 		'convoy',
 		'molecule',
@@ -398,29 +393,29 @@ test('the watchlist does not offer a container or a bookkeeping row', async t =>
 
 // A person is choosing in the picker, and opening a worktree against a
 // container to work through its children is a legitimate thing to want.
-test('the picker still offers a container row', async t => {
+test('the picker still offers a container row', async () => {
 	const {provider, calls} = providerReturning('[]');
 	await provider.listReadyIssues();
-	t.false(calls[0]!.includes('--exclude-type'));
+	expect(calls[0]!.includes('--exclude-type')).toBe(false);
 });
 
 // Writing an ADR produces a real diff, so a decision is work like any other.
-test('a decision is still offered to the watchlist', async t => {
+test('a decision is still offered to the watchlist', async () => {
 	const {provider, calls} = providerReturning('[]');
 	await provider.searchAssignedIssues(undefined, []);
 	const argv = calls[0]!;
-	t.false(
+	expect(
 		argv[argv.indexOf('--exclude-type') + 1]!.split(',').includes('decision'),
-	);
+	).toBe(false);
 });
 
-test('searchAssignedIssues resolves "me" from the environment', async t => {
+test('searchAssignedIssues resolves "me" from the environment', async () => {
 	const previous = process.env['BEADS_ACTOR'];
 	process.env['BEADS_ACTOR'] = 'charlie';
 	try {
 		const {provider, calls} = providerReturning('[]');
 		await provider.searchAssignedIssues('me', []);
-		t.true(calls[0]!.includes('charlie'));
+		expect(calls[0]!.includes('charlie')).toBe(true);
 	} finally {
 		if (previous === undefined) {
 			delete process.env['BEADS_ACTOR'];
@@ -454,13 +449,13 @@ function providerWithGit(gitName: string | Error): {
 // `bd` stamps $BEADS_ACTOR, then git user.name, then $USER onto an issue it
 // claims. Resolving "me" straight to $USER matched nothing on the common setup
 // where a full name is configured but the OS login is a handle.
-test('searchAssignedIssues resolves "me" through git user.name', async t => {
+test('searchAssignedIssues resolves "me" through git user.name', async () => {
 	const previousActor = process.env['BEADS_ACTOR'];
 	delete process.env['BEADS_ACTOR'];
 	try {
 		const {provider, calls} = providerWithGit('Ada Lovelace');
 		await provider.searchAssignedIssues('me', []);
-		t.true(calls[0]!.includes('Ada Lovelace'));
+		expect(calls[0]!.includes('Ada Lovelace')).toBe(true);
 	} finally {
 		if (previousActor !== undefined) {
 			process.env['BEADS_ACTOR'] = previousActor;
@@ -468,7 +463,7 @@ test('searchAssignedIssues resolves "me" through git user.name', async t => {
 	}
 });
 
-test('searchAssignedIssues falls back to $USER with no git identity', async t => {
+test('searchAssignedIssues falls back to $USER with no git identity', async () => {
 	const previousActor = process.env['BEADS_ACTOR'];
 	const previousUser = process.env['USER'];
 	delete process.env['BEADS_ACTOR'];
@@ -476,7 +471,7 @@ test('searchAssignedIssues falls back to $USER with no git identity', async t =>
 	try {
 		const {provider, calls} = providerWithGit(new Error('no user.name set'));
 		await provider.searchAssignedIssues('me', []);
-		t.true(calls[0]!.includes('ada'));
+		expect(calls[0]!.includes('ada')).toBe(true);
 	} finally {
 		if (previousActor !== undefined) {
 			process.env['BEADS_ACTOR'] = previousActor;
@@ -490,99 +485,98 @@ test('searchAssignedIssues falls back to $USER with no git identity', async t =>
 	}
 });
 
-test('a status bd ready cannot return yields an empty watchlist', async t => {
+test('a status bd ready cannot return yields an empty watchlist', async () => {
 	// `bd ready` excludes in_progress/blocked/deferred/hooked by construction,
 	// so it only ever hands back open issues. A watchlist config carried over
 	// from Linear ("In Progress") therefore matches nothing — the provider warns
 	// (see unreachableReadyStatuses) rather than failing.
 	const {provider} = providerReturning(JSON.stringify([OPEN_ISSUE]));
-	t.deepEqual(
+	expect(
 		await provider.searchAssignedIssues(undefined, ['in_progress']),
-		[],
-	);
+	).toStrictEqual([]);
 });
 
-test('unreachableReadyStatuses flags statuses bd ready never returns', t => {
-	t.deepEqual(unreachableReadyStatuses(['open']), []);
-	t.deepEqual(unreachableReadyStatuses(['in_progress']), ['in_progress']);
+test('unreachableReadyStatuses flags statuses bd ready never returns', () => {
+	expect(unreachableReadyStatuses(['open'])).toStrictEqual([]);
+	expect(unreachableReadyStatuses(['in_progress'])).toStrictEqual([
+		'in_progress',
+	]);
 	// Display-name spelling, as a Linear/Jira watchlist would write it.
-	t.deepEqual(unreachableReadyStatuses(['In Progress']), ['In Progress']);
-	t.deepEqual(unreachableReadyStatuses(['Open', 'blocked']), ['blocked']);
-	t.deepEqual(unreachableReadyStatuses([]), []);
+	expect(unreachableReadyStatuses(['In Progress'])).toStrictEqual([
+		'In Progress',
+	]);
+	expect(unreachableReadyStatuses(['Open', 'blocked'])).toStrictEqual([
+		'blocked',
+	]);
+	expect(unreachableReadyStatuses([])).toStrictEqual([]);
 });
 
-test('searchAssignedIssues returns nothing when bd is missing', async t => {
+test('searchAssignedIssues returns nothing when bd is missing', async () => {
 	const {provider} = providerReturning(makeEnoentError());
-	t.deepEqual(await provider.searchAssignedIssues(undefined, []), []);
+	expect(await provider.searchAssignedIssues(undefined, [])).toStrictEqual([]);
 });
 
 // listReadyIssues
 
-test('listReadyIssues reads bd ready with no assignee filter', async t => {
+test('listReadyIssues reads bd ready with no assignee filter', async () => {
 	const {provider, calls} = providerReturning(JSON.stringify([OPEN_ISSUE]));
 	const issues = await provider.listReadyIssues();
-	t.deepEqual(
-		issues.map(i => i.identifier),
-		['sddamico-hic'],
-	);
-	t.deepEqual(calls[0], ['ready', '--json', '-n', '0']);
+	expect(issues.map(i => i.identifier)).toStrictEqual(['sddamico-hic']);
+	expect(calls[0]).toStrictEqual(['ready', '--json', '-n', '0']);
 });
 
 // Unlike the watchlist, the picker keeps whatever bd ready hands back: beads
 // issues are usually unassigned until claimed, so any narrowing would empty it.
-test('listReadyIssues keeps every row bd ready returns', async t => {
+test('listReadyIssues keeps every row bd ready returns', async () => {
 	const other = {...OPEN_ISSUE, id: 'sddamico-ck8', assignee: 'someone-else'};
 	const {provider} = providerReturning(JSON.stringify([OPEN_ISSUE, other]));
 	const issues = await provider.listReadyIssues();
-	t.deepEqual(
-		issues.map(i => i.identifier),
-		['sddamico-hic', 'sddamico-ck8'],
-	);
+	expect(issues.map(i => i.identifier)).toStrictEqual([
+		'sddamico-hic',
+		'sddamico-ck8',
+	]);
 });
 
-test('listReadyIssues returns nothing when bd is missing', async t => {
+test('listReadyIssues returns nothing when bd is missing', async () => {
 	const {provider} = providerReturning(makeEnoentError());
-	t.deepEqual(await provider.listReadyIssues(), []);
+	expect(await provider.listReadyIssues()).toStrictEqual([]);
 });
 
-test('listReadyIssues returns nothing when bd fails', async t => {
+test('listReadyIssues returns nothing when bd fails', async () => {
 	const {provider} = providerReturning(new Error('bd exploded'));
-	t.deepEqual(await provider.listReadyIssues(), []);
+	expect(await provider.listReadyIssues()).toStrictEqual([]);
 });
 
-test('listReadyIssues skips malformed rows and keeps the valid ones', async t => {
+test('listReadyIssues skips malformed rows and keeps the valid ones', async () => {
 	const {provider} = providerReturning(
 		JSON.stringify([{nonsense: true}, OPEN_ISSUE]),
 	);
 	const issues = await provider.listReadyIssues();
-	t.deepEqual(
-		issues.map(i => i.identifier),
-		['sddamico-hic'],
-	);
+	expect(issues.map(i => i.identifier)).toStrictEqual(['sddamico-hic']);
 });
 
 // closeIssue
 
-test('closeIssue runs bd close', async t => {
+test('closeIssue runs bd close', async () => {
 	const {provider, calls} = providerReturning('');
-	t.true(await provider.closeIssue('sddamico-hic'));
-	t.deepEqual(calls[0], ['close', '--', 'sddamico-hic']);
+	expect(await provider.closeIssue('sddamico-hic')).toBe(true);
+	expect(calls[0]).toStrictEqual(['close', '--', 'sddamico-hic']);
 });
 
 // The escape is not decoration: `bd show -weird-xyz` dies with "unknown
 // shorthand flag: 'e'". close/update/comments add have no --id of their own,
 // so `--` is the only thing standing between a dash-led prefix and the parser.
-test("the id is fenced off from bd's flag parser", async t => {
+test("the id is fenced off from bd's flag parser", async () => {
 	const {provider, calls} = providerReturning('', '', '');
 	await provider.closeIssue('-weird-xyz');
 	await provider.claimIssue('-weird-xyz');
 	for (const argv of calls) {
-		t.is(argv.at(-1), '-weird-xyz');
-		t.is(argv.at(-2), '--');
+		expect(argv.at(-1)).toBe('-weird-xyz');
+		expect(argv.at(-2)).toBe('--');
 	}
 });
 
-test('closeIssue drops the cached copy so the next read comes from bd', async t => {
+test('closeIssue drops the cached copy so the next read comes from bd', async () => {
 	const {provider} = providerReturning(
 		JSON.stringify([OPEN_ISSUE]),
 		'',
@@ -593,28 +587,28 @@ test('closeIssue drops the cached copy so the next read comes from bd', async t 
 
 	// bd is gone by this point, so a surviving cache entry is the only way
 	// getIssue could still answer.
-	t.is(await provider.getIssue('sddamico-hic'), null);
+	expect(await provider.getIssue('sddamico-hic')).toBe(null);
 });
 
-test('closeIssue reports failure when bd fails', async t => {
+test('closeIssue reports failure when bd fails', async () => {
 	const {provider} = providerReturning(new Error('bd exploded'));
-	t.false(await provider.closeIssue('sddamico-hic'));
+	expect(await provider.closeIssue('sddamico-hic')).toBe(false);
 });
 
-test('closeIssue reports failure when bd is missing', async t => {
+test('closeIssue reports failure when bd is missing', async () => {
 	const {provider} = providerReturning(makeEnoentError());
-	t.false(await provider.closeIssue('sddamico-hic'));
+	expect(await provider.closeIssue('sddamico-hic')).toBe(false);
 });
 
 // claimIssue
 
-test('claimIssue runs bd update --claim', async t => {
+test('claimIssue runs bd update --claim', async () => {
 	const {provider, calls} = providerReturning('');
-	t.true(await provider.claimIssue('sddamico-hic'));
-	t.deepEqual(calls[0], ['update', '--claim', '--', 'sddamico-hic']);
+	expect(await provider.claimIssue('sddamico-hic')).toBe(true);
+	expect(calls[0]).toStrictEqual(['update', '--claim', '--', 'sddamico-hic']);
 });
 
-test('claimIssue runs from the main repo root, not the caller cwd', async t => {
+test('claimIssue runs from the main repo root, not the caller cwd', async () => {
 	// Regression: a claim that runs from a worktree lets bd auto-discover that
 	// worktree's own .beads and write the transition to the wrong database, so
 	// the issue never leaves the canonical ready pool.
@@ -625,10 +619,10 @@ test('claimIssue runs from the main repo root, not the caller cwd', async t => {
 	};
 	const provider = new BeadsProvider(exec, noopSleep, tempCache(), resolveCwd);
 	await provider.claimIssue('sddamico-hic');
-	t.is(seenCwd, REPO_ROOT);
+	expect(seenCwd).toBe(REPO_ROOT);
 });
 
-test('claimIssue drops the cached copy so the next read sees in_progress', async t => {
+test('claimIssue drops the cached copy so the next read sees in_progress', async () => {
 	const {provider} = providerReturning(
 		JSON.stringify([OPEN_ISSUE]),
 		'',
@@ -639,22 +633,22 @@ test('claimIssue drops the cached copy so the next read sees in_progress', async
 
 	// bd is gone by this point, so a surviving cache entry is the only way
 	// getIssue could still answer — and it would answer "open".
-	t.is(await provider.getIssue('sddamico-hic'), null);
+	expect(await provider.getIssue('sddamico-hic')).toBe(null);
 });
 
-test('claimIssue reports failure when bd fails', async t => {
+test('claimIssue reports failure when bd fails', async () => {
 	const {provider} = providerReturning(new Error('bd exploded'));
-	t.false(await provider.claimIssue('sddamico-hic'));
+	expect(await provider.claimIssue('sddamico-hic')).toBe(false);
 });
 
-test('claimIssue reports failure when bd is missing', async t => {
+test('claimIssue reports failure when bd is missing', async () => {
 	const {provider} = providerReturning(makeEnoentError());
-	t.false(await provider.claimIssue('sddamico-hic'));
+	expect(await provider.claimIssue('sddamico-hic')).toBe(false);
 });
 
 // createComment
 
-test('createComment hands bd a file holding the body', async t => {
+test('createComment hands bd a file holding the body', async () => {
 	let bodyPath = '';
 	let seen = '';
 	const exec: CliExecutor = async (_cmd, args) => {
@@ -663,61 +657,63 @@ test('createComment hands bd a file holding the body', async t => {
 		return '';
 	};
 	const provider = new BeadsProvider(exec, noopSleep, tempCache(), resolveCwd);
-	t.true(await provider.createComment('bd-a1b2', '### Answered\n\nyes'));
-	t.is(seen, '### Answered\n\nyes');
+	expect(await provider.createComment('bd-a1b2', '### Answered\n\nyes')).toBe(
+		true,
+	);
+	expect(seen).toBe('### Answered\n\nyes');
 	// The staging file is cleaned up regardless of outcome.
-	t.false(fs.existsSync(bodyPath));
+	expect(fs.existsSync(bodyPath)).toBe(false);
 });
 
-test('createComment retries then reports failure', async t => {
+test('createComment retries then reports failure', async () => {
 	const {provider, calls} = providerReturning(new Error('locked'));
-	t.false(await provider.createComment('bd-a1b2', 'body'));
-	t.is(calls.length, MAX_RETRIES);
+	expect(await provider.createComment('bd-a1b2', 'body')).toBe(false);
+	expect(calls.length).toBe(MAX_RETRIES);
 });
 
-test('createComment gives up immediately when bd is missing', async t => {
+test('createComment gives up immediately when bd is missing', async () => {
 	const {provider, calls} = providerReturning(makeEnoentError());
-	t.false(await provider.createComment('bd-a1b2', 'body'));
-	t.is(calls.length, 1);
+	expect(await provider.createComment('bd-a1b2', 'body')).toBe(false);
+	expect(calls.length).toBe(1);
 });
 
 // Misc surface
 
-test('openIssue reports failure outside tmux', async t => {
+test('openIssue reports failure outside tmux', async () => {
 	const {provider} = providerReturning('[]');
-	t.false(await provider.openIssue('bd-a1b2'));
+	expect(await provider.openIssue('bd-a1b2')).toBe(false);
 });
 
-test('openIssue popup is pinned to the main repo root', t => {
+test('openIssue popup is pinned to the main repo root', () => {
 	// A popup launched from a worktree pane would otherwise read that worktree's
 	// checked-out .beads/ copy instead of the database the rail is showing.
 	const argv = buildIssuePopupArgv(REPO_ROOT, 'bd-a1b2');
-	t.is(argv[argv.indexOf('-C') + 1], REPO_ROOT);
+	expect(argv[argv.indexOf('-C') + 1]).toBe(REPO_ROOT);
 });
 
-test('getWorkflowStateColor resolves a display name back to its color', async t => {
+test('getWorkflowStateColor resolves a display name back to its color', async () => {
 	const {provider} = providerReturning(
 		JSON.stringify([{...OPEN_ISSUE, status: 'in_progress'}]),
 	);
 	await provider.getIssue('sddamico-hic');
-	t.is(provider.getWorkflowStateColor('In Progress'), 'blue');
+	expect(provider.getWorkflowStateColor('In Progress')).toBe('blue');
 });
 
-test('getWorkflowStateColor answers for a state never fetched', t => {
+test('getWorkflowStateColor answers for a state never fetched', () => {
 	const {provider} = providerReturning('[]');
-	t.is(provider.getWorkflowStateColor('Blocked'), 'yellow');
-	t.is(provider.getWorkflowStateColor('Nonsense'), null);
+	expect(provider.getWorkflowStateColor('Blocked')).toBe('yellow');
+	expect(provider.getWorkflowStateColor('Nonsense')).toBe(null);
 });
 
-test('clearCache forces the next getIssue back to bd', async t => {
+test('clearCache forces the next getIssue back to bd', async () => {
 	const {provider, calls} = providerReturning(JSON.stringify([OPEN_ISSUE]));
 	await provider.getIssue('sddamico-hic');
 	provider.clearCache();
 	await provider.getIssue('sddamico-hic');
-	t.is(calls.length, 2);
+	expect(calls.length).toBe(2);
 });
 
-test('bd runs from the repo root with the JSON envelope requested', async t => {
+test('bd runs from the repo root with the JSON envelope requested', async () => {
 	let options: {cwd: string; env: NodeJS.ProcessEnv} | undefined;
 	const exec: CliExecutor = async (_cmd, _args, opts) => {
 		options = opts;
@@ -726,14 +722,14 @@ test('bd runs from the repo root with the JSON envelope requested', async t => {
 	const provider = new BeadsProvider(exec, noopSleep, tempCache(), resolveCwd);
 	await provider.getIssue('sddamico-hic');
 	// Every worktree must read the one canonical database at the repo root.
-	t.is(options?.cwd, REPO_ROOT);
-	t.is(options?.env['BD_JSON_ENVELOPE'], '1');
+	expect(options?.cwd).toBe(REPO_ROOT);
+	expect(options?.env['BD_JSON_ENVELOPE']).toBe('1');
 });
 
 // ---------------------------------------------------------------------------
 // Cache keying
 
-test('a row bd spells differently is cached under the key we asked for', async t => {
+test('a row bd spells differently is cached under the key we asked for', async () => {
 	// getIssue deliberately accepts rows[0] when no id matches the request, so
 	// bd folding case (or resolving an alias) is a supported outcome. Caching
 	// only bd's spelling left the requested key permanently absent: every read
@@ -745,43 +741,47 @@ test('a row bd spells differently is cached under the key we asked for', async t
 	);
 
 	const fetched = await provider.getIssue('SDDAMICO-HIC');
-	t.is(fetched?.identifier, 'sddamico-hic');
-	t.is(provider.getIssueCached('SDDAMICO-HIC')?.identifier, 'sddamico-hic');
-	t.is(provider.getIssueCached('sddamico-hic')?.identifier, 'sddamico-hic');
+	expect(fetched?.identifier).toBe('sddamico-hic');
+	expect(provider.getIssueCached('SDDAMICO-HIC')?.identifier).toBe(
+		'sddamico-hic',
+	);
+	expect(provider.getIssueCached('sddamico-hic')?.identifier).toBe(
+		'sddamico-hic',
+	);
 
 	// bd is gone by now, so a second answer can only come from the cache.
 	const again = await provider.getIssue('SDDAMICO-HIC');
-	t.is(again?.identifier, 'sddamico-hic');
-	t.is(calls.length, 1);
+	expect(again?.identifier).toBe('sddamico-hic');
+	expect(calls.length).toBe(1);
 });
 
 // ---------------------------------------------------------------------------
 // Status normalization
 
-test('normalizeBeadsStatus folds every spelling a watchlist arrives in', t => {
-	t.is(normalizeBeadsStatus('in_progress'), 'in_progress');
-	t.is(normalizeBeadsStatus('In Progress'), 'in_progress');
-	t.is(normalizeBeadsStatus('  IN   PROGRESS  '), 'in_progress');
-	t.is(normalizeBeadsStatus('Open'), 'open');
-	t.is(normalizeBeadsStatus(''), '');
+test('normalizeBeadsStatus folds every spelling a watchlist arrives in', () => {
+	expect(normalizeBeadsStatus('in_progress')).toBe('in_progress');
+	expect(normalizeBeadsStatus('In Progress')).toBe('in_progress');
+	expect(normalizeBeadsStatus('  IN   PROGRESS  ')).toBe('in_progress');
+	expect(normalizeBeadsStatus('Open')).toBe('open');
+	expect(normalizeBeadsStatus('')).toBe('');
 });
 
-test('the reachability warning and the watchlist filter read a status alike', async t => {
+test('the reachability warning and the watchlist filter read a status alike', async () => {
 	// These used to normalize differently — the warning folded whitespace to
 	// underscores, the filter did not — so one spelling could be reported as
 	// unreachable and still match, or the reverse.
 	for (const spelling of ['open', 'Open', ' OPEN ']) {
 		const {provider} = providerReturning(JSON.stringify([OPEN_ISSUE]));
-		t.deepEqual(unreachableReadyStatuses([spelling]), []);
+		expect(unreachableReadyStatuses([spelling])).toStrictEqual([]);
 		const matched = await provider.searchAssignedIssues(undefined, [spelling]);
-		t.is(matched.length, 1);
+		expect(matched.length).toBe(1);
 	}
 
 	for (const spelling of ['in_progress', 'In Progress', 'in progress']) {
 		const {provider} = providerReturning(JSON.stringify([OPEN_ISSUE]));
-		t.deepEqual(unreachableReadyStatuses([spelling]), [spelling]);
+		expect(unreachableReadyStatuses([spelling])).toStrictEqual([spelling]);
 		const matched = await provider.searchAssignedIssues(undefined, [spelling]);
-		t.is(matched.length, 0);
+		expect(matched.length).toBe(0);
 	}
 });
 
@@ -802,9 +802,9 @@ const STATUSES = JSON.stringify({
 	},
 });
 
-test('listStates reads built-in and custom statuses, marks the done category and skips agent-workflow ones', async t => {
+test('listStates reads built-in and custom statuses, marks the done category and skips agent-workflow ones', async () => {
 	const {provider, calls} = providerReturning(STATUSES);
-	t.deepEqual(await provider.listStates(), [
+	expect(await provider.listStates()).toStrictEqual([
 		{id: 'open', name: 'Open', done: false},
 		{id: 'in_progress', name: 'In Progress', done: false},
 		{id: 'closed', name: 'Closed', done: true},
@@ -812,58 +812,55 @@ test('listStates reads built-in and custom statuses, marks the done category and
 		{id: 'in_review', name: 'In Review', done: true},
 		{id: 'triage', name: 'Triage', done: false},
 	]);
-	t.deepEqual(calls[0], ['statuses', '--json']);
+	expect(calls[0]).toStrictEqual(['statuses', '--json']);
 
 	await provider.listStates();
-	t.is(calls.length, 1);
+	expect(calls.length).toBe(1);
 });
 
-test('listStates returns nothing on failure and asks again next time', async t => {
+test('listStates returns nothing on failure and asks again next time', async () => {
 	const {provider, calls} = providerReturning(new Error('boom'), STATUSES);
-	t.deepEqual(await provider.listStates(), []);
+	expect(await provider.listStates()).toStrictEqual([]);
 	const retried = await provider.listStates();
-	t.is(retried.length, 6);
-	t.is(calls.length, 2);
+	expect(retried.length).toBe(6);
+	expect(calls.length).toBe(2);
 });
 
-test('setIssueState updates the status, and closed goes through bd close', async t => {
+test('setIssueState updates the status, and closed goes through bd close', async () => {
 	const {provider, calls} = providerReturning('', '');
-	t.true(await provider.setIssueState('-weird-xyz', 'deferred'));
-	t.true(await provider.setIssueState('-weird-xyz', 'closed'));
-	t.deepEqual(calls, [
+	expect(await provider.setIssueState('-weird-xyz', 'deferred')).toBe(true);
+	expect(await provider.setIssueState('-weird-xyz', 'closed')).toBe(true);
+	expect(calls).toStrictEqual([
 		['update', '--status=deferred', '--', '-weird-xyz'],
 		['close', '--', '-weird-xyz'],
 	]);
 });
 
-test('setIssueState reports a failed write', async t => {
-	t.false(
+test('setIssueState reports a failed write', async () => {
+	expect(
 		await providerReturning(new Error('blocked')).provider.setIssueState(
 			'bd-1',
 			'deferred',
 		),
-	);
-	t.false(
+	).toBe(false);
+	expect(
 		await providerReturning(makeEnoentError()).provider.setIssueState(
 			'bd-1',
 			'deferred',
 		),
-	);
+	).toBe(false);
 });
 
-test.serial(
-	'a bead that keeps failing to load warns once, not on every refresh',
-	async t => {
-		clearRecentErrors();
-		const {provider} = providerReturning(new Error('no issue found'));
-		for (let refresh = 0; refresh < 5; refresh++) {
-			provider.clearCache();
-			await provider.getIssue('qa-gone');
-		}
+test('a bead that keeps failing to load warns once, not on every refresh', async () => {
+	clearRecentErrors();
+	const {provider} = providerReturning(new Error('no issue found'));
+	for (let refresh = 0; refresh < 5; refresh++) {
+		provider.clearCache();
+		await provider.getIssue('qa-gone');
+	}
 
-		const warnings = getRecentErrors().filter(e =>
-			e.message.startsWith('Failed to fetch beads issue qa-gone'),
-		);
-		t.is(warnings.length, 1);
-	},
-);
+	const warnings = getRecentErrors().filter(e =>
+		e.message.startsWith('Failed to fetch beads issue qa-gone'),
+	);
+	expect(warnings.length).toBe(1);
+});

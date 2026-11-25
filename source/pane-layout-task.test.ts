@@ -2,7 +2,8 @@ import {
 	setTimeout as delay,
 	setImmediate as nextTurn,
 } from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {unreachable} from '../test/helpers/unreachable.ts';
 import {
 	PaneLayoutTask,
 	syncTerminalDimensions,
@@ -10,7 +11,7 @@ import {
 } from './pane-layout-task.ts';
 import {LatestTask} from './latest-task.ts';
 
-test('resize requests during unzoom do not keep confirmed rail geometry hidden', async t => {
+test('resize requests during unzoom do not keep confirmed rail geometry hidden', async () => {
 	const releases: Array<() => void> = [];
 	const ready: number[] = [];
 	const task = new PaneLayoutTask({
@@ -33,14 +34,14 @@ test('resize requests during unzoom do not keep confirmed rail geometry hidden',
 	const resize = task.request(false, 2, () => ({cols: 30, rows: 50}));
 	releases[0]!();
 	await nextTurn();
-	t.deepEqual(ready, [2]);
-	t.is(releases.length, 2);
+	expect(ready).toStrictEqual([2]);
+	expect(releases.length).toBe(2);
 	releases[1]!();
 	await Promise.all([closing, resize]);
-	t.deepEqual(ready, [2, 2]);
+	expect(ready).toStrictEqual([2, 2]);
 });
 
-test('a real size change during layout keeps stale geometry from settling the dialog', async t => {
+test('a real size change during layout keeps stale geometry from settling the dialog', async () => {
 	const releases: Array<() => void> = [];
 	const ready: number[] = [];
 	let columns = 200;
@@ -66,13 +67,13 @@ test('a real size change during layout keeps stale geometry from settling the di
 	const resize = task.request(true, 1, () => ({cols: columns, rows: 50}));
 	releases[0]!();
 	await nextTurn();
-	t.deepEqual(ready, []);
+	expect(ready).toStrictEqual([]);
 	releases[1]!();
 	await Promise.all([first, resize]);
-	t.deepEqual(ready, [160]);
+	expect(ready).toStrictEqual([160]);
 });
 
-test('a matching resize does not hide a pending workspace-state change', async t => {
+test('a matching resize does not hide a pending workspace-state change', async () => {
 	const releases: Array<() => void> = [];
 	const ready: number[] = [];
 	const task = new PaneLayoutTask({
@@ -96,13 +97,13 @@ test('a matching resize does not hide a pending workspace-state change', async t
 	const resize = task.request(false, 0, () => ({cols: 80, rows: 8}));
 	releases[0]!();
 	await nextTurn();
-	t.deepEqual(ready, []);
+	expect(ready).toStrictEqual([]);
 	releases[1]!();
 	await Promise.all([first, changed, resize]);
-	t.deepEqual(ready, [8]);
+	expect(ready).toStrictEqual([8]);
 });
 
-test('rapid dialog changes coalesce and only the final geometry becomes ready', async t => {
+test('rapid dialog changes coalesce and only the final geometry becomes ready', async () => {
 	const queue = new LatestTask();
 	const applies: Array<{
 		zoomed: boolean;
@@ -138,28 +139,22 @@ test('rapid dialog changes coalesce and only the final geometry becomes ready', 
 	});
 
 	await delay(0);
-	t.deepEqual(
-		applies.map(apply => apply.zoomed),
-		[true],
-	);
-	t.false(settled);
+	expect(applies.map(apply => apply.zoomed)).toStrictEqual([true]);
+	expect(settled).toBe(false);
 
 	applies[0]!.finish({cols: 200, rows: 50});
 	await delay(0);
-	t.deepEqual(
-		applies.map(apply => apply.zoomed),
-		[true, false],
-	);
-	t.deepEqual(ready, [], 'superseded geometry never becomes ready');
-	t.false(settled);
+	expect(applies.map(apply => apply.zoomed)).toStrictEqual([true, false]);
+	expect(ready, 'superseded geometry never becomes ready').toStrictEqual([]);
+	expect(settled).toBe(false);
 
 	applies[1]!.finish({cols: 40, rows: 50});
 	await all;
-	t.deepEqual(ready, [false]);
-	t.is(applies.length, 2);
+	expect(ready).toStrictEqual([false]);
+	expect(applies.length).toBe(2);
 });
 
-test('reconstruction is serialized with attachment and cannot publish readiness after stop', async t => {
+test('reconstruction is serialized with attachment and cannot publish readiness after stop', async () => {
 	const queue = new LatestTask();
 	const events: string[] = [];
 	let paneId = 'old';
@@ -189,7 +184,7 @@ test('reconstruction is serialized with attachment and cannot publish readiness 
 		events.push(`attach ${paneId}`);
 	});
 	await Promise.all([first, layout, next]);
-	t.deepEqual(events, [
+	expect(events).toStrictEqual([
 		'attach old',
 		'attached old',
 		'rebuild',
@@ -200,10 +195,10 @@ test('reconstruction is serialized with attachment and cannot publish readiness 
 	await nextTurn();
 	tasks.stop();
 	await stopped;
-	t.is(events.filter(event => event === 'ready').length, 1);
+	expect(events.filter(event => event === 'ready').length).toBe(1);
 });
 
-test('confirmed geometry reaches stdout resize listeners before dialog readiness', t => {
+test('confirmed geometry reaches stdout resize listeners before dialog readiness', () => {
 	const seen: number[] = [];
 	const stream = {
 		rows: 30,
@@ -214,12 +209,12 @@ test('confirmed geometry reaches stdout resize listeners before dialog readiness
 		},
 	};
 	syncTerminalDimensions(stream, {rows: 50, cols: 200});
-	t.deepEqual(seen, [200]);
+	expect(seen).toStrictEqual([200]);
 	syncTerminalDimensions(stream, {rows: 50, cols: 200});
-	t.deepEqual(seen, [200]);
+	expect(seen).toStrictEqual([200]);
 });
 
-test('reopening during an unzoom gets fresh readiness even though the desired boolean repeats', async t => {
+test('reopening during an unzoom gets fresh readiness even though the desired boolean repeats', async () => {
 	const revisions: number[] = [];
 	const task = new PaneLayoutTask({
 		queue: new LatestTask(),
@@ -238,12 +233,12 @@ test('reopening during an unzoom gets fresh readiness even though the desired bo
 	const closing = task.request(false, 2);
 	await nextTurn();
 	const reopening = task.request(true, 3);
-	t.deepEqual(revisions, [1]);
+	expect(revisions).toStrictEqual([1]);
 	await Promise.all([closing, reopening]);
-	t.deepEqual(revisions, [1, 3]);
+	expect(revisions).toStrictEqual([1, 3]);
 });
 
-test('a request made while the queued rebuild waits behind an attachment is covered by that rebuild', async t => {
+test('a request made while the queued rebuild waits behind an attachment is covered by that rebuild', async () => {
 	const queue = new LatestTask();
 	const calls: boolean[] = [];
 	const task = new PaneLayoutTask({
@@ -262,10 +257,10 @@ test('a request made while the queued rebuild waits behind an attachment is cove
 	await nextTurn();
 	const second = task.request(false);
 	await Promise.all([attaching, first, second]);
-	t.deepEqual(calls, [false]);
+	expect(calls).toStrictEqual([false]);
 });
 
-test('a failed layout apply still reports its revision so the UI can settle', async t => {
+test('a failed layout apply still reports its revision so the UI can settle', async () => {
 	const queue = new LatestTask();
 	const failures: Array<{message: string; revision: number}> = [];
 	const tasks = new PaneLayoutTask({
@@ -274,12 +269,12 @@ test('a failed layout apply still reports its revision so the UI can settle', as
 			throw new Error('zoom timed out');
 		},
 		onReady() {
-			t.fail('a failed apply must not report readiness');
+			unreachable('a failed apply must not report readiness');
 		},
 		onError(error, revision) {
 			failures.push({message: (error as Error).message, revision});
 		},
 	});
 	await tasks.request(true, 3);
-	t.deepEqual(failures, [{message: 'zoom timed out', revision: 3}]);
+	expect(failures).toStrictEqual([{message: 'zoom timed out', revision: 3}]);
 });

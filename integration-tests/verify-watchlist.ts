@@ -3,7 +3,7 @@
  * End-to-end verification of the watchlist pipeline against real providers.
  * Tests: config loading → provider fetch → label filtering → workspace decision
  *
- * NOT an ava test — run manually with `bun integration-tests/verify-watchlist.ts`
+ * NOT a unit test — run manually with `bun integration-tests/verify-watchlist.ts`
  *
  * Must be run from inside a repo with a .pappardelle.yml that has issue_watchlist configured.
  *

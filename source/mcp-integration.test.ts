@@ -2,6 +2,7 @@
 // CLI against a real tmux server. tmux runs under its own TMUX_TMPDIR with
 // $TMUX unset, which is what keeps it off the user's servers, and it is killed
 // through its socket path only.
+import {tmpdir} from 'node:os';
 import {spawn, spawnSync} from 'node:child_process';
 import {once} from 'node:events';
 import fs from 'node:fs';
@@ -9,19 +10,16 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {waitUntil} from '../test/helpers/wait.ts';
 
-const tmuxTest =
-	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
+const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 const entry = path.join(import.meta.dirname, 'mcp-cli.ts');
 
-function fixture(
-	t: ExecutionContext,
-	options: {config?: boolean; aware?: boolean} = {},
-) {
-	const root = fs.realpathSync(fs.mkdtempSync('/tmp/pm-'));
-	t.teardown(() => {
+function fixture(options: {config?: boolean; aware?: boolean} = {}) {
+	const root = fs.realpathSync(fs.mkdtempSync(`${tmpdir()}/pm-`));
+	teardown(() => {
 		fs.rmSync(root, {recursive: true, force: true});
 	});
 	const repo = path.join(root, 'project');
@@ -66,7 +64,6 @@ profiles:
 
 /** Record a space as idow does before it starts the space's sessions. */
 function prepareSpace(
-	t: ExecutionContext,
 	f: ReturnType<typeof fixture>,
 	key: string,
 	worktree = f.repo,
@@ -89,11 +86,10 @@ function prepareSpace(
 		],
 		{env: f.env, encoding: 'utf8'},
 	);
-	t.is(recorded.status, 0, recorded.stderr);
+	expect(recorded.status, recorded.stderr).toBe(0);
 }
 
 async function connect(
-	t: ExecutionContext,
 	f: ReturnType<typeof fixture>,
 	env: Record<string, string> = {},
 ) {
@@ -107,169 +103,152 @@ async function connect(
 			stderr: 'ignore',
 		}),
 	);
-	t.teardown(async () => client.close());
+	teardown(async () => client.close());
 	return client;
 }
 
 const text = (result: unknown) =>
 	(result as {content: Array<{text: string}>}).content[0]!.text;
 
-test.serial('a repo with no config gets no tools or instructions', async t => {
-	const f = fixture(t, {config: false});
-	const client = await connect(t, f);
-	t.is(client.getServerCapabilities()?.tools, undefined);
-	t.is(client.getInstructions(), undefined);
+test('a repo with no config gets no tools or instructions', async () => {
+	const f = fixture({config: false});
+	const client = await connect(f);
+	expect(client.getServerCapabilities()?.tools).toBe(undefined);
+	expect(client.getInstructions()).toBe(undefined);
 });
 
-test.serial(
-	'a repo that leaves workspace_aware_agents off gets no tools or instructions',
-	async t => {
-		const f = fixture(t, {aware: false});
-		const client = await connect(t, f);
-		t.is(client.getServerCapabilities()?.tools, undefined);
-		t.is(client.getInstructions(), undefined);
-	},
-);
+test('a repo that leaves workspace_aware_agents off gets no tools or instructions', async () => {
+	const f = fixture({aware: false});
+	const client = await connect(f);
+	expect(client.getServerCapabilities()?.tools).toBe(undefined);
+	expect(client.getInstructions()).toBe(undefined);
+});
 
-test.serial(
-	'spaces_list answers from the CLI in a configured repo',
-	async t => {
-		const f = fixture(t);
-		const registry = path.join(
-			f.home,
-			'.pappardelle',
-			'repos',
-			'project',
-			'open-spaces.json',
+test('spaces_list answers from the CLI in a configured repo', async () => {
+	const f = fixture();
+	const registry = path.join(
+		f.home,
+		'.pappardelle',
+		'repos',
+		'project',
+		'open-spaces.json',
+	);
+	fs.mkdirSync(path.dirname(registry), {recursive: true});
+	fs.writeFileSync(registry, '["STE-1"]\n');
+	const client = await connect(f);
+	expect(client.getInstructions() ?? '').toMatch(/isn't in a space/);
+	const result = await client.callTool({name: 'spaces_list', arguments: {}});
+	const report = JSON.parse(text(result)) as {
+		spaces: Array<{name: string; tmuxSession: string}>;
+	};
+	expect(
+		report.spaces.map(space => [space.name, space.tmuxSession]),
+	).toStrictEqual([['STE-1', 'agent-project-STE-1']]);
+});
+
+test('with no PAPPARDELLE_SPACE, the worktree path names the space for the server and the CLI', async () => {
+	const f = fixture();
+	const git = (...args: string[]) =>
+		spawnSync(
+			'git',
+			['-c', 'user.email=a@b', '-c', 'user.name=a', '-C', f.repo, ...args],
+			{encoding: 'utf8'},
 		);
-		fs.mkdirSync(path.dirname(registry), {recursive: true});
-		fs.writeFileSync(registry, '["STE-1"]\n');
-		const client = await connect(t, f);
-		t.regex(client.getInstructions() ?? '', /isn't in a space/);
-		const result = await client.callTool({name: 'spaces_list', arguments: {}});
-		const report = JSON.parse(text(result)) as {
-			spaces: Array<{name: string; tmuxSession: string}>;
-		};
-		t.deepEqual(
-			report.spaces.map(space => [space.name, space.tmuxSession]),
-			[['STE-1', 'agent-project-STE-1']],
-		);
-	},
-);
+	git('commit', '--quiet', '--allow-empty', '-m', 'init');
+	const tree = path.join(f.home, '.worktrees', 'project', 'KEY-9');
+	git('worktree', 'add', '--quiet', tree, '-b', 'KEY-9');
+	prepareSpace(f, 'KEY-9', tree);
+	const client = await connect({...f, repo: tree});
+	expect(client.getInstructions() ?? '').toMatch(
+		/space KEY-9 \(repo project\)/,
+	);
+	const result = await client.callTool({
+		name: 'companion_list',
+		arguments: {},
+	});
+	expect(result.isError).toBe(true);
+	expect(text(result)).toMatch(/No companion session for KEY-9/);
+});
 
-test.serial(
-	'with no PAPPARDELLE_SPACE, the worktree path names the space for the server and the CLI',
-	async t => {
-		const f = fixture(t);
-		const git = (...args: string[]) =>
-			spawnSync(
-				'git',
-				['-c', 'user.email=a@b', '-c', 'user.name=a', '-C', f.repo, ...args],
-				{encoding: 'utf8'},
-			);
-		git('commit', '--quiet', '--allow-empty', '-m', 'init');
-		const tree = path.join(f.home, '.worktrees', 'project', 'KEY-9');
-		git('worktree', 'add', '--quiet', tree, '-b', 'KEY-9');
-		prepareSpace(t, f, 'KEY-9', tree);
-		const client = await connect(t, {...f, repo: tree});
-		t.regex(client.getInstructions() ?? '', /space KEY-9 \(repo project\)/);
-		const result = await client.callTool({
-			name: 'companion_list',
-			arguments: {},
-		});
-		t.true(result.isError);
-		t.regex(text(result), /No companion session for KEY-9/);
-	},
-);
-
-test.serial(
-	'link_pr verifies through gh from the source repository and saves the link',
-	async t => {
-		const f = fixture(t);
-		const bin = path.join(f.root, 'bin');
-		fs.mkdirSync(bin);
-		fs.writeFileSync(
-			path.join(bin, 'gh'),
-			`#!/bin/sh
+test('link_pr verifies through gh from the source repository and saves the link', async () => {
+	const f = fixture();
+	const bin = path.join(f.root, 'bin');
+	fs.mkdirSync(bin);
+	fs.writeFileSync(
+		path.join(bin, 'gh'),
+		`#!/bin/sh
 echo '{"state":"open","number":7,"head":{"repo":{"full_name":"o/child"},"ref":"sd-child"}}'
 `,
-			{mode: 0o755},
-		);
-		const child = path.join(f.repo, 'child');
-		fs.mkdirSync(child);
-		spawnSync('git', ['init', '--quiet', '-b', 'nested', child]);
-		spawnSync('git', [
-			'-C',
-			child,
-			'remote',
-			'add',
-			'origin',
-			'git@github.com:o/child.git',
-		]);
-		spawnSync('git', [
-			'-C',
-			f.repo,
-			'symbolic-ref',
-			'HEAD',
-			'refs/heads/KEY-5',
-		]);
-		const client = await connect(t, f, {
-			PATH: `${bin}:${f.env['PATH'] ?? ''}`,
-		});
+		{mode: 0o755},
+	);
+	const child = path.join(f.repo, 'child');
+	fs.mkdirSync(child);
+	spawnSync('git', ['init', '--quiet', '-b', 'nested', child]);
+	spawnSync('git', [
+		'-C',
+		child,
+		'remote',
+		'add',
+		'origin',
+		'git@github.com:o/child.git',
+	]);
+	spawnSync('git', ['-C', f.repo, 'symbolic-ref', 'HEAD', 'refs/heads/KEY-5']);
+	const client = await connect(f, {
+		PATH: `${bin}:${f.env['PATH'] ?? ''}`,
+	});
 
-		const result = await client.callTool({
-			name: 'link_pr',
-			arguments: {
-				url: 'https://github.com/o/child/pull/7',
-				repository: child,
-				workspace: f.repo,
-			},
-		});
+	const result = await client.callTool({
+		name: 'link_pr',
+		arguments: {
+			url: 'https://github.com/o/child/pull/7',
+			repository: child,
+			workspace: f.repo,
+		},
+	});
 
-		t.falsy(result.isError, text(result));
-		const state = JSON.parse(
-			fs.readFileSync(
-				path.join(
-					f.home,
-					'.pappardelle',
-					'repos',
-					'project',
-					'space-state',
-					'KEY-5.json',
-				),
-				'utf8',
+	expect(result.isError, text(result)).toBeFalsy();
+	const state = JSON.parse(
+		fs.readFileSync(
+			path.join(
+				f.home,
+				'.pappardelle',
+				'repos',
+				'project',
+				'space-state',
+				'KEY-5.json',
 			),
-		) as {prLinks: Array<Record<string, unknown>>};
-		t.like(state.prLinks[0], {
-			project: 'o/child',
-			localBranch: 'nested',
-			remoteBranch: 'sd-child',
-			number: 7,
-		});
-	},
-);
+			'utf8',
+		),
+	) as {prLinks: Array<Record<string, unknown>>};
+	expect(state.prLinks[0]).toMatchObject({
+		project: 'o/child',
+		localBranch: 'nested',
+		remoteBranch: 'sd-child',
+		number: 7,
+	});
+});
 
-test.serial('the server stops when the client closes stdin', async t => {
-	const f = fixture(t);
+test('the server stops when the client closes stdin', async () => {
+	const f = fixture();
 	const child = spawn(process.execPath, [entry], {
 		cwd: f.repo,
 		env: f.env,
 		stdio: ['pipe', 'ignore', 'ignore'],
 	});
-	t.teardown(() => child.kill('SIGKILL'));
+	teardown(() => child.kill('SIGKILL'));
 	await delay(500);
 	child.stdin.end();
 	const [code] = await Promise.race([
 		once(child, 'exit'),
 		delay(10_000).then(() => ['timed out']),
 	]);
-	t.is(code, 0);
+	expect(code).toBe(0);
 });
 
 tmuxTest(
 	'companion tools and space_send reach real panes, and quoting survives',
-	async t => {
-		const f = fixture(t);
+	async () => {
+		const f = fixture();
 		const tmuxEnv = f.env;
 		const tmux = (...args: string[]) => {
 			const r = spawnSync('tmux', ['-L', 'pappardelle_inner', ...args], {
@@ -283,19 +262,21 @@ tmuxTest(
 
 		tmux('-f', '/dev/null', 'new-session', '-d', '-s', 'companion-project-KEY-1', 'sleep 600'); // prettier-ignore
 		const socket = tmux('display-message', '-p', '#{socket_path}');
-		t.teardown(() => {
+		teardown(() => {
 			if (socket.startsWith(f.tmuxDir))
 				spawnSync('tmux', ['-S', socket, 'kill-server'], {env: tmuxEnv});
 		});
 		if (!socket.startsWith(f.tmuxDir)) {
-			t.fail(`tmux is not isolated: ${socket}`);
+			expect.unreachable(`tmux is not isolated: ${socket}`);
 			return;
 		}
 
 		tmux('new-session', '-d', '-s', 'agent-project-KEY-1', '-x', '200', 'cat');
-		prepareSpace(t, f, 'KEY-1');
-		const client = await connect(t, f, {PAPPARDELLE_SPACE: 'KEY-1'});
-		t.regex(client.getInstructions() ?? '', /space KEY-1 \(repo project\)/);
+		prepareSpace(f, 'KEY-1');
+		const client = await connect(f, {PAPPARDELLE_SPACE: 'KEY-1'});
+		expect(client.getInstructions() ?? '').toMatch(
+			/space KEY-1 \(repo project\)/,
+		);
 
 		const ran = await client.callTool({
 			name: 'companion_run',
@@ -305,7 +286,7 @@ tmuxTest(
 				command: 'echo "from a | pipe" | cat; sleep 600',
 			},
 		});
-		t.falsy(ran.isError, text(ran));
+		expect(ran.isError, text(ran)).toBeFalsy();
 
 		let shown = '';
 		for (
@@ -325,18 +306,18 @@ tmuxTest(
 			await delay(100);
 		}
 
-		t.regex(shown, /from a \| pipe/);
+		expect(shown).toMatch(/from a \| pipe/);
 
 		const list = await client.callTool({name: 'companion_list', arguments: {}});
 		const panes = JSON.parse(text(list)) as Array<{name: string}>;
-		t.deepEqual(panes.map(pane => pane.name).sort(), ['main', 'side']);
+		expect(panes.map(pane => pane.name).sort()).toStrictEqual(['main', 'side']);
 
 		const tricky = `-it's "quoted" $HOME \`x\``;
 		const sent = await client.callTool({
 			name: 'space_send',
 			arguments: {key: 'KEY-1', text: tricky},
 		});
-		t.falsy(sent.isError, text(sent));
+		expect(sent.isError, text(sent)).toBeFalsy();
 		let agent = '';
 		for (let attempt = 0; attempt < 40 && !agent.includes('$HOME'); attempt++) {
 			agent = tmux('capture-pane', '-p', '-t', '=agent-project-KEY-1:');
@@ -344,20 +325,20 @@ tmuxTest(
 			await delay(50);
 		}
 
-		t.true(agent.includes(tricky), agent);
+		expect(agent.includes(tricky), agent).toBe(true);
 
 		const refused = await client.callTool({
 			name: 'companion_close',
 			arguments: {pane: 'main'},
 		});
-		t.true(refused.isError);
+		expect(refused.isError).toBe(true);
 	},
 );
 
 tmuxTest(
 	'space_state reads a real prompt, space_answer approves cleanup and holds a push, space_wait sees it finish',
-	async t => {
-		const f = fixture(t);
+	async () => {
+		const f = fixture();
 		const tmuxEnv = f.env;
 		const tmux = (...args: string[]) => {
 			const r = spawnSync('tmux', ['-L', 'pappardelle_inner', ...args], {
@@ -371,12 +352,12 @@ tmuxTest(
 
 		tmux('-f', '/dev/null', 'new-session', '-d', '-s', 'seed', 'sleep 600'); // prettier-ignore
 		const socket = tmux('display-message', '-p', '#{socket_path}');
-		t.teardown(() => {
+		teardown(() => {
 			if (socket.startsWith(f.tmuxDir))
 				spawnSync('tmux', ['-S', socket, 'kill-server'], {env: tmuxEnv});
 		});
 		if (!socket.startsWith(f.tmuxDir)) {
-			t.fail(`tmux is not isolated: ${socket}`);
+			expect.unreachable(`tmux is not isolated: ${socket}`);
 			return;
 		}
 
@@ -403,7 +384,7 @@ tmuxTest(
 					'',
 				].join('\n'),
 			);
-			prepareSpace(t, f, key);
+			prepareSpace(f, key);
 			const answered = path.join(f.root, `${key}.answer`);
 			tmux('new-session', '-d', '-s', `agent-project-${key}`, '-x', '120', `bash -c 'cat ${prompt}; read -rn1 k; echo "$k" > ${answered}; printf "\\033[H\\033[2J\\033[3J"; echo "❯ "; sleep 600'`); // prettier-ignore
 			return answered;
@@ -418,7 +399,7 @@ tmuxTest(
 		fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh\ncat > ${asked}\necho '{"structured_output":{"approve":true,"reason":"local cleanup"}}'\n`, {mode: 0o755}); // prettier-ignore
 		await delay(500);
 		// The sous-chef, which answers for the spaces.
-		const client = await connect(t, f, {
+		const client = await connect(f, {
 			PAPPARDELLE_SPACE: 'main',
 			PATH: `${bin}:${f.env['PATH'] ?? ''}`,
 		});
@@ -431,11 +412,11 @@ tmuxTest(
 			state: string;
 			permission: {command: string};
 		};
-		t.is(state.state, 'permission');
-		t.is(state.permission.command, 'rm -rf /tmp/q-abc');
+		expect(state.state).toBe('permission');
+		expect(state.permission.command).toBe('rm -rf /tmp/q-abc');
 
 		const approved = await call('space_answer', {key: 'STE-2', option: 1});
-		t.falsy(approved.isError, text(approved));
+		expect(approved.isError, text(approved)).toBeFalsy();
 		const waited = JSON.parse(
 			text(
 				await call('space_wait', {
@@ -445,34 +426,36 @@ tmuxTest(
 				}),
 			),
 		) as {state: string; timedOut: boolean};
-		t.like(waited, {state: 'idle', timedOut: false});
-		t.is(fs.readFileSync(cleanup, 'utf8').trim(), '1');
-		t.false(fs.existsSync(push));
-		t.regex(fs.readFileSync(asked, 'utf8'), /Call:\nrm -rf \/tmp\/q-abc/);
+		expect(waited).toMatchObject({state: 'idle', timedOut: false});
+		expect(fs.readFileSync(cleanup, 'utf8').trim()).toBe('1');
+		expect(fs.existsSync(push)).toBe(false);
+		expect(fs.readFileSync(asked, 'utf8')).toMatch(
+			/Call:\nrm -rf \/tmp\/q-abc/,
+		);
 
 		const sentIntoPrompt = await call('space_send', {
 			key: 'STE-3',
 			text: '1',
 			force: true,
 		});
-		t.true(sentIntoPrompt.isError);
-		t.false(fs.existsSync(push));
+		expect(sentIntoPrompt.isError).toBe(true);
+		expect(fs.existsSync(push)).toBe(false);
 
 		// A push to main is held: declined with No, and kept for the chef.
 		// This space has no worktree on disk, so any push from it holds.
 		const held = await call('space_answer', {key: 'STE-3', option: 1});
-		t.falsy(held.isError, text(held));
-		t.regex(text(held), /^Held h\w+: a push .+\ngit push origin main/);
+		expect(held.isError, text(held)).toBeFalsy();
+		expect(text(held)).toMatch(/^Held h\w+: a push .+\ngit push origin main/);
 		await waitUntil(
 			() => fs.existsSync(push),
 			'the push prompt to be declined',
 		);
-		t.is(fs.readFileSync(push, 'utf8').trim(), '2');
+		expect(fs.readFileSync(push, 'utf8').trim()).toBe('2');
 		const holds = JSON.parse(text(await call('space_holds', {}))) as Array<{
 			key: string;
 			state: string;
 		}>;
-		t.like(holds[0], {key: 'STE-3', state: 'open'});
+		expect(holds[0]).toMatchObject({key: 'STE-3', state: 'open'});
 
 		const log = fs
 			.readFileSync(
@@ -488,18 +471,18 @@ tmuxTest(
 			.trim()
 			.split('\n')
 			.map(line => JSON.parse(line) as Record<string, string>);
-		t.like(log[0], {
+		expect(log[0]).toMatchObject({
 			caller: 'main',
 			key: 'STE-2',
 			verdict: 'allowed: local cleanup',
 		});
-		t.like(log[1], {
+		expect(log[1]).toMatchObject({
 			caller: 'main',
 			action: 'send',
 			key: 'STE-3',
 			detail: 'prompt',
 		});
-		t.like(log[2], {
+		expect(log[2]).toMatchObject({
 			caller: 'main',
 			action: 'hold',
 			key: 'STE-3',

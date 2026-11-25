@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	BULK_BATCH_SIZE,
 	makeLinearGraphQLClient,
 	resolveApiKey,
 	type FetchLike,
 } from './providers/linear-graphql.ts';
-import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
 // ============================================================================
 // Helpers
@@ -69,7 +69,7 @@ function errorResponse(status: number, body = 'oops') {
 // Happy path
 // ============================================================================
 
-test('returns empty Map for empty issueKeys (no HTTP call)', async t => {
+test('returns empty Map for empty issueKeys (no HTTP call)', async () => {
 	let calls = 0;
 	const fetchImpl: FetchLike = async () => {
 		calls++;
@@ -79,11 +79,11 @@ test('returns empty Map for empty issueKeys (no HTTP call)', async t => {
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client([]);
 
-	t.is(calls, 0);
-	t.is(result!.size, 0);
+	expect(calls).toBe(0);
+	expect(result!.size).toBe(0);
 });
 
-test('single batch — parses every alias and maps back to its key', async t => {
+test('single batch — parses every alias and maps back to its key', async () => {
 	const fetchImpl: FetchLike = async () =>
 		okJsonResponse({
 			i0: fakeIssuePayload('STA-1'),
@@ -93,14 +93,14 @@ test('single batch — parses every alias and maps back to its key', async t => 
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['STA-1', 'STA-2']);
 
-	t.truthy(result);
-	t.is(result!.size, 2);
-	t.is(result!.get('STA-1')!.identifier, 'STA-1');
-	t.is(result!.get('STA-2')!.title, 'T-STA-2');
-	t.deepEqual(result!.get('STA-1')!.labels, ['bug']);
+	expect(result).toBeTruthy();
+	expect(result!.size).toBe(2);
+	expect(result!.get('STA-1')!.identifier).toBe('STA-1');
+	expect(result!.get('STA-2')!.title).toBe('T-STA-2');
+	expect(result!.get('STA-1')!.labels).toStrictEqual(['bug']);
 });
 
-test('url field passes through bulk-fetch onto the cached TrackerIssue', async t => {
+test('url field passes through bulk-fetch onto the cached TrackerIssue', async () => {
 	// Without this, LinearProvider.buildIssueUrl can't resolve a cross-
 	// workspace URL from the bulk path's cache and silently falls back to
 	// the hardcoded stardust-labs slug for WAB-* spaces.
@@ -115,13 +115,12 @@ test('url field passes through bulk-fetch onto the cached TrackerIssue', async t
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['WAB-5']);
 
-	t.is(
-		result!.get('WAB-5')!.url,
+	expect(result!.get('WAB-5')!.url).toBe(
 		'https://linear.app/wabo-ventures/issue/WAB-5/add-new-ads-tab',
 	);
 });
 
-test('url field absent from bulk-fetch response → issue.url is undefined', async t => {
+test('url field absent from bulk-fetch response → issue.url is undefined', async () => {
 	// The conditional spread in parseGraphQLIssue should leave url unset
 	// when the API didn't include it, so buildIssueUrl can fall back to
 	// its hardcoded-slug branch instead of using a stale or empty URL.
@@ -131,10 +130,10 @@ test('url field absent from bulk-fetch response → issue.url is undefined', asy
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['STA-1']);
 
-	t.is(result!.get('STA-1')!.url, undefined);
+	expect(result!.get('STA-1')!.url).toBe(undefined);
 });
 
-test('sends the API key in the Authorization header', async t => {
+test('sends the API key in the Authorization header', async () => {
 	let captured: Record<string, string> | null = null;
 	const fetchImpl: FetchLike = async (_url, init) => {
 		captured = init.headers;
@@ -144,23 +143,23 @@ test('sends the API key in the Authorization header', async t => {
 	const client = makeLinearGraphQLClient({apiKey: 'lin_secret', fetchImpl});
 	await client(['STA-9']);
 
-	t.truthy(captured);
-	t.is(captured!.Authorization, 'lin_secret');
-	t.is(captured!['Content-Type'], 'application/json');
+	expect(captured).toBeTruthy();
+	expect(captured!.Authorization).toBe('lin_secret');
+	expect(captured!['Content-Type']).toBe('application/json');
 });
 
 // ============================================================================
 // Batching (STA-1377 review feedback — query complexity ceiling)
 // ============================================================================
 
-test(`BULK_BATCH_SIZE constant is ${BULK_BATCH_SIZE}`, t => {
+test(`BULK_BATCH_SIZE constant is ${BULK_BATCH_SIZE}`, () => {
 	// Sanity-check the public constant so an accidental change to it has to
 	// touch the test too — a heuristic ceiling tied to Linear's complexity
 	// budget shouldn't drift silently.
-	t.is(BULK_BATCH_SIZE, 25);
+	expect(BULK_BATCH_SIZE).toBe(25);
 });
 
-test('splits issueKeys into batches of batchSize', async t => {
+test('splits issueKeys into batches of batchSize', async () => {
 	const batchSizes: number[] = [];
 	const fetchImpl: FetchLike = async (_url, init) => {
 		const body = JSON.parse(init.body) as {query: string};
@@ -184,13 +183,13 @@ test('splits issueKeys into batches of batchSize', async t => {
 	const keys = Array.from({length: 7}, (_, i) => `STA-${i + 1}`);
 	const result = await client(keys);
 
-	t.deepEqual(batchSizes, [3, 3, 1]);
-	t.is(result!.size, 7);
+	expect(batchSizes).toStrictEqual([3, 3, 1]);
+	expect(result!.size).toBe(7);
 	// Every original key resolves to a non-null issue
-	for (const k of keys) t.truthy(result!.get(k));
+	for (const k of keys) expect(result!.get(k)).toBeTruthy();
 });
 
-test('total failure in any batch returns null — CLI fallback covers the whole desk', async t => {
+test('total failure in any batch returns null — CLI fallback covers the whole desk', async () => {
 	let callIndex = 0;
 	const fetchImpl: FetchLike = async () => {
 		callIndex++;
@@ -205,38 +204,40 @@ test('total failure in any batch returns null — CLI fallback covers the whole 
 	});
 	const result = await client(['STA-1', 'STA-2', 'STA-3']);
 
-	t.is(result, null, 'one batch failure should null the entire response');
+	expect(result, 'one batch failure should null the entire response').toBe(
+		null,
+	);
 });
 
 // ============================================================================
 // Error paths
 // ============================================================================
 
-test('HTTP 401 returns null (CLI fallback)', async t => {
+test('HTTP 401 returns null (CLI fallback)', async () => {
 	const fetchImpl: FetchLike = async () => errorResponse(401, 'unauthorized');
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['STA-1']);
-	t.is(result, null);
+	expect(result).toBe(null);
 });
 
-test('HTTP 500 returns null (CLI fallback)', async t => {
+test('HTTP 500 returns null (CLI fallback)', async () => {
 	const fetchImpl: FetchLike = async () => errorResponse(500, 'internal error');
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['STA-1']);
-	t.is(result, null);
+	expect(result).toBe(null);
 });
 
-test('fetch throw returns null (network error → CLI fallback)', async t => {
+test('fetch throw returns null (network error → CLI fallback)', async () => {
 	const fetchImpl: FetchLike = async () => {
 		throw new Error('ECONNRESET');
 	};
 
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['STA-1']);
-	t.is(result, null);
+	expect(result).toBe(null);
 });
 
-test('aborts when timeout fires before fetch resolves', async t => {
+test('aborts when timeout fires before fetch resolves', async () => {
 	let abortFired = false;
 	const fetchImpl: FetchLike = async (_url, init) =>
 		new Promise((_resolve, reject) => {
@@ -253,15 +254,15 @@ test('aborts when timeout fires before fetch resolves', async t => {
 		timeoutMs: 50,
 	});
 	const result = await client(['STA-1']);
-	t.is(result, null);
-	t.true(abortFired, 'AbortController should fire on timeout');
+	expect(result).toBe(null);
+	expect(abortFired, 'AbortController should fire on timeout').toBe(true);
 });
 
 // ============================================================================
 // Partial / malformed responses
 // ============================================================================
 
-test('partial errors with data — returns Map, logs warning, keeps successful aliases', async t => {
+test('partial errors with data — returns Map, logs warning, keeps successful aliases', async () => {
 	const fetchImpl: FetchLike = async () =>
 		okJsonResponseWithErrors({i0: fakeIssuePayload('STA-1'), i1: null}, [
 			{message: 'Issue STA-2 not accessible'},
@@ -270,13 +271,15 @@ test('partial errors with data — returns Map, logs warning, keeps successful a
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['STA-1', 'STA-2']);
 
-	t.truthy(result);
-	t.is(result!.size, 2);
-	t.is(result!.get('STA-1')!.identifier, 'STA-1');
-	t.is(result!.get('STA-2'), null, 'unresolved alias maps to null in the Map');
+	expect(result).toBeTruthy();
+	expect(result!.size).toBe(2);
+	expect(result!.get('STA-1')!.identifier).toBe('STA-1');
+	expect(result!.get('STA-2'), 'unresolved alias maps to null in the Map').toBe(
+		null,
+	);
 });
 
-test('response with no data field — every key maps to null (per-key CLI fallback)', async t => {
+test('response with no data field — every key maps to null (per-key CLI fallback)', async () => {
 	const fetchImpl: FetchLike = async () => ({
 		ok: true,
 		status: 200,
@@ -291,13 +294,16 @@ test('response with no data field — every key maps to null (per-key CLI fallba
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['STA-1', 'STA-2']);
 
-	t.truthy(result, 'no data is *partial*, not total failure — Map preserved');
-	t.is(result!.size, 2);
-	t.is(result!.get('STA-1'), null);
-	t.is(result!.get('STA-2'), null);
+	expect(
+		result,
+		'no data is *partial*, not total failure — Map preserved',
+	).toBeTruthy();
+	expect(result!.size).toBe(2);
+	expect(result!.get('STA-1')).toBe(null);
+	expect(result!.get('STA-2')).toBe(null);
 });
 
-test('alias with missing required fields parses to null', async t => {
+test('alias with missing required fields parses to null', async () => {
 	const fetchImpl: FetchLike = async () =>
 		okJsonResponse({
 			i0: {title: 'no identifier here', state: {name: 'S'}},
@@ -305,46 +311,46 @@ test('alias with missing required fields parses to null', async t => {
 
 	const client = makeLinearGraphQLClient({apiKey: 'k', fetchImpl});
 	const result = await client(['STA-1']);
-	t.is(result!.get('STA-1'), null);
+	expect(result!.get('STA-1')).toBe(null);
 });
 
 // ============================================================================
 // resolveApiKey precedence — env var > disk
 // ============================================================================
 
-function tmpAuthFile(t: Teardown, contents: string): string {
-	const p = path.join(tempDir(t, 'pappardelle-test-auth-'), 'auth.json');
+function tmpAuthFile(contents: string): string {
+	const p = path.join(tempDir('pappardelle-test-auth-'), 'auth.json');
 	fs.writeFileSync(p, contents);
 	return p;
 }
 
-test('resolveApiKey prefers LINCTL_API_KEY env var over disk', t => {
-	const disk = tmpAuthFile(t, JSON.stringify({api_key: 'disk-key'}));
-	t.is(resolveApiKey({LINCTL_API_KEY: 'env-key'}, disk), 'env-key');
+test('resolveApiKey prefers LINCTL_API_KEY env var over disk', () => {
+	const disk = tmpAuthFile(JSON.stringify({api_key: 'disk-key'}));
+	expect(resolveApiKey({LINCTL_API_KEY: 'env-key'}, disk)).toBe('env-key');
 });
 
-test('resolveApiKey trims whitespace around env var', t => {
-	const disk = tmpAuthFile(t, JSON.stringify({api_key: 'disk-key'}));
-	t.is(resolveApiKey({LINCTL_API_KEY: '  env-key  '}, disk), 'env-key');
+test('resolveApiKey trims whitespace around env var', () => {
+	const disk = tmpAuthFile(JSON.stringify({api_key: 'disk-key'}));
+	expect(resolveApiKey({LINCTL_API_KEY: '  env-key  '}, disk)).toBe('env-key');
 });
 
-test('resolveApiKey falls back to disk when env var is unset or empty', t => {
-	const disk = tmpAuthFile(t, JSON.stringify({api_key: 'disk-key'}));
-	t.is(resolveApiKey({}, disk), 'disk-key');
-	t.is(resolveApiKey({LINCTL_API_KEY: ''}, disk), 'disk-key');
+test('resolveApiKey falls back to disk when env var is unset or empty', () => {
+	const disk = tmpAuthFile(JSON.stringify({api_key: 'disk-key'}));
+	expect(resolveApiKey({}, disk)).toBe('disk-key');
+	expect(resolveApiKey({LINCTL_API_KEY: ''}, disk)).toBe('disk-key');
 });
 
-test('resolveApiKey returns null when neither env nor disk has a key', t => {
-	const missing = path.join(tempDir(t, 'pappardelle-test-auth-'), 'auth.json');
-	t.is(resolveApiKey({}, missing), null);
+test('resolveApiKey returns null when neither env nor disk has a key', () => {
+	const missing = path.join(tempDir('pappardelle-test-auth-'), 'auth.json');
+	expect(resolveApiKey({}, missing)).toBe(null);
 });
 
-test('resolveApiKey returns null on malformed disk file (and no env var)', t => {
-	const disk = tmpAuthFile(t, 'not json at all');
-	t.is(resolveApiKey({}, disk), null);
+test('resolveApiKey returns null on malformed disk file (and no env var)', () => {
+	const disk = tmpAuthFile('not json at all');
+	expect(resolveApiKey({}, disk)).toBe(null);
 });
 
-test('resolveApiKey returns null when disk has no api_key field', t => {
-	const disk = tmpAuthFile(t, JSON.stringify({something: 'else'}));
-	t.is(resolveApiKey({}, disk), null);
+test('resolveApiKey returns null when disk has no api_key field', () => {
+	const disk = tmpAuthFile(JSON.stringify({something: 'else'}));
+	expect(resolveApiKey({}, disk)).toBe(null);
 });

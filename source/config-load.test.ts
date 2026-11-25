@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,12 +11,9 @@ import {
 import {inlineConfigErrors} from './config-errors.ts';
 import {getRecentErrors} from './logger.ts';
 
-function layers(
-	t: {teardown: (fn: () => void) => void},
-	files: Record<string, string>,
-) {
+function layers(files: Record<string, string>) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-read-'));
-	t.teardown(() => {
+	teardown(() => {
 		fs.rmSync(dir, {recursive: true, force: true});
 	});
 	for (const [name, content] of Object.entries(files)) {
@@ -35,88 +33,95 @@ function layers(
 	};
 }
 
-test('no config file in any layer is a missing config', t => {
-	const {paths} = layers(t, {});
-	t.deepEqual(readConfig(paths), {kind: 'missing'});
+test('no config file in any layer is a missing config', () => {
+	const {paths} = layers({});
+	expect(readConfig(paths)).toStrictEqual({kind: 'missing'});
 });
 
-test('a config that validates is valid', t => {
-	const {paths} = layers(t, {
+test('a config that validates is valid', () => {
+	const {paths} = layers({
 		'project/.pappardelle.yml': 'version: 1\nteam_prefix: ABC\nprofiles: {}\n',
 	});
 	const load = readConfig(paths);
-	t.is(load.kind, 'valid');
-	t.is(load.kind === 'valid' ? load.config.team_prefix : undefined, 'ABC');
+	expect(load.kind).toBe('valid');
+	expect(load.kind === 'valid' ? load.config.team_prefix : undefined).toBe(
+		'ABC',
+	);
 });
 
-test('a validation error in an unused agent profile makes the config invalid', t => {
-	const {paths} = layers(t, {
+test('a validation error in an unused agent profile makes the config invalid', () => {
+	const {paths} = layers({
 		'project/.pappardelle.yml':
 			'version: 1\nprofiles: {}\nagent_profiles:\n  opus:\n    command: claude\n    model: 7\n',
 	});
 	const load = readConfig(paths);
-	t.is(load.kind, 'invalid');
-	t.true(
+	expect(load.kind).toBe('invalid');
+	expect(
 		load.kind === 'invalid' &&
 			load.errors.some(error => error.includes('agent_profiles.opus.model')),
-	);
+	).toBe(true);
 });
 
-test('a layer that fails to parse makes the config invalid, not missing', t => {
-	const {paths} = layers(t, {
+test('a layer that fails to parse makes the config invalid, not missing', () => {
+	const {paths} = layers({
 		'project/.pappardelle.yml': 'version: 1\nprofiles: {}\n',
 		'project/.pappardelle.local.yml': 'profiles: [unclosed\n',
 	});
 	const load = readConfig(paths);
-	t.is(load.kind, 'invalid');
-	t.true(
+	expect(load.kind).toBe('invalid');
+	expect(
 		load.kind === 'invalid' &&
 			load.errors.some(error => error.includes('.pappardelle.local.yml')),
+	).toBe(true);
+});
+
+test('a config file that cannot be read makes the config invalid', () => {
+	const {dir, paths} = layers({});
+	fs.mkdirSync(path.join(dir, 'project', '.pappardelle.yml'));
+	const load = readConfig(paths);
+	expect(load.kind).toBe('invalid');
+	expect(load.kind === 'invalid' && load.errors[0]!.includes('EISDIR')).toBe(
+		true,
 	);
 });
 
-test('a config file that cannot be read makes the config invalid', t => {
-	const {dir, paths} = layers(t, {});
-	fs.mkdirSync(path.join(dir, 'project', '.pappardelle.yml'));
-	const load = readConfig(paths);
-	t.is(load.kind, 'invalid');
-	t.true(load.kind === 'invalid' && load.errors[0]!.includes('EISDIR'));
-});
-
-test('every layer that fails to parse is reported, not just the first', t => {
-	const {paths} = layers(t, {
+test('every layer that fails to parse is reported, not just the first', () => {
+	const {paths} = layers({
 		'project/.pappardelle.yml': 'version: [unclosed\n',
 		'project/.pappardelle.local.yml': 'profiles: [unclosed\n',
 	});
 	const load = readConfig(paths);
-	t.is(load.kind, 'invalid');
+	expect(load.kind).toBe('invalid');
 	const errors = load.kind === 'invalid' ? load.errors : [];
-	t.true(errors.some(error => error.startsWith('.pappardelle.yml: ')));
-	t.true(errors.some(error => error.startsWith('.pappardelle.local.yml: ')));
+	expect(errors.some(error => error.startsWith('.pappardelle.yml: '))).toBe(
+		true,
+	);
+	expect(
+		errors.some(error => error.startsWith('.pappardelle.local.yml: ')),
+	).toBe(true);
 });
 
-test('a config file that cannot be read is named in its error', t => {
-	const {dir, paths} = layers(t, {});
+test('a config file that cannot be read is named in its error', () => {
+	const {dir, paths} = layers({});
 	fs.mkdirSync(path.join(dir, 'project', '.pappardelle.local.yml'));
 	const load = readConfig(paths);
-	t.deepEqual(
+	expect(
 		load.kind === 'invalid'
 			? load.errors.map(error => error.split(': ')[0])
 			: [],
-		['.pappardelle.local.yml'],
-	);
+	).toStrictEqual(['.pappardelle.local.yml']);
 });
 
-test('a YAML error fits on one line without its code excerpt', t => {
-	const {paths} = layers(t, {
+test('a YAML error fits on one line without its code excerpt', () => {
+	const {paths} = layers({
 		'project/.pappardelle.yml': 'version: 1\nprofiles: {}\n',
 		'project/.pappardelle.local.yml': 'opus: [unclosed\n',
 	});
 	const load = readConfig(paths);
 	const inline = load.kind === 'invalid' ? inlineConfigErrors(load.errors) : '';
-	t.true(inline.startsWith('.pappardelle.local.yml'));
-	t.false(inline.includes('\n'));
-	t.false(inline.endsWith(':'));
+	expect(inline.startsWith('.pappardelle.local.yml')).toBe(true);
+	expect(inline.includes('\n')).toBe(false);
+	expect(inline.endsWith(':')).toBe(false);
 });
 
 const layerFiles = {
@@ -131,14 +136,14 @@ for (const [label, file] of Object.entries(layerFiles)) {
 		['scalar', 'just a string\n'],
 		['list', '- version: 1\n'],
 	]) {
-		test(`a ${shape} ${label} is an invalid config naming the file`, t => {
-			const {paths} = layers(t, {
+		test(`a ${shape} ${label} is an invalid config naming the file`, () => {
+			const {paths} = layers({
 				...(file === 'project/.pappardelle.yml'
 					? {}
 					: {'project/.pappardelle.yml': validProject}),
 				[file]: content!,
 			});
-			t.deepEqual(readConfig(paths), {
+			expect(readConfig(paths)).toStrictEqual({
 				kind: 'invalid',
 				errors: [`${label}: the top level must be a map`],
 			});
@@ -151,36 +156,35 @@ for (const [shape, content] of [
 	['a null', '~\n'],
 	['a document-marker-only', '---\n'],
 ]) {
-	test(`${shape} layer adds nothing`, t => {
-		const {paths} = layers(t, {
+	test(`${shape} layer adds nothing`, () => {
+		const {paths} = layers({
 			'home/.pappardelle.yml': content!,
 			'project/.pappardelle.yml': validProject,
 			'project/.pappardelle.local.yml': content!,
 		});
-		t.is(readConfig(paths).kind, 'valid');
+		expect(readConfig(paths).kind).toBe('valid');
 	});
 }
 
-test("loadProviderConfigs reports a scalar layer's error", t => {
-	const {paths} = layers(t, {
+test("loadProviderConfigs reports a scalar layer's error", () => {
+	const {paths} = layers({
 		'project/.pappardelle.yml':
 			'version: 1\nprofiles: {}\nissue_tracker: {provider: beads}\n',
 		'project/.pappardelle.local.yml': 'oops\n',
 	});
 	const providers = loadProviderConfigs(paths);
-	t.deepEqual(providers.layerErrors, [
+	expect(providers.layerErrors).toStrictEqual([
 		'.pappardelle.local.yml: the top level must be a map',
 	]);
-	t.deepEqual(providers.issue_tracker, {provider: 'beads'});
+	expect(providers.issue_tracker).toStrictEqual({provider: 'beads'});
 });
 
-test('a scalar home config leaves the sqlite flag off and says so', t => {
-	const {dir} = layers(t, {'home/.pappardelle.yml': 'true\n'});
-	t.false(readHomeSqliteState(path.join(dir, 'home')));
-	t.like(
+test('a scalar home config leaves the sqlite flag off and says so', () => {
+	const {dir} = layers({'home/.pappardelle.yml': 'true\n'});
+	expect(readHomeSqliteState(path.join(dir, 'home'))).toBe(false);
+	expect(
 		getRecentErrors().filter(entry =>
 			entry.message.includes(path.join(dir, 'home', '.pappardelle.yml')),
 		),
-		[{level: 'warn'}],
-	);
+	).toMatchObject([{level: 'warn'}]);
 });

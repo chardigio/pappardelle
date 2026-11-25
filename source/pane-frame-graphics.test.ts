@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	FramedOutput,
 	GraphicsForwarder,
@@ -8,19 +8,17 @@ import {
 const ESC = '\u001B';
 const command = `${ESC}_Ga=d,d=I,i=7,q=2${ESC}\\`;
 
-test('each tmux layer gets its own passthrough, with escapes doubled', t => {
-	t.is(wrapForTmux(command, 0), command);
-	t.is(
-		wrapForTmux(command, 1),
+test('each tmux layer gets its own passthrough, with escapes doubled', () => {
+	expect(wrapForTmux(command, 0)).toBe(command);
+	expect(wrapForTmux(command, 1)).toBe(
 		`${ESC}Ptmux;${ESC}${ESC}_Ga=d,d=I,i=7,q=2${ESC}${ESC}\\${ESC}\\`,
 	);
-	t.is(
-		wrapForTmux(command, 2),
+	expect(wrapForTmux(command, 2)).toBe(
 		`${ESC}Ptmux;${ESC}${ESC}Ptmux;${ESC}${ESC}${ESC}${ESC}_Ga=d,d=I,i=7,q=2${ESC}${ESC}${ESC}${ESC}\\${ESC}${ESC}\\${ESC}\\`,
 	);
 });
 
-test('outside tmux a command is written as it came', t => {
+test('outside tmux a command is written as it came', () => {
 	const written: string[] = [];
 	const forwarder = new GraphicsForwarder(
 		sequence => written.push(sequence),
@@ -28,10 +26,10 @@ test('outside tmux a command is written as it came', t => {
 	);
 	forwarder.probe();
 	forwarder.forward(command);
-	t.deepEqual(written, [command]);
+	expect(written).toStrictEqual([command]);
 });
 
-test('inside tmux commands wait for the probe, then go out wrapped for the depth that answered', t => {
+test('inside tmux commands wait for the probe, then go out wrapped for the depth that answered', () => {
 	const written: string[] = [];
 	const forwarder = new GraphicsForwarder(
 		sequence => written.push(sequence),
@@ -39,16 +37,16 @@ test('inside tmux commands wait for the probe, then go out wrapped for the depth
 	);
 	forwarder.probe();
 	const probes = written.splice(0);
-	t.is(probes.length, 1);
-	t.true(probes[0]!.includes('i=31342'));
+	expect(probes.length).toBe(1);
+	expect(probes[0]!.includes('i=31342')).toBe(true);
 
 	forwarder.forward(command);
-	t.deepEqual(written, []);
+	expect(written).toStrictEqual([]);
 	forwarder.readReplies(`${ESC}_Gi=65537;OK${ESC}\\${ESC}_Gi=31342;OK${ESC}\\`);
-	t.deepEqual(written, [wrapForTmux(command, 2)]);
+	expect(written).toStrictEqual([wrapForTmux(command, 2)]);
 
 	forwarder.forward(command);
-	t.deepEqual(written.at(-1), wrapForTmux(command, 2));
+	expect(written.at(-1)).toStrictEqual(wrapForTmux(command, 2));
 	forwarder.dispose();
 });
 
@@ -99,25 +97,28 @@ function framedOutput() {
 const screen = (text: string) => ({screen: new TextEncoder().encode(text)});
 const graphics = (keys: string) => ({graphics: `${ESC}_G${keys};AAAA${ESC}\\`});
 
-test('output with no graphics before it goes to the screen at once', t => {
+test('output with no graphics before it goes to the screen at once', () => {
 	const framed = framedOutput();
 	framed.output.receive([screen('hello')]);
-	t.deepEqual(framed.written, ['hello']);
-	t.is(framed.frameRequests, 0);
+	expect(framed.written).toStrictEqual(['hello']);
+	expect(framed.frameRequests).toBe(0);
 });
 
-test('an image frame arriving over several reads reaches one renderer frame whole', t => {
+test('an image frame arriving over several reads reaches one renderer frame whole', () => {
 	const framed = framedOutput();
 	framed.output.receive([graphics('a=T,i=1,m=1'), screen('\u001B[1;1H')]);
 	framed.output.receive([graphics('m=0'), screen('row 1 ')]);
 	framed.output.receive([screen('row 2')]);
 	framed.output.flushFrame();
-	t.deepEqual(framed.written, [], 'nothing is drawn before the program pauses');
+	expect(
+		framed.written,
+		'nothing is drawn before the program pauses',
+	).toStrictEqual([]);
 
 	framed.advance(4);
-	t.true(framed.frameRequests > 0);
+	expect(framed.frameRequests > 0).toBe(true);
 	framed.output.flushFrame();
-	t.deepEqual(framed.written, [
+	expect(framed.written).toStrictEqual([
 		'<a=T,i=1,m=1>',
 		'<m=0>',
 		'\u001B[1;1H',
@@ -126,19 +127,19 @@ test('an image frame arriving over several reads reaches one renderer frame whol
 	]);
 });
 
-test('the next image frame starts a new renderer frame, after the cells of the last', t => {
+test('the next image frame starts a new renderer frame, after the cells of the last', () => {
 	const framed = framedOutput();
 	framed.output.receive([graphics('a=T,i=1'), screen('cells 1')]);
 	framed.output.receive([graphics('a=T,i=2'), screen('cells 2')]);
 	framed.output.flushFrame();
-	t.deepEqual(framed.written, ['<a=T,i=1>', 'cells 1']);
+	expect(framed.written).toStrictEqual(['<a=T,i=1>', 'cells 1']);
 
 	framed.advance(4);
 	framed.output.flushFrame();
-	t.deepEqual(framed.written.slice(2), ['<a=T,i=2>', 'cells 2']);
+	expect(framed.written.slice(2)).toStrictEqual(['<a=T,i=2>', 'cells 2']);
 });
 
-test('a program that never pauses still has its frame shown', t => {
+test('a program that never pauses still has its frame shown', () => {
 	const framed = framedOutput();
 	framed.output.receive([graphics('a=T,i=1'), screen('a')]);
 	for (let read = 0; read < 20; read++) {
@@ -147,11 +148,11 @@ test('a program that never pauses still has its frame shown', t => {
 	}
 
 	framed.output.flushFrame();
-	t.true(framed.written.length > 0);
-	t.is(framed.written[0], '<a=T,i=1>');
+	expect(framed.written.length > 0).toBe(true);
+	expect(framed.written[0]).toBe('<a=T,i=1>');
 });
 
-test('a command the output has no room for waits for the next frame', t => {
+test('a command the output has no room for waits for the next frame', () => {
 	const written: string[] = [];
 	let isFull = true;
 	const output = new FramedOutput({
@@ -171,14 +172,14 @@ test('a command the output has no room for waits for the next frame', t => {
 	});
 	output.receive([graphics('a=T,i=1'), screen('cells')]);
 	output.flushFrame();
-	t.deepEqual(written, []);
+	expect(written).toStrictEqual([]);
 	isFull = false;
 	output.flushFrame();
-	t.is(written.length, 2);
-	t.is(written[1], 'cells');
+	expect(written.length).toBe(2);
+	expect(written[1]).toBe('cells');
 });
 
-test("an upload's chunks go out in one passthrough sequence, split only past the size limit", t => {
+test("an upload's chunks go out in one passthrough sequence, split only past the size limit", () => {
 	const written: string[] = [];
 	const forwarder = new GraphicsForwarder(
 		sequence => {
@@ -194,31 +195,39 @@ test("an upload's chunks go out in one passthrough sequence, split only past the
 	const first = `${ESC}_Ga=T,i=7,m=1;${'A'.repeat(40)}${ESC}\\`;
 	const last = `${ESC}_Gm=0;${'A'.repeat(40)}${ESC}\\`;
 	forwarder.forward(first, last);
-	t.deepEqual(written, [wrapForTmux(first + last, 1)]);
+	expect(written).toStrictEqual([wrapForTmux(first + last, 1)]);
 
 	written.length = 0;
 	forwarder.forward(first, first, last);
-	t.deepEqual(written, [wrapForTmux(first + first, 1), wrapForTmux(last, 1)]);
+	expect(written).toStrictEqual([
+		wrapForTmux(first + first, 1),
+		wrapForTmux(last, 1),
+	]);
 	forwarder.dispose();
 });
 
-test('an upload slower than the hold is not given to the renderer until its last chunk', t => {
+test('an upload slower than the hold is not given to the renderer until its last chunk', () => {
 	const framed = framedOutput();
 	framed.output.receive([screen('before'), graphics('a=T,i=1,m=1')]);
 	framed.advance(60);
 	framed.output.flushFrame();
-	t.deepEqual(framed.written, ['before']);
+	expect(framed.written).toStrictEqual(['before']);
 
 	framed.output.receive([graphics('m=0'), screen('cells')]);
 	framed.advance(4);
 	framed.output.flushFrame();
-	t.deepEqual(framed.written, ['before', '<a=T,i=1,m=1>', '<m=0>', 'cells']);
+	expect(framed.written).toStrictEqual([
+		'before',
+		'<a=T,i=1,m=1>',
+		'<m=0>',
+		'cells',
+	]);
 });
 
-test('an upload whose last chunk never comes stops holding the output after a second', t => {
+test('an upload whose last chunk never comes stops holding the output after a second', () => {
 	const framed = framedOutput();
 	framed.output.receive([graphics('a=T,i=1,m=1'), screen('text')]);
 	framed.advance(1000);
 	framed.output.flushFrame();
-	t.deepEqual(framed.written, ['<a=T,i=1,m=1>', 'text']);
+	expect(framed.written).toStrictEqual(['<a=T,i=1,m=1>', 'text']);
 });

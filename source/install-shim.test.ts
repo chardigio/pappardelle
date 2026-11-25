@@ -1,18 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import test from 'ava';
-import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
+import {test, expect} from 'bun:test';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
 const root = path.join(import.meta.dirname, '..');
 const installSh = path.join(root, 'install.sh');
 
 // An install whose executable prints each argument it was given.
-function install(
-	t: Teardown,
-	options: {executable: boolean; directory?: string},
-) {
-	const home = tempDir(t, 'install-shim-test-');
+function install(options: {executable: boolean; directory?: string}) {
+	const home = tempDir('install-shim-test-');
 	const installDir = path.join(
 		home,
 		options.directory ?? 'install with spaces',
@@ -46,6 +43,8 @@ function install(
 			env: {
 				HOME: home,
 				PATH: process.env['PATH'],
+				// tmux falls back to the live tmux directory without it.
+				TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
 				PAPPARDELLE_INSTALL_SOURCE_ONLY: '1',
 			},
 		},
@@ -63,35 +62,37 @@ function runShim(shim: string, args: string[] = []) {
 	});
 }
 
-test("the installed shim runs the install's executable with its arguments untouched", t => {
-	const {shim} = install(t, {executable: true});
+test("the installed shim runs the install's executable with its arguments untouched", () => {
+	const {shim} = install({executable: true});
 
 	const result = runShim(shim, ['highlight', 'STA-1682', 'two words']);
 
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.is(result.stdout, 'ARG:highlight\nARG:STA-1682\nARG:two words\n');
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	expect(result.stdout).toBe('ARG:highlight\nARG:STA-1682\nARG:two words\n');
 });
 
 // Bash 5.2 replaces an unquoted & in a pattern substitution with the match.
-test('the installed shim runs an executable whose path has an ampersand', t => {
-	const {shim} = install(t, {executable: true, directory: 'tools & more'});
+test('the installed shim runs an executable whose path has an ampersand', () => {
+	const {shim} = install({executable: true, directory: 'tools & more'});
 
 	const result = runShim(shim, ['--version']);
 
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.is(result.stdout, 'ARG:--version\n');
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	expect(result.stdout).toBe('ARG:--version\n');
 });
 
-test('the installed shim names a missing executable and how to reinstall', t => {
-	const {shim, executable} = install(t, {executable: false});
+test('the installed shim names a missing executable and how to reinstall', () => {
+	const {shim, executable} = install({executable: false});
 
 	const result = runShim(shim, ['--version']);
 
-	t.is(result.status, 1);
-	t.is(result.stdout, '');
-	t.true(
+	expect(result.status).toBe(1);
+	expect(result.stdout).toBe('');
+	expect(
 		result.stderr.includes(`${executable} is missing or not executable`),
 		`stderr: ${result.stderr}`,
+	).toBe(true);
+	expect(result.stderr.includes('install.sh'), `stderr: ${result.stderr}`).toBe(
+		true,
 	);
-	t.true(result.stderr.includes('install.sh'), `stderr: ${result.stderr}`);
 });

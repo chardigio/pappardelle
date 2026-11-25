@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {
 	ControlClientNeverStarted,
 	TmuxControlClient,
@@ -12,22 +14,22 @@ import {
 
 const exec = promisify(execFile);
 
-test('a command that would hold the queue, or span lines, is left to a process', t => {
-	t.is(controlCommandLine(['wait-for', 'channel']), undefined);
-	t.is(
+test('a command that would hold the queue, or span lines, is left to a process', () => {
+	expect(controlCommandLine(['wait-for', 'channel'])).toBe(undefined);
+	expect(
 		controlCommandLine(['set-option', '-g', '@a', 'b', ';', 'wait-for', 'c']),
+	).toBe(undefined);
+	expect(controlCommandLine(['kill-server'])).toBe(undefined);
+	expect(controlCommandLine(['set-option', '-g', '@a', 'two\nlines'])).toBe(
 		undefined,
 	);
-	t.is(controlCommandLine(['kill-server']), undefined);
-	t.is(controlCommandLine(['set-option', '-g', '@a', 'two\nlines']), undefined);
-	t.is(
-		controlCommandLine(['wait-for', '-S', 'channel']),
+	expect(controlCommandLine(['wait-for', '-S', 'channel'])).toBe(
 		"'wait-for' '-S' 'channel'",
 	);
 });
 
-test('separators stay separators and every other argument is quoted whole', t => {
-	t.is(
+test('separators stay separators and every other argument is quoted whole', () => {
+	expect(
 		controlCommandLine([
 			'set-option',
 			'-g',
@@ -36,191 +38,174 @@ test('separators stay separators and every other argument is quoted whole', t =>
 			';',
 			'kill-pane',
 		]),
-		String.raw`'set-option' '-g' '@a' 'it'\''s; here' ; 'kill-pane'`,
-	);
+	).toBe(String.raw`'set-option' '-g' '@a' 'it'\''s; here' ; 'kill-pane'`);
 });
 
-test.serial(
-	'real tmux answers quoted commands, command lists and failures like a process would',
-	async t => {
+test('real tmux answers quoted commands, command lists and failures like a process would', async () => {
+	try {
+		await exec('tmux', ['-V']);
+	} catch {
+		expect().pass('tmux unavailable');
+		return;
+	}
+
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-control-'));
+	const socket = path.join(dir, 'server');
+	const env = {...process.env, TMUX: ''};
+	await exec(
+		'tmux',
+		['-S', socket, '-f', '/dev/null', 'new-session', '-d', '-s', 'fixture'],
+		{env},
+	);
+	const client = new TmuxControlClient(
+		[
+			'-S',
+			socket,
+			'-C',
+			'attach-session',
+			'-f',
+			'ignore-size,no-output',
+			'-t',
+			'fixture',
+		],
+		{cwd: dir},
+	);
+	teardown(async () => {
+		client.stop();
 		try {
-			await exec('tmux', ['-V']);
-		} catch {
-			t.pass('tmux unavailable');
-			return;
-		}
+			await exec('tmux', ['-S', socket, 'kill-server'], {env});
+		} catch {}
 
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-control-'));
-		const socket = path.join(dir, 'server');
-		const env = {...process.env, TMUX: ''};
-		await exec(
-			'tmux',
-			['-S', socket, '-f', '/dev/null', 'new-session', '-d', '-s', 'fixture'],
-			{env},
-		);
-		const client = new TmuxControlClient(
-			[
-				'-S',
-				socket,
-				'-C',
-				'attach-session',
-				'-f',
-				'ignore-size,no-output',
-				'-t',
-				'fixture',
-			],
-			{cwd: dir},
-		);
-		t.teardown(async () => {
-			client.stop();
-			try {
-				await exec('tmux', ['-S', socket, 'kill-server'], {env});
-			} catch {}
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+	const run = async (args: string[]) => client.run(controlCommandLine(args)!);
 
-			fs.rmSync(dir, {recursive: true, force: true});
-		});
-		const run = async (args: string[]) => client.run(controlCommandLine(args)!);
+	const awkward = String.raw`it's "quoted" $HOME #{pane_id} ; 'x' \ end`;
+	expect(await run(['set-option', '-g', '@probe', awkward])).toBe('');
+	expect(await run(['show-option', '-gqv', '@probe'])).toBe(`${awkward}\n`);
 
-		const awkward = String.raw`it's "quoted" $HOME #{pane_id} ; 'x' \ end`;
-		t.is(await run(['set-option', '-g', '@probe', awkward]), '');
-		t.is(await run(['show-option', '-gqv', '@probe']), `${awkward}\n`);
-
-		// A pane id starts with the same character as a reply's guard lines.
-		const paneId = await run([
+	// A pane id starts with the same character as a reply's guard lines.
+	const paneId = await run([
+		'display-message',
+		'-p',
+		'-t',
+		'fixture',
+		'#{pane_id}',
+	]);
+	expect(paneId).toMatch(/^%\d+\n$/);
+	expect(
+		await run([
 			'display-message',
 			'-p',
 			'-t',
 			'fixture',
 			'#{pane_id}',
-		]);
-		t.regex(paneId, /^%\d+\n$/);
-		t.is(
-			await run([
-				'display-message',
-				'-p',
-				'-t',
-				'fixture',
-				'#{pane_id}',
-				';',
-				'show-option',
-				'-gqv',
-				'@probe',
-			]),
-			`${paneId}${awkward}\n`,
-		);
+			';',
+			'show-option',
+			'-gqv',
+			'@probe',
+		]),
+	).toBe(`${paneId}${awkward}\n`);
 
-		const failure = await t.throwsAsync(
-			run(['has-session', '-t', '=no-such-session:']),
-		);
-		t.like(failure, {code: 1, killed: false, signal: null});
-		t.regex(
-			(failure as unknown as {stderr: string}).stderr,
-			/^can't find session:/m,
-		);
-		// A conditional's own commands answer as part of the list that ran it.
-		t.is(
-			await run([
-				'if-shell',
-				'-F',
-				'0',
-				'',
-				"set-option -g @branch taken ; display-message -p 'from the branch'",
-				';',
-				'show-option',
-				'-gqv',
-				'@branch',
-			]),
-			'from the branch\ntaken\n',
-		);
-		// The queue keeps answering after a failure.
-		t.is(await run(['show-option', '-gqv', '@probe']), `${awkward}\n`);
-	},
-);
+	const failure = await rejectionOf(
+		run(['has-session', '-t', '=no-such-session:']),
+	);
+	expect(failure).toMatchObject({code: 1, killed: false, signal: null});
+	expect((failure as unknown as {stderr: string}).stderr).toMatch(
+		/^can't find session:/m,
+	);
+	// A conditional's own commands answer as part of the list that ran it.
+	expect(
+		await run([
+			'if-shell',
+			'-F',
+			'0',
+			'',
+			"set-option -g @branch taken ; display-message -p 'from the branch'",
+			';',
+			'show-option',
+			'-gqv',
+			'@branch',
+		]),
+	).toBe('from the branch\ntaken\n');
+	// The queue keeps answering after a failure.
+	expect(await run(['show-option', '-gqv', '@probe'])).toBe(`${awkward}\n`);
+});
 
-test.serial(
-	'a client that starts a session with two commands answers the first command sent',
-	async t => {
+test('a client that starts a session with two commands answers the first command sent', async () => {
+	try {
+		await exec('tmux', ['-V']);
+	} catch {
+		expect().pass('tmux unavailable');
+		return;
+	}
+
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-control-'));
+	const socket = path.join(dir, 'server');
+	const client = new TmuxControlClient(
+		[
+			'-S',
+			socket,
+			'-f',
+			'/dev/null',
+			'-C',
+			'new-session',
+			'-s',
+			'control',
+			'tail -f /dev/null',
+			';',
+			'set-option',
+			'-t',
+			'=control:',
+			'destroy-unattached',
+			'on',
+		],
+		{cwd: dir},
+	);
+	teardown(async () => {
+		client.stop();
 		try {
-			await exec('tmux', ['-V']);
-		} catch {
-			t.pass('tmux unavailable');
-			return;
-		}
+			await exec('tmux', ['-S', socket, 'kill-server'], {
+				env: {...process.env, TMUX: ''},
+			});
+		} catch {}
 
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-control-'));
-		const socket = path.join(dir, 'server');
-		const client = new TmuxControlClient(
-			[
-				'-S',
-				socket,
-				'-f',
-				'/dev/null',
-				'-C',
-				'new-session',
-				'-s',
-				'control',
-				'tail -f /dev/null',
-				';',
-				'set-option',
-				'-t',
-				'=control:',
-				'destroy-unattached',
-				'on',
-			],
-			{cwd: dir},
-		);
-		t.teardown(async () => {
-			client.stop();
-			try {
-				await exec('tmux', ['-S', socket, 'kill-server'], {
-					env: {...process.env, TMUX: ''},
-				});
-			} catch {}
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+	expect(
+		await client.run(controlCommandLine(['display-message', '-p', 'first'])!),
+	).toBe('first\n');
+	expect(
+		await client.run(controlCommandLine(['display-message', '-p', 'second'])!),
+	).toBe('second\n');
+});
 
-			fs.rmSync(dir, {recursive: true, force: true});
-		});
-		t.is(
-			await client.run(controlCommandLine(['display-message', '-p', 'first'])!),
-			'first\n',
-		);
-		t.is(
-			await client.run(
-				controlCommandLine(['display-message', '-p', 'second'])!,
-			),
-			'second\n',
-		);
-	},
-);
+test('commands queued on a client that never starts say tmux has not run them', async () => {
+	try {
+		await exec('tmux', ['-V']);
+	} catch {
+		expect().pass('tmux unavailable');
+		return;
+	}
 
-test.serial(
-	'commands queued on a client that never starts say tmux has not run them',
-	async t => {
-		try {
-			await exec('tmux', ['-V']);
-		} catch {
-			t.pass('tmux unavailable');
-			return;
-		}
-
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-control-'));
-		t.teardown(() => {
-			fs.rmSync(dir, {recursive: true, force: true});
-		});
-		const client = new TmuxControlClient(
-			[
-				'-S',
-				path.join(dir, 'no-server'),
-				'-C',
-				'attach-session',
-				'-t',
-				'missing',
-			],
-			{cwd: dir},
-		);
-		await t.throwsAsync(
-			client.run(controlCommandLine(['display-message', '-p', 'x'])!),
-			{instanceOf: ControlClientNeverStarted},
-		);
-		t.false(client.usable);
-	},
-);
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-control-'));
+	teardown(() => {
+		fs.rmSync(dir, {recursive: true, force: true});
+	});
+	const client = new TmuxControlClient(
+		[
+			'-S',
+			path.join(dir, 'no-server'),
+			'-C',
+			'attach-session',
+			'-t',
+			'missing',
+		],
+		{cwd: dir},
+	);
+	await rejectionOf(
+		client.run(controlCommandLine(['display-message', '-p', 'x'])!),
+		ControlClientNeverStarted,
+	);
+	expect(client.usable).toBe(false);
+});

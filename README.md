@@ -657,7 +657,7 @@ See the [OpenTUI migration report](docs/opentui-migration.md) for packaging choi
 
 ### Integration tests
 
-Provider scripts in `integration-tests/` verify real services and run locally after provider changes. The isolated tmux program-status suites also run in CI. These are separate from the AVA unit tests.
+Provider scripts in `integration-tests/` verify real services and run locally after provider changes. The isolated tmux program-status suites also run in CI. These are separate from the unit tests.
 
 ```bash
 bun integration-tests/verify-linear.ts     # Linear provider (linctl)

@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../../test/helpers/teardown.ts';
 import React from 'react';
 import {render, until} from '../../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -59,79 +60,73 @@ const CLOSE_SPACE: PopupSpec = {
 	},
 };
 
-test.serial(
-	'confirming shows the spinner and waits for the TUI to finish',
-	async t => {
-		const popup = await setup(CLOSE_SPACE);
-		t.teardown(async () => {
-			await popup.view.unmount();
-		});
-		await until(
-			() => popup.view.lastFrame().includes('Close space bd-1?'),
-			popup.view.lastFrame,
-		);
-
-		const rows = popup.view.lastFrame().split('\n').length;
-		await popup.view.stdin.write('y');
-		await until(
-			() => popup.view.lastFrame().includes('Closing space bd-1…'),
-			popup.view.lastFrame,
-		);
-		const frame = popup.view.lastFrame() ?? '';
-		t.is(frame.split('\n').length, rows);
-		t.true(frame.includes('Close space bd-1?'));
-		t.false(frame.includes('to cancel'));
-		await until(() => popup.confirms.length > 0);
-		t.deepEqual(popup.confirms, [undefined]);
-
-		// The TUI closes the popup once the deletion finishes; until then the
-		// spinner stays. Nothing is meant to change, so there's no frame to wait
-		// for and a fixed window has to do.
-		popup.finishConfirm();
-		await delay(20);
-		t.true(popup.view.lastFrame()?.includes('Closing space bd-1…'));
-		t.is(popup.cancels(), 0);
-	},
-);
-
-test.serial('Esc cancels without confirming', async t => {
+test('confirming shows the spinner and waits for the TUI to finish', async () => {
 	const popup = await setup(CLOSE_SPACE);
-	t.teardown(async () => {
+	teardown(async () => {
+		await popup.view.unmount();
+	});
+	await until(
+		() => popup.view.lastFrame().includes('Close space bd-1?'),
+		popup.view.lastFrame,
+	);
+
+	const rows = popup.view.lastFrame().split('\n').length;
+	await popup.view.stdin.write('y');
+	await until(
+		() => popup.view.lastFrame().includes('Closing space bd-1…'),
+		popup.view.lastFrame,
+	);
+	const frame = popup.view.lastFrame() ?? '';
+	expect(frame.split('\n').length).toBe(rows);
+	expect(frame.includes('Close space bd-1?')).toBe(true);
+	expect(frame.includes('to cancel')).toBe(false);
+	await until(() => popup.confirms.length > 0);
+	expect(popup.confirms).toStrictEqual([undefined]);
+
+	// The TUI closes the popup once the deletion finishes; until then the
+	// spinner stays. Nothing is meant to change, so there's no frame to wait
+	// for and a fixed window has to do.
+	popup.finishConfirm();
+	await delay(20);
+	expect(popup.view.lastFrame()?.includes('Closing space bd-1…')).toBe(true);
+	expect(popup.cancels()).toBe(0);
+});
+
+test('Esc cancels without confirming', async () => {
+	const popup = await setup(CLOSE_SPACE);
+	teardown(async () => {
 		await popup.view.unmount();
 	});
 
 	await popup.view.stdin.write('\u001B');
 	await until(() => popup.cancels() === 1);
-	t.deepEqual(popup.confirms, []);
+	expect(popup.confirms).toStrictEqual([]);
 });
 
-test.serial(
-	'the errors popup follows live updates and asks the TUI to clear',
-	async t => {
-		const popup = await setup({kind: 'errors', props: {errors: []}});
-		t.teardown(async () => {
-			await popup.view.unmount();
-		});
-		await until(
-			() => popup.view.lastFrame().includes('No errors.'),
-			popup.view.lastFrame,
-		);
+test('the errors popup follows live updates and asks the TUI to clear', async () => {
+	const popup = await setup({kind: 'errors', props: {errors: []}});
+	teardown(async () => {
+		await popup.view.unmount();
+	});
+	await until(
+		() => popup.view.lastFrame().includes('No errors.'),
+		popup.view.lastFrame,
+	);
 
-		popup.pushErrors([
-			{
-				timestamp: '2026-09-27T00:00:00Z',
-				level: 'error',
-				component: 'tracker',
-				message: 'fetch failed',
-			},
-		]);
-		await until(
-			() => popup.view.lastFrame().includes('fetch failed'),
-			popup.view.lastFrame,
-		);
+	popup.pushErrors([
+		{
+			timestamp: '2026-09-27T00:00:00Z',
+			level: 'error',
+			component: 'tracker',
+			message: 'fetch failed',
+		},
+	]);
+	await until(
+		() => popup.view.lastFrame().includes('fetch failed'),
+		popup.view.lastFrame,
+	);
 
-		await popup.view.stdin.write('c');
-		await until(() => popup.clears() === 1);
-		t.pass();
-	},
-);
+	await popup.view.stdin.write('c');
+	await until(() => popup.clears() === 1);
+	expect().pass();
+});

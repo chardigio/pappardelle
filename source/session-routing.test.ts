@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	routeSession,
 	isPendingSessionResolved,
@@ -12,43 +12,43 @@ import {
 // Issue Key Routing
 // ============================================================================
 
-test('routeSession routes issue key as issue type', t => {
+test('routeSession routes issue key as issue type', () => {
 	const result = routeSession('STA-421');
-	t.is(result.type, 'issue');
-	t.is(result.issueKey, 'STA-421');
+	expect(result.type).toBe('issue');
+	expect(result.issueKey).toBe('STA-421');
 });
 
-test('routeSession provides sentence-case pending title for issue routes', t => {
+test('routeSession provides sentence-case pending title for issue routes', () => {
 	const result = routeSession('STA-421');
-	t.is(result.pendingTitle, 'Opening\u2026');
+	expect(result.pendingTitle).toBe('Opening\u2026');
 });
 
-test('routeSession preserves non-default team prefix', t => {
+test('routeSession preserves non-default team prefix', () => {
 	const result = routeSession('ENG-100');
-	t.is(result.type, 'issue');
-	t.is(result.issueKey, 'ENG-100');
+	expect(result.type).toBe('issue');
+	expect(result.issueKey).toBe('ENG-100');
 });
 
 // ============================================================================
 // Description Routing
 // ============================================================================
 
-test('routeSession routes null issue key as description', t => {
+test('routeSession routes null issue key as description', () => {
 	const result = routeSession(null);
-	t.is(result.type, 'description');
-	t.is(result.issueKey, null);
+	expect(result.type).toBe('description');
+	expect(result.issueKey).toBe(null);
 });
 
-test('routeSession provides sentence-case pending title for descriptions', t => {
+test('routeSession provides sentence-case pending title for descriptions', () => {
 	const result = routeSession(null);
-	t.is(result.pendingTitle, 'Starting new session\u2026');
+	expect(result.pendingTitle).toBe('Starting new session\u2026');
 });
 
 // ============================================================================
 // isPendingSessionResolved
 // ============================================================================
 
-test('resolves when issue key appears in spaces', t => {
+test('resolves when issue key appears in spaces', () => {
 	const pending: PendingSession = {
 		type: 'issue',
 		name: 'STA-464',
@@ -56,10 +56,10 @@ test('resolves when issue key appears in spaces', t => {
 		pendingTitle: 'Opening\u2026',
 		prevSpaceCount: 1,
 	};
-	t.true(isPendingSessionResolved(pending, ['STA-463', 'STA-464']));
+	expect(isPendingSessionResolved(pending, ['STA-463', 'STA-464'])).toBe(true);
 });
 
-test('does not resolve when issue key is absent from spaces', t => {
+test('does not resolve when issue key is absent from spaces', () => {
 	const pending: PendingSession = {
 		type: 'issue',
 		name: 'STA-464',
@@ -67,10 +67,10 @@ test('does not resolve when issue key is absent from spaces', t => {
 		pendingTitle: 'Opening\u2026',
 		prevSpaceCount: 1,
 	};
-	t.false(isPendingSessionResolved(pending, ['STA-463']));
+	expect(isPendingSessionResolved(pending, ['STA-463'])).toBe(false);
 });
 
-test('resolves description session when space count increases', t => {
+test('resolves description session when space count increases', () => {
 	const pending: PendingSession = {
 		type: 'description',
 		name: '',
@@ -78,10 +78,10 @@ test('resolves description session when space count increases', t => {
 		pendingTitle: 'Starting new session\u2026',
 		prevSpaceCount: 1,
 	};
-	t.true(isPendingSessionResolved(pending, ['STA-463', 'STA-464']));
+	expect(isPendingSessionResolved(pending, ['STA-463', 'STA-464'])).toBe(true);
 });
 
-test('does not resolve description session when count unchanged', t => {
+test('does not resolve description session when count unchanged', () => {
 	const pending: PendingSession = {
 		type: 'description',
 		name: '',
@@ -89,81 +89,81 @@ test('does not resolve description session when count unchanged', t => {
 		pendingTitle: 'Starting new session\u2026',
 		prevSpaceCount: 1,
 	};
-	t.false(isPendingSessionResolved(pending, ['STA-463']));
+	expect(isPendingSessionResolved(pending, ['STA-463'])).toBe(false);
 });
 
 // ============================================================================
 // buildNewSessionArgs (idow should NOT open by default)
 // ============================================================================
 
-test('buildNewSessionArgs returns only the idow arg (no --open)', t => {
+test('buildNewSessionArgs returns only the idow arg (no --open)', () => {
 	const args = buildNewSessionArgs('STA-500', {inputIsIssueKey: false});
-	t.deepEqual(args, ['STA-500']);
+	expect(args).toStrictEqual(['STA-500']);
 });
 
-test('buildNewSessionArgs passes description as-is', t => {
+test('buildNewSessionArgs passes description as-is', () => {
 	const args = buildNewSessionArgs('add dark mode to settings', {
 		inputIsIssueKey: false,
 	});
-	t.deepEqual(args, ['add dark mode to settings']);
+	expect(args).toStrictEqual(['add dark mode to settings']);
 });
 
-test('buildNewSessionArgs does not include --resume or --open', t => {
+test('buildNewSessionArgs does not include --resume or --open', () => {
 	const args = buildNewSessionArgs('STA-500', {inputIsIssueKey: false});
-	t.false(args.includes('--resume'));
-	t.false(args.includes('--open'));
+	expect(args.includes('--resume')).toBe(false);
+	expect(args.includes('--open')).toBe(false);
 });
 
 // ============================================================================
 // buildNewSessionArgs with a forced profile (STA-856: lock TUI choice in)
 // ============================================================================
 
-test('buildNewSessionArgs forwards --profile when profile name provided', t => {
+test('buildNewSessionArgs forwards --profile when profile name provided', () => {
 	const args = buildNewSessionArgs('upload a personal image to trotbooks', {
 		profileName: 'trotbooks',
 		inputIsIssueKey: false,
 	});
-	t.deepEqual(args, [
+	expect(args).toStrictEqual([
 		'--profile',
 		'trotbooks',
 		'upload a personal image to trotbooks',
 	]);
 });
 
-test('buildNewSessionArgs omits --profile when profileName is null', t => {
+test('buildNewSessionArgs omits --profile when profileName is null', () => {
 	const args = buildNewSessionArgs('add dark mode', {
 		profileName: null,
 		inputIsIssueKey: false,
 	});
-	t.deepEqual(args, ['add dark mode']);
+	expect(args).toStrictEqual(['add dark mode']);
 });
 
-test('buildNewSessionArgs omits --profile when profileName is empty string', t => {
+test('buildNewSessionArgs omits --profile when profileName is empty string', () => {
 	const args = buildNewSessionArgs('add dark mode', {
 		profileName: '',
 		inputIsIssueKey: false,
 	});
-	t.deepEqual(args, ['add dark mode']);
+	expect(args).toStrictEqual(['add dark mode']);
 });
 
-test('buildNewSessionArgs puts --profile before the input so idow parses it', t => {
+test('buildNewSessionArgs puts --profile before the input so idow parses it', () => {
 	// idow checks $1 for --profile; the flag must come before the input.
 	const args = buildNewSessionArgs('STA-500', {
 		profileName: 'pappardelle',
 		inputIsIssueKey: false,
 	});
-	t.is(args[0], '--profile');
-	t.is(args[1], 'pappardelle');
-	t.is(args[2], 'STA-500');
+	expect(args[0]).toBe('--profile');
+	expect(args[1]).toBe('pappardelle');
+	expect(args[2]).toBe('STA-500');
 });
 
-test('buildNewSessionArgs orders --agent-profile the way idow parses it', t => {
+test('buildNewSessionArgs orders --agent-profile the way idow parses it', () => {
 	const args = buildNewSessionArgs('STA-500', {
 		profileName: 'pappardelle',
 		agentProfileName: 'codex',
 		inputIsIssueKey: true,
 	});
-	t.deepEqual(args, [
+	expect(args).toStrictEqual([
 		'--profile',
 		'pappardelle',
 		'--agent-profile',
@@ -177,50 +177,48 @@ test('buildNewSessionArgs orders --agent-profile the way idow parses it', t => {
 // buildOpenWorkspaceArgs (pressing 'o' should open with --resume --open)
 // ============================================================================
 
-test('buildOpenWorkspaceArgs includes --resume and --open flags', t => {
+test('buildOpenWorkspaceArgs includes --resume and --open flags', () => {
 	const args = buildOpenWorkspaceArgs('STA-500');
-	t.true(args.includes('--resume'));
-	t.true(args.includes('--open'));
+	expect(args.includes('--resume')).toBe(true);
+	expect(args.includes('--open')).toBe(true);
 });
 
-test('buildOpenWorkspaceArgs passes issue key as last arg', t => {
+test('buildOpenWorkspaceArgs passes issue key as last arg', () => {
 	const args = buildOpenWorkspaceArgs('STA-500');
-	t.is(args.at(-1), 'STA-500');
+	expect(args.at(-1)).toBe('STA-500');
 });
 
-test('buildOpenWorkspaceArgs returns exact expected args', t => {
+test('buildOpenWorkspaceArgs returns exact expected args', () => {
 	const args = buildOpenWorkspaceArgs('ENG-42');
-	t.deepEqual(args, ['--resume', '--open', '--issue-key', 'ENG-42']);
+	expect(args).toStrictEqual(['--resume', '--open', '--issue-key', 'ENG-42']);
 });
 
-test('buildNewSessionArgs marks tracker-supplied keys as existing issues', t => {
-	t.deepEqual(
+test('buildNewSessionArgs marks tracker-supplied keys as existing issues', () => {
+	expect(
 		buildNewSessionArgs('pappardelle-a1b2', {inputIsIssueKey: true}),
-		['--issue-key', 'pappardelle-a1b2'],
-	);
+	).toStrictEqual(['--issue-key', 'pappardelle-a1b2']);
 });
 
-test('buildNewSessionArgs orders --profile ahead of --issue-key', t => {
-	t.deepEqual(
+test('buildNewSessionArgs orders --profile ahead of --issue-key', () => {
+	expect(
 		buildNewSessionArgs('pappardelle-a1b2', {
 			profileName: 'vendor',
 			inputIsIssueKey: true,
 		}),
-		['--profile', 'vendor', '--issue-key', 'pappardelle-a1b2'],
-	);
+	).toStrictEqual(['--profile', 'vendor', '--issue-key', 'pappardelle-a1b2']);
 });
 
-test('buildNewSessionArgs leaves typed input unflagged', t => {
-	t.deepEqual(buildNewSessionArgs('add dark mode', {inputIsIssueKey: false}), [
-		'add dark mode',
-	]);
+test('buildNewSessionArgs leaves typed input unflagged', () => {
+	expect(
+		buildNewSessionArgs('add dark mode', {inputIsIssueKey: false}),
+	).toStrictEqual(['add dark mode']);
 });
 
 // ============================================================================
 // extractIssueKeyFromIdowOutput
 // ============================================================================
 
-test('extracts issue key from idow success output', t => {
+test('extracts issue key from idow success output', () => {
 	const stdout = `
 Starting workspace setup...
 
@@ -237,75 +235,69 @@ Workspace STA-633 is ready!
 
 Issue:     https://linear.app/stardust-labs/issue/STA-633
 `;
-	t.is(extractIssueKeyFromIdowOutput(stdout), 'STA-633');
+	expect(extractIssueKeyFromIdowOutput(stdout)).toBe('STA-633');
 });
 
-test('extracts issue key with non-STA prefix', t => {
+test('extracts issue key with non-STA prefix', () => {
 	const stdout = 'Workspace ENG-42 is ready!\n';
-	t.is(extractIssueKeyFromIdowOutput(stdout), 'ENG-42');
+	expect(extractIssueKeyFromIdowOutput(stdout)).toBe('ENG-42');
 });
 
 // beads mints lowercase prefixes with an alphanumeric suffix rather than the
 // uppercase/numeric shape Linear and Jira use. Failing to match these left the
 // space unregistered and hung the TUI's pending row with no error.
-test('extracts beads-shaped issue key', t => {
-	t.is(
+test('extracts beads-shaped issue key', () => {
+	expect(
 		extractIssueKeyFromIdowOutput('Workspace pappardelle-osc is ready!\n'),
-		'pappardelle-osc',
-	);
-	t.is(
+	).toBe('pappardelle-osc');
+	expect(
 		extractIssueKeyFromIdowOutput('Workspace myproj-a1b2 is ready!\n'),
-		'myproj-a1b2',
-	);
+	).toBe('myproj-a1b2');
 });
 
 // A beads prefix defaults to the repo directory name, so it can carry hyphens
 // and underscores of its own. Stopping at the first hyphen truncated the key
 // and left the pending row waiting on a space that never arrived.
-test('extracts beads key whose prefix contains hyphens or underscores', t => {
-	t.is(
+test('extracts beads key whose prefix contains hyphens or underscores', () => {
+	expect(
 		extractIssueKeyFromIdowOutput('Workspace vendor-sdk-a1b2 is ready!\n'),
-		'vendor-sdk-a1b2',
-	);
-	t.is(
+	).toBe('vendor-sdk-a1b2');
+	expect(
 		extractIssueKeyFromIdowOutput('Workspace my_service-a1b2 is ready!\n'),
-		'my_service-a1b2',
-	);
+	).toBe('my_service-a1b2');
 });
 
-test('extracts a hierarchical beads child key', t => {
-	t.is(
+test('extracts a hierarchical beads child key', () => {
+	expect(
 		extractIssueKeyFromIdowOutput('Workspace vendor-sdk-a1b2.1 is ready!\n'),
-		'vendor-sdk-a1b2.1',
-	);
+	).toBe('vendor-sdk-a1b2.1');
 });
 
-test('extracts beads key wrapped in ANSI color codes', t => {
+test('extracts beads key wrapped in ANSI color codes', () => {
 	const stdout = '[0;32mWorkspace pappardelle-osc is ready![0m\n';
-	t.is(extractIssueKeyFromIdowOutput(stdout), 'pappardelle-osc');
+	expect(extractIssueKeyFromIdowOutput(stdout)).toBe('pappardelle-osc');
 });
 
-test('uses the final summary instead of ready messages quoted in the input', t => {
+test('uses the final summary instead of ready messages quoted in the input', () => {
 	const inputLog =
 		'[2026-10-12 15:00:00] [startup] Input: fix the misleading Workspace STE-1 is ready! message\n';
-	t.is(extractIssueKeyFromIdowOutput(inputLog), null);
-	t.is(
+	expect(extractIssueKeyFromIdowOutput(inputLog)).toBe(null);
+	expect(
 		extractIssueKeyFromIdowOutput(
 			inputLog +
 				'Workspace STE-2 is ready!\n' +
 				'\u001b[0;32mWorkspace STE-99 is ready!\u001b[0m\n',
 		),
-		'STE-99',
-	);
+	).toBe('STE-99');
 });
 
-test('returns null when idow output has no workspace line', t => {
-	t.is(extractIssueKeyFromIdowOutput(''), null);
-	t.is(extractIssueKeyFromIdowOutput('some random output'), null);
-	t.is(extractIssueKeyFromIdowOutput('Error: something failed'), null);
+test('returns null when idow output has no workspace line', () => {
+	expect(extractIssueKeyFromIdowOutput('')).toBe(null);
+	expect(extractIssueKeyFromIdowOutput('some random output')).toBe(null);
+	expect(extractIssueKeyFromIdowOutput('Error: something failed')).toBe(null);
 });
 
-test('returns null for partial workspace line', t => {
-	t.is(extractIssueKeyFromIdowOutput('Workspace is ready'), null);
-	t.is(extractIssueKeyFromIdowOutput('Workspace STA- is ready'), null);
+test('returns null for partial workspace line', () => {
+	expect(extractIssueKeyFromIdowOutput('Workspace is ready')).toBe(null);
+	expect(extractIssueKeyFromIdowOutput('Workspace STA- is ready')).toBe(null);
 });

@@ -1,5 +1,5 @@
 import {Buffer} from 'node:buffer';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	parseProgramReport,
 	ProgramStatusStore,
@@ -10,36 +10,38 @@ const osc = (body: string, end = '\x1b\\') =>
 	Buffer.from(`\x1b]7501;${body}${end}`);
 const text = (value: string) => Buffer.from(value).toString('base64');
 
-test('malformed pairs are skipped, unknown keys ignored and the last valid duplicate wins', t => {
-	t.deepEqual(
+test('malformed pairs are skipped, unknown keys ignored and the last valid duplicate wins', () => {
+	expect(
 		parseProgramReport(
 			' state = working :bad:STATE=error:x=ok:state=blocked:kind=question:progress=42:app=claude-code',
 		),
-		{
-			state: 'blocked',
-			id: '',
-			kind: 'question',
-			progress: 42,
-			app: 'claude-code',
-		},
-	);
-	t.is(parseProgramReport('app=claude-code'), null);
-	t.is(parseProgramReport('state=future'), null);
-	t.deepEqual(parseProgramReport('state=done:kind=question:progress=30'), {
+	).toStrictEqual({
+		state: 'blocked',
+		id: '',
+		kind: 'question',
+		progress: 42,
+		app: 'claude-code',
+	});
+	expect(parseProgramReport('app=claude-code')).toBe(null);
+	expect(parseProgramReport('state=future')).toBe(null);
+	expect(
+		parseProgramReport('state=done:kind=question:progress=30'),
+	).toStrictEqual({
 		state: 'done',
 		id: '',
 	});
-	t.deepEqual(parseProgramReport('state=working:app=bad/name:progress=1.2'), {
+	expect(
+		parseProgramReport('state=working:app=bad/name:progress=1.2'),
+	).toStrictEqual({
 		state: 'working',
 		id: '',
 	});
 });
 
-test('text validation rejects the whole report even when the invalid field is overwritten', t => {
-	t.deepEqual(
+test('text validation rejects the whole report even when the invalid field is overwritten', () => {
+	expect(
 		parseProgramReport(`state=working:msg=${text('héllo').replace(/=+$/, '')}`),
-		{state: 'working', id: '', message: 'héllo'},
-	);
+	).toStrictEqual({state: 'working', id: '', message: 'héllo'});
 	for (const value of [
 		'a',
 		'====',
@@ -48,17 +50,20 @@ test('text validation rejects the whole report even when the invalid field is ov
 		text('\u0085'),
 		text('\x7f'),
 	]) {
-		t.is(
+		expect(
 			parseProgramReport(`state=working:msg=${value}:msg=${text('good')}`),
-			null,
 			`Invalid text ${value}`,
-		);
+		).toBe(null);
 	}
-	t.is(parseProgramReport(`state=done:title=${text('x'.repeat(193))}`), null);
-	t.is(parseProgramReport(`state=done:msg=${text('x'.repeat(2049))}`), null);
+	expect(parseProgramReport(`state=done:title=${text('x'.repeat(193))}`)).toBe(
+		null,
+	);
+	expect(parseProgramReport(`state=done:msg=${text('x'.repeat(2049))}`)).toBe(
+		null,
+	);
 });
 
-test('limits and id grammar are enforced before replacing any record', t => {
+test('limits and id grammar are enforced before replacing any record', () => {
 	for (const id of [
 		'/',
 		'a//b',
@@ -67,18 +72,17 @@ test('limits and id grammar are enforced before replacing any record', t => {
 		Array.from({length: 9}, () => 'a').join('/'),
 		Array.from({length: 5}, () => 'a'.repeat(32)).join('/'),
 	]) {
-		t.is(
+		expect(
 			parseProgramReport(`state=working:id=${id}`),
-			null,
 			`Invalid id ${id}`,
-		);
+		).toBe(null);
 	}
-	t.is(parseProgramReport(`state=done:${'x'.repeat(17)}=value`), null);
-	t.is(parseProgramReport(`state=done:app=${'x'.repeat(33)}`), null);
-	t.is(parseProgramReport(`state=done:${'x=value:'.repeat(600)}`), null);
+	expect(parseProgramReport(`state=done:${'x'.repeat(17)}=value`)).toBe(null);
+	expect(parseProgramReport(`state=done:app=${'x'.repeat(33)}`)).toBe(null);
+	expect(parseProgramReport(`state=done:${'x=value:'.repeat(600)}`)).toBe(null);
 });
 
-test('complete sequence limits include the actual terminator and tmux wrapping', t => {
+test('complete sequence limits include the actual terminator and tmux wrapping', () => {
 	for (const terminator of ['\x07', '\x1b\\']) {
 		const prefix = '\x1b]7501;state=done:x=';
 		const sequence =
@@ -92,39 +96,36 @@ test('complete sequence limits include the actual terminator and tmux wrapping',
 		parser.feed(
 			Buffer.from(`\x1bPtmux;${sequence.replaceAll('\x1b', '\x1b\x1b')}\x1b\\`),
 		);
-		t.deepEqual(events, [
+		expect(events).toStrictEqual([
 			{type: 'report', report: {state: 'done', id: ''}},
 			{type: 'report', report: {state: 'done', id: ''}},
 		]);
 	}
 });
 
-test('reports replace records, children inherit app, and clearing follows segment boundaries', t => {
+test('reports replace records, children inherit app, and clearing follows segment boundaries', () => {
 	const store = new ProgramStatusStore();
 	store.apply(parseProgramReport('state=working:app=claude-code')!);
 	store.apply(parseProgramReport('state=blocked:id=worker:kind=question')!);
 	store.apply(parseProgramReport('state=done:id=worker/test')!);
 	store.apply(parseProgramReport('state=error:id=workers')!);
-	t.deepEqual(store.status(), {
+	expect(store.status()).toStrictEqual({
 		status: 'blocked',
 		id: 'worker',
 		app: 'claude-code',
 		kind: 'question',
 	});
 	store.apply(parseProgramReport('state=working:id=worker')!);
-	t.is(store.records().find(r => r.id === 'worker')?.kind, undefined);
+	expect(store.records().find(r => r.id === 'worker')?.kind).toBe(undefined);
 	store.apply(parseProgramReport('state=clear:id=worker')!);
-	t.deepEqual(
-		store.records().map(r => r.id),
-		['', 'workers'],
-	);
-	t.is(store.status().status, 'error');
+	expect(store.records().map(r => r.id)).toStrictEqual(['', 'workers']);
+	expect(store.status().status).toBe('error');
 	store.apply(parseProgramReport('state=clear')!);
-	t.deepEqual(store.status(), {status: 'unknown'});
-	t.true(store.authoritative);
+	expect(store.status()).toStrictEqual({status: 'unknown'});
+	expect(store.authoritative).toBe(true);
 });
 
-test('blocked outranks error and working; ties prefer root then latest update', t => {
+test('blocked outranks error and working; ties prefer root then latest update', () => {
 	const store = new ProgramStatusStore();
 	for (const body of [
 		'state=working',
@@ -133,12 +134,12 @@ test('blocked outranks error and working; ties prefer root then latest update', 
 		'state=blocked:id=b',
 	])
 		store.apply(parseProgramReport(body)!);
-	t.is(store.status().id, 'b');
+	expect(store.status().id).toBe('b');
 	store.apply(parseProgramReport('state=blocked')!);
-	t.is(store.status().id, '');
+	expect(store.status().id).toBe('');
 });
 
-test('prompt and process exit drop active records, not completion; no clock expiry', t => {
+test('prompt and process exit drop active records, not completion; no clock expiry', () => {
 	const store = new ProgramStatusStore();
 	for (const body of [
 		'state=working',
@@ -149,28 +150,25 @@ test('prompt and process exit drop active records, not completion; no clock expi
 	])
 		store.apply(parseProgramReport(body)!);
 	store.processExit();
-	t.deepEqual(
-		store.records().map(r => r.id),
-		['b', 'c', 'd'],
-	);
-	t.is(store.status().status, 'error');
+	expect(store.records().map(r => r.id)).toStrictEqual(['b', 'c', 'd']);
+	expect(store.status().status).toBe('error');
 	store.reset();
-	t.true(store.authoritative);
-	t.is(store.status().status, 'unknown');
+	expect(store.authoritative).toBe(true);
+	expect(store.status().status).toBe('unknown');
 });
 
-test('record cap evicts the least recently updated record', t => {
+test('record cap evicts the least recently updated record', () => {
 	const store = new ProgramStatusStore();
 	for (let i = 0; i < 256; i++)
 		store.apply(parseProgramReport(`state=working:id=r${i}`)!);
 	store.apply(parseProgramReport('state=done:id=r0')!);
 	store.apply(parseProgramReport('state=done:id=new')!);
-	t.is(store.records().length, 256);
-	t.true(store.records().some(r => r.id === 'r0'));
-	t.false(store.records().some(r => r.id === 'r1'));
+	expect(store.records().length).toBe(256);
+	expect(store.records().some(r => r.id === 'r0')).toBe(true);
+	expect(store.records().some(r => r.id === 'r1')).toBe(false);
 });
 
-test('streaming parser handles every byte boundary and both terminators', t => {
+test('streaming parser handles every byte boundary and both terminators', () => {
 	for (const end of ['\x07', '\x1b\\']) {
 		const input = Buffer.concat([
 			Buffer.from('screen output'),
@@ -184,12 +182,12 @@ test('streaming parser handles every byte boundary and both terminators', t => {
 			);
 			parser.feed(input.subarray(0, i));
 			parser.feed(input.subarray(i));
-			t.deepEqual(events, ['working', 'blocked']);
+			expect(events).toStrictEqual(['working', 'blocked']);
 		}
 	}
 });
 
-test('queries, shell prompts, full resets and tmux passthrough are parsed; other strings are opaque', t => {
+test('queries, shell prompts, full resets and tmux passthrough are parsed; other strings are opaque', () => {
 	const events: string[] = [];
 	const parser = new TerminalStatusParser(event => events.push(event.type));
 	parser.feed(
@@ -203,10 +201,10 @@ test('queries, shell prompts, full resets and tmux passthrough are parsed; other
 	parser.feed(
 		Buffer.from('\x1bPtmux;\x1b\x1b]7501;state=done\x1b\x1b\\\x1b\\'),
 	);
-	t.deepEqual(events, ['query', 'prompt', 'reset', 'report']);
+	expect(events).toStrictEqual(['query', 'prompt', 'reset', 'report']);
 });
 
-test('cancellation and oversized streams recover without retaining screen output', t => {
+test('cancellation and oversized streams recover without retaining screen output', () => {
 	const reports: string[] = [];
 	const parser = new TerminalStatusParser(event => {
 		if (event.type === 'report') reports.push(event.report.state);
@@ -215,6 +213,6 @@ test('cancellation and oversized streams recover without retaining screen output
 	parser.feed(Buffer.from(`\x1b]7501;msg=${'a'.repeat(20000)}\x07`));
 	parser.feed(Buffer.from(`\x1b]7501;state=error\x1b]7501;state=done\x07`));
 	parser.feed(Buffer.alloc(100000, 65));
-	t.deepEqual(reports, ['done']);
-	t.is(parser.bufferedBytes, 0);
+	expect(reports).toStrictEqual(['done']);
+	expect(parser.bufferedBytes).toBe(0);
 });

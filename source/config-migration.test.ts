@@ -1,7 +1,8 @@
 import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {parse, stringify} from 'yaml';
 import {
 	getAgentProfile,
@@ -24,7 +25,7 @@ import {
 import {getRecentErrors} from './logger.ts';
 import {getSpaceStateDir} from './space-state.ts';
 import {testState} from '../test/helpers/state.ts';
-import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
 /** A repo where no space has saved a profile or recorded a session. */
 const noSpaces = {read: () => null, async write() {}};
@@ -39,12 +40,11 @@ function writeConfig(dir: string, file: string, config: unknown) {
 }
 
 function setup(
-	t: Teardown,
 	home: unknown,
 	project?: unknown,
 	local?: unknown,
 ): Required<Pick<ConfigPaths, 'homeConfigDir' | 'projectDir'>> {
-	const root = tempDir(t, 'config-migration-');
+	const root = tempDir('config-migration-');
 	const homeConfigDir = path.join(root, 'home');
 	const projectDir = path.join(root, 'project');
 	fs.mkdirSync(projectDir);
@@ -83,9 +83,8 @@ function migrate(paths: ConfigPaths): ConfigMigration[] {
 	return migrations;
 }
 
-test('every profile launches the same way after the rewrite', t => {
+test('every profile launches the same way after the rewrite', () => {
 	const paths = setup(
-		t,
 		{
 			version: 1,
 			claude: {
@@ -129,37 +128,37 @@ test('every profile launches the same way after the rewrite', t => {
 
 	const migrations = migrate(paths);
 
-	t.is(migrations.length, 2);
+	expect(migrations.length).toBe(2);
 	const after = loadConfigFromPaths(paths);
-	t.deepEqual(launches(after), launches(before));
-	t.is(getInitializationCommand(after), 'idow');
-	t.is(after.profiles['project']!.initialization_command, 'plan');
-	t.true(after.claude?.dangerously_skip_permissions);
+	expect(launches(after)).toStrictEqual(launches(before));
+	expect(getInitializationCommand(after)).toBe('idow');
+	expect(after.profiles['project']!.initialization_command).toBe('plan');
+	expect(after.claude?.dangerously_skip_permissions).toBe(true);
 	for (const {path: file} of migrations) {
 		const layer = parse(fs.readFileSync(file, 'utf8')) as Record<
 			string,
 			unknown
 		>;
-		t.deepEqual(findDeprecatedClaudeFields(layer), []);
+		expect(findDeprecatedClaudeFields(layer)).toStrictEqual([]);
 	}
 
-	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
 });
 
-test('the shared home config never takes on one repo’s settings', t => {
+test('the shared home config never takes on one repo’s settings', () => {
 	const home = {
 		version: 1,
 		claude: {model: 'opus', extra_args: ['--verbose']},
 		profiles: {x: {display_name: 'X', claude: {effort: 'low'}}},
 	};
-	const repoP = setup(t, home, {
+	const repoP = setup(home, {
 		version: 1,
 		claude: {extra_args: ['--foo']},
 		agent_profiles: {'opus-max': {command: 'claude', effort: 'max'}},
 		profiles: {},
 	});
 	const repoQ = {
-		...setup(t, undefined, {version: 1, profiles: {}}),
+		...setup(undefined, {version: 1, profiles: {}}),
 		homeConfigDir: repoP.homeConfigDir,
 	};
 	const beforeP = launches(loadConfigFromPaths(repoP));
@@ -167,13 +166,12 @@ test('the shared home config never takes on one repo’s settings', t => {
 
 	migrate(repoP);
 
-	t.deepEqual(launches(loadConfigFromPaths(repoP)), beforeP);
-	t.deepEqual(launches(loadConfigFromPaths(repoQ)), beforeQ);
+	expect(launches(loadConfigFromPaths(repoP))).toStrictEqual(beforeP);
+	expect(launches(loadConfigFromPaths(repoQ))).toStrictEqual(beforeQ);
 });
 
-test('extra args survive a higher file that sets the agent profile’s args', t => {
+test('extra args survive a higher file that sets the agent profile’s args', () => {
 	const paths = setup(
-		t,
 		{
 			version: 1,
 			claude: {extra_args: ['--verbose']},
@@ -186,12 +184,11 @@ test('extra args survive a higher file that sets the agent profile’s args', t 
 
 	migrate(paths);
 
-	t.deepEqual(launches(loadConfigFromPaths(paths)), before);
+	expect(launches(loadConfigFromPaths(paths))).toStrictEqual(before);
 });
 
-test('a block-scalar args value still loads once extra args join it', t => {
+test('a block-scalar args value still loads once extra args join it', () => {
 	const paths = setup(
-		t,
 		[
 			'version: 1',
 			'claude:',
@@ -210,11 +207,11 @@ test('a block-scalar args value still loads once extra args join it', t => {
 
 	migrate(paths);
 
-	t.deepEqual(launches(loadConfigFromPaths(paths)), before);
+	expect(launches(loadConfigFromPaths(paths))).toStrictEqual(before);
 });
 
-test('an agent profile named like the generated one is left alone', t => {
-	const paths = setup(t, {
+test('an agent profile named like the generated one is left alone', () => {
+	const paths = setup({
 		version: 1,
 		agent_profiles: {'work-claude': {command: 'codex'}},
 		profiles: {work: {display_name: 'Work', claude: {model: 'opus'}}},
@@ -224,14 +221,15 @@ test('an agent profile named like the generated one is left alone', t => {
 	migrate(paths);
 
 	const after = loadConfigFromPaths(paths);
-	t.deepEqual(after.agent_profiles?.['work-claude'], {command: 'codex'});
-	t.is(after.profiles['work']!.agent_profile, 'work-claude-2');
-	t.deepEqual(launches(after), before);
+	expect(after.agent_profiles?.['work-claude']).toStrictEqual({
+		command: 'codex',
+	});
+	expect(after.profiles['work']!.agent_profile).toBe('work-claude-2');
+	expect(launches(after)).toStrictEqual(before);
 });
 
-test('no rewrite is offered when a higher file would undo it', t => {
+test('no rewrite is offered when a higher file would undo it', () => {
 	const paths = setup(
-		t,
 		{
 			version: 1,
 			agent_profiles: {fast: {command: 'claude'}},
@@ -244,12 +242,11 @@ test('no rewrite is offered when a higher file would undo it', t => {
 		{version: 1, profiles: {foo: {agent_profile: 'fast'}}},
 	);
 
-	t.like(planConfigMigrations(paths), {kind: 'unsupported'});
+	expect(planConfigMigrations(paths)).toMatchObject({kind: 'unsupported'});
 });
 
-test('comments and untouched keys keep their formatting', t => {
+test('comments and untouched keys keep their formatting', () => {
 	const paths = setup(
-		t,
 		[
 			'# my config',
 			'version: 1',
@@ -265,8 +262,9 @@ test('comments and untouched keys keep their formatting', t => {
 
 	migrate(paths);
 
-	t.is(
+	expect(
 		fs.readFileSync(path.join(paths.homeConfigDir, '.pappardelle.yml'), 'utf8'),
+	).toBe(
 		[
 			'# my config',
 			'version: 1',
@@ -285,9 +283,8 @@ test('comments and untouched keys keep their formatting', t => {
 	);
 });
 
-test('comments on moved keys follow them, and a header above claude: stays', t => {
+test('comments on moved keys follow them, and a header above claude: stays', () => {
 	const paths = setup(
-		t,
 		[
 			'# home config',
 			'claude:',
@@ -302,8 +299,9 @@ test('comments on moved keys follow them, and a header above claude: stays', t =
 
 	migrate(paths);
 
-	t.is(
+	expect(
 		fs.readFileSync(path.join(paths.homeConfigDir, '.pappardelle.yml'), 'utf8'),
+	).toBe(
 		[
 			'# home config',
 			'version: 1',
@@ -320,9 +318,8 @@ test('comments on moved keys follow them, and a header above claude: stays', t =
 	);
 });
 
-test('an initialization_command written with its skill prefix loses it', t => {
+test('an initialization_command written with its skill prefix loses it', () => {
 	const paths = setup(
-		t,
 		[
 			'version: 1',
 			"initialization_command: '/idow' # kick off",
@@ -336,8 +333,9 @@ test('an initialization_command written with its skill prefix loses it', t => {
 
 	migrate(paths);
 
-	t.is(
+	expect(
 		fs.readFileSync(path.join(paths.homeConfigDir, '.pappardelle.yml'), 'utf8'),
+	).toBe(
 		[
 			'version: 1',
 			"initialization_command: 'idow' # kick off",
@@ -348,11 +346,11 @@ test('an initialization_command written with its skill prefix loses it', t => {
 			'',
 		].join('\n'),
 	);
-	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
 });
 
-test('dropping a skill prefix in the home config warns about nothing it doesn’t move', t => {
-	const paths = setup(t, {
+test('dropping a skill prefix in the home config warns about nothing it doesn’t move', () => {
+	const paths = setup({
 		version: 1,
 		initialization_command: '/idow',
 		profiles: {plain: {display_name: 'Plain'}},
@@ -360,33 +358,33 @@ test('dropping a skill prefix in the home config warns about nothing it doesn’
 
 	const {detail} = buildConfigMigrationConfirmContent(readyMigrations(paths));
 
-	t.false(detail.includes('shared by every repo'));
+	expect(detail.includes('shared by every repo')).toBe(false);
 });
 
-test('a config on the current format needs no rewrite', t => {
-	const paths = setup(t, {
+test('a config on the current format needs no rewrite', () => {
+	const paths = setup({
 		version: 1,
 		initialization_command: 'idow',
 		agent_profiles: {claude: {command: 'claude', model: 'opus'}},
 		profiles: {plain: {display_name: 'Plain'}},
 	});
 
-	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
 });
 
-test('no rewrite is offered for a project config that sets experimental.sqliteState', t => {
-	const paths = setup(t, undefined, {
+test('no rewrite is offered for a project config that sets experimental.sqliteState', () => {
+	const paths = setup(undefined, {
 		version: 1,
 		experimental: {sqliteState: true},
 		claude: {model: 'opus'},
 		profiles: {plain: {display_name: 'Plain'}},
 	});
 
-	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
 });
 
-test('the rewrite clears the deprecation warnings from the error pane', t => {
-	const paths = setup(t, {
+test('the rewrite clears the deprecation warnings from the error pane', () => {
+	const paths = setup({
 		version: 1,
 		claude: {effort: 'xhigh'},
 		profiles: {plain: {display_name: 'Plain'}},
@@ -396,16 +394,15 @@ test('the rewrite clears the deprecation warnings from the error pane', t => {
 			entry.message.includes('claude.effort is deprecated'),
 		);
 	loadConfigFromPaths(paths);
-	t.true(isWarning());
+	expect(isWarning()).toBe(true);
 
 	migrate(paths);
 
-	t.false(isWarning());
+	expect(isWarning()).toBe(false);
 });
 
-test('no file is rewritten when any of them cannot be written', t => {
+test('no file is rewritten when any of them cannot be written', () => {
 	const paths = setup(
-		t,
 		{version: 1, claude: {model: 'opus'}, profiles: {}},
 		{version: 1, claude: {effort: 'low'}, profiles: {}},
 	);
@@ -414,15 +411,17 @@ test('no file is rewritten when any of them cannot be written', t => {
 	const original = fs.readFileSync(homeFile, 'utf8');
 	fs.chmodSync(paths.projectDir, 0o555);
 	try {
-		t.throws(() => {
+		expect(() => {
 			applyConfigMigrations(migrations);
-		});
+		}).toThrow();
 	} finally {
 		fs.chmodSync(paths.projectDir, 0o755);
 	}
 
-	t.is(fs.readFileSync(homeFile, 'utf8'), original);
-	t.deepEqual(fs.readdirSync(paths.homeConfigDir), ['.pappardelle.yml']);
+	expect(fs.readFileSync(homeFile, 'utf8')).toBe(original);
+	expect(fs.readdirSync(paths.homeConfigDir)).toStrictEqual([
+		'.pappardelle.yml',
+	]);
 });
 
 for (const [name, home, project] of [
@@ -438,9 +437,8 @@ for (const [name, home, project] of [
 		{profiles: {p: {claude: {extra_args: []}}}},
 	],
 ] as const) {
-	test(`a higher file's empty ${name} still clears the one beneath it`, t => {
+	test(`a higher file's empty ${name} still clears the one beneath it`, () => {
 		const paths = setup(
-			t,
 			{version: 1, profiles: {}, ...home},
 			{version: 1, profiles: {}, ...project},
 		);
@@ -448,13 +446,12 @@ for (const [name, home, project] of [
 
 		migrate(paths);
 
-		t.deepEqual(launches(loadConfigFromPaths(paths)), before);
+		expect(launches(loadConfigFromPaths(paths))).toStrictEqual(before);
 	});
 }
 
-test('YAML aliases make the rewrite unsupported rather than throw', t => {
+test('YAML aliases make the rewrite unsupported rather than throw', () => {
 	const paths = setup(
-		t,
 		[
 			'version: 1',
 			'claude: &base {model: opus}',
@@ -464,15 +461,12 @@ test('YAML aliases make the rewrite unsupported rather than throw', t => {
 		].join('\n'),
 	);
 
-	t.like(planConfigMigrations(paths), {kind: 'unsupported'});
+	expect(planConfigMigrations(paths)).toMatchObject({kind: 'unsupported'});
 });
 
-test('a symlinked config is rewritten at its target with its permissions', t => {
-	const paths = setup(t, undefined, {version: 1, profiles: {}});
-	const dotfiles = path.join(
-		tempDir(t, 'config-migration-'),
-		'pappardelle.yml',
-	);
+test('a symlinked config is rewritten at its target with its permissions', () => {
+	const paths = setup(undefined, {version: 1, profiles: {}});
+	const dotfiles = path.join(tempDir('config-migration-'), 'pappardelle.yml');
 	fs.writeFileSync(dotfiles, stringify({version: 1, claude: {model: 'opus'}}));
 	fs.chmodSync(dotfiles, 0o664);
 	fs.mkdirSync(paths.homeConfigDir, {recursive: true});
@@ -481,37 +475,36 @@ test('a symlinked config is rewritten at its target with its permissions', t => 
 
 	migrate(paths);
 
-	t.true(fs.lstatSync(link).isSymbolicLink());
-	t.deepEqual(
+	expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+	expect(
 		findDeprecatedClaudeFields(
 			parse(fs.readFileSync(dotfiles, 'utf8')) as Record<string, unknown>,
 		),
-		[],
-	);
-	t.is((fs.statSync(dotfiles).mode % 0o1000).toString(8), '664');
+	).toStrictEqual([]);
+	expect((fs.statSync(dotfiles).mode % 0o1000).toString(8)).toBe('664');
 });
 
-test('a read-only config is not rewritten', t => {
-	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
+test('a read-only config is not rewritten', () => {
+	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const file = path.join(paths.homeConfigDir, '.pappardelle.yml');
 	const original = fs.readFileSync(file, 'utf8');
 	fs.chmodSync(file, 0o444);
 
-	t.throws(() => {
+	expect(() => {
 		applyConfigMigrations(readyMigrations(paths));
-	});
-	t.is(fs.readFileSync(file, 'utf8'), original);
+	}).toThrow();
+	expect(fs.readFileSync(file, 'utf8')).toBe(original);
 });
 
-test('warnings clear once the old keys are gone, even by hand', t => {
-	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
+test('warnings clear once the old keys are gone, even by hand', () => {
+	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const isWarning = () =>
 		getRecentErrors().some(entry =>
 			entry.message.includes('claude.model is deprecated'),
 		);
 	loadConfigFromPaths(paths);
 	dismissResolvedDeprecationWarnings(paths);
-	t.true(isWarning());
+	expect(isWarning()).toBe(true);
 
 	writeConfig(paths.homeConfigDir, '.pappardelle.yml', {
 		version: 1,
@@ -519,31 +512,30 @@ test('warnings clear once the old keys are gone, even by hand', t => {
 	});
 	dismissResolvedDeprecationWarnings(paths);
 
-	t.false(isWarning());
+	expect(isWarning()).toBe(false);
 });
 
-test('confirming rewrites the files the user was shown', async t => {
-	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
+test('confirming rewrites the files the user was shown', async () => {
+	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 
-	t.deepEqual(
+	expect(
 		await confirmConfigMigrations(approved, noSessions, noSpaces, paths),
-		{
-			kind: 'rewritten',
-		},
-	);
-	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+	).toStrictEqual({
+		kind: 'rewritten',
+	});
+	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
 });
 
-test('a space whose profile moves to a new agent profile keeps its session id', async t => {
-	const paths = setup(t, {
+test('a space whose profile moves to a new agent profile keeps its session id', async () => {
+	const paths = setup({
 		version: 1,
 		profiles: {
 			alpha: {display_name: 'Alpha', claude: {model: 'opus'}},
 			beta: {display_name: 'Beta'},
 		},
 	});
-	const state = testState(t);
+	const state = testState();
 	const stateDir = getSpaceStateDir('repo', state.stateDir);
 	fs.mkdirSync(stateDir, {recursive: true});
 	const space = (key: string, profile: string | undefined) => {
@@ -575,29 +567,28 @@ test('a space whose profile moves to a new agent profile keeps its session id', 
 	const unknown = space('U-1', undefined);
 	const main = space('main', undefined);
 
-	t.deepEqual(
+	expect(
 		await confirmConfigMigrations(
 			readyMigrations(paths),
 			state.daos.agentSessions,
 			state.daos.spaceState,
 			paths,
 		),
-		{kind: 'rewritten'},
-	);
-	t.deepEqual(Object.keys(alpha()), ['alpha-claude']);
-	t.is(alpha()['alpha-claude']?.session_id, 'A-1-id');
-	t.deepEqual(Object.keys(beta()), ['claude']);
-	t.deepEqual(Object.keys(unknown()), ['claude']);
-	t.deepEqual(Object.keys(main()), ['claude']);
-	t.deepEqual(state.daos.spaceState.read('A-1')?.agentProfile, {
+	).toStrictEqual({kind: 'rewritten'});
+	expect(Object.keys(alpha())).toStrictEqual(['alpha-claude']);
+	expect(alpha()['alpha-claude']?.session_id).toBe('A-1-id');
+	expect(Object.keys(beta())).toStrictEqual(['claude']);
+	expect(Object.keys(unknown())).toStrictEqual(['claude']);
+	expect(Object.keys(main())).toStrictEqual(['claude']);
+	expect(state.daos.spaceState.read('A-1')?.agentProfile).toStrictEqual({
 		name: 'alpha-claude',
 		isClaude: true,
 	});
-	t.is(state.daos.spaceState.read('B-1')?.agentProfile?.name, 'claude');
+	expect(state.daos.spaceState.read('B-1')?.agentProfile?.name).toBe('claude');
 });
 
-test('confirming keeps edits made while the dialog was open', async t => {
-	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
+test('confirming keeps edits made while the dialog was open', async () => {
+	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 	writeConfig(paths.homeConfigDir, '.pappardelle.yml', {
 		version: 1,
@@ -605,18 +596,16 @@ test('confirming keeps edits made while the dialog was open', async t => {
 		profiles: {added: {display_name: 'Added'}},
 	});
 
-	t.deepEqual(
+	expect(
 		await confirmConfigMigrations(approved, noSessions, noSpaces, paths),
-		{
-			kind: 'rewritten',
-		},
-	);
-	t.truthy(loadConfigFromPaths(paths).profiles['added']);
+	).toStrictEqual({
+		kind: 'rewritten',
+	});
+	expect(loadConfigFromPaths(paths).profiles['added']).toBeTruthy();
 });
 
-test('confirming writes nothing once the rewrite covers files the user was not shown', async t => {
+test('confirming writes nothing once the rewrite covers files the user was not shown', async () => {
 	const paths = setup(
-		t,
 		{version: 1, profiles: {}},
 		{version: 1, profiles: {b: {display_name: 'B', claude: {effort: 'low'}}}},
 	);
@@ -629,55 +618,56 @@ test('confirming writes nothing once the rewrite covers files the user was not s
 	});
 	const edited = fs.readFileSync(homeFile, 'utf8');
 
-	t.deepEqual(
+	expect(
 		await confirmConfigMigrations(approved, noSessions, noSpaces, paths),
-		{
-			kind: 'changed',
-		},
-	);
-	t.is(fs.readFileSync(homeFile, 'utf8'), edited);
+	).toStrictEqual({
+		kind: 'changed',
+	});
+	expect(fs.readFileSync(homeFile, 'utf8')).toBe(edited);
 });
 
-test('confirming reports a failed write so it can be handed to Claude', async t => {
-	const paths = setup(t, {version: 1, claude: {model: 'opus'}, profiles: {}});
+test('confirming reports a failed write so it can be handed to Claude', async () => {
+	const paths = setup({version: 1, claude: {model: 'opus'}, profiles: {}});
 	const approved = readyMigrations(paths);
 	fs.chmodSync(path.join(paths.homeConfigDir, '.pappardelle.yml'), 0o444);
 
-	t.like(await confirmConfigMigrations(approved, noSessions, noSpaces, paths), {
+	expect(
+		await confirmConfigMigrations(approved, noSessions, noSpaces, paths),
+	).toMatchObject({
 		kind: 'failed',
 	});
 });
 
-test('a multi-line extra arg is named as the reason it cannot be rewritten', t => {
-	const paths = setup(t, {
+test('a multi-line extra arg is named as the reason it cannot be rewritten', () => {
+	const paths = setup({
 		version: 1,
 		claude: {extra_args: ['--append-system-prompt', 'line one\nline two']},
 		profiles: {},
 	});
 
-	t.deepEqual(planConfigMigrations(paths), {
+	expect(planConfigMigrations(paths)).toStrictEqual({
 		kind: 'unsupported',
 		reason:
 			"~/.pappardelle/.pappardelle.yml: claude.extra_args has a multi-line value, and an agent profile's args must fit on one line",
 	});
 });
 
-test('an extra arg repeating the model flag blocks the rewrite', t => {
-	const paths = setup(t, {
+test('an extra arg repeating the model flag blocks the rewrite', () => {
+	const paths = setup({
 		version: 1,
 		claude: {model: 'opus', extra_args: ['--model', 'sonnet']},
 		profiles: {},
 	});
 
-	t.deepEqual(planConfigMigrations(paths), {
+	expect(planConfigMigrations(paths)).toStrictEqual({
 		kind: 'unsupported',
 		reason:
 			'claude.extra_args repeats --model, and the rewrite would change which model wins at the top level',
 	});
 });
 
-test('an extra arg repeating a model flag written with = blocks the rewrite', t => {
-	const paths = setup(t, {
+test('an extra arg repeating a model flag written with = blocks the rewrite', () => {
+	const paths = setup({
 		version: 1,
 		agent_profiles: {
 			wrapper: {
@@ -691,28 +681,27 @@ test('an extra arg repeating a model flag written with = blocks the rewrite', t 
 		profiles: {},
 	});
 
-	t.like(planConfigMigrations(paths), {
+	expect(planConfigMigrations(paths)).toMatchObject({
 		reason:
 			'claude.extra_args repeats --model, and the rewrite would change which model wins at the top level',
 	});
 });
 
-test('an end-of-options marker in extra args blocks the rewrite', t => {
-	const paths = setup(t, {
+test('an end-of-options marker in extra args blocks the rewrite', () => {
+	const paths = setup({
 		version: 1,
 		claude: {model: 'opus', extra_args: ['--verbose', '--']},
 		profiles: {},
 	});
 
-	t.like(planConfigMigrations(paths), {
+	expect(planConfigMigrations(paths)).toMatchObject({
 		reason:
 			'claude.extra_args has --, and the rewrite would put the model flag at the top level after it',
 	});
 });
 
-test('a partial fix clears the warnings for the keys that are gone', t => {
+test('a partial fix clears the warnings for the keys that are gone', () => {
 	const paths = setup(
-		t,
 		{version: 1, claude: {model: 'opus'}, profiles: {}},
 		{version: 1, claude: {effort: 'low'}, profiles: {}},
 	);
@@ -723,10 +712,10 @@ test('a partial fix clears the warnings for the keys that are gone', t => {
 	loadConfigFromPaths(paths);
 	writeConfig(paths.projectDir, '.pappardelle.yml', {version: 1, profiles: {}});
 
-	t.false(dismissResolvedDeprecationWarnings(paths));
+	expect(dismissResolvedDeprecationWarnings(paths)).toBe(false);
 
-	t.true(isWarning('model'));
-	t.false(isWarning('effort'));
+	expect(isWarning('model')).toBe(true);
+	expect(isWarning('effort')).toBe(false);
 });
 
 // The agy workaround from before prompt_args, in a dotfiles-style file.
@@ -742,15 +731,13 @@ profiles:
   argon-high: {display_name: Argon high, agent_profile: 'argon:high'}
 `;
 
-test('agy profiles lose the -i workaround and built-in agents their default fields', t => {
-	const paths = setup(t, AGY_WORKAROUND);
+test('agy profiles lose the -i workaround and built-in agents their default fields', () => {
+	const paths = setup(AGY_WORKAROUND);
 
 	const migrations = migrate(paths);
 
-	t.true(migrations[0]!.removesBuiltinDefaults);
-	t.is(
-		fs.readFileSync(migrations[0]!.path, 'utf8'),
-		`version: 1
+	expect(migrations[0]!.removesBuiltinDefaults).toBe(true);
+	expect(fs.readFileSync(migrations[0]!.path, 'utf8')).toBe(`version: 1
 agent_profiles:
   # Prompt goes in through -i
   'argon:medium': {command: agy, model: gemini-4-argon-medium}
@@ -760,23 +747,24 @@ agent_profiles:
 profiles:
   argon: {display_name: Argon, agent_profile: 'argon:medium'}
   argon-high: {display_name: Argon high, agent_profile: 'argon:high'}
-`,
-	);
-	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+`);
+	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
 });
 
-test('the -i workaround is offered with a warning naming the field', t => {
-	const paths = setup(t, AGY_WORKAROUND);
+test('the -i workaround is offered with a warning naming the field', () => {
+	const paths = setup(AGY_WORKAROUND);
 	loadConfigFromPaths(paths);
 
-	t.true(
+	expect(
 		getRecentErrors().some(({message}) =>
 			message.includes(
 				'agent_profiles.argon:medium.model_args ends with -i, which the built-in prompt_args now adds',
 			),
 		),
-	);
-	t.like(buildConfigMigrationConfirmContent(readyMigrations(paths)), {
+	).toBe(true);
+	expect(
+		buildConfigMigrationConfirmContent(readyMigrations(paths)),
+	).toMatchObject({
 		detail:
 			'Rewrites ' +
 			readyMigrations(paths)[0]!.displayPath +
@@ -784,8 +772,8 @@ test('the -i workaround is offered with a warning naming the field', t => {
 	});
 });
 
-test('fields that only repeat a built-in default never prompt a rewrite on their own', t => {
-	const paths = setup(t, {
+test('fields that only repeat a built-in default never prompt a rewrite on their own', () => {
+	const paths = setup({
 		version: 1,
 		agent_profiles: {
 			codex: {command: 'codex', resume_args: 'resume {session_id}'},
@@ -793,12 +781,11 @@ test('fields that only repeat a built-in default never prompt a rewrite on their
 		profiles: {},
 	});
 
-	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
 });
 
-test('a default-valued field stays when a lower file sets it differently', t => {
+test('a default-valued field stays when a lower file sets it differently', () => {
 	const paths = setup(
-		t,
 		{
 			version: 1,
 			agent_profiles: {codex: {command: 'codex', resume_args: ''}},
@@ -817,13 +804,14 @@ test('a default-valued field stays when a lower file sets it differently', t => 
 	migrate(paths);
 
 	const after = loadConfigFromPaths(paths);
-	t.is(after.agent_profiles?.['codex']?.resume_args, 'resume {session_id}');
-	t.is(after.agent_profiles?.['argon']?.model_args, undefined);
+	expect(after.agent_profiles?.['codex']?.resume_args).toBe(
+		'resume {session_id}',
+	);
+	expect(after.agent_profiles?.['argon']?.model_args).toBe(undefined);
 });
 
-test('a default-valued field stays when a higher file changes the command', t => {
+test('a default-valued field stays when a higher file changes the command', () => {
 	const paths = setup(
-		t,
 		{
 			version: 1,
 			agent_profiles: {
@@ -837,8 +825,7 @@ test('a default-valued field stays when a higher file changes the command', t =>
 
 	migrate(paths);
 
-	t.is(
-		loadConfigFromPaths(paths).agent_profiles?.['x']?.model_args,
+	expect(loadConfigFromPaths(paths).agent_profiles?.['x']?.model_args).toBe(
 		'-m {model}',
 	);
 });
@@ -847,9 +834,8 @@ for (const [name, override] of [
 	['changes the command', {command: 'gemini'}],
 	['sets prompt_args', {prompt_args: '--prompt {prompt}'}],
 ] as const) {
-	test(`a trailing -i stays when a higher file ${name}`, t => {
+	test(`a trailing -i stays when a higher file ${name}`, () => {
 		const paths = setup(
-			t,
 			{
 				version: 1,
 				agent_profiles: {
@@ -863,16 +849,15 @@ for (const [name, override] of [
 
 		loadConfigFromPaths(paths);
 
-		t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
-		t.false(
+		expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
+		expect(
 			getRecentErrors().some(({message}) => message.includes('ends with -i')),
-		);
+		).toBe(false);
 	});
 }
 
-test('a trailing -i is found in a file that sets only model_args', t => {
+test('a trailing -i is found in a file that sets only model_args', () => {
 	const paths = setup(
-		t,
 		{
 			version: 1,
 			agent_profiles: {argon: {command: 'agy', model: 'g'}},
@@ -888,15 +873,13 @@ test('a trailing -i is found in a file that sets only model_args', t => {
 
 	migrate(paths);
 
-	t.is(
-		loadConfigFromPaths(paths).agent_profiles?.['argon']?.model_args,
+	expect(loadConfigFromPaths(paths).agent_profiles?.['argon']?.model_args).toBe(
 		undefined,
 	);
 });
 
-test("a rewrite that would drop an agent profile's env from a higher layer is unsupported", t => {
+test("a rewrite that would drop an agent profile's env from a higher layer is unsupported", () => {
 	const paths = setup(
-		t,
 		null,
 		{
 			version: 1,
@@ -905,12 +888,12 @@ test("a rewrite that would drop an agent profile's env from a higher layer is un
 		{agent_profiles: {claude: {command: 'claude', env: {CODE_MODE: '1'}}}},
 	);
 
-	t.like(planConfigMigrations(paths), {kind: 'unsupported'});
+	expect(planConfigMigrations(paths)).toMatchObject({kind: 'unsupported'});
 });
 
 /** Runs a fix command with a stub claude that records the arguments it gets. */
-function stubClaude(t: Teardown) {
-	const bin = tempDir(t, 'config-fix-bin-');
+function stubClaude() {
+	const bin = tempDir('config-fix-bin-');
 	const argsFile = path.join(bin, 'args');
 	fs.writeFileSync(
 		path.join(bin, 'claude'),
@@ -928,13 +911,12 @@ function stubClaude(t: Teardown) {
 	};
 }
 
-test('the config fix hands claude the prompt and the home config dir, then removes the prompt', async t => {
+test('the config fix hands claude the prompt and the home config dir, then removes the prompt', async () => {
 	const paths = setup(
-		t,
 		{version: 1, claude: {model: 'opus'}},
 		{version: 1, profiles: {plain: {display_name: 'Plain'}}},
 	);
-	const claude = stubClaude(t);
+	const claude = stubClaude();
 	let promptDir: string | undefined;
 	const exitCode = await runConfigFix(
 		'a reason',
@@ -945,18 +927,18 @@ test('the config fix hands claude the prompt and the home config dir, then remov
 		paths,
 	);
 
-	t.is(exitCode, 0);
+	expect(exitCode).toBe(0);
 	const [flag, addedDir, prompt] = claude.args();
-	t.deepEqual([flag, addedDir], ['--add-dir', paths.homeConfigDir]);
-	t.true(prompt!.includes('a reason'));
-	t.true(prompt!.includes('claude.model is deprecated'));
-	t.false(fs.existsSync(promptDir!));
+	expect([flag, addedDir]).toStrictEqual(['--add-dir', paths.homeConfigDir]);
+	expect(prompt!.includes('a reason')).toBe(true);
+	expect(prompt!.includes('claude.model is deprecated')).toBe(true);
+	expect(fs.existsSync(promptDir!)).toBe(false);
 });
 
-test('the config fix removes the prompt when running claude fails', async t => {
-	const paths = setup(t, undefined, {version: 1, claude: {model: 'opus'}});
+test('the config fix removes the prompt when running claude fails', async () => {
+	const paths = setup(undefined, {version: 1, claude: {model: 'opus'}});
 	let promptDir: string | undefined;
-	await t.throwsAsync(
+	await rejectionOf(
 		runConfigFix(
 			'a reason',
 			async command => {
@@ -965,7 +947,8 @@ test('the config fix removes the prompt when running claude fails', async t => {
 			},
 			paths,
 		),
-		{message: 'no popup'},
-	);
-	t.false(fs.existsSync(promptDir!));
+	).then(error => {
+		expect(error.message).toBe('no popup');
+	});
+	expect(fs.existsSync(promptDir!)).toBe(false);
 });

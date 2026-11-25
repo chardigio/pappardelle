@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {MAX_CHARS, sanitizeSubprocessError} from './sanitize-error.ts';
 
 // Mimics what `promisify(execFile)` produces on rejection: an Error with
@@ -22,16 +22,16 @@ function makeExecFileError({
 	return err;
 }
 
-test('prefers err.stderr when present', t => {
+test('prefers err.stderr when present', () => {
 	const err = makeExecFileError({
 		command: 'gh api graphql -f query=<<huge string>>',
 		stderr: 'gh: API rate limit exceeded',
 	});
 	const sanitized = sanitizeSubprocessError(err);
-	t.is(sanitized.message, 'gh: API rate limit exceeded');
+	expect(sanitized.message).toBe('gh: API rate limit exceeded');
 });
 
-test('drops the embedded GraphQL query when err.stderr is non-empty', t => {
+test('drops the embedded GraphQL query when err.stderr is non-empty', () => {
 	const giantQuery =
 		'query($owner: String!, $name: String!, $branch: String!) {\n' +
 		'  repository(owner: $owner, name: $name) {\n' +
@@ -44,27 +44,27 @@ test('drops the embedded GraphQL query when err.stderr is non-empty', t => {
 		stderr: 'HTTP 502: Bad Gateway',
 	});
 	const sanitized = sanitizeSubprocessError(err);
-	t.false(
+	expect(
 		sanitized.message.includes('query($owner:'),
 		'sanitized message must not embed the GraphQL query',
-	);
-	t.true(sanitized.message.includes('HTTP 502'));
+	).toBe(false);
+	expect(sanitized.message.includes('HTTP 502')).toBe(true);
 });
 
-test('falls back to err.message when stderr is missing', t => {
+test('falls back to err.message when stderr is missing', () => {
 	const err = new Error('Connection timed out');
 	const sanitized = sanitizeSubprocessError(err);
-	t.is(sanitized.message, 'Connection timed out');
+	expect(sanitized.message).toBe('Connection timed out');
 });
 
-test('falls back to err.message when stderr is empty/whitespace', t => {
+test('falls back to err.message when stderr is empty/whitespace', () => {
 	const err = new Error('something broke') as Error & {stderr: string};
 	err.stderr = '   \n  ';
 	const sanitized = sanitizeSubprocessError(err);
-	t.is(sanitized.message, 'something broke');
+	expect(sanitized.message).toBe('something broke');
 });
 
-test('strips the "Command failed: <cmd>" prefix line on fallback', t => {
+test('strips the "Command failed: <cmd>" prefix line on fallback', () => {
 	// stderr is empty (e.g. execFileSync without explicit stdio pipe), but
 	// err.message still starts with "Command failed: <giant cmd>\n<...>".
 	const err = new Error(
@@ -72,39 +72,38 @@ test('strips the "Command failed: <cmd>" prefix line on fallback', t => {
 			'gh: HTTP 401: Bad credentials',
 	);
 	const sanitized = sanitizeSubprocessError(err);
-	t.is(sanitized.message, 'gh: HTTP 401: Bad credentials');
-	t.false(sanitized.message.includes('Command failed:'));
+	expect(sanitized.message).toBe('gh: HTTP 401: Bad credentials');
+	expect(sanitized.message.includes('Command failed:')).toBe(false);
 });
 
-test('clips very long stderr to MAX_CHARS exactly', t => {
+test('clips very long stderr to MAX_CHARS exactly', () => {
 	const longStderr = 'x'.repeat(MAX_CHARS * 10);
 	const err = makeExecFileError({
 		command: 'gh api graphql',
 		stderr: longStderr,
 	});
 	const sanitized = sanitizeSubprocessError(err);
-	t.is(
+	expect(
 		sanitized.message.length,
-		MAX_CHARS,
 		`expected sanitized message exactly ${MAX_CHARS} chars, got ${sanitized.message.length}`,
-	);
-	t.true(sanitized.message.startsWith('…'));
+	).toBe(MAX_CHARS);
+	expect(sanitized.message.startsWith('…')).toBe(true);
 });
 
-test('returns an Error for non-Error inputs', t => {
+test('returns an Error for non-Error inputs', () => {
 	const sanitized = sanitizeSubprocessError('boom');
-	t.true(sanitized instanceof Error);
-	t.is(sanitized.message, 'boom');
+	expect(sanitized instanceof Error).toBe(true);
+	expect(sanitized.message).toBe('boom');
 });
 
-test('returns an Error for undefined input', t => {
+test('returns an Error for undefined input', () => {
 	const sanitized = sanitizeSubprocessError(undefined);
-	t.true(sanitized instanceof Error);
-	t.true(sanitized.message.length > 0);
+	expect(sanitized instanceof Error).toBe(true);
+	expect(sanitized.message.length > 0).toBe(true);
 });
 
-test('preserves the original Error name', t => {
+test('preserves the original Error name', () => {
 	const err = new TypeError('bad type');
 	const sanitized = sanitizeSubprocessError(err);
-	t.is(sanitized.name, 'TypeError');
+	expect(sanitized.name).toBe('TypeError');
 });

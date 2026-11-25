@@ -1,13 +1,14 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {runPreWorkspaceDeinit} from './workspace-deinit.ts';
 import type {CommandConfig} from './config.ts';
 
-test('verbose deinit hooks finish in order and preserve failure policy', async t => {
+test('verbose deinit hooks finish in order and preserve failure policy', async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-deinit-'));
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
 	fs.writeFileSync(
 		path.join(dir, 'hook.cjs'),
 		`
@@ -35,58 +36,58 @@ process.exit(Number(process.argv[3]));
 		],
 		dir,
 	);
-	t.deepEqual(result, {success: false, failedCommand: 'stop here'});
-	t.is(fs.readFileSync(path.join(dir, 'order'), 'utf8'), 'ABC');
+	expect(result).toStrictEqual({success: false, failedCommand: 'stop here'});
+	expect(fs.readFileSync(path.join(dir, 'order'), 'utf8')).toBe('ABC');
 });
 
 // ============================================================================
 // runPreWorkspaceDeinit tests
 // ============================================================================
 
-test('returns success when no commands are provided', async t => {
+test('returns success when no commands are provided', async () => {
 	const result = await runPreWorkspaceDeinit([], '/tmp');
-	t.true(result.success);
-	t.is(result.failedCommand, undefined);
+	expect(result.success).toBe(true);
+	expect(result.failedCommand).toBe(undefined);
 });
 
-test('returns success when all commands succeed', async t => {
+test('returns success when all commands succeed', async () => {
 	const commands: CommandConfig[] = [
 		{name: 'Echo test', run: 'echo hello'},
 		{name: 'True', run: 'true'},
 	];
 	const result = await runPreWorkspaceDeinit(commands, '/tmp');
-	t.true(result.success);
-	t.is(result.failedCommand, undefined);
+	expect(result.success).toBe(true);
+	expect(result.failedCommand).toBe(undefined);
 });
 
-test('returns failure when a command fails', async t => {
+test('returns failure when a command fails', async () => {
 	const commands: CommandConfig[] = [{name: 'Will fail', run: 'false'}];
 	const result = await runPreWorkspaceDeinit(commands, '/tmp');
-	t.false(result.success);
-	t.is(result.failedCommand, 'Will fail');
+	expect(result.success).toBe(false);
+	expect(result.failedCommand).toBe('Will fail');
 });
 
-test('continues past failure when continue_on_error is true', async t => {
+test('continues past failure when continue_on_error is true', async () => {
 	const commands: CommandConfig[] = [
 		{name: 'Will fail', run: 'false', continue_on_error: true},
 		{name: 'Should run', run: 'true'},
 	];
 	const result = await runPreWorkspaceDeinit(commands, '/tmp');
-	t.true(result.success);
+	expect(result.success).toBe(true);
 });
 
-test('stops at first failure when continue_on_error is not set', async t => {
+test('stops at first failure when continue_on_error is not set', async () => {
 	const commands: CommandConfig[] = [
 		{name: 'Step 1', run: 'true'},
 		{name: 'Step 2 fails', run: 'false'},
 		{name: 'Step 3 never runs', run: 'echo should-not-run'},
 	];
 	const result = await runPreWorkspaceDeinit(commands, '/tmp');
-	t.false(result.success);
-	t.is(result.failedCommand, 'Step 2 fails');
+	expect(result.success).toBe(false);
+	expect(result.failedCommand).toBe('Step 2 fails');
 });
 
-test('expands template variables in commands', async t => {
+test('expands template variables in commands', async () => {
 	const commands: CommandConfig[] = [
 		// eslint-disable-next-line no-template-curly-in-string
 		{name: 'Check expansion', run: 'test "${ISSUE_KEY}" = "STA-123"'},
@@ -94,10 +95,10 @@ test('expands template variables in commands', async t => {
 	const result = await runPreWorkspaceDeinit(commands, '/tmp', {
 		issueKey: 'STA-123',
 	});
-	t.true(result.success);
+	expect(result.success).toBe(true);
 });
 
-test('expands WORKTREE_PATH template variable', async t => {
+test('expands WORKTREE_PATH template variable', async () => {
 	const commands: CommandConfig[] = [
 		{
 			name: 'Check worktree path',
@@ -106,5 +107,5 @@ test('expands WORKTREE_PATH template variable', async t => {
 		},
 	];
 	const result = await runPreWorkspaceDeinit(commands, '/tmp');
-	t.true(result.success);
+	expect(result.success).toBe(true);
 });

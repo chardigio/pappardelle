@@ -1,10 +1,11 @@
 // `pappardelle companion` against a real tmux server. The server runs on its
 // own socket in a short temp directory, never the user's servers, and is
 // killed through that socket only.
+import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect, beforeAll, afterAll} from 'bun:test';
 import {
 	closeCompanionPane,
 	CompanionError,
@@ -17,10 +18,9 @@ import {
 import type {OuterTmuxRunner} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 
-const tmuxTest =
-	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
+const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
-const dir = realpathSync(mkdtempSync('/tmp/pc-'));
+const dir = realpathSync(mkdtempSync(`${tmpdir()}/pc-`));
 const socket = `${dir}/s`;
 const env = {...process.env, SHELL: '/bin/sh'};
 
@@ -60,7 +60,7 @@ async function waitFor(check: () => boolean): Promise<boolean> {
 	return false;
 }
 
-test.before(() => {
+beforeAll(() => {
 	if (spawnSync('tmux', ['-V']).status !== 0) return;
 	tmux(
 		'new-session',
@@ -80,18 +80,19 @@ test.before(() => {
 
 // tmux.ts names a space's sessions from the stores. Without the database they
 // are the names idow gives a space, which is all this file needs.
-const stateTeardowns: Array<() => void> = [];
-test.before(() => {
-	testTmuxState(
-		{teardown: fn => stateTeardowns.push(fn)},
-		{repo: 'itest', sqlite: false},
-	);
+const stateTeardowns: Array<() => unknown> = [];
+beforeAll(() => {
+	testTmuxState({
+		cleanup: fn => stateTeardowns.push(fn),
+		repo: 'itest',
+		sqlite: false,
+	});
 });
-test.after.always(() => {
-	for (const teardown of stateTeardowns) teardown();
+afterAll(async () => {
+	for (const step of stateTeardowns.reverse()) await step();
 });
 
-test.after.always(() => {
+afterAll(() => {
 	spawnSync('tmux', ['-S', socket, 'kill-server'], {env});
 	rmSync(dir, {recursive: true, force: true});
 });
@@ -100,21 +101,21 @@ const sessions = () =>
 	tmux('list-sessions', '-F', '#{session_name}').split('\n');
 const SIDE = `${COMPANION}~side`;
 
-tmuxTest('companion verbs on a real tmux server', async t => {
+tmuxTest('companion verbs on a real tmux server', async () => {
 	const agentPanes = panesOf(AGENT);
 	const agentPid = () =>
 		tmux('display-message', '-p', '-t', `=${AGENT}:`, '#{pane_pid}');
 	const agentPidBefore = agentPid();
 
-	t.true(
+	expect(
 		runInCompanion(
 			'KEY-1',
 			{pane: 'side', split: 'down', size: '30%', command: 'sleep 600'},
 			deps,
 		).created,
-	);
-	t.true(sessions().includes(SIDE));
-	t.is(panesOf(COMPANION).length, 1);
+	).toBe(true);
+	expect(sessions().includes(SIDE)).toBe(true);
+	expect(panesOf(COMPANION).length).toBe(1);
 
 	// Running the same pane again replaces it instead of adding a split.
 	const again = runInCompanion(
@@ -122,45 +123,48 @@ tmuxTest('companion verbs on a real tmux server', async t => {
 		{pane: 'side', split: 'right', command: 'sleep 601'},
 		deps,
 	);
-	t.false(again.created);
-	t.is(sessions().filter(name => name.startsWith(COMPANION)).length, 2);
+	expect(again.created).toBe(false);
+	expect(sessions().filter(name => name.startsWith(COMPANION)).length).toBe(2);
 	const side = listCompanion('KEY-1', deps).find(p => p.name === 'side')!;
-	t.like(side, {split: 'down', size: '30%'});
-	t.true(
+	expect(side).toMatchObject({split: 'down', size: '30%'});
+	expect(
 		await waitFor(() =>
 			listCompanion('KEY-1', deps)
 				.find(p => p.name === 'side')!
 				.startCommand.includes('sleep 601'),
 		),
-	);
-	t.is(
+	).toBe(true);
+	expect(
 		tmux('display-message', '-p', '-t', `=${SIDE}:`, '#{pane_current_path}'),
-		dir,
-	);
+	).toBe(dir);
 
 	sendCompanionKeys(
 		'KEY-1',
 		{pane: 'main', text: 'hello-companion', keys: [], enter: true},
 		deps,
 	);
-	t.true(
+	expect(
 		await waitFor(() =>
 			readCompanionPane('KEY-1', {pane: 'main', lines: 20}, deps).includes(
 				'hello-companion',
 			),
 		),
-	);
+	).toBe(true);
 
 	resizeCompanionPane('KEY-1', {pane: 'side', size: 5}, deps);
-	t.is(listCompanion('KEY-1', deps).find(p => p.name === 'side')?.size, 5);
+	expect(listCompanion('KEY-1', deps).find(p => p.name === 'side')?.size).toBe(
+		5,
+	);
 
-	t.throws(() => closeCompanionPane('KEY-1', 'main', deps), {
-		instanceOf: CompanionError,
-	});
+	expect(() => closeCompanionPane('KEY-1', 'main', deps)).toThrow(
+		CompanionError,
+	);
 	closeCompanionPane('KEY-1', 'side', deps);
-	t.false(sessions().includes(SIDE));
-	t.is(panesOf(COMPANION).length, 1);
+	expect(sessions().includes(SIDE)).toBe(false);
+	expect(panesOf(COMPANION).length).toBe(1);
 
-	t.deepEqual(panesOf(AGENT), agentPanes);
-	t.is(agentPid(), agentPidBefore, "the agent's process was left running");
+	expect(panesOf(AGENT)).toStrictEqual(agentPanes);
+	expect(agentPid(), "the agent's process was left running").toBe(
+		agentPidBefore,
+	);
 });

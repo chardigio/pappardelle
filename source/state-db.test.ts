@@ -1,4 +1,6 @@
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
+import {rejectionOf, thrownBy} from '../test/helpers/thrown.ts';
 import {Database} from 'bun:sqlite';
 import {execFile} from 'node:child_process';
 import fs from 'node:fs';
@@ -21,14 +23,14 @@ import {sqliteRun} from '../test/helpers/state.ts';
 
 const run = promisify(execFile);
 
-function fixture(t: ExecutionContext) {
+function fixture() {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-db-'));
 	const dbPath = path.join(dir, 'state.db');
 	const state = openStateDb(dbPath);
 	state.db.run(
 		'CREATE TABLE notes (file TEXT, name TEXT, body TEXT, PRIMARY KEY (file, name)) STRICT',
 	);
-	t.teardown(() => {
+	teardown(() => {
 		closeStateDb(dbPath);
 		fs.rmSync(dir, {recursive: true, force: true});
 	});
@@ -83,54 +85,54 @@ function notes(state: StateDb, file: string) {
 	};
 }
 
-test('a write keeps the file and the rows the same, and a later read imports nothing', async t => {
-	const {state, file} = fixture(t);
+test('a write keeps the file and the rows the same, and a later read imports nothing', async () => {
+	const {state, file} = fixture();
 	const store = notes(state, file);
 	await store.set('a', 'one');
-	t.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {a: 'one'});
-	t.deepEqual(store.read(), {a: 'one'});
-	t.is(store.imports(), 0);
+	expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toStrictEqual({a: 'one'});
+	expect(store.read()).toStrictEqual({a: 'one'});
+	expect(store.imports()).toBe(0);
 });
 
-test('a file edited outside the database replaces its rows on the next read', async t => {
-	const {state, file} = fixture(t);
+test('a file edited outside the database replaces its rows on the next read', async () => {
+	const {state, file} = fixture();
 	const store = notes(state, file);
 	await store.set('a', 'one');
 	fs.writeFileSync(file, JSON.stringify({a: 'edited', b: 'new'}));
-	t.deepEqual(store.read(), {a: 'edited', b: 'new'});
-	t.is(store.imports(), 1);
+	expect(store.read()).toStrictEqual({a: 'edited', b: 'new'});
+	expect(store.imports()).toBe(1);
 	store.read();
-	t.is(store.imports(), 1);
+	expect(store.imports()).toBe(1);
 });
 
-test('the first write to a file that already exists keeps what was in it', async t => {
-	const {state, file} = fixture(t);
+test('the first write to a file that already exists keeps what was in it', async () => {
+	const {state, file} = fixture();
 	fs.writeFileSync(file, JSON.stringify({kept: 'from before'}));
 	const store = notes(state, file);
 	await store.set('added', 'now');
-	t.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
+	expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toStrictEqual({
 		added: 'now',
 		kept: 'from before',
 	});
 });
 
-test('a file that is not readable as state keeps the stored rows', async t => {
-	const {state, file} = fixture(t);
+test('a file that is not readable as state keeps the stored rows', async () => {
+	const {state, file} = fixture();
 	const store = notes(state, file);
 	await store.set('a', 'one');
 	fs.writeFileSync(file, '{"a": "tru');
-	t.is(state.sync(store.mirror), 'malformed');
-	t.deepEqual(store.rows(), {a: 'one'});
+	expect(state.sync(store.mirror)).toBe('malformed');
+	expect(store.rows()).toStrictEqual({a: 'one'});
 	const importsAfterFirstLook = store.imports();
-	t.is(state.sync(store.mirror), 'malformed');
-	t.is(store.imports(), importsAfterFirstLook);
+	expect(state.sync(store.mirror)).toBe('malformed');
+	expect(store.imports()).toBe(importsAfterFirstLook);
 });
 
-test('a transaction that fails after writing its file ends with rows that match the file', async t => {
-	const {state, file} = fixture(t);
+test('a transaction that fails after writing its file ends with rows that match the file', async () => {
+	const {state, file} = fixture();
 	const store = notes(state, file);
 	await store.set('a', 'one');
-	await t.throwsAsync(
+	await rejectionOf(
 		state.write(tx => {
 			tx.sync(store.mirror);
 			state.db
@@ -139,32 +141,33 @@ test('a transaction that fails after writing its file ends with rows that match 
 			tx.mirror(file, JSON.stringify({a: 'two'}));
 			throw new Error('disk full');
 		}),
-		{message: 'disk full'},
-	);
-	t.deepEqual(store.rows(), {a: 'one'});
-	t.deepEqual(store.read(), {a: 'two'});
+	).then(error => {
+		expect(error.message).toBe('disk full');
+	});
+	expect(store.rows()).toStrictEqual({a: 'one'});
+	expect(store.read()).toStrictEqual({a: 'two'});
 });
 
-test('removing a mirrored file forgets it, so a read does not import its absence', async t => {
-	const {state, file} = fixture(t);
+test('removing a mirrored file forgets it, so a read does not import its absence', async () => {
+	const {state, file} = fixture();
 	const store = notes(state, file);
 	await store.set('a', 'one');
 	await state.write(tx => {
 		state.db.query('DELETE FROM notes WHERE file = ?').run(file);
 		tx.mirror(file, null);
 	});
-	t.false(fs.existsSync(file));
-	t.deepEqual(store.read(), {});
-	t.is(store.imports(), 0);
+	expect(fs.existsSync(file)).toBe(false);
+	expect(store.read()).toStrictEqual({});
+	expect(store.imports()).toBe(0);
 });
 
-test('a write waits for another writer on a timer, without holding the event loop', async t => {
-	const {state, dbPath, file} = fixture(t);
+test('a write waits for another writer on a timer, without holding the event loop', async () => {
+	const {state, dbPath, file} = fixture();
 	const store = notes(state, file);
 	const other = new Database(dbPath);
 	other.run('BEGIN IMMEDIATE');
-	const busy = t.throws(() => state.tryWrite(() => null));
-	t.true(isBusyError(busy));
+	const busy = thrownBy(() => state.tryWrite(() => null));
+	expect(isBusyError(busy)).toBe(true);
 
 	// The lock is released by a timer in this process. A write that waited
 	// inside the database would keep that timer from ever running, and would
@@ -181,27 +184,31 @@ test('a write waits for another writer on a timer, without holding the event loo
 	events.push('write landed');
 	other.close();
 
-	t.deepEqual(events, ['another timer ran', 'lock released', 'write landed']);
-	t.deepEqual(store.rows(), {a: 'after the lock'});
+	expect(events).toStrictEqual([
+		'another timer ran',
+		'lock released',
+		'write landed',
+	]);
+	expect(store.rows()).toStrictEqual({a: 'after the lock'});
 });
 
-test('a read that cannot take the lock serves the stored rows', async t => {
-	const {state, dbPath, file} = fixture(t);
+test('a read that cannot take the lock serves the stored rows', async () => {
+	const {state, dbPath, file} = fixture();
 	const store = notes(state, file);
 	await store.set('a', 'one');
 	fs.writeFileSync(file, JSON.stringify({a: 'edited'}));
 	const other = new Database(dbPath);
 	other.run('BEGIN IMMEDIATE');
-	t.is(state.sync(store.mirror), 'busy');
-	t.deepEqual(store.rows(), {a: 'one'});
+	expect(state.sync(store.mirror)).toBe('busy');
+	expect(store.rows()).toStrictEqual({a: 'one'});
 	other.run('COMMIT');
 	other.close();
-	t.deepEqual(store.read(), {a: 'edited'});
+	expect(store.read()).toStrictEqual({a: 'edited'});
 });
 
-test('two processes opening a new database at once both end up with the schema', async t => {
+test('two processes opening a new database at once both end up with the schema', async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-open-'));
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
 	const dbPath = path.join(dir, 'state.db');
 	const script = `
 		import {openStateDb} from ${JSON.stringify(new URL('state-db.ts', import.meta.url).href)};
@@ -218,8 +225,8 @@ test('two processes opening a new database at once both end up with the schema',
 	);
 	for (const {stdout} of outputs) {
 		const opened = JSON.parse(stdout) as {tables: string[]; mode: string};
-		t.true(opened.tables.includes('json_sync'));
-		t.is(opened.mode, 'wal');
+		expect(opened.tables.includes('json_sync')).toBe(true);
+		expect(opened.mode).toBe('wal');
 	}
 });
 
@@ -234,9 +241,9 @@ function fill(state: StateDb, commits: number): void {
 
 // SQLite checkpoints inside the commit that takes the log past 1000 pages,
 // which is two fsyncs on the thread that committed.
-test('a connection that checkpoints outside its writes never checkpoints in a commit', t => {
-	const deferred = fixture(t);
-	const standard = fixture(t);
+test('a connection that checkpoints outside its writes never checkpoints in a commit', () => {
+	const deferred = fixture();
+	const standard = fixture();
 	checkpointOutsideWrites(deferred.state);
 	const size = (dbPath: string) => fs.statSync(dbPath).size;
 	const before = size(deferred.dbPath);
@@ -244,29 +251,29 @@ test('a connection that checkpoints outside its writes never checkpoints in a co
 	fill(deferred.state, 1500);
 	fill(standard.state, 1500);
 
-	t.is(size(deferred.dbPath), before);
-	t.true(size(standard.dbPath) > 1_000_000);
-	t.true(size(`${deferred.dbPath}-wal`) > 1500 * 4096);
+	expect(size(deferred.dbPath)).toBe(before);
+	expect(size(standard.dbPath) > 1_000_000).toBe(true);
+	expect(size(`${deferred.dbPath}-wal`) > 1500 * 4096).toBe(true);
 
 	checkpoint(deferred.state);
-	t.true(size(deferred.dbPath) > 1500 * 4000);
+	expect(size(deferred.dbPath) > 1500 * 4000).toBe(true);
 });
 
-test('the status socket is beside the database, unless the variable or a state directory names another place', t => {
+test('the status socket is beside the database, unless the variable or a state directory names another place', () => {
 	const moved = {PAPPARDELLE_STATE_DB: '/moved/state.db'};
 	const named = {...moved, PAPPARDELLE_STATUS_SOCKET: '/named/daemon.sock'};
 
-	t.is(statusSocketPath(undefined, moved), '/moved/status-1.sock');
-	t.is(statusSocketPath(undefined, named), '/named/daemon.sock');
-	t.is(statusSocketPath('/explicit', named), '/explicit/status-1.sock');
+	expect(statusSocketPath(undefined, moved)).toBe('/moved/status-1.sock');
+	expect(statusSocketPath(undefined, named)).toBe('/named/daemon.sock');
+	expect(statusSocketPath('/explicit', named)).toBe('/explicit/status-1.sock');
 });
 
 (sqliteRun ? test : test.skip)(
 	'a test run with the database on has its status socket with its database, outside the user’s state directory',
-	t => {
+	() => {
 		const directory = path.dirname(statusSocketPath(undefined, {}));
 
-		t.is(directory, path.dirname(stateDbPath(undefined, {})));
-		t.not(directory, DEFAULT_STATE_DIR);
+		expect(directory).toBe(path.dirname(stateDbPath(undefined, {})));
+		expect(directory).not.toBe(DEFAULT_STATE_DIR);
 	},
 );

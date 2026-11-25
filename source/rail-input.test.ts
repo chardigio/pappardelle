@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {press} from '../test/helpers/key-press.ts';
 import {keysFromStdin} from '../test/helpers/render.ts';
 import {
@@ -12,52 +12,54 @@ import {
 // isFocusAgentKey
 // ============================================================================
 
-test('Enter focuses the Claude pane', t => {
-	t.true(isFocusAgentKey(press('return')));
+test('Enter focuses the Claude pane', () => {
+	expect(isFocusAgentKey(press('return'))).toBe(true);
 });
 
-test('plain right arrow focuses the Claude pane', t => {
-	t.true(isFocusAgentKey(press('right')));
+test('plain right arrow focuses the Claude pane', () => {
+	expect(isFocusAgentKey(press('right'))).toBe(true);
 });
 
-test('other arrows do not focus the Claude pane', t => {
-	t.false(isFocusAgentKey(press('left')));
-	t.false(isFocusAgentKey(press('up')));
+test('other arrows do not focus the Claude pane', () => {
+	expect(isFocusAgentKey(press('left'))).toBe(false);
+	expect(isFocusAgentKey(press('up'))).toBe(false);
 });
 
-test('modified right arrows do not focus the Claude pane', t => {
-	t.false(isFocusAgentKey(press('right', {meta: true})));
-	t.false(isFocusAgentKey(press('right', {shift: true})));
-	t.false(isFocusAgentKey(press('right', {ctrl: true})));
+test('modified right arrows do not focus the Claude pane', () => {
+	expect(isFocusAgentKey(press('right', {meta: true}))).toBe(false);
+	expect(isFocusAgentKey(press('right', {shift: true}))).toBe(false);
+	expect(isFocusAgentKey(press('right', {ctrl: true}))).toBe(false);
 });
 
-test('OpenTUI delivers Alt+Right as a modified right arrow', async t => {
+test('OpenTUI delivers Alt+Right as a modified right arrow', async () => {
 	const [key] = await keysFromStdin('\x1b[1;3C');
-	t.true(key !== undefined && isFocusAgentKey({...key, meta: false}));
-	t.false(key !== undefined && isFocusAgentKey(key));
+	expect(key !== undefined && isFocusAgentKey({...key, meta: false})).toBe(
+		true,
+	);
+	expect(key !== undefined && isFocusAgentKey(key)).toBe(false);
 });
 
 // ============================================================================
 // isCloseSpaceKey
 // ============================================================================
 
-test('x closes the selected space', t => {
-	t.true(isCloseSpaceKey(press('x')));
+test('x closes the selected space', () => {
+	expect(isCloseSpaceKey(press('x'))).toBe(true);
 });
 
-test('Backspace closes the selected space', t => {
-	t.true(isCloseSpaceKey(press('backspace')));
+test('Backspace closes the selected space', () => {
+	expect(isCloseSpaceKey(press('backspace'))).toBe(true);
 });
 
-test('forward delete (fn+Delete) closes the selected space', t => {
-	t.true(isCloseSpaceKey(press('delete')));
+test('forward delete (fn+Delete) closes the selected space', () => {
+	expect(isCloseSpaceKey(press('delete'))).toBe(true);
 });
 
-test('other keys do not close the selected space', t => {
-	t.false(isCloseSpaceKey(press('x', {shift: true})));
-	t.false(isCloseSpaceKey(press('x', {ctrl: true})));
-	t.false(isCloseSpaceKey(press('n')));
-	t.false(isCloseSpaceKey(press('return')));
+test('other keys do not close the selected space', () => {
+	expect(isCloseSpaceKey(press('x', {shift: true}))).toBe(false);
+	expect(isCloseSpaceKey(press('x', {ctrl: true}))).toBe(false);
+	expect(isCloseSpaceKey(press('n'))).toBe(false);
+	expect(isCloseSpaceKey(press('return'))).toBe(false);
 });
 
 // STA-2573: a framework upgrade once renamed the Mac Backspace byte (\x7f) from
@@ -69,16 +71,16 @@ async function closesSpaceOnStdin(bytes: string): Promise<boolean> {
 	return key !== undefined && isCloseSpaceKey(key);
 }
 
-test('OpenTUI delivers the Backspace byte as a close-space key', async t => {
-	t.true(await closesSpaceOnStdin('\x7f'));
+test('OpenTUI delivers the Backspace byte as a close-space key', async () => {
+	expect(await closesSpaceOnStdin('\x7f')).toBe(true);
 });
 
-test('OpenTUI delivers ctrl+h backspace as a close-space key', async t => {
-	t.true(await closesSpaceOnStdin('\b'));
+test('OpenTUI delivers ctrl+h backspace as a close-space key', async () => {
+	expect(await closesSpaceOnStdin('\b')).toBe(true);
 });
 
-test('OpenTUI delivers fn+Delete as a close-space key', async t => {
-	t.true(await closesSpaceOnStdin('\x1b[3~'));
+test('OpenTUI delivers fn+Delete as a close-space key', async () => {
+	expect(await closesSpaceOnStdin('\x1b[3~')).toBe(true);
 });
 
 // ============================================================================
@@ -95,8 +97,8 @@ const closed: RailDialogState = {
 	showConfigMigration: false,
 };
 
-test('rail input is live with every dialog closed', t => {
-	t.false(isRailInputBlocked(closed));
+test('rail input is live with every dialog closed', () => {
+	expect(isRailInputBlocked(closed)).toBe(false);
 });
 
 const openDialogs: Array<[string, Partial<RailDialogState>]> = [
@@ -111,7 +113,7 @@ const openDialogs: Array<[string, Partial<RailDialogState>]> = [
 ];
 
 for (const [name, patch] of openDialogs) {
-	test(`rail input is blocked while the ${name} dialog is open`, t => {
-		t.true(isRailInputBlocked({...closed, ...patch}));
+	test(`rail input is blocked while the ${name} dialog is open`, () => {
+		expect(isRailInputBlocked({...closed, ...patch})).toBe(true);
 	});
 }

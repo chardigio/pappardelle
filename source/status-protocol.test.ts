@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {snapshotOf} from '../test/helpers/program-status.ts';
 import {hookState, testPane} from '../test/helpers/status-daemon.ts';
 import {
@@ -13,7 +13,7 @@ import {
 const snapshot = snapshotOf({repo: 'repo', key: 'A', pane: testPane('g1')}, []);
 const line = (value: unknown) => JSON.stringify(value);
 
-test('every client message is read back as it was written', t => {
+test('every client message is read back as it was written', () => {
 	const messages: ClientMessage[] = [
 		{type: 'hook', state: {...hookState('repo-A'), currentTool: 'Bash'}},
 		{type: 'restore', state: hookState('repo-A')},
@@ -25,13 +25,13 @@ test('every client message is read back as it was written', t => {
 		{type: 'subscribe', repo: 'repo'},
 	];
 	for (const message of messages)
-		t.deepEqual(parseClientMessage(encodeMessage(message).trimEnd()), {
+		expect(parseClientMessage(encodeMessage(message).trimEnd())).toStrictEqual({
 			kind: 'message',
 			message,
 		});
 });
 
-test('every daemon message is read back as it was written', t => {
+test('every daemon message is read back as it was written', () => {
 	const messages: DaemonMessage[] = [
 		{
 			type: 'state',
@@ -45,22 +45,24 @@ test('every daemon message is read back as it was written', t => {
 		{type: 'dropped', repo: 'repo', key: 'A', generation: 'g1'},
 	];
 	for (const message of messages)
-		t.deepEqual(parseDaemonMessage(encodeMessage(message).trimEnd()), {
+		expect(parseDaemonMessage(encodeMessage(message).trimEnd())).toStrictEqual({
 			kind: 'message',
 			message,
 		});
 });
 
-test('a forget that names no pane generations reads as one without the field', t => {
-	t.deepEqual(
+test('a forget that names no pane generations reads as one without the field', () => {
+	expect(
 		parseClientMessage(
 			line({type: 'forget', repo: 'repo', key: 'A', generations: []}),
 		),
-		{kind: 'message', message: {type: 'forget', repo: 'repo', key: 'A'}},
-	);
+	).toStrictEqual({
+		kind: 'message',
+		message: {type: 'forget', repo: 'repo', key: 'A'},
+	});
 });
 
-test('a line that is not a message is invalid, and reading it does not throw', t => {
+test('a line that is not a message is invalid, and reading it does not throw', () => {
 	for (const text of [
 		'',
 		'not json',
@@ -79,7 +81,9 @@ test('a line that is not a message is invalid, and reading it does not throw', t
 		line({type: 'forget', repo: 'repo', key: 'A', generations: ['g0', 5]}),
 		line({type: 'subscribe'}),
 	]) {
-		t.deepEqual(parseClientMessage(text), {kind: 'invalid'}, `line: ${text}`);
+		expect(parseClientMessage(text), `line: ${text}`).toStrictEqual({
+			kind: 'invalid',
+		});
 	}
 
 	for (const text of [
@@ -90,14 +94,19 @@ test('a line that is not a message is invalid, and reading it does not throw', t
 		line({type: 'state', daemon: 'daemon', hooks: [{}], snapshots: []}),
 		line({type: 'state', daemon: 'daemon', hooks: [], snapshots: [{}]}),
 	]) {
-		t.deepEqual(parseDaemonMessage(text), {kind: 'invalid'}, `line: ${text}`);
+		expect(parseDaemonMessage(text), `line: ${text}`).toStrictEqual({
+			kind: 'invalid',
+		});
 	}
 });
 
-test('a line is handed over once its end has arrived, whatever the chunks', t => {
+test('a line is handed over once its end has arrived, whatever the chunks', () => {
 	const reader = new LineReader();
-	t.deepEqual(reader.feed('{"a"'), []);
-	t.deepEqual(reader.feed(':1}\n{"b":2}\n{"c"'), ['{"a":1}', '{"b":2}']);
-	t.deepEqual(reader.feed(':3}'), []);
-	t.deepEqual(reader.feed('\n'), ['{"c":3}']);
+	expect(reader.feed('{"a"')).toStrictEqual([]);
+	expect(reader.feed(':1}\n{"b":2}\n{"c"')).toStrictEqual([
+		'{"a":1}',
+		'{"b":2}',
+	]);
+	expect(reader.feed(':3}')).toStrictEqual([]);
+	expect(reader.feed('\n')).toStrictEqual(['{"c":3}']);
 });

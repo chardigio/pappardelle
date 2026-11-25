@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Local verification script for JiraProvider against a real Jira instance.
- * NOT an ava test — run manually with `bun integration-tests/verify-jira.ts`
+ * NOT a unit test — run manually with `bun integration-tests/verify-jira.ts`
  *
  * Env vars:
  *   JIRA_BASE_URL  — (required) e.g. https://mycompany.atlassian.net

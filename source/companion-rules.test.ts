@@ -2,7 +2,8 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {
 	agentRulesFlags,
 	companionRules,
@@ -26,38 +27,37 @@ function rulesFlagsFor(command: string, isClaude?: boolean): string {
 	);
 }
 
-test('the rules survive any shell and a TOML string as they are', t => {
+test('the rules survive any shell and a TOML string as they are', () => {
 	// Launch lines run in the user's own shell, Nushell and fish included, whose
 	// quoting differs for everything except a plain single-quoted string.
-	t.notRegex(companionRules(), /['"`$\\]/);
+	expect(companionRules()).not.toMatch(/['"`$\\]/);
 });
 
-test('Codex gets the rules as one -c developer_instructions value', t => {
+test('Codex gets the rules as one -c developer_instructions value', () => {
 	const [flag, value, ...rest] = argv(rulesFlagsFor('codex'));
-	t.is(flag, '-c');
-	t.deepEqual(rest, []);
-	t.regex(
-		value!,
+	expect(flag).toBe('-c');
+	expect(rest).toStrictEqual([]);
+	expect(value!).toMatch(
 		/^developer_instructions="[^"\n]*first call companion_run[^"\n]*"$/,
 	);
 });
 
-test('Pi gets the rules as one --append-system-prompt value', t => {
+test('Pi gets the rules as one --append-system-prompt value', () => {
 	const [flag, value, ...rest] = argv(rulesFlagsFor('/opt/bin/pi'));
-	t.is(flag, '--append-system-prompt');
-	t.deepEqual(rest, []);
-	t.notRegex(value!, /\n/);
-	t.regex(value!, /first call companion_run/);
+	expect(flag).toBe('--append-system-prompt');
+	expect(rest).toStrictEqual([]);
+	expect(value!).not.toMatch(/\n/);
+	expect(value!).toMatch(/first call companion_run/);
 });
 
-test('agents that get the rules another way get no flags', t => {
+test('agents that get the rules another way get no flags', () => {
 	for (const command of ['claude', 'opencode', 'agy', 'aider']) {
-		t.is(rulesFlagsFor(command), '');
+		expect(rulesFlagsFor(command)).toBe('');
 	}
 });
 
-test('an agent gated as claude takes no rules flag, whatever its command', t => {
-	t.is(rulesFlagsFor('codex', true), '');
+test('an agent gated as claude takes no rules flag, whatever its command', () => {
+	expect(rulesFlagsFor('codex', true)).toBe('');
 });
 
 const codexProfile = getNamedAgentProfile(
@@ -65,7 +65,7 @@ const codexProfile = getNamedAgentProfile(
 	'codex',
 );
 
-test("Codex's rules come before the resume subcommand, on both launch paths", t => {
+test("Codex's rules come before the resume subcommand, on both launch paths", () => {
 	const command = buildAgentResumeCommand(
 		'STA-1',
 		false,
@@ -74,25 +74,23 @@ test("Codex's rules come before the resume subcommand, on both launch paths", t 
 		{rules: true},
 	);
 	const rules = rulesFlagsFor('codex');
-	t.not(rules, '');
-	t.is(
-		command,
+	expect(rules).not.toBe('');
+	expect(command).toBe(
 		`codex${rules} resume --last || { printf '\\033[A\\033[2K'; false; } || codex${rules}`,
 	);
 });
 
-test('an agent launched without workspace awareness gets no rules', t => {
-	t.is(
-		buildAgentResumeCommand('STA-1', false, codexProfile),
+test('an agent launched without workspace awareness gets no rules', () => {
+	expect(buildAgentResumeCommand('STA-1', false, codexProfile)).toBe(
 		"codex resume --last || { printf '\\033[A\\033[2K'; false; } || codex",
 	);
 });
 
-function worktree(t: ExecutionContext) {
+function worktree() {
 	const root = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'agent-rules-')),
 	);
-	t.teardown(() => {
+	teardown(() => {
 		fs.rmSync(root, {recursive: true, force: true});
 	});
 	const main = path.join(root, 'main');
@@ -110,8 +108,8 @@ function worktree(t: ExecutionContext) {
 	return {main, tree, git};
 }
 
-test('agy gets an always-on rule the worktree stays clean of', async t => {
-	const {main, tree, git} = worktree(t);
+test('agy gets an always-on rule the worktree stays clean of', async () => {
+	const {main, tree, git} = worktree();
 	await installAgentRules('agy', tree);
 	await installAgentRules('/usr/local/bin/agy --flag', tree);
 
@@ -119,20 +117,20 @@ test('agy gets an always-on rule the worktree stays clean of', async t => {
 		path.join(tree, '.agents', 'rules', 'pappardelle.md'),
 		'utf8',
 	);
-	t.true(rule.startsWith('---\ntrigger: always_on\n---\n'));
-	t.regex(rule, /first call companion_run/);
-	t.is(git(tree, 'status', '--porcelain').stdout, '');
+	expect(rule.startsWith('---\ntrigger: always_on\n---\n')).toBe(true);
+	expect(rule).toMatch(/first call companion_run/);
+	expect(git(tree, 'status', '--porcelain').stdout).toBe('');
 
 	const exclude = fs.readFileSync(
 		path.join(main, '.git', 'info', 'exclude'),
 		'utf8',
 	);
-	t.is(exclude.split('.agents/rules/pappardelle.md').length - 1, 1);
-	t.is(git(main, 'worktree', 'remove', tree).status, 0);
+	expect(exclude.split('.agents/rules/pappardelle.md').length - 1).toBe(1);
+	expect(git(main, 'worktree', 'remove', tree).status).toBe(0);
 });
 
-test('other agents get no rule file', async t => {
-	const {tree} = worktree(t);
+test('other agents get no rule file', async () => {
+	const {tree} = worktree();
 	await installAgentRules('codex', tree);
-	t.false(fs.existsSync(path.join(tree, '.agents')));
+	expect(fs.existsSync(path.join(tree, '.agents'))).toBe(false);
 });

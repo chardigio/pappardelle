@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect, beforeAll} from 'bun:test';
 import React from 'react';
 import {render} from '../../test/helpers/render.ts';
 import stringWidth from 'string-width';
@@ -8,7 +8,7 @@ import type {SpaceData} from '../types.ts';
 
 // These assertions render the emoji as configured. Pin a tmux version that
 // draws skin-tone modifiers correctly so the probe never strips them.
-test.before(() => {
+beforeAll(() => {
 	setTmuxVersionProbeForTests(async () => '3.7c');
 });
 
@@ -64,19 +64,21 @@ async function renderRow(
 	return frame;
 }
 
-test('every rail emoji has exactly one separator before the status icon', async t => {
+test('every rail emoji has exactly one separator before the status icon', async () => {
 	for (const emoji of emojis) {
 		const row = await renderRow(emoji, 60, 'Title');
-		t.true(row.startsWith(' ' + emoji + ' ● TEST-1 '), `Emoji: ${emoji}`);
+		expect(row.startsWith(' ' + emoji + ' ● TEST-1 '), `Emoji: ${emoji}`).toBe(
+			true,
+		);
 	}
 });
 
-test('an empty emoji retains its two-cell slot and separator', async t => {
+test('an empty emoji retains its two-cell slot and separator', async () => {
 	const row = await renderRow('', 60, 'Title');
-	t.true(row.startsWith('    ● TEST-1 '));
+	expect(row.startsWith('    ● TEST-1 ')).toBe(true);
 });
 
-test('emoji in the prefix and title keep the status rail on the same row', async t => {
+test('emoji in the prefix and title keep the status rail on the same row', async () => {
 	for (const emoji of emojis) {
 		for (const width of [30, 40, 60, 80]) {
 			const frame = await renderRow(
@@ -84,9 +86,9 @@ test('emoji in the prefix and title keep the status rail on the same row', async
 				width,
 				'Fix ✨ ⭐ ✅ and 👨‍🍳 rendering',
 			);
-			t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
-			t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
-			t.true(frame.includes('✓'), `Rendered row: ${frame}`);
+			expect(frame.split('\n').length, `Rendered row: ${frame}`).toBe(1);
+			expect(stringWidth(frame) <= width, `Rendered row: ${frame}`).toBe(true);
+			expect(frame.includes('✓'), `Rendered row: ${frame}`).toBe(true);
 		}
 	}
 });

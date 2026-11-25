@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import React from 'react';
 import {TextAttributes} from '@opentui/core';
 import {render} from '../../test/helpers/render.ts';
@@ -54,30 +54,32 @@ async function renderRow({
 	return frame;
 }
 
-test('the identity and title survive stale pane widths, including selection', async t => {
+test('the identity and title survive stale pane widths, including selection', async () => {
 	for (const isSelected of [false, true]) {
 		for (let laidOutWidth = 40; laidOutWidth <= 120; laidOutWidth += 10) {
 			const row = await renderRow({laidOutWidth, renderWidth: 40, isSelected});
-			t.true(row.includes(`🍝 ● ${ISSUE_KEY} `), `Rendered row: ${row}`);
-			t.true(row.includes('Workspace'), `Rendered row: ${row}`);
-			t.is(row.split('\n').length, 1, `Rendered row: ${row}`);
+			expect(row.includes(`🍝 ● ${ISSUE_KEY} `), `Rendered row: ${row}`).toBe(
+				true,
+			);
+			expect(row.includes('Workspace'), `Rendered row: ${row}`).toBe(true);
+			expect(row.split('\n').length, `Rendered row: ${row}`).toBe(1);
 		}
 	}
 });
 
-test('rows stay within the pane and retain their layout height', async t => {
+test('rows stay within the pane and retain their layout height', async () => {
 	for (const layout of ['single_line', 'two_line'] as const) {
 		for (const renderWidth of [16, 20, 24, 30, 40]) {
 			for (const laidOutWidth of [renderWidth, 60, 90, 120]) {
 				const row = await renderRow({laidOutWidth, renderWidth, layout});
 				const lines = row.split('\n');
-				t.is(
-					lines.length,
+				expect(lines.length, `Rendered row: ${row}`).toBe(
 					layout === 'two_line' ? 2 : 1,
-					`Rendered row: ${row}`,
 				);
 				for (const line of lines) {
-					t.true(stringWidth(line) <= renderWidth, `Rendered row: ${row}`);
+					expect(stringWidth(line) <= renderWidth, `Rendered row: ${row}`).toBe(
+						true,
+					);
 				}
 			}
 		}
@@ -161,7 +163,7 @@ const iconSets: Array<{railStatus: RailStatus; icons: string}> = [
 	},
 ];
 
-test('a row fills its width exactly and ends in its rail icons', async t => {
+test('a row fills its width exactly and ends in its rail icons', async () => {
 	const layouts = [24, 30, 40, 60].flatMap(width =>
 		(['single_line', 'two_line'] as const).flatMap(layout =>
 			[false, true].map(isSelected => ({width, layout, isSelected})),
@@ -181,32 +183,31 @@ test('a row fills its width exactly and ends in its rail icons', async t => {
 		});
 		const label = `${title} ${icons} ${width} ${layout} selected=${isSelected}`;
 		for (const spans of lines) {
-			t.is(
+			expect(
 				spans.reduce((sum, span) => sum + span.width, 0),
-				width,
 				label,
-			);
+			).toBe(width);
 		}
 
 		const keyLine = lines[0]!.map(span => span.text).join('');
-		t.true(keyLine.endsWith(`${icons} `), `${label}: ${keyLine}`);
+		expect(keyLine.endsWith(`${icons} `), `${label}: ${keyLine}`).toBe(true);
 	}
 });
 
 // The fixed left part (edge pad, 🍝, icon and the 15-cell key: 22 cells) and
 // the icons (" (3) ✓" and the edge pad: 7 cells) need 29 cells, more than
 // these boxes give a row laid out for a wider rail.
-test('a row narrower than its laid-out width keeps its icons at the right edge', async t => {
+test('a row narrower than its laid-out width keeps its icons at the right edge', async () => {
 	for (const renderWidth of [16, 20, 24, 28]) {
 		for (const laidOutWidth of [60, 120]) {
 			const row = await renderRow({laidOutWidth, renderWidth});
-			t.true(row.endsWith(' (3) ✓'), `Rendered row: ${row}`);
-			t.true(row.startsWith(' 🍝 ● pap'), `Rendered row: ${row}`);
+			expect(row.endsWith(' (3) ✓'), `Rendered row: ${row}`).toBe(true);
+			expect(row.startsWith(' 🍝 ● pap'), `Rendered row: ${row}`).toBe(true);
 		}
 	}
 });
 
-test('a box wider than the laid-out width is one highlight bar to its edge', async t => {
+test('a box wider than the laid-out width is one highlight bar to its edge', async () => {
 	for (const layout of ['single_line', 'two_line'] as const) {
 		const lines = await rowSpans({
 			row: space,
@@ -216,11 +217,11 @@ test('a box wider than the laid-out width is one highlight bar to its edge', asy
 			isSelected: true,
 		});
 		for (const spans of lines)
-			t.is(inverseCells(spans), 60, `layout ${layout}`);
+			expect(inverseCells(spans), `layout ${layout}`).toBe(60);
 	}
 });
 
-test('a wide title clipped mid-glyph stays inside the row and the bar', async t => {
+test('a wide title clipped mid-glyph stays inside the row and the bar', async () => {
 	for (const boxWidth of [27, 28, 29, 30, 31]) {
 		const [spans] = await rowSpans({
 			row: {
@@ -232,7 +233,7 @@ test('a wide title clipped mid-glyph stays inside the row and the bar', async t 
 			isSelected: true,
 		});
 		const line = spans!.map(span => span.text).join('');
-		t.true(stringWidth(line) <= boxWidth, `Rendered row: ${line}`);
-		t.is(inverseCells(spans!), boxWidth, `Rendered row: ${line}`);
+		expect(stringWidth(line) <= boxWidth, `Rendered row: ${line}`).toBe(true);
+		expect(inverseCells(spans!), `Rendered row: ${line}`).toBe(boxWidth);
 	}
 });

@@ -1,30 +1,32 @@
-import test from 'ava';
+import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {unreachable} from '../test/helpers/unreachable.ts';
 import {tearDownSpace} from './space-utils.ts';
 import {innerKillSession, killSpaceSessions, innerTmuxArgs} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 
 // tmux.ts names a space's sessions from the stores. Without the database they
 // are the names idow gives a space, which is all this file needs.
-const stateTeardowns: Array<() => void> = [];
-test.before(() => {
-	testTmuxState(
-		{teardown: fn => stateTeardowns.push(fn)},
-		{repo: 'fixture', sqlite: false},
-	);
+const stateTeardowns: Array<() => unknown> = [];
+beforeAll(() => {
+	testTmuxState({
+		cleanup: fn => stateTeardowns.push(fn),
+		repo: 'fixture',
+		sqlite: false,
+	});
 });
-test.after.always(() => {
-	for (const teardown of stateTeardowns) teardown();
+afterAll(async () => {
+	for (const step of stateTeardowns.reverse()) await step();
 });
 
-test('kill targets exact inner sessions without probing first', async t => {
+test('kill targets exact inner sessions without probing first', async () => {
 	const calls: string[][] = [];
-	t.true(
+	expect(
 		await innerKillSession('claude-repo-A', async args => {
 			calls.push(args);
 			return '';
 		}),
-	);
-	t.deepEqual(calls, [
+	).toBe(true);
+	expect(calls).toStrictEqual([
 		innerTmuxArgs(['kill-session', '-t', '=claude-repo-A:']),
 	]);
 });
@@ -36,12 +38,12 @@ for (const stderr of [
 	'server exited unexpectedly',
 	'no current target',
 ]) {
-	test(`already absent sessions close successfully: ${stderr}`, async t => {
-		t.true(
+	test(`already absent sessions close successfully: ${stderr}`, async () => {
+		expect(
 			await innerKillSession('claude-repo-A', async () => {
 				throw Object.assign(new Error(stderr), {code: 1, stderr});
 			}),
-		);
+		).toBe(true);
 	});
 }
 
@@ -58,16 +60,16 @@ for (const error of [
 		signal: 'SIGTERM',
 	}),
 ]) {
-	test(`real kill failures are reported: ${error.message}`, async t => {
-		t.false(
+	test(`real kill failures are reported: ${error.message}`, async () => {
+		expect(
 			await innerKillSession('claude-repo-A', async () => {
 				throw error;
 			}),
-		);
+		).toBe(false);
 	});
 }
 
-test('a failed session kill does not schedule simulator cleanup', async t => {
+test('a failed session kill does not schedule simulator cleanup', async () => {
 	const calls: string[][] = [];
 	const result = await tearDownSpace('A', {
 		async markClosing() {},
@@ -83,22 +85,22 @@ test('a failed session kill does not schedule simulator cleanup', async t => {
 			});
 		},
 		removeSpace() {
-			t.fail('failed kill must remain registered');
+			unreachable('failed kill must remain registered');
 		},
 		onKillFailure() {},
 		async cleanup() {
-			t.fail('workspace is still open');
+			unreachable('workspace is still open');
 			return true;
 		},
 	});
-	t.is(result.outcome, 'kill-failed');
+	expect(result.outcome).toBe('kill-failed');
 	// The companion's splits are listed first, then the companion is killed.
-	t.is(calls.length, 2);
-	t.true(calls[0]!.includes('list-sessions'));
-	t.true(calls[1]!.includes('=companion-fixture-A:'));
+	expect(calls.length).toBe(2);
+	expect(calls[0]!.includes('list-sessions')).toBe(true);
+	expect(calls[1]!.includes('=companion-fixture-A:')).toBe(true);
 });
 
-test('successful session close returns while simulator cleanup is still pending', async t => {
+test('successful session close returns while simulator cleanup is still pending', async () => {
 	let finish = (_success: boolean) => {};
 	const cleaning = new Promise<boolean>(resolve => {
 		finish = resolve;
@@ -114,20 +116,20 @@ test('successful session close returns while simulator cleanup is still pending'
 			await Promise.resolve();
 		},
 		onKillFailure() {
-			t.fail('kill should succeed');
+			unreachable('kill should succeed');
 		},
 		async cleanup() {
 			started = true;
 			return cleaning;
 		},
 	});
-	t.is(result.outcome, 'closed');
-	t.true(started);
+	expect(result.outcome).toBe('closed');
+	expect(started).toBe(true);
 	finish(false);
 	await cleaning;
 });
 
-test('simulator cleanup rejection is nonfatal to session close', async t => {
+test('simulator cleanup rejection is nonfatal to session close', async () => {
 	const result = await tearDownSpace('A', {
 		async markClosing() {},
 		async reopen() {},
@@ -136,11 +138,11 @@ test('simulator cleanup rejection is nonfatal to session close', async t => {
 		},
 		removeSpace() {},
 		onKillFailure() {
-			t.fail('kill should succeed');
+			unreachable('kill should succeed');
 		},
 		async cleanup() {
 			throw new Error('xcrun failed');
 		},
 	});
-	t.is(result.outcome, 'closed');
+	expect(result.outcome).toBe('closed');
 });

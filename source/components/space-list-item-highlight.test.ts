@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import React from 'react';
 import {TextAttributes} from '@opentui/core';
 import {render} from '../../test/helpers/render.ts';
@@ -48,19 +48,19 @@ async function rowSpans(blocked: boolean, layout: ListLayout) {
 	return lines.map(line => line.spans);
 }
 
-test('a selected row is one inverse bar from edge to edge, icons included', async t => {
+test('a selected row is one inverse bar from edge to edge, icons included', async () => {
 	for (const layout of ['single_line', 'two_line'] as const) {
 		for (const spans of await rowSpans(false, layout)) {
 			const covered = spans
 				// eslint-disable-next-line no-bitwise
 				.filter(span => (span.attributes & TextAttributes.INVERSE) !== 0)
 				.reduce((sum, span) => sum + span.width, 0);
-			t.is(covered, WIDTH, `layout ${layout}`);
+			expect(covered, `layout ${layout}`).toBe(WIDTH);
 		}
 	}
 });
 
-test('a selected main worktree row with no title is still one bar', async t => {
+test('a selected main worktree row with no title is still one bar', async () => {
 	const view = await render(
 		React.createElement(
 			'box',
@@ -82,19 +82,19 @@ test('a selected main worktree row with no title is still one bar', async t => {
 			// eslint-disable-next-line no-bitwise
 			.filter(span => (span.attributes & TextAttributes.INVERSE) !== 0)
 			.reduce((sum, span) => sum + span.width, 0);
-		t.is(covered, WIDTH);
+		expect(covered).toBe(WIDTH);
 	}
 });
 
-test('a blinking row fills the whole width with its block color', async t => {
+test('a blinking row fills the whole width with its block color', async () => {
 	for (const layout of ['single_line', 'two_line'] as const) {
 		for (const spans of await rowSpans(true, layout)) {
 			const block = spans[0]!.fg;
-			t.is(block.intent, 'indexed');
+			expect(block.intent).toBe('indexed');
 			const covered = spans
 				.filter(span => span.fg.equals(block))
 				.reduce((sum, span) => sum + span.width, 0);
-			t.is(covered, WIDTH, `layout ${layout}`);
+			expect(covered, `layout ${layout}`).toBe(WIDTH);
 		}
 	}
 });

@@ -1,7 +1,8 @@
 import {existsSync, readdirSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {
 	publishSnapshot,
@@ -45,7 +46,7 @@ const leases = (state: TestState) =>
 
 contractTest(
 	'a new generation prunes only its own key’s earlier generations',
-	async (t, state) => {
+	async state => {
 		const store = state.daos.programStatus;
 		const snapshots = {
 			old: snapshotOf({repo: 'repo', key: 'STA-1', pane: old}, [...working]),
@@ -61,32 +62,30 @@ contractTest(
 
 		await store.remove('STA-1', current.generation);
 
-		t.deepEqual(
-			leases(state),
+		expect(leases(state)).toStrictEqual(
 			[snapshots.current, snapshots.sibling]
 				.map(
 					snapshot => `${path.basename(snapshotFile(state, snapshot))}.lease`,
 				)
 				.sort(),
 		);
-		t.false(existsSync(snapshotFile(state, snapshots.old)));
-		t.is(
+		expect(existsSync(snapshotFile(state, snapshots.old))).toBe(false);
+		expect(
 			await eventually(
 				async () => store.read('STA-1', old),
 				snapshot => snapshot === null,
 			),
-			null,
-		);
-		t.false(store.monitored('STA-1', old.generation));
-		t.is(await readStatus(state, 'STA-1', current), 'working');
-		t.true(store.monitored('STA-1', current.generation));
-		t.is(await readStatus(state, 'STA-2', old), 'working');
+		).toBe(null);
+		expect(store.monitored('STA-1', old.generation)).toBe(false);
+		expect(await readStatus(state, 'STA-1', current)).toBe('working');
+		expect(store.monitored('STA-1', current.generation)).toBe(true);
+		expect(await readStatus(state, 'STA-2', old)).toBe('working');
 	},
 );
 
 contractTest(
 	'closing a space removes every generation of its key and no other key',
-	async (t, state) => {
+	async state => {
 		const store = state.daos.programStatus;
 		for (const [key, generation] of [
 			['STA-1', old],
@@ -101,23 +100,22 @@ contractTest(
 		await store.remove('STA-1');
 
 		for (const generation of [old, current]) {
-			t.is(
+			expect(
 				await eventually(
 					async () => store.read('STA-1', generation),
 					snapshot => snapshot === null,
 				),
-				null,
-			);
-			t.false(store.monitored('STA-1', generation.generation));
+			).toBe(null);
+			expect(store.monitored('STA-1', generation.generation)).toBe(false);
 		}
 
-		t.is(await readStatus(state, 'STA-2', old), 'working');
+		expect(await readStatus(state, 'STA-2', old)).toBe('working');
 	},
 );
 
 contractTest(
 	'a snapshot is read only for the pane and the repo it was published for',
-	async (t, state) => {
+	async state => {
 		const store = state.daos.programStatus;
 		await publishSnapshot(
 			state,
@@ -128,15 +126,15 @@ contractTest(
 			snapshotOf({repo: 'other', key: 'STA-3', pane: current}, [...working]),
 		);
 
-		t.like(await store.read('STA-1', current), {
+		expect(await store.read('STA-1', current)).toMatchObject({
 			repo: 'repo',
 			key: 'STA-1',
 			authoritative: true,
 			exited: false,
 			info: {status: 'working', app: 'fixture'},
 		});
-		t.is(await store.read('STA-1', old), null);
-		t.is(await store.read('STA-3', current), null);
+		expect(await store.read('STA-1', old)).toBe(null);
+		expect(await store.read('STA-3', current)).toBe(null);
 	},
 );
 
@@ -144,7 +142,7 @@ contractTest(
 // can have died since its monitor last published.
 contractTest(
 	'a working status is not read from a pane that has died, on any read, and a finished one is',
-	async (t, state) => {
+	async state => {
 		const store = state.daos.programStatus;
 		const dead = {...current, dead: true};
 		await publishSnapshot(
@@ -153,8 +151,8 @@ contractTest(
 		);
 
 		for (let read = 0; read < 2; read++) {
-			t.is(await readStatus(state, 'STA-1', dead), 'unknown');
-			t.is(await readStatus(state, 'STA-1', current), 'working');
+			expect(await readStatus(state, 'STA-1', dead)).toBe('unknown');
+			expect(await readStatus(state, 'STA-1', current)).toBe('working');
 		}
 
 		await publishSnapshot(
@@ -163,13 +161,13 @@ contractTest(
 				{state: 'done', id: '', app: 'fixture'},
 			]),
 		);
-		t.is(await readStatus(state, 'STA-1', dead), 'done');
+		expect(await readStatus(state, 'STA-1', dead)).toBe('done');
 	},
 );
 
 contractTest(
 	'a snapshot its monitor published on exit reads as exited, with no working status',
-	async (t, state) => {
+	async state => {
 		const store = state.daos.programStatus;
 		await publishSnapshot(
 			state,
@@ -178,7 +176,7 @@ contractTest(
 			}),
 		);
 
-		t.like(await store.read('STA-1', current), {
+		expect(await store.read('STA-1', current)).toMatchObject({
 			exited: true,
 			info: {status: 'unknown'},
 		});
@@ -187,10 +185,10 @@ contractTest(
 
 contractTest(
 	'a published snapshot reaches a watch with its space key, and ends a wait for a change',
-	async (t, state) => {
+	async state => {
 		const store = state.daos.programStatus;
 		const seen: string[] = [];
-		t.teardown(store.watch(key => seen.push(key)));
+		teardown(store.watch(key => seen.push(key)));
 		// A file watch that has just begun can miss a write made right after.
 		await delay(50);
 		const started = performance.now();
@@ -202,9 +200,9 @@ contractTest(
 		);
 		await waiting;
 
-		t.true(performance.now() - started < 4000);
+		expect(performance.now() - started < 4000).toBe(true);
 		await waitUntil(() => seen.includes('STA-1'), 'the watch to be told');
-		t.deepEqual([...new Set(seen)], ['STA-1']);
+		expect([...new Set(seen)]).toStrictEqual(['STA-1']);
 	},
 );
 
@@ -212,7 +210,7 @@ contractTest(
 // where the status daemon listens even while the flag is off.
 contractTest(
 	'a monitor is started with the snapshot directory and the status socket',
-	async (t, state) => {
+	async state => {
 		const commands: string[] = [];
 		const pane = await state.daos.programStatus.attach(
 			'STA-1',
@@ -226,11 +224,15 @@ contractTest(
 			},
 		);
 
-		t.is(pane, null);
+		expect(pane).toBe(null);
 		const launch = commands.find(command => command.includes('pipe-pane'));
-		t.true(launch?.includes(programStatusDir('repo', state.stateDir)));
-		t.true(launch?.includes(statusSocketPath(state.stateDir)));
-		t.deepEqual(readdirSync(programStatusDir('repo', state.stateDir)), []);
+		expect(launch?.includes(programStatusDir('repo', state.stateDir))).toBe(
+			true,
+		);
+		expect(launch?.includes(statusSocketPath(state.stateDir))).toBe(true);
+		expect(readdirSync(programStatusDir('repo', state.stateDir))).toStrictEqual(
+			[],
+		);
 	},
 );
 
@@ -258,21 +260,21 @@ function fakeTimers() {
 	};
 }
 
-test('the first change after a quiet period is published at once', t => {
+test('the first change after a quiet period is published at once', () => {
 	const timers = fakeTimers();
 	let published = 0;
 	const publishing = new PublishWindow(() => published++, timers);
 
 	publishing.request();
-	t.is(published, 1);
-	t.is(timers.pendingAt(), undefined);
+	expect(published).toBe(1);
+	expect(timers.pendingAt()).toBe(undefined);
 
 	timers.advance(50);
 	publishing.request();
-	t.is(published, 2);
+	expect(published).toBe(2);
 });
 
-test('changes within 50 ms of a publish go out together when that time is up', t => {
+test('changes within 50 ms of a publish go out together when that time is up', () => {
 	const timers = fakeTimers();
 	let published = 0;
 	const publishing = new PublishWindow(() => published++, timers);
@@ -283,21 +285,21 @@ test('changes within 50 ms of a publish go out together when that time is up', t
 		publishing.request();
 	}
 
-	t.is(published, 1);
-	t.is(timers.pendingAt(), 50);
+	expect(published).toBe(1);
+	expect(timers.pendingAt()).toBe(50);
 	timers.advance(19);
-	t.is(published, 1);
+	expect(published).toBe(1);
 	timers.advance(1);
-	t.is(published, 2);
+	expect(published).toBe(2);
 
 	// The publish that closed the burst starts the next 50 ms.
 	timers.advance(20);
 	publishing.request();
-	t.is(published, 2);
-	t.is(timers.pendingAt(), 100);
+	expect(published).toBe(2);
+	expect(timers.pendingAt()).toBe(100);
 });
 
-test('a cancelled publish does not go out later', t => {
+test('a cancelled publish does not go out later', () => {
 	const timers = fakeTimers();
 	let published = 0;
 	const publishing = new PublishWindow(() => published++, timers);
@@ -307,5 +309,5 @@ test('a cancelled publish does not go out later', t => {
 	publishing.request();
 	publishing.cancel();
 	timers.advance(100);
-	t.is(published, 1);
+	expect(published).toBe(1);
 });

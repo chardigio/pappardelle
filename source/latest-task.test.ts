@@ -1,8 +1,9 @@
 import {setImmediate as nextTurn} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {LatestTask} from './latest-task.ts';
 
-test('teardown waits for active creation and cannot be superseded by a new selection', async t => {
+test('teardown waits for active creation and cannot be superseded by a new selection', async () => {
 	const task = new LatestTask();
 	let release = () => {};
 	const wait = new Promise<void>(resolve => {
@@ -28,10 +29,10 @@ test('teardown waits for active creation and cannot be superseded by a new selec
 		events.push('attached C');
 	});
 	await nextTurn();
-	t.deepEqual(events, ['creating A']);
+	expect(events).toStrictEqual(['creating A']);
 	release();
 	await Promise.all([attach, close, stale, latest]);
-	t.deepEqual(events, [
+	expect(events).toStrictEqual([
 		'creating A',
 		'created A',
 		'killed A',
@@ -40,9 +41,9 @@ test('teardown waits for active creation and cannot be superseded by a new selec
 	]);
 });
 
-test('failed teardown releases the queue for a later attachment', async t => {
+test('failed teardown releases the queue for a later attachment', async () => {
 	const task = new LatestTask();
-	await t.throwsAsync(
+	await rejectionOf(
 		task.exclusive(async () => {
 			throw new Error('kill failed');
 		}),
@@ -51,10 +52,10 @@ test('failed teardown releases the queue for a later attachment', async t => {
 	await task.run(async () => {
 		attached = true;
 	});
-	t.true(attached);
+	expect(attached).toBe(true);
 });
 
-test('rapid selections finish the active operation before applying only the latest selection', async t => {
+test('rapid selections finish the active operation before applying only the latest selection', async () => {
 	const task = new LatestTask();
 	let release = () => {};
 	const wait = new Promise<void>(resolve => {
@@ -64,7 +65,7 @@ test('rapid selections finish the active operation before applying only the late
 	const first = task.run(async signal => {
 		events.push('A:start');
 		await wait;
-		t.true(signal.aborted);
+		expect(signal.aborted).toBe(true);
 		events.push('A:end');
 	});
 	await nextTurn();
@@ -75,13 +76,13 @@ test('rapid selections finish the active operation before applying only the late
 		events.push('C');
 	});
 	await nextTurn();
-	t.deepEqual(events, ['A:start']);
+	expect(events).toStrictEqual(['A:start']);
 	release();
 	await Promise.all([first, second, third]);
-	t.deepEqual(events, ['A:start', 'A:end', 'C']);
+	expect(events).toStrictEqual(['A:start', 'A:end', 'C']);
 });
 
-test('cancellation drains active work before teardown and skips pending work', async t => {
+test('cancellation drains active work before teardown and skips pending work', async () => {
 	const task = new LatestTask();
 	let release = () => {};
 	const wait = new Promise<void>(resolve => {
@@ -101,15 +102,15 @@ test('cancellation drains active work before teardown and skips pending work', a
 		events.push('deleted');
 	});
 	await nextTurn();
-	t.deepEqual(events, []);
+	expect(events).toStrictEqual([]);
 	release();
 	await close;
-	t.deepEqual(events, ['created', 'deleted']);
+	expect(events).toStrictEqual(['created', 'deleted']);
 });
 
-test('a rejected switch does not prevent the next selection', async t => {
+test('a rejected switch does not prevent the next selection', async () => {
 	const task = new LatestTask();
-	await t.throwsAsync(
+	await rejectionOf(
 		task.run(async () => {
 			throw new Error('tmux failed');
 		}),
@@ -118,5 +119,5 @@ test('a rejected switch does not prevent the next selection', async t => {
 	await task.run(async () => {
 		attached = true;
 	});
-	t.true(attached);
+	expect(attached).toBe(true);
 });

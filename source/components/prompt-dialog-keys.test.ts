@@ -1,17 +1,18 @@
 import {spawnSync} from 'node:child_process';
 import {writeFileSync} from 'node:fs';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../../test/helpers/teardown.ts';
 import React from 'react';
 import {render} from '../../test/helpers/render.ts';
 import {tempDir} from '../../test/helpers/temp-dir.ts';
 import PromptDialog from './PromptDialog.tsx';
 
-test('Enter Enter in one write picks the preselected profile once', async t => {
+test('Enter Enter in one write picks the preselected profile once', async () => {
 	// The dialog reads its profiles from the repository it runs in. A
 	// Pappardelle space exports its main checkout, which the config reads ahead
 	// of the working directory.
-	const repository = tempDir(t, 'pappa-prompt-repo-');
+	const repository = tempDir('pappa-prompt-repo-');
 	spawnSync('git', ['init', '-q', repository]);
 	writeFileSync(
 		path.join(repository, '.pappardelle.yml'),
@@ -21,7 +22,7 @@ test('Enter Enter in one write picks the preselected profile once', async t => {
 	const mainRepoRoot = process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
 	process.chdir(repository);
 	delete process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
-	t.teardown(() => {
+	teardown(() => {
 		process.chdir(cwd);
 		if (mainRepoRoot !== undefined)
 			process.env['PAPPARDELLE_MAIN_REPO_ROOT'] = mainRepoRoot;
@@ -37,7 +38,7 @@ test('Enter Enter in one write picks the preselected profile once', async t => {
 			isInTmux: false,
 		}),
 	);
-	t.teardown(async () => view.unmount());
+	teardown(async () => view.unmount());
 	await view.stdin.write('fix the login\r\r');
-	t.deepEqual(submitted, [['fix the login', 'dev']]);
+	expect(submitted).toStrictEqual([['fix the login', 'dev']]);
 });

@@ -1,5 +1,5 @@
 import {idowIdentities} from '../test/helpers/state.ts';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {runSuperviseCommand, type SuperviseDeps} from './supervise-command.ts';
 import type {SuperviseEntry} from './supervise-log.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
@@ -170,11 +170,11 @@ function harness(dialog: Dialog) {
 	};
 }
 
-test('several options on a multi-select are ticked, then confirmed on Submit', async t => {
+test('several options on a multi-select are ticked, then confirmed on Submit', async () => {
 	const dialog = new Dialog(true);
 	const h = harness(dialog);
-	t.is(await h.run('--option', '3', '--option', '1'), 0);
-	t.deepEqual(h.sent, [
+	expect(await h.run('--option', '3', '--option', '1')).toBe(0);
+	expect(h.sent).toStrictEqual([
 		'1',
 		'3',
 		'Down',
@@ -184,122 +184,119 @@ test('several options on a multi-select are ticked, then confirmed on Submit', a
 		'Down',
 		'Enter',
 	]);
-	t.true(dialog.answered);
-	t.like(h.logged[0], {
+	expect(dialog.answered).toBe(true);
+	expect(h.logged[0]).toMatchObject({
 		action: 'answer',
 		sent: '1. Cheese, 3. Peppers',
 		detail: 'Which toppings do you want?',
 	});
 });
 
-test('options already ticked are left alone and stray ticks are cleared', async t => {
+test('options already ticked are left alone and stray ticks are cleared', async () => {
 	const dialog = new Dialog(true);
 	dialog.checked = new Set([1, 2]);
 	dialog.cursor = 4;
 	const h = harness(dialog);
-	t.is(await h.run('--option', '1', '--option', '3'), 0);
-	t.deepEqual(h.sent, ['2', '3', 'Down', 'Down', 'Enter']);
+	expect(await h.run('--option', '1', '--option', '3')).toBe(0);
+	expect(h.sent).toStrictEqual(['2', '3', 'Down', 'Down', 'Enter']);
 });
 
-test('a tick the dialog ignores stops the answer before it is confirmed', async t => {
+test('a tick the dialog ignores stops the answer before it is confirmed', async () => {
 	const dialog = new Dialog(true);
 	dialog.deaf.add('3');
 	const h = harness(dialog);
-	t.is(await h.run('--option', '1', '--option', '3'), 1);
-	t.deepEqual(h.sent, ['1', '3']);
-	t.false(dialog.answered);
-	t.regex(h.err[0]!, /options 1, 3 ticked didn't show/);
-	t.regex(h.logged[0]!.detail!, /stuck: options 1, 3 ticked/);
+	expect(await h.run('--option', '1', '--option', '3')).toBe(1);
+	expect(h.sent).toStrictEqual(['1', '3']);
+	expect(dialog.answered).toBe(false);
+	expect(h.err[0]!).toMatch(/options 1, 3 ticked didn't show/);
+	expect(h.logged[0]!.detail!).toMatch(/stuck: options 1, 3 ticked/);
 });
 
-test('typed text goes into the free-text row and is submitted once it shows there', async t => {
+test('typed text goes into the free-text row and is submitted once it shows there', async () => {
 	const dialog = new Dialog(false);
 	const h = harness(dialog);
-	t.is(await h.run('--text', 'Enter the dragon'), 0);
-	t.deepEqual(h.sent, ['5', 'text:Enter the dragon', 'Enter']);
-	t.true(dialog.answered);
-	t.like(h.logged[0], {sent: 'Enter the dragon'});
+	expect(await h.run('--text', 'Enter the dragon')).toBe(0);
+	expect(h.sent).toStrictEqual(['5', 'text:Enter the dragon', 'Enter']);
+	expect(dialog.answered).toBe(true);
+	expect(h.logged[0]).toMatchObject({sent: 'Enter the dragon'});
 });
 
-test('text the row never shows is not submitted', async t => {
+test('text the row never shows is not submitted', async () => {
 	const dialog = new Dialog(false);
 	dialog.type = () => {};
 	const h = harness(dialog);
-	t.is(await h.run('--text', 'hello'), 1);
-	t.deepEqual(h.sent, ['5', 'text:hello']);
-	t.false(dialog.answered);
+	expect(await h.run('--text', 'hello')).toBe(1);
+	expect(h.sent).toStrictEqual(['5', 'text:hello']);
+	expect(dialog.answered).toBe(false);
 });
 
-test('the answer rules refuse what the question cannot take', async t => {
+test('the answer rules refuse what the question cannot take', async () => {
 	const multi = harness(new Dialog(true));
-	t.is(await multi.run('--option', '9'), 1);
-	t.regex(multi.err[0]!, /no option 9/);
-	t.is(await multi.run('--text', 'hi'), 1);
-	t.regex(multi.err[1]!, /multi-select/);
+	expect(await multi.run('--option', '9')).toBe(1);
+	expect(multi.err[0]!).toMatch(/no option 9/);
+	expect(await multi.run('--text', 'hi')).toBe(1);
+	expect(multi.err[1]!).toMatch(/multi-select/);
 	const single = harness(new Dialog(false));
-	t.is(await single.run('--option', '1', '--option', '2'), 1);
-	t.regex(single.err[0]!, /single-select/);
-	t.deepEqual([...multi.sent, ...single.sent], []);
+	expect(await single.run('--option', '1', '--option', '2')).toBe(1);
+	expect(single.err[0]!).toMatch(/single-select/);
+	expect([...multi.sent, ...single.sent]).toStrictEqual([]);
 });
 
-test('an open free-text row is left before ticking, and digits never go into it', async t => {
+test('an open free-text row is left before ticking, and digits never go into it', async () => {
 	const dialog = new Dialog(true);
 	dialog.press('5');
 	const h = harness(dialog);
-	t.is(await h.run('--option', '2', '--option', '4'), 0);
-	t.deepEqual(h.sent.slice(0, 2), ['Up', '2']);
-	t.deepEqual(
-		[...dialog.checked].sort((a, b) => a - b),
-		[2, 4],
-	);
+	expect(await h.run('--option', '2', '--option', '4')).toBe(0);
+	expect(h.sent.slice(0, 2)).toStrictEqual(['Up', '2']);
+	expect([...dialog.checked].sort((a, b) => a - b)).toStrictEqual([2, 4]);
 });
 
-test('a free-text row holding text, the free-text row as an option, and multi-line text are refused before any key', async t => {
+test('a free-text row holding text, the free-text row as an option, and multi-line text are refused before any key', async () => {
 	const typedIn = new Dialog(false);
 	typedIn.press('5');
 	typedIn.type('half an answer');
 	const typed = harness(typedIn);
-	t.is(await typed.run('--option', '1'), 1);
-	t.is(await typed.run('--text', 'fresh'), 1);
-	t.regex(typed.err[0]!, /already holds "half an answer"/);
+	expect(await typed.run('--option', '1')).toBe(1);
+	expect(await typed.run('--text', 'fresh')).toBe(1);
+	expect(typed.err[0]!).toMatch(/already holds "half an answer"/);
 
 	const single = harness(new Dialog(false));
-	t.is(await single.run('--option', '5'), 1);
-	t.regex(single.err[0]!, /free-text row; answer it with --text/);
-	t.is(await single.run('--option', '7'), 1);
-	t.regex(single.err[1]!, /no option 7/);
-	t.is(await single.run('--text', 'line one\nline two'), 1);
-	t.regex(single.err[2]!, /one line/);
-	t.deepEqual([...typed.sent, ...single.sent], []);
+	expect(await single.run('--option', '5')).toBe(1);
+	expect(single.err[0]!).toMatch(/free-text row; answer it with --text/);
+	expect(await single.run('--option', '7')).toBe(1);
+	expect(single.err[1]!).toMatch(/no option 7/);
+	expect(await single.run('--text', 'line one\nline two')).toBe(1);
+	expect(single.err[2]!).toMatch(/one line/);
+	expect([...typed.sent, ...single.sent]).toStrictEqual([]);
 });
 
-test('a single-select option is pressed and checked like the rest', async t => {
+test('a single-select option is pressed and checked like the rest', async () => {
 	const dialog = new Dialog(false);
 	const h = harness(dialog);
-	t.is(await h.run('--option', '2'), 0);
-	t.deepEqual(h.sent, ['2']);
-	t.true(dialog.answered);
-	t.like(h.logged[0], {sent: '2. Olives'});
+	expect(await h.run('--option', '2')).toBe(0);
+	expect(h.sent).toStrictEqual(['2']);
+	expect(dialog.answered).toBe(true);
+	expect(h.logged[0]).toMatchObject({sent: '2. Olives'});
 });
 
-test('text left in an unfocused free-text row is still the free-text row, not an option', async t => {
+test('text left in an unfocused free-text row is still the free-text row, not an option', async () => {
 	const dialog = new Dialog(false);
 	dialog.press('5');
 	dialog.type('abc');
 	dialog.press('Up');
 	const h = harness(dialog);
-	t.is(await h.run('--option', '5'), 1);
-	t.is(await h.run('--option', '1'), 1);
-	t.is(await h.run('--text', 'fresh'), 1);
-	for (const message of h.err) t.regex(message, /already holds "abc"/);
-	t.deepEqual(h.sent, []);
+	expect(await h.run('--option', '5')).toBe(1);
+	expect(await h.run('--option', '1')).toBe(1);
+	expect(await h.run('--text', 'fresh')).toBe(1);
+	for (const message of h.err) expect(message).toMatch(/already holds "abc"/);
+	expect(h.sent).toStrictEqual([]);
 });
 
-test('clearing the free-text row with keys counts as taken', async t => {
+test('clearing the free-text row with keys counts as taken', async () => {
 	const dialog = new Dialog(false);
 	dialog.press('5');
 	dialog.type('abc');
 	const h = harness(dialog);
-	t.is(await h.run('--keys', 'C-u'), 0);
-	t.is(dialog.text, '');
+	expect(await h.run('--keys', 'C-u')).toBe(0);
+	expect(dialog.text).toBe('');
 });

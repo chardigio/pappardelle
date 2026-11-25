@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import React from 'react';
 import {TextAttributes} from '@opentui/core';
 import {ManualClock} from '@opentui/core/testing';
@@ -56,54 +57,54 @@ async function mount(node: React.ReactNode, startAt = START) {
 	};
 }
 
-test('spinners and the blink advance on the renderer clock, and a later spinner joins the running phase', async t => {
+test('spinners and the blink advance on the renderer clock, and a later spinner joins the running phase', async () => {
 	const scene1 = await mount(scene({spinners: 1, blink: true}));
-	t.teardown(async () => scene1.view.unmount());
-	t.is(scene1.spinners(), '·');
-	t.true(scene1.blinkOn());
+	teardown(async () => scene1.view.unmount());
+	expect(scene1.spinners()).toBe('·');
+	expect(scene1.blinkOn()).toBe(true);
 
 	await scene1.advanceTo(START + 150);
-	t.is(scene1.spinners(), '✢');
+	expect(scene1.spinners()).toBe('✢');
 	await scene1.view.rerender(scene({spinners: 2, blink: true}));
-	t.is(scene1.spinners(), '✢✢');
+	expect(scene1.spinners()).toBe('✢✢');
 
 	await scene1.advanceTo(START + 300);
-	t.is(scene1.spinners(), '✳✳');
-	t.true(scene1.blinkOn());
+	expect(scene1.spinners()).toBe('✳✳');
+	expect(scene1.blinkOn()).toBe(true);
 	await scene1.advanceTo(START + 500);
-	t.false(scene1.blinkOn());
+	expect(scene1.blinkOn()).toBe(false);
 	await scene1.advanceTo(START + 1000);
-	t.true(scene1.blinkOn());
+	expect(scene1.blinkOn()).toBe(true);
 });
 
-test('a blink that starts just before a tick boundary stays on for at least half a blink', async t => {
+test('a blink that starts just before a tick boundary stays on for at least half a blink', async () => {
 	const scene1 = await mount(scene({blink: true}), START - 10);
-	t.teardown(async () => scene1.view.unmount());
+	teardown(async () => scene1.view.unmount());
 	await scene1.advanceTo(START);
-	t.true(scene1.blinkOn());
+	expect(scene1.blinkOn()).toBe(true);
 	await scene1.advanceTo(START + 500);
-	t.false(scene1.blinkOn());
+	expect(scene1.blinkOn()).toBe(false);
 });
 
-test('a blink that starts after every blink stopped starts on', async t => {
+test('a blink that starts after every blink stopped starts on', async () => {
 	const scene1 = await mount(scene({blink: true}));
-	t.teardown(async () => scene1.view.unmount());
+	teardown(async () => scene1.view.unmount());
 	await scene1.advanceTo(START + 500);
-	t.false(scene1.blinkOn());
+	expect(scene1.blinkOn()).toBe(false);
 	await scene1.view.rerender(scene({}));
 	await scene1.view.rerender(scene({blink: true}));
-	t.true(scene1.blinkOn());
+	expect(scene1.blinkOn()).toBe(true);
 });
 
-test('nothing draws once nothing animates', async t => {
+test('nothing draws once nothing animates', async () => {
 	const scene1 = await mount(scene({spinners: 1, blink: true}));
-	t.teardown(async () => scene1.view.unmount());
+	teardown(async () => scene1.view.unmount());
 	const timersBefore = scene1.clock.pendingTimerCount;
 	await scene1.advanceTo(START + 150);
 	await scene1.view.rerender(scene({}));
 	const {frameId} = scene1.view.renderer;
 	scene1.clock.advance(2000);
 	await scene1.view.flush();
-	t.is(scene1.view.renderer.frameId, frameId);
-	t.true(scene1.clock.pendingTimerCount < timersBefore);
+	expect(scene1.view.renderer.frameId).toBe(frameId);
+	expect(scene1.clock.pendingTimerCount < timersBefore).toBe(true);
 });

@@ -1,4 +1,5 @@
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -11,12 +12,12 @@ const run = promisify(execFile);
 const moduleUrl = (name: string) =>
 	JSON.stringify(new URL(name, import.meta.url).href);
 
-function fixture(t: ExecutionContext) {
+function fixture() {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-watch-'));
 	const dbPath = path.join(dir, 'state.db');
 	const state = openStateDb(dbPath);
 	state.db.run('CREATE TABLE marks (name TEXT PRIMARY KEY) STRICT');
-	t.teardown(() => {
+	teardown(() => {
 		closeStateDb(dbPath);
 		fs.rmSync(dir, {recursive: true, force: true});
 	});
@@ -39,8 +40,8 @@ async function changed(dbPath: string, ms: number): Promise<boolean> {
 	});
 }
 
-test("another process's write reaches a listener well inside the poll interval", async t => {
-	const {dbPath} = fixture(t);
+test("another process's write reaches a listener well inside the poll interval", async () => {
+	const {dbPath} = fixture();
 	const seen = changed(dbPath, 1500);
 	await run(process.execPath, [
 		'--input-type=module',
@@ -49,19 +50,19 @@ test("another process's write reaches a listener well inside the poll interval",
 		const state = openStateDb(${JSON.stringify(dbPath)});
 		await state.writeRows(() => state.db.run("INSERT INTO marks VALUES ('child')"));`,
 	]);
-	t.true(await seen);
+	expect(await seen).toBe(true);
 });
 
-test("this process's own write reaches its listeners", async t => {
-	const {dbPath, state} = fixture(t);
+test("this process's own write reaches its listeners", async () => {
+	const {dbPath, state} = fixture();
 	// Past the 2-second fallback poll: macOS can report the bell later.
 	const seen = changed(dbPath, 3000);
 	await state.writeRows(() => state.db.run("INSERT INTO marks VALUES ('own')"));
-	t.true(await seen);
+	expect(await seen).toBe(true);
 });
 
-test('a commit that rang no bell is still found by the poll', async t => {
-	const {dbPath} = fixture(t);
+test('a commit that rang no bell is still found by the poll', async () => {
+	const {dbPath} = fixture();
 	const seen = changed(dbPath, 4000);
 	await run(process.execPath, [
 		'--input-type=module',
@@ -69,14 +70,14 @@ test('a commit that rang no bell is still found by the poll', async t => {
 		`import {Database} from 'bun:sqlite';
 		new Database(${JSON.stringify(dbPath)}).run("INSERT INTO marks VALUES ('quiet')");`,
 	]);
-	t.true(await seen);
+	expect(await seen).toBe(true);
 });
 
-test('a transaction that changes no rows rings nothing', async t => {
-	const {dbPath, state} = fixture(t);
+test('a transaction that changes no rows rings nothing', async () => {
+	const {dbPath, state} = fixture();
 	const seen = changed(dbPath, 300);
 	await state.writeRows(() =>
 		state.db.run("DELETE FROM marks WHERE name = 'absent'"),
 	);
-	t.false(await seen);
+	expect(await seen).toBe(false);
 });

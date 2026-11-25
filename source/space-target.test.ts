@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	callerSpace,
 	NoTargetSpaceError,
@@ -7,29 +7,27 @@ import {
 
 const resolve = (raw: string) => `resolved:${raw}`;
 
-test('--space resolves like a typed issue key', t => {
-	t.is(
+test('--space resolves like a typed issue key', () => {
+	expect(
 		resolveTargetSpace({
 			flag: '696',
 			env: {PAPPARDELLE_SPACE: 'STA-1'},
 			resolve,
 		}),
-		'resolved:696',
-	);
+	).toBe('resolved:696');
 });
 
-test('PAPPARDELLE_SPACE is the exact key and is not normalized', t => {
-	t.is(
+test('PAPPARDELLE_SPACE is the exact key and is not normalized', () => {
+	expect(
 		resolveTargetSpace({env: {PAPPARDELLE_SPACE: 'DEMO-2'}, resolve}),
-		'DEMO-2',
-	);
+	).toBe('DEMO-2');
 });
 
-test('with neither, the caller is told it is not in a workspace', t => {
+test('with neither, the caller is told it is not in a workspace', () => {
 	for (const env of [{}, {PAPPARDELLE_SPACE: ' '}]) {
-		t.throws(() => resolveTargetSpace({env, resolve}), {
-			instanceOf: NoTargetSpaceError,
-		});
+		expect(() => resolveTargetSpace({env, resolve})).toThrow(
+			NoTargetSpaceError,
+		);
 	}
 });
 
@@ -48,26 +46,27 @@ const allIn = (key: string) => () => ({
 	}),
 });
 
-test('PAPPARDELLE_SPACE names the space wherever the caller runs', t => {
-	t.deepEqual(
+test('PAPPARDELLE_SPACE names the space wherever the caller runs', () => {
+	expect(
 		callerSpace({
 			env: {PAPPARDELLE_SPACE: 'STA-9'},
 			cwd: '/w',
 			checkout: {kind: 'checkout', checkout},
 			identities: allIn('STA-1'),
 		}),
-		{kind: 'env', key: 'STA-9'},
-	);
+	).toStrictEqual({kind: 'env', key: 'STA-9'});
 });
 
-test('outside a git checkout only PAPPARDELLE_SPACE names a space', t => {
+test('outside a git checkout only PAPPARDELLE_SPACE names a space', () => {
 	const options = {
 		cwd: '/w',
 		checkout: {kind: 'not-in-a-repo'} as const,
 		identities: allIn('STA-1'),
 	};
-	t.deepEqual(callerSpace({...options, env: {}}), {kind: 'none'});
-	t.deepEqual(callerSpace({...options, env: {PAPPARDELLE_SPACE: 'STA-1'}}), {
+	expect(callerSpace({...options, env: {}})).toStrictEqual({kind: 'none'});
+	expect(
+		callerSpace({...options, env: {PAPPARDELLE_SPACE: 'STA-1'}}),
+	).toStrictEqual({
 		kind: 'env',
 		key: 'STA-1',
 	});

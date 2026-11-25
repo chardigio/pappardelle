@@ -1,12 +1,13 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {readResolvedSqliteState, recordSqliteState} from './state-flag.ts';
 
-function stateDir(t: {teardown(fn: () => void): void}) {
+function stateDir() {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-flag-'));
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
 	return dir;
 }
 
@@ -16,33 +17,37 @@ const recorded = (dir: string) =>
 		db: string;
 	};
 
-test('a flag that was never on leaves no file behind', t => {
-	const dir = stateDir(t);
+test('a flag that was never on leaves no file behind', () => {
+	const dir = stateDir();
 	recordSqliteState(false, dir);
-	t.deepEqual(fs.readdirSync(dir), []);
-	t.false(readResolvedSqliteState(dir, {}));
+	expect(fs.readdirSync(dir)).toStrictEqual([]);
+	expect(readResolvedSqliteState(dir, {})).toBe(false);
 });
 
-test('the recorded flag follows the config on, then off', t => {
-	const dir = stateDir(t);
+test('the recorded flag follows the config on, then off', () => {
+	const dir = stateDir();
 	recordSqliteState(true, dir);
-	t.deepEqual(recorded(dir), {
+	expect(recorded(dir)).toStrictEqual({
 		sqliteState: true,
 		db: path.join(dir, 'state.db'),
 	});
-	t.true(readResolvedSqliteState(dir, {}));
+	expect(readResolvedSqliteState(dir, {})).toBe(true);
 	recordSqliteState(false, dir);
-	t.false(recorded(dir).sqliteState);
-	t.false(readResolvedSqliteState(dir, {}));
+	expect(recorded(dir).sqliteState).toBe(false);
+	expect(readResolvedSqliteState(dir, {})).toBe(false);
 });
 
-test('the override wins for the process that has it and is never recorded', t => {
-	const dir = stateDir(t);
+test('the override wins for the process that has it and is never recorded', () => {
+	const dir = stateDir();
 	recordSqliteState(false, dir);
-	t.true(readResolvedSqliteState(dir, {PAPPARDELLE_SQLITE_STATE: '1'}));
-	t.false(fs.existsSync(path.join(dir, 'state-flag.json')));
+	expect(readResolvedSqliteState(dir, {PAPPARDELLE_SQLITE_STATE: '1'})).toBe(
+		true,
+	);
+	expect(fs.existsSync(path.join(dir, 'state-flag.json'))).toBe(false);
 
 	recordSqliteState(true, dir);
-	t.false(readResolvedSqliteState(dir, {PAPPARDELLE_SQLITE_STATE: '0'}));
-	t.true(recorded(dir).sqliteState);
+	expect(readResolvedSqliteState(dir, {PAPPARDELLE_SQLITE_STATE: '0'})).toBe(
+		false,
+	);
+	expect(recorded(dir).sqliteState).toBe(true);
 });

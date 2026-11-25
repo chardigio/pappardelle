@@ -19,7 +19,8 @@ import {
 } from '../../source/state-db.ts';
 import {initTmuxState} from '../../source/tmux.ts';
 import {sendHookEvent, serveTestHub} from './status-daemon.ts';
-import type {Teardown} from './temp-dir.ts';
+import {teardown} from './teardown.ts';
+import type {Cleanup} from './temp-dir.ts';
 
 /** Whether this test run keeps state in SQLite (PAPPARDELLE_SQLITE_STATE=1). */
 export const sqliteRun = process.env['PAPPARDELLE_SQLITE_STATE'] === '1';
@@ -41,7 +42,6 @@ export type TestState = {
  * nothing the test reads or sends status through starts a daemon.
  */
 export function testState(
-	t: Teardown,
 	options: {
 		repo?: string;
 		/** A directory to keep the state in, in place of a new temp directory. */
@@ -52,8 +52,11 @@ export function testState(
 		home?: string;
 		env?: NodeJS.ProcessEnv;
 		mainRoot?: () => string;
+		/** Where to undo it, for state a whole file shares; the test's end by default. */
+		cleanup?: Cleanup;
 	} = {},
 ): TestState {
+	const cleanup = options.cleanup ?? teardown;
 	const repo = options.repo ?? 'repo';
 	const stateDir =
 		options.stateDir ??
@@ -64,7 +67,7 @@ export function testState(
 		fs.writeFileSync(registryFile, JSON.stringify(options.spaces));
 
 	const sqlite = options.sqlite ?? sqliteRun;
-	if (sqlite) serveTestHub(t, statusSocketPath(stateDir));
+	if (sqlite) serveTestHub(statusSocketPath(stateDir), cleanup);
 	const daos = createStateDaos({
 		repo,
 		stateDir,
@@ -74,7 +77,7 @@ export function testState(
 		env: options.env,
 		mainRoot: options.mainRoot,
 	});
-	t.teardown(() => {
+	cleanup(() => {
 		daos.disconnectStatusDaemon();
 		closeStateDb(stateDbPath(stateDir));
 		fs.rmSync(stateDir, {recursive: true, force: true});
@@ -127,10 +130,9 @@ export async function writeClaudeStatus(
 
 /** `testState`, also handed to tmux.ts for the functions that read stores. */
 export function testTmuxState(
-	t: Teardown,
 	options: Parameters<typeof testState>[1] = {},
 ): TestState {
-	const state = testState(t, options);
+	const state = testState(options);
 	initTmuxState(state.daos);
 	return state;
 }
@@ -158,14 +160,14 @@ export async function recordIdentities(
 
 /**
  * `testTmuxState` for a test file whose spaces were opened by idow, for its
- * `test.before`: tmux.ts reads one set of stores for the whole process.
+ * `beforeAll`: tmux.ts reads one set of stores for the whole file.
  */
 export async function testTmuxSpaces(
-	t: Teardown,
 	repo: string,
 	keys: readonly string[],
+	cleanup?: Cleanup,
 ): Promise<TestState> {
-	const state = testTmuxState(t, {repo});
+	const state = testTmuxState({repo, cleanup});
 	await recordIdentities(state, keys);
 	return state;
 }

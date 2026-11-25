@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	applyStateChoice,
 	buildStateChoices,
@@ -32,64 +32,66 @@ function issue(name: string, type: string): TrackerIssue {
 
 const IN_PROGRESS = issue('In Progress', 'in_progress');
 
-test('an open issue defaults to closed', t => {
+test('an open issue defaults to closed', () => {
 	const choices = buildStateChoices(STATES, IN_PROGRESS);
 	const key = defaultChoiceKey(choices);
 	const chosen = choices.find(choice => choiceKey(choice) === key)!;
-	t.is(choiceLabel(chosen), 'Closed');
+	expect(choiceLabel(chosen)).toBe('Closed');
 });
 
-test('an issue that is already done defaults to leaving it', t => {
+test('an issue that is already done defaults to leaving it', () => {
 	const closed = issue('Closed', 'completed');
-	t.is(defaultChoiceKey(buildStateChoices(STATES, closed)), 'leave');
+	expect(defaultChoiceKey(buildStateChoices(STATES, closed))).toBe('leave');
 
 	const states = [...STATES, {id: 'in_review', name: 'In Review', done: true}];
 	const reviewed = issue('In Review', 'in_review');
-	t.is(defaultChoiceKey(buildStateChoices(states, reviewed)), 'leave');
+	expect(defaultChoiceKey(buildStateChoices(states, reviewed))).toBe('leave');
 });
 
-test('without a closed state the first done state is the default', t => {
+test('without a closed state the first done state is the default', () => {
 	const states = [
 		{id: 'open', name: 'Open', done: false},
 		{id: 'shipped', name: 'Shipped', done: true},
 	];
-	t.is(defaultChoiceKey(buildStateChoices(states, IN_PROGRESS)), 'set:shipped');
+	expect(defaultChoiceKey(buildStateChoices(states, IN_PROGRESS))).toBe(
+		'set:shipped',
+	);
 });
 
-test('before states load, Enter still closes the issue', t => {
+test('before states load, Enter still closes the issue', () => {
 	for (const states of [null, []]) {
 		const choices = buildStateChoices(states, IN_PROGRESS);
-		t.deepEqual(
-			choices.map(choice => choice.kind),
-			['close', 'leave'],
-		);
-		t.is(defaultChoiceKey(choices), choiceKey({kind: 'close'}));
+		expect(choices.map(choice => choice.kind)).toStrictEqual([
+			'close',
+			'leave',
+		]);
+		expect(defaultChoiceKey(choices)).toBe(choiceKey({kind: 'close'}));
 	}
 });
 
-test('the loading stand-in and the loaded closed state are the same selection', t => {
-	t.is(choiceKey({kind: 'close'}), choiceKey({kind: 'set', state: STATES[2]!}));
+test('the loading stand-in and the loaded closed state are the same selection', () => {
+	expect(choiceKey({kind: 'close'})).toBe(
+		choiceKey({kind: 'set', state: STATES[2]!}),
+	);
 });
 
-test('cycling wraps at both ends', t => {
-	t.is(cycleChoice(4, 5, 'right'), 0);
-	t.is(cycleChoice(0, 5, 'left'), 4);
-	t.is(cycleChoice(1, 5, 'right'), 2);
+test('cycling wraps at both ends', () => {
+	expect(cycleChoice(4, 5, 'right')).toBe(0);
+	expect(cycleChoice(0, 5, 'left')).toBe(4);
+	expect(cycleChoice(1, 5, 'right')).toBe(2);
 });
 
-test('leave names the current state', t => {
-	t.is(
+test('leave names the current state', () => {
+	expect(
 		choiceLabel({
 			kind: 'leave',
 			currentName: 'In Progress',
 			currentDone: false,
 		}),
-		'Leave as In Progress',
-	);
-	t.is(
+	).toBe('Leave as In Progress');
+	expect(
 		choiceLabel({kind: 'leave', currentName: undefined, currentDone: false}),
-		'Leave unchanged',
-	);
+	).toBe('Leave unchanged');
 });
 
 function recordingTracker(result: boolean) {
@@ -107,31 +109,36 @@ function recordingTracker(result: boolean) {
 	return {tracker, calls};
 }
 
-test('applying a choice makes the matching tracker call', async t => {
+test('applying a choice makes the matching tracker call', async () => {
 	const {tracker, calls} = recordingTracker(true);
 	const deferred: StateChoice = {kind: 'set', state: STATES[3]!};
-	t.true(await applyStateChoice(tracker, 'bd-1', {kind: 'close'}));
-	t.true(await applyStateChoice(tracker, 'bd-1', deferred));
-	t.true(
+	expect(await applyStateChoice(tracker, 'bd-1', {kind: 'close'})).toBe(true);
+	expect(await applyStateChoice(tracker, 'bd-1', deferred)).toBe(true);
+	expect(
 		await applyStateChoice(tracker, 'bd-1', {
 			kind: 'leave',
 			currentName: 'Open',
 		}),
-	);
-	t.deepEqual(calls, [
+	).toBe(true);
+	expect(calls).toStrictEqual([
 		['close', 'bd-1'],
 		['set', 'bd-1', 'deferred'],
 	]);
 });
 
-test('a rejected write comes back false', async t => {
+test('a rejected write comes back false', async () => {
 	const {tracker} = recordingTracker(false);
-	t.false(await applyStateChoice(tracker, 'bd-1', {kind: 'close'}));
+	expect(await applyStateChoice(tracker, 'bd-1', {kind: 'close'})).toBe(false);
 });
 
-test('the current status is offered only as Leave', t => {
+test('the current status is offered only as Leave', () => {
 	const labels = buildStateChoices(STATES, IN_PROGRESS).map(choice =>
 		choiceLabel(choice),
 	);
-	t.deepEqual(labels, ['Open', 'Closed', 'Deferred', 'Leave as In Progress']);
+	expect(labels).toStrictEqual([
+		'Open',
+		'Closed',
+		'Deferred',
+		'Leave as In Progress',
+	]);
 });

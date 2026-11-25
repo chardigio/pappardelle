@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {stripSkinTones} from './emoji-rail-width.ts';
 import {
 	maybeStripSkinTones,
@@ -29,32 +29,34 @@ async function drawsWide(version: string | null): Promise<boolean> {
 	return tmuxDrawsSkinToneWide();
 }
 
-test('stripSkinTones removes every Fitzpatrick modifier and keeps other text', t => {
-	t.is(stripSkinTones('Ship 👍🏻 👍🏼 👍🏽 👍🏾 👍🏿 now'), 'Ship 👍 👍 👍 👍 👍 now');
-	t.is(stripSkinTones('👩🏽‍🍳 cooks'), '👩‍🍳 cooks');
-	t.is(stripSkinTones('Plain ✨ ⚙️ 👨‍🍳 title'), 'Plain ✨ ⚙️ 👨‍🍳 title');
-	t.is(stripSkinTones('no emoji here'), 'no emoji here');
+test('stripSkinTones removes every Fitzpatrick modifier and keeps other text', () => {
+	expect(stripSkinTones('Ship 👍🏻 👍🏼 👍🏽 👍🏾 👍🏿 now')).toBe(
+		'Ship 👍 👍 👍 👍 👍 now',
+	);
+	expect(stripSkinTones('👩🏽‍🍳 cooks')).toBe('👩‍🍳 cooks');
+	expect(stripSkinTones('Plain ✨ ⚙️ 👨‍🍳 title')).toBe('Plain ✨ ⚙️ 👨‍🍳 title');
+	expect(stripSkinTones('no emoji here')).toBe('no emoji here');
 });
 
-test.serial('only a bare 3.6 draws skin-tone modifiers wide', async t => {
+test('only a bare 3.6 draws skin-tone modifiers wide', async () => {
 	await withTmux(async () => {
-		t.true(await drawsWide('3.6'));
+		expect(await drawsWide('3.6')).toBe(true);
 	});
 	for (const version of ['3.5', '3.6a', '3.6b', '3.7c', '3.8', 'next-3.9']) {
 		await withTmux(async () => {
-			t.false(await drawsWide(version), `version ${version}`);
+			expect(await drawsWide(version), `version ${version}`).toBe(false);
 		});
 	}
 });
 
-test.serial('an unreadable version inside tmux does not strip', async t => {
+test('an unreadable version inside tmux does not strip', async () => {
 	await withTmux(async () => {
-		t.false(await drawsWide(null));
-		t.is(maybeStripSkinTones('💪🏼', tmuxDrawsSkinToneWide()), '💪🏼');
+		expect(await drawsWide(null)).toBe(false);
+		expect(maybeStripSkinTones('💪🏼', tmuxDrawsSkinToneWide())).toBe('💪🏼');
 	});
 });
 
-test.serial('outside tmux the version is never probed', async t => {
+test('outside tmux the version is never probed', async () => {
 	await withTmux(async () => {
 		let calls = 0;
 		setTmuxVersionProbeForTests(async () => {
@@ -62,42 +64,39 @@ test.serial('outside tmux the version is never probed', async t => {
 			return '3.6';
 		});
 		await resolveTmuxSkinTone();
-		t.false(tmuxDrawsSkinToneWide());
-		t.is(calls, 0);
+		expect(tmuxDrawsSkinToneWide()).toBe(false);
+		expect(calls).toBe(0);
 	}, false);
 });
 
-test.serial(
-	'a stalled probe leaves the modifiers in place until the version is known',
-	async t => {
-		await withTmux(async () => {
-			let finish!: (version: string) => void;
-			let calls = 0;
-			setTmuxVersionProbeForTests(async () => {
-				calls++;
-				return new Promise(resolve => {
-					finish = resolve;
-				});
+test('a stalled probe leaves the modifiers in place until the version is known', async () => {
+	await withTmux(async () => {
+		let finish!: (version: string) => void;
+		let calls = 0;
+		setTmuxVersionProbeForTests(async () => {
+			calls++;
+			return new Promise(resolve => {
+				finish = resolve;
 			});
-			t.false(tmuxDrawsSkinToneWide());
-			t.is(calls, 0, 'reading the flag must not start a probe');
-			const resolved = resolveTmuxSkinTone();
-			t.false(tmuxDrawsSkinToneWide());
-			finish('3.6');
-			await resolved;
-			t.true(tmuxDrawsSkinToneWide());
 		});
-	},
-);
-
-test('maybeStripSkinTones strips only when told tmux mis-draws them', t => {
-	t.is(maybeStripSkinTones('💪🏼', true), '💪');
-	t.is(maybeStripSkinTones('Ship 👍🏽 fixes', true), 'Ship 👍 fixes');
-	t.is(maybeStripSkinTones(undefined, true), undefined);
-	t.is(maybeStripSkinTones('💪🏼', false), '💪🏼');
+		expect(tmuxDrawsSkinToneWide()).toBe(false);
+		expect(calls, 'reading the flag must not start a probe').toBe(0);
+		const resolved = resolveTmuxSkinTone();
+		expect(tmuxDrawsSkinToneWide()).toBe(false);
+		finish('3.6');
+		await resolved;
+		expect(tmuxDrawsSkinToneWide()).toBe(true);
+	});
 });
 
-test.serial('the version query runs once per process', async t => {
+test('maybeStripSkinTones strips only when told tmux mis-draws them', () => {
+	expect(maybeStripSkinTones('💪🏼', true)).toBe('💪');
+	expect(maybeStripSkinTones('Ship 👍🏽 fixes', true)).toBe('Ship 👍 fixes');
+	expect(maybeStripSkinTones(undefined, true)).toBe(undefined);
+	expect(maybeStripSkinTones('💪🏼', false)).toBe('💪🏼');
+});
+
+test('the version query runs once per process', async () => {
 	await withTmux(async () => {
 		let calls = 0;
 		setTmuxVersionProbeForTests(async () => {
@@ -106,6 +105,6 @@ test.serial('the version query runs once per process', async t => {
 		});
 		await Promise.all([resolveTmuxSkinTone(), resolveTmuxSkinTone()]);
 		await resolveTmuxSkinTone();
-		t.is(calls, 1);
+		expect(calls).toBe(1);
 	});
 });

@@ -18,7 +18,7 @@
  *   6. The installed `claude` binary — a live `--model … --effort … --print`
  *      call, proving the flags Pappardelle emits are ones Claude accepts
  *
- * NOT an ava test — run manually with:
+ * NOT a unit test — run manually with:
  *   bun integration-tests/verify-claude-model-effort.ts
  *
  * Step 6 makes a real (tiny) API call and is skipped with --no-live; step 5 is

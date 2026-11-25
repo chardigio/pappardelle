@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Local verification script for LinearProvider against a real Linear instance.
- * NOT an ava test — run manually with `bun integration-tests/verify-linear.ts`
+ * NOT a unit test — run manually with `bun integration-tests/verify-linear.ts`
  *
  * Env vars:
  *   LINEAR_ISSUE   — issue key to fetch (default: STA-683)

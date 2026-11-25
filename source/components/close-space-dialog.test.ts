@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../../test/helpers/teardown.ts';
 import React from 'react';
 import {render, until} from '../../test/helpers/render.ts';
 import type {StateChoice} from '../close-state-choice.ts';
@@ -55,45 +56,45 @@ async function setup(tracker: IssueTrackerProvider | null, issue = ISSUE) {
 	return {view, confirmed, calls: () => calls};
 }
 
-test.serial(
-	'defaults to the closed-id state and Right moves to the next state',
-	async t => {
-		const {tracker, load} = trackerWithStates();
-		const dialog = await setup(tracker);
-		t.teardown(async () => {
-			await dialog.view.unmount();
-		});
-		load();
-		await until(
-			() => dialog.view.lastFrame().includes('Issue state: ‹ Done ›'),
-			dialog.view.lastFrame,
-		);
+test('defaults to the closed-id state and Right moves to the next state', async () => {
+	const {tracker, load} = trackerWithStates();
+	const dialog = await setup(tracker);
+	teardown(async () => {
+		await dialog.view.unmount();
+	});
+	load();
+	await until(
+		() => dialog.view.lastFrame().includes('Issue state: ‹ Done ›'),
+		dialog.view.lastFrame,
+	);
 
-		await dialog.view.stdin.write(RIGHT);
-		await until(
-			() => dialog.view.lastFrame().includes('‹ Deferred ›'),
-			dialog.view.lastFrame,
-		);
+	await dialog.view.stdin.write(RIGHT);
+	await until(
+		() => dialog.view.lastFrame().includes('‹ Deferred ›'),
+		dialog.view.lastFrame,
+	);
 
-		await dialog.view.stdin.write('\r');
-		await until(() => dialog.calls() > 0);
-		t.like(dialog.confirmed[0], {kind: 'set', state: {id: 'deferred'}});
-	},
-);
+	await dialog.view.stdin.write('\r');
+	await until(() => dialog.calls() > 0);
+	expect(dialog.confirmed[0]).toMatchObject({
+		kind: 'set',
+		state: {id: 'deferred'},
+	});
+});
 
-test.serial('Enter before the states load still closes the issue', async t => {
+test('Enter before the states load still closes the issue', async () => {
 	const {tracker} = trackerWithStates();
 	const dialog = await setup(tracker);
-	t.teardown(async () => {
+	teardown(async () => {
 		await dialog.view.unmount();
 	});
 
 	await dialog.view.stdin.write('\r');
 	await until(() => dialog.calls() > 0);
-	t.deepEqual(dialog.confirmed[0], {kind: 'close'});
+	expect(dialog.confirmed[0]).toStrictEqual({kind: 'close'});
 });
 
-test.serial('a choice made while loading survives the load', async t => {
+test('a choice made while loading survives the load', async () => {
 	const {tracker, load} = trackerWithStates();
 	// A canceled issue defaults to leaving it as is, so picking Closed is a
 	// choice the load could lose.
@@ -101,7 +102,7 @@ test.serial('a choice made while loading survives the load', async t => {
 		...ISSUE,
 		state: {name: 'Canceled', type: 'canceled', color: ''},
 	});
-	t.teardown(async () => {
+	teardown(async () => {
 		await dialog.view.unmount();
 	});
 	await until(
@@ -120,24 +121,21 @@ test.serial('a choice made while loading survives the load', async t => {
 		() => dialog.view.lastFrame().includes('‹ Done ›'),
 		dialog.view.lastFrame,
 	);
-	t.pass();
+	expect().pass();
 });
 
-test.serial(
-	'a tracker that cannot set states gets the plain dialog',
-	async t => {
-		const dialog = await setup({} as IssueTrackerProvider);
-		t.teardown(async () => {
-			await dialog.view.unmount();
-		});
-		await until(
-			() => dialog.view.lastFrame().includes('Press y or Enter to confirm'),
-			dialog.view.lastFrame,
-		);
-		t.notRegex(dialog.view.lastFrame(), /Issue state/);
+test('a tracker that cannot set states gets the plain dialog', async () => {
+	const dialog = await setup({} as IssueTrackerProvider);
+	teardown(async () => {
+		await dialog.view.unmount();
+	});
+	await until(
+		() => dialog.view.lastFrame().includes('Press y or Enter to confirm'),
+		dialog.view.lastFrame,
+	);
+	expect(dialog.view.lastFrame()).not.toMatch(/Issue state/);
 
-		await dialog.view.stdin.write('y');
-		await until(() => dialog.calls() > 0);
-		t.deepEqual(dialog.confirmed, [undefined]);
-	},
-);
+	await dialog.view.stdin.write('y');
+	await until(() => dialog.calls() > 0);
+	expect(dialog.confirmed).toStrictEqual([undefined]);
+});

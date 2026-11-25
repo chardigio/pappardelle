@@ -1,12 +1,13 @@
 import React, {memo, useEffect} from 'react';
 import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {useSpaceSelection} from './use-space-selection.ts';
 import type {SpaceData} from './types.ts';
 
-test('100 memoized rows skip no-op refreshes and selection survives membership changes during slow Git status', async t => {
+test('100 memoized rows skip no-op refreshes and selection survives membership changes during slow Git status', async () => {
 	let selection!: ReturnType<typeof useSpaceSelection>;
 	let rowCommits = 0;
 	const attachments: string[] = [];
@@ -36,7 +37,7 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 		);
 	}
 	const view = await render(React.createElement(View));
-	t.teardown(async () => {
+	teardown(async () => {
 		await view.unmount();
 	});
 	const refresh = new WorkspaceRefresh({
@@ -55,7 +56,7 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 			throw error;
 		},
 	});
-	t.teardown(() => refresh.stop());
+	teardown(() => refresh.stop());
 	async function waitFor(check: () => boolean) {
 		const deadline = Date.now() + 3000;
 		while (!check()) {
@@ -79,14 +80,14 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	await refresh.refresh();
 	await refresh.idle();
 	await delay(50);
-	t.is(rowCommits, before);
-	t.deepEqual(attachments, []);
+	expect(rowCommits).toBe(before);
+	expect(attachments).toStrictEqual([]);
 
 	// Rebuilding every row was the old polling behavior, and defeats React.memo.
 	selection.setSpaces(spaces => spaces.map(space => ({...space})));
 	await waitFor(() => rowCommits === before + 101);
-	t.is(rowCommits - before, 101);
-	t.deepEqual(attachments, []);
+	expect(rowCommits - before).toBe(101);
+	expect(attachments).toStrictEqual([]);
 
 	let finishDirty!: (value: boolean) => void;
 	dirty = new Promise(resolve => {
@@ -95,12 +96,12 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	keys = [...keys.filter(key => key !== 'STA-100'), 'STA-101'];
 	await refresh.refresh();
 	await waitFor(() => view.lastFrame()!.includes('STA-101'));
-	t.true(view.lastFrame()!.includes('Selected: STA-50'));
-	t.deepEqual(attachments, []);
+	expect(view.lastFrame()!.includes('Selected: STA-50')).toBe(true);
+	expect(attachments).toStrictEqual([]);
 	keys = keys.filter(key => key !== 'STA-50');
 	await refresh.refreshListOnly();
 	await waitFor(() => view.lastFrame()!.includes('Selected: STA-49'));
-	t.deepEqual(attachments, ['STA-49']);
+	expect(attachments).toStrictEqual(['STA-49']);
 	finishDirty(false);
 	await refresh.idle();
 });

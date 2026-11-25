@@ -1,4 +1,6 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {unreachable} from '../test/helpers/unreachable.ts';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 import {GitHubProvider, type GhExecutor} from './providers/github-provider.ts';
@@ -7,13 +9,13 @@ import {GitHubProvider, type GhExecutor} from './providers/github-provider.ts';
 // Helpers
 // ============================================================================
 
-test('concurrent first lookups share repo discovery and cache the resolved fork', async t => {
+test('concurrent first lookups share repo discovery and cache the resolved fork', async () => {
 	let discoveries = 0;
 	const queries: string[] = [];
 	const provider = new GitHubProvider(async args => {
 		if (args[0] === 'repo') {
 			discoveries++;
-			t.deepEqual(args, [
+			expect(args).toStrictEqual([
 				'repo',
 				'view',
 				'--json',
@@ -44,19 +46,21 @@ test('concurrent first lookups share repo discovery and cache the resolved fork'
 		provider.getBulkRailStatus(['STA-1']),
 		provider.buildPRUrl(26),
 	]);
-	t.is(discoveries, 1);
-	t.deepEqual(link, {
+	expect(discoveries).toBe(1);
+	expect(link).toStrictEqual({
 		number: 26,
 		url: 'https://github.com/upstream/repo/pull/26',
 	});
-	t.is(url, 'https://github.com/fork-owner/repo/pull/26');
-	t.true(queries.every(query => query.includes('repo:fork-owner/repo')));
+	expect(url).toBe('https://github.com/fork-owner/repo/pull/26');
+	expect(queries.every(query => query.includes('repo:fork-owner/repo'))).toBe(
+		true,
+	);
 	await provider.getRailStatus('STA-2');
-	t.is(discoveries, 1);
+	expect(discoveries).toBe(1);
 });
 
 for (const failure of ['error', 'invalid slug'] as const) {
-	test(`repo discovery ${failure} rejects the link lookup and backs off before retrying`, async t => {
+	test(`repo discovery ${failure} rejects the link lookup and backs off before retrying`, async () => {
 		let now = 0;
 		let discoveries = 0;
 		const provider = new GitHubProvider(
@@ -78,24 +82,26 @@ for (const failure of ['error', 'invalid slug'] as const) {
 			provider.getPRLink('STA-1'),
 			provider.getBulkRailStatus(['STA-1']),
 		]);
-		t.is(link.status, 'rejected');
-		t.deepEqual(rail, {status: 'fulfilled', value: new Map()});
-		t.is(discoveries, 1);
+		expect(link.status).toBe('rejected');
+		expect(rail).toStrictEqual({status: 'fulfilled', value: new Map()});
+		expect(discoveries).toBe(1);
 
 		now += 1000;
 		const retried = await provider.getBulkRailStatus(['STA-1']);
-		t.is(retried.size, 0);
-		t.is(discoveries, 1);
+		expect(retried.size).toBe(0);
+		expect(discoveries).toBe(1);
 
 		now += 60_000;
 		const recovered = await provider.getBulkRailStatus(['STA-1']);
-		t.is(recovered.size, 1);
-		t.is(await provider.buildPRUrl(1), 'https://github.com/owner/repo/pull/1');
-		t.is(discoveries, 2);
+		expect(recovered.size).toBe(1);
+		expect(await provider.buildPRUrl(1)).toBe(
+			'https://github.com/owner/repo/pull/1',
+		);
+		expect(discoveries).toBe(2);
 	});
 }
 
-test('repo discovery backoff grows with consecutive failures and stays bounded', async t => {
+test('repo discovery backoff grows with consecutive failures and stays bounded', async () => {
 	let now = 0;
 	const attempts: number[] = [];
 	const provider = new GitHubProvider(
@@ -111,12 +117,12 @@ test('repo discovery backoff grows with consecutive failures and stays bounded',
 		await provider.getBulkRailStatus(['STA-1']);
 	}
 	const gaps = attempts.slice(1).map((at, i) => at - attempts[i]!);
-	t.true(gaps[1]! > gaps[0]!);
-	t.true(gaps.every(gap => gap <= 5 * 60_000));
-	t.true(gaps.at(-1)! >= 4 * 60_000);
+	expect(gaps[1]! > gaps[0]!).toBe(true);
+	expect(gaps.every(gap => gap <= 5 * 60_000)).toBe(true);
+	expect(gaps.at(-1)! >= 4 * 60_000).toBe(true);
 });
 
-test('opening a PR looks the repo up again even while polling backs off', async t => {
+test('opening a PR looks the repo up again even while polling backs off', async () => {
 	let now = 0;
 	let discoveries = 0;
 	const provider = new GitHubProvider(
@@ -132,11 +138,11 @@ test('opening a PR looks the repo up again even while polling backs off', async 
 	);
 	await provider.getBulkRailStatus(['STA-1']);
 	now += 1000;
-	t.is(await provider.getPRLink('STA-1'), null);
-	t.is(discoveries, 2);
+	expect(await provider.getPRLink('STA-1')).toBe(null);
+	expect(discoveries).toBe(2);
 });
 
-test('a PR linked after a failed lookup ends the polling backoff', async t => {
+test('a PR linked after a failed lookup ends the polling backoff', async () => {
 	let now = 0;
 	let linkedAt = 0;
 	let discoveries = 0;
@@ -154,14 +160,14 @@ test('a PR linked after a failed lookup ends the polling backoff', async t => {
 	await provider.getBulkRailStatus(['STA-1']);
 	now += 1000;
 	await provider.getBulkRailStatus(['STA-1']);
-	t.is(discoveries, 1);
+	expect(discoveries).toBe(1);
 	linkedAt = now;
 	now += 1000;
 	await provider.getBulkRailStatus(['STA-1']);
-	t.is(discoveries, 2);
+	expect(discoveries).toBe(2);
 });
 
-test('link lookup retains merged and follow-up PR search semantics', async t => {
+test('link lookup retains merged and follow-up PR search semantics', async () => {
 	let query = '';
 	const provider = new GitHubProvider(async args => {
 		query = args.join(' ');
@@ -169,21 +175,23 @@ test('link lookup retains merged and follow-up PR search semantics', async t => 
 			{number: 9, url: 'https://github.com/owner/repo/pull/9', changedFiles: 0},
 		]);
 	}, 'owner/repo');
-	t.deepEqual(await provider.getPRLink('STA-1'), {
+	expect(await provider.getPRLink('STA-1')).toStrictEqual({
 		number: 9,
 		url: 'https://github.com/owner/repo/pull/9',
 	});
-	t.true(query.includes('head:STA-1'));
-	t.true(query.includes('sort:updated-desc'));
-	t.false(query.includes('is:open'));
-	t.false(query.includes('headRefName:'));
+	expect(query.includes('head:STA-1')).toBe(true);
+	expect(query.includes('sort:updated-desc')).toBe(true);
+	expect(query.includes('is:open')).toBe(false);
+	expect(query.includes('headRefName:')).toBe(false);
 });
 
-test('link lookup propagates API failure', async t => {
+test('link lookup propagates API failure', async () => {
 	const provider = new GitHubProvider(async () => {
 		throw new Error('offline');
 	}, 'owner/repo');
-	await t.throwsAsync(provider.getPRLink('STA-1'), {message: 'offline'});
+	await rejectionOf(provider.getPRLink('STA-1')).then(error => {
+		expect(error.message).toBe('offline');
+	});
 });
 
 function makeGhResponse(
@@ -256,17 +264,17 @@ function makeGhResponse(
 // getBulkRailStatus
 // ============================================================================
 
-test('getBulkRailStatus: empty issueKeys returns empty Map', async t => {
+test('getBulkRailStatus: empty issueKeys returns empty Map', async () => {
 	const exec: GhExecutor = async () => {
-		t.fail('executor should not be called for empty input');
+		unreachable('executor should not be called for empty input');
 		return '';
 	};
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.getBulkRailStatus([]);
-	t.is(result.size, 0);
+	expect(result.size).toBe(0);
 });
 
-test('getBulkRailStatus: no repo slug returns empty Map without calling executor', async t => {
+test('getBulkRailStatus: no repo slug returns empty Map without calling executor', async () => {
 	let called = false;
 	const exec: GhExecutor = async () => {
 		called = true;
@@ -275,11 +283,11 @@ test('getBulkRailStatus: no repo slug returns empty Map without calling executor
 	// null forces the "no slug" path — simulates running outside a GitHub repo
 	const provider = new GitHubProvider(exec, null);
 	const result = await provider.getBulkRailStatus(['STA-123']);
-	t.is(result.size, 0);
-	t.false(called);
+	expect(result.size).toBe(0);
+	expect(called).toBe(false);
 });
 
-test('getBulkRailStatus: single issue with passing checks', async t => {
+test('getBulkRailStatus: single issue with passing checks', async () => {
 	const exec: GhExecutor = async () =>
 		makeGhResponse({
 			pr0: {
@@ -293,15 +301,15 @@ test('getBulkRailStatus: single issue with passing checks', async t => {
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.getBulkRailStatus(['STA-123']);
 
-	t.is(result.size, 1);
+	expect(result.size).toBe(1);
 	const status = result.get('STA-123')!;
-	t.is(status.pipeline, 'passing');
-	t.is(status.unresolvedCommentCount, 0);
-	t.is(status.prNumber, 42);
-	t.false(status.hasConflict);
+	expect(status.pipeline).toBe('passing');
+	expect(status.unresolvedCommentCount).toBe(0);
+	expect(status.prNumber).toBe(42);
+	expect(status.hasConflict).toBe(false);
 });
 
-test('getBulkRailStatus: single issue with failing checks', async t => {
+test('getBulkRailStatus: single issue with failing checks', async () => {
 	const exec: GhExecutor = async () =>
 		makeGhResponse({
 			pr0: {
@@ -316,10 +324,10 @@ test('getBulkRailStatus: single issue with failing checks', async t => {
 	const result = await provider.getBulkRailStatus(['STA-555']);
 
 	const status = result.get('STA-555')!;
-	t.is(status.pipeline, 'failing');
+	expect(status.pipeline).toBe('failing');
 });
 
-test('getBulkRailStatus: single issue with in-progress checks', async t => {
+test('getBulkRailStatus: single issue with in-progress checks', async () => {
 	const exec: GhExecutor = async () =>
 		makeGhResponse({
 			pr0: {
@@ -333,10 +341,10 @@ test('getBulkRailStatus: single issue with in-progress checks', async t => {
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.getBulkRailStatus(['STA-100']);
 
-	t.is(result.get('STA-100')!.pipeline, 'progressing_clean');
+	expect(result.get('STA-100')!.pipeline).toBe('progressing_clean');
 });
 
-test('getBulkRailStatus: conflict detected', async t => {
+test('getBulkRailStatus: conflict detected', async () => {
 	const exec: GhExecutor = async () =>
 		makeGhResponse({
 			pr0: {mergeable: 'CONFLICTING'},
@@ -345,10 +353,10 @@ test('getBulkRailStatus: conflict detected', async t => {
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.getBulkRailStatus(['STA-200']);
 
-	t.true(result.get('STA-200')!.hasConflict);
+	expect(result.get('STA-200')!.hasConflict).toBe(true);
 });
 
-test('getBulkRailStatus: unresolved comments counted', async t => {
+test('getBulkRailStatus: unresolved comments counted', async () => {
 	const exec: GhExecutor = async () =>
 		makeGhResponse({
 			pr0: {
@@ -362,10 +370,10 @@ test('getBulkRailStatus: unresolved comments counted', async t => {
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.getBulkRailStatus(['STA-300']);
 
-	t.is(result.get('STA-300')!.unresolvedCommentCount, 3);
+	expect(result.get('STA-300')!.unresolvedCommentCount).toBe(3);
 });
 
-test('getBulkRailStatus: branch with no open PR returns pipeline null', async t => {
+test('getBulkRailStatus: branch with no open PR returns pipeline null', async () => {
 	const exec: GhExecutor = async () =>
 		makeGhResponse({
 			pr0: null,
@@ -375,11 +383,11 @@ test('getBulkRailStatus: branch with no open PR returns pipeline null', async t 
 	const result = await provider.getBulkRailStatus(['STA-404']);
 
 	const status = result.get('STA-404')!;
-	t.is(status.pipeline, null);
-	t.is(status.unresolvedCommentCount, 0);
+	expect(status.pipeline).toBe(null);
+	expect(status.unresolvedCommentCount).toBe(0);
 });
 
-test('getBulkRailStatus: multiple issues, results mapped to correct keys', async t => {
+test('getBulkRailStatus: multiple issues, results mapped to correct keys', async () => {
 	const exec: GhExecutor = async () =>
 		makeGhResponse({
 			pr0: {
@@ -400,15 +408,15 @@ test('getBulkRailStatus: multiple issues, results mapped to correct keys', async
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.getBulkRailStatus(['STA-1', 'STA-2', 'STA-3']);
 
-	t.is(result.size, 3);
-	t.is(result.get('STA-1')!.pipeline, 'passing');
-	t.is(result.get('STA-1')!.prNumber, 10);
-	t.is(result.get('STA-2')!.pipeline, 'failing');
-	t.is(result.get('STA-2')!.prNumber, 20);
-	t.is(result.get('STA-3')!.pipeline, null);
+	expect(result.size).toBe(3);
+	expect(result.get('STA-1')!.pipeline).toBe('passing');
+	expect(result.get('STA-1')!.prNumber).toBe(10);
+	expect(result.get('STA-2')!.pipeline).toBe('failing');
+	expect(result.get('STA-2')!.prNumber).toBe(20);
+	expect(result.get('STA-3')!.pipeline).toBe(null);
 });
 
-test('getBulkRailStatus: passes all branch names in single query', async t => {
+test('getBulkRailStatus: passes all branch names in single query', async () => {
 	let capturedArgs: string[] = [];
 	const exec: GhExecutor = async (args: string[]) => {
 		capturedArgs = args;
@@ -419,18 +427,18 @@ test('getBulkRailStatus: passes all branch names in single query', async t => {
 	await provider.getBulkRailStatus(['branch-a', 'branch-b']);
 
 	// Should have made exactly one call
-	t.is(capturedArgs[0], 'api');
-	t.is(capturedArgs[1], 'graphql');
+	expect(capturedArgs[0]).toBe('api');
+	expect(capturedArgs[1]).toBe('graphql');
 
 	// Query should contain both branch names inside aliased search() qualifiers
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
-	t.true(queryArg.includes('pr0:'));
-	t.true(queryArg.includes('pr1:'));
-	t.true(queryArg.includes('head:branch-a'));
-	t.true(queryArg.includes('head:branch-b'));
+	expect(queryArg.includes('pr0:')).toBe(true);
+	expect(queryArg.includes('pr1:')).toBe(true);
+	expect(queryArg.includes('head:branch-a')).toBe(true);
+	expect(queryArg.includes('head:branch-b')).toBe(true);
 });
 
-test('getBulkRailStatus: total API failure returns empty Map', async t => {
+test('getBulkRailStatus: total API failure returns empty Map', async () => {
 	const exec: GhExecutor = async () => {
 		throw new Error('gh: API rate limit exceeded');
 	};
@@ -439,74 +447,73 @@ test('getBulkRailStatus: total API failure returns empty Map', async t => {
 	const result = await provider.getBulkRailStatus(['STA-999']);
 
 	// Returns empty Map — caller keeps existing state
-	t.is(result.size, 0);
+	expect(result.size).toBe(0);
 });
 
-test.serial(
-	'getBulkRailStatus: partial GraphQL errors warn and still return available data',
-	async t => {
-		clearRecentErrors();
+test('getBulkRailStatus: partial GraphQL errors warn and still return available data', async () => {
+	clearRecentErrors();
 
-		const exec: GhExecutor = async () =>
-			JSON.stringify({
-				data: {
-					pr0: {
-						nodes: [
-							{
-								number: 42,
-								mergeable: 'MERGEABLE',
-								commits: {
-									nodes: [
-										{
-											commit: {
-												statusCheckRollup: {
-													contexts: {
-														nodes: [
-															{
-																__typename: 'CheckRun',
-																status: 'COMPLETED',
-																conclusion: 'SUCCESS',
-															},
-														],
-													},
+	const exec: GhExecutor = async () =>
+		JSON.stringify({
+			data: {
+				pr0: {
+					nodes: [
+						{
+							number: 42,
+							mergeable: 'MERGEABLE',
+							commits: {
+								nodes: [
+									{
+										commit: {
+											statusCheckRollup: {
+												contexts: {
+													nodes: [
+														{
+															__typename: 'CheckRun',
+															status: 'COMPLETED',
+															conclusion: 'SUCCESS',
+														},
+													],
 												},
 											},
 										},
-									],
-								},
-								reviewThreads: {nodes: []},
+									},
+								],
 							},
-						],
-					},
-					pr1: {nodes: []}, // aliased field empty due to partial error
+							reviewThreads: {nodes: []},
+						},
+					],
 				},
-				errors: [{message: 'Field-level permission denied for STA-2'}],
-			});
+				pr1: {nodes: []}, // aliased field empty due to partial error
+			},
+			errors: [{message: 'Field-level permission denied for STA-2'}],
+		});
 
-		const provider = new GitHubProvider(exec, 'owner/repo');
-		const result = await provider.getBulkRailStatus(['STA-1', 'STA-2']);
+	const provider = new GitHubProvider(exec, 'owner/repo');
+	const result = await provider.getBulkRailStatus(['STA-1', 'STA-2']);
 
-		// Partial data is still used
-		t.is(result.size, 2);
-		t.is(result.get('STA-1')!.pipeline, 'passing');
-		t.is(result.get('STA-1')!.prNumber, 42);
-		t.is(result.get('STA-2')!.pipeline, null);
+	// Partial data is still used
+	expect(result.size).toBe(2);
+	expect(result.get('STA-1')!.pipeline).toBe('passing');
+	expect(result.get('STA-1')!.prNumber).toBe(42);
+	expect(result.get('STA-2')!.pipeline).toBe(null);
 
-		// Warning was emitted for the errors field — the headline is a short,
-		// stable string and the dynamic error bodies live in `entry.error` so
-		// the TUI clip path (`clipLogEntryForDisplay`) bounds the rendered size
-		// even when many aliases fail at once.
-		const warnings = getRecentErrors().filter(
-			e =>
-				e.level === 'warn' &&
-				e.message === 'Partial GraphQL errors in bulk rail status',
-		);
-		t.is(warnings.length, 1);
-		t.true(warnings[0]!.error!.includes('Field-level permission denied'));
-	},
-);
+	// Warning was emitted for the errors field — the headline is a short,
+	// stable string and the dynamic error bodies live in `entry.error` so
+	// the TUI clip path (`clipLogEntryForDisplay`) bounds the rendered size
+	// even when many aliases fail at once.
+	const warnings = getRecentErrors().filter(
+		e =>
+			e.level === 'warn' &&
+			e.message === 'Partial GraphQL errors in bulk rail status',
+	);
+	expect(warnings.length).toBe(1);
+	expect(warnings[0]!.error!.includes('Field-level permission denied')).toBe(
+		true,
+	);
+});
 
-test('getBulkRailStatus: StatusContext nodes supported', async t => {
+test('getBulkRailStatus: StatusContext nodes supported', async () => {
 	const exec: GhExecutor = async () =>
 		makeGhResponse({
 			pr0: {
@@ -520,7 +527,7 @@ test('getBulkRailStatus: StatusContext nodes supported', async t => {
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.getBulkRailStatus(['STA-77']);
 
-	t.is(result.get('STA-77')!.pipeline, 'progressing_clean');
+	expect(result.get('STA-77')!.pipeline).toBe('progressing_clean');
 });
 
 // ============================================================================
@@ -536,7 +543,7 @@ function makePrListResponse(
 	});
 }
 
-test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and number', async t => {
+test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and number', async () => {
 	let capturedArgs: string[] = [];
 	const exec: GhExecutor = async (args: string[]) => {
 		capturedArgs = args;
@@ -552,22 +559,22 @@ test('checkIssueHasPRWithCommits: open PR found returns hasPR true with url and 
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.checkIssueHasPRWithCommits('STA-100');
 
-	t.true(result.hasPR);
-	t.true(result.hasCommits);
-	t.is(result.prNumber, 42);
-	t.is(result.prUrl, 'https://github.com/owner/repo/pull/42');
+	expect(result.hasPR).toBe(true);
+	expect(result.hasCommits).toBe(true);
+	expect(result.prNumber).toBe(42);
+	expect(result.prUrl).toBe('https://github.com/owner/repo/pull/42');
 
 	// Pin the gh invocation: GraphQL query inlines the branch name into a
 	// `head:` search qualifier (prefix match) so follow-up branches resolve
 	// from the parent issue key.
-	t.is(capturedArgs[0], 'api');
-	t.is(capturedArgs[1], 'graphql');
+	expect(capturedArgs[0]).toBe('api');
+	expect(capturedArgs[1]).toBe('graphql');
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
-	t.true(queryArg.includes('search('));
-	t.true(queryArg.includes('head:STA-100'));
+	expect(queryArg.includes('search(')).toBe(true);
+	expect(queryArg.includes('head:STA-100')).toBe(true);
 });
 
-test('checkIssueHasPRWithCommits: merged PR is found', async t => {
+test('checkIssueHasPRWithCommits: merged PR is found', async () => {
 	// Simulate a branch whose only PR has already been merged. The GraphQL
 	// query intentionally omits a `states:` filter so merged PRs still
 	// surface; this test pins that behavior.
@@ -583,25 +590,25 @@ test('checkIssueHasPRWithCommits: merged PR is found', async t => {
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.checkIssueHasPRWithCommits('STA-1078');
 
-	t.true(result.hasPR);
-	t.true(result.hasCommits);
-	t.is(result.prNumber, 1092);
-	t.is(result.prUrl, 'https://github.com/owner/repo/pull/1092');
+	expect(result.hasPR).toBe(true);
+	expect(result.hasCommits).toBe(true);
+	expect(result.prNumber).toBe(1092);
+	expect(result.prUrl).toBe('https://github.com/owner/repo/pull/1092');
 });
 
-test('checkIssueHasPRWithCommits: no PR found returns hasPR false', async t => {
+test('checkIssueHasPRWithCommits: no PR found returns hasPR false', async () => {
 	const exec: GhExecutor = async () => makePrListResponse([]);
 
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.checkIssueHasPRWithCommits('STA-404');
 
-	t.false(result.hasPR);
-	t.false(result.hasCommits);
-	t.is(result.prNumber, undefined);
-	t.is(result.prUrl, undefined);
+	expect(result.hasPR).toBe(false);
+	expect(result.hasCommits).toBe(false);
+	expect(result.prNumber).toBe(undefined);
+	expect(result.prUrl).toBe(undefined);
 });
 
-test('checkIssueHasPRWithCommits: PR with no changed files returns hasCommits false', async t => {
+test('checkIssueHasPRWithCommits: PR with no changed files returns hasCommits false', async () => {
 	const exec: GhExecutor = async () =>
 		makePrListResponse([
 			{
@@ -614,11 +621,11 @@ test('checkIssueHasPRWithCommits: PR with no changed files returns hasCommits fa
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.checkIssueHasPRWithCommits('STA-7');
 
-	t.true(result.hasPR);
-	t.false(result.hasCommits);
+	expect(result.hasPR).toBe(true);
+	expect(result.hasCommits).toBe(false);
 });
 
-test('checkIssueHasPRWithCommits: executor throwing returns hasPR false', async t => {
+test('checkIssueHasPRWithCommits: executor throwing returns hasPR false', async () => {
 	const exec: GhExecutor = async () => {
 		throw new Error('gh: not authenticated');
 	};
@@ -626,11 +633,11 @@ test('checkIssueHasPRWithCommits: executor throwing returns hasPR false', async 
 	const provider = new GitHubProvider(exec, 'owner/repo');
 	const result = await provider.checkIssueHasPRWithCommits('STA-500');
 
-	t.false(result.hasPR);
-	t.false(result.hasCommits);
+	expect(result.hasPR).toBe(false);
+	expect(result.hasCommits).toBe(false);
 });
 
-test('checkIssueHasPRWithCommits: no repo slug returns hasPR false without calling executor', async t => {
+test('checkIssueHasPRWithCommits: no repo slug returns hasPR false without calling executor', async () => {
 	let called = false;
 	const exec: GhExecutor = async () => {
 		called = true;
@@ -640,12 +647,12 @@ test('checkIssueHasPRWithCommits: no repo slug returns hasPR false without calli
 	const provider = new GitHubProvider(exec, null);
 	const result = await provider.checkIssueHasPRWithCommits('STA-100');
 
-	t.false(result.hasPR);
-	t.false(result.hasCommits);
-	t.false(called);
+	expect(result.hasPR).toBe(false);
+	expect(result.hasCommits).toBe(false);
+	expect(called).toBe(false);
 });
 
-test('checkIssueHasPRWithCommits: query sorts results by updated-desc', async t => {
+test('checkIssueHasPRWithCommits: query sorts results by updated-desc', async () => {
 	// When a branch matches multiple PRs (e.g. a reused branch name where the
 	// first PR was merged long ago and a new PR was just opened), the `g`
 	// shortcut would jump to the oldest PR. GitHub's search defaults to
@@ -668,13 +675,13 @@ test('checkIssueHasPRWithCommits: query sorts results by updated-desc', async t 
 	await provider.checkIssueHasPRWithCommits('STA-reused-branch');
 
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
-	t.true(
+	expect(
 		queryArg.includes('sort:updated-desc'),
 		`expected query to include sort:updated-desc: ${queryArg}`,
-	);
+	).toBe(true);
 });
 
-test('checkIssueHasPRWithCommits: query uses head: prefix so follow-up branches resolve', async t => {
+test('checkIssueHasPRWithCommits: query uses head: prefix so follow-up branches resolve', async () => {
 	// Issues often spawn follow-up branches like X-FOLLOW-1 for incremental
 	// PRs after the original lands. GraphQL `pullRequests(headRefName: X)`
 	// is exact-match on branch name, so those follow-ups would be invisible
@@ -691,25 +698,25 @@ test('checkIssueHasPRWithCommits: query uses head: prefix so follow-up branches 
 	await provider.checkIssueHasPRWithCommits('STA-1079');
 
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
-	t.true(
+	expect(
 		queryArg.includes('search('),
 		`expected GraphQL search() field: ${queryArg}`,
-	);
-	t.true(
+	).toBe(true);
+	expect(
 		queryArg.includes('head:STA-1079'),
 		`expected head:STA-1079 qualifier: ${queryArg}`,
-	);
-	t.false(
+	).toBe(true);
+	expect(
 		queryArg.includes('headRefName:'),
 		`expected no headRefName: (exact match) clause: ${queryArg}`,
-	);
+	).toBe(false);
 });
 
 // ============================================================================
 // getRailStatus / getBulkRailStatus — ordering
 // ============================================================================
 
-test('getRailStatus: query sorts results by updated-desc and uses head: prefix', async t => {
+test('getRailStatus: query sorts results by updated-desc and uses head: prefix', async () => {
 	// Rail status (pipeline, unresolved comments, merge conflict) must reflect
 	// the most recently updated PR for a branch, not the oldest one (which is
 	// often a long-ago merged reuse of the same branch name). It must also
@@ -724,13 +731,13 @@ test('getRailStatus: query sorts results by updated-desc and uses head: prefix',
 	await provider.getRailStatus('STA-branch-reuse');
 
 	const queryArg = capturedArgs.find(a => a.startsWith('query=')) ?? '';
-	t.true(queryArg.includes('search('));
-	t.true(queryArg.includes('head:STA-branch-reuse'));
-	t.true(queryArg.includes('is:open'));
-	t.true(queryArg.includes('sort:updated-desc'));
+	expect(queryArg.includes('search(')).toBe(true);
+	expect(queryArg.includes('head:STA-branch-reuse')).toBe(true);
+	expect(queryArg.includes('is:open')).toBe(true);
+	expect(queryArg.includes('sort:updated-desc')).toBe(true);
 });
 
-test('getBulkRailStatus: every aliased search sorts by updated-desc and uses head:', async t => {
+test('getBulkRailStatus: every aliased search sorts by updated-desc and uses head:', async () => {
 	let capturedArgs: string[] = [];
 	const exec: GhExecutor = async (args: string[]) => {
 		capturedArgs = args;
@@ -744,59 +751,52 @@ test('getBulkRailStatus: every aliased search sorts by updated-desc and uses hea
 	// Each aliased search() must independently sort + use head: — matching
 	// the substrings twice guarantees we didn't only fix the first alias.
 	const sortOccurrences = queryArg.split('sort:updated-desc').length - 1;
-	t.is(
+	expect(
 		sortOccurrences,
-		2,
 		`expected sort:updated-desc in both aliased queries, found ${sortOccurrences}: ${queryArg}`,
-	);
-	t.true(queryArg.includes('head:STA-1'));
-	t.true(queryArg.includes('head:STA-2'));
+	).toBe(2);
+	expect(queryArg.includes('head:STA-1')).toBe(true);
+	expect(queryArg.includes('head:STA-2')).toBe(true);
 });
 
-test.serial(
-	'a failed repo lookup warns once, not on every poll during its backoff',
-	async t => {
-		clearRecentErrors();
-		let now = 0;
-		const provider = new GitHubProvider(
-			async () => {
-				throw new Error('offline');
-			},
-			undefined,
-			undefined,
-			{now: () => now, linkedAt: () => 0},
-		);
-		for (; now < 20_000; now += 5000) {
-			await provider.getBulkRailStatus(['STA-1']);
-		}
+test('a failed repo lookup warns once, not on every poll during its backoff', async () => {
+	clearRecentErrors();
+	let now = 0;
+	const provider = new GitHubProvider(
+		async () => {
+			throw new Error('offline');
+		},
+		undefined,
+		undefined,
+		{now: () => now, linkedAt: () => 0},
+	);
+	for (; now < 20_000; now += 5000) {
+		await provider.getBulkRailStatus(['STA-1']);
+	}
 
-		const warnings = getRecentErrors().filter(
-			e => e.message === 'Failed to discover GitHub repository',
-		);
-		t.is(warnings.length, 1);
-	},
-);
+	const warnings = getRecentErrors().filter(
+		e => e.message === 'Failed to discover GitHub repository',
+	);
+	expect(warnings.length).toBe(1);
+});
 
-test.serial(
-	'a repo lookup that keeps failing warns once for the whole run of failures',
-	async t => {
-		clearRecentErrors();
-		let now = 0;
-		const provider = new GitHubProvider(
-			async () => {
-				throw new Error('gh: command not found');
-			},
-			undefined,
-			undefined,
-			{now: () => now, linkedAt: () => 0},
-		);
-		for (; now < 30 * 60_000; now += 60_000) {
-			await provider.getBulkRailStatus(['STA-1']);
-		}
+test('a repo lookup that keeps failing warns once for the whole run of failures', async () => {
+	clearRecentErrors();
+	let now = 0;
+	const provider = new GitHubProvider(
+		async () => {
+			throw new Error('gh: command not found');
+		},
+		undefined,
+		undefined,
+		{now: () => now, linkedAt: () => 0},
+	);
+	for (; now < 30 * 60_000; now += 60_000) {
+		await provider.getBulkRailStatus(['STA-1']);
+	}
 
-		const warnings = getRecentErrors().filter(
-			e => e.message === 'Failed to discover GitHub repository',
-		);
-		t.is(warnings.length, 1);
-	},
-);
+	const warnings = getRecentErrors().filter(
+		e => e.message === 'Failed to discover GitHub repository',
+	);
+	expect(warnings.length).toBe(1);
+});

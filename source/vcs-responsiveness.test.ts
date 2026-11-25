@@ -3,11 +3,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 
-test('slow gh/glab lookups keep timers running and opening an MR never fetches a diff', async t => {
+test('slow gh/glab lookups keep timers running and opening an MR never fetches a diff', async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-slow-vcs-'));
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
 	for (const command of ['gh', 'glab']) {
 		fs.writeFileSync(
 			path.join(dir, command),
@@ -75,19 +76,21 @@ console.log(JSON.stringify({results, opened, messages, host: process.env.GITLAB_
 		messages: string[];
 		host: string;
 	};
-	t.true(result.results[0] >= 10);
-	t.true(result.results[1].ticks >= 10);
-	t.true(result.results[2] >= 5);
-	t.is(result.results[1].number, 26);
-	t.deepEqual(
-		result.opened.sort(),
+	expect(result.results[0] >= 10).toBe(true);
+	expect(result.results[1].ticks >= 10).toBe(true);
+	expect(result.results[2] >= 5).toBe(true);
+	expect(result.results[1].number).toBe(26);
+	expect(result.opened.sort()).toStrictEqual(
 		[
 			'https://github.com/upstream/repo/pull/26',
 			'https://gitlab.fixture.test/team/project/-/merge_requests/7',
 		].sort(),
 	);
-	t.deepEqual(result.messages.sort(), ['Opened PR #26', 'Opened PR #7']);
-	t.is(result.host, 'original.fixture.test');
+	expect(result.messages.sort()).toStrictEqual([
+		'Opened PR #26',
+		'Opened PR #7',
+	]);
+	expect(result.host).toBe('original.fixture.test');
 	const calls = fs
 		.readFileSync(callsFile, 'utf8')
 		.trim()
@@ -96,13 +99,12 @@ console.log(JSON.stringify({results, opened, messages, host: process.env.GITLAB_
 			line =>
 				JSON.parse(line) as {command: string; args: string[]; host: string},
 		);
-	t.is(
+	expect(
 		calls.filter(call => call.command === 'gh' && call.args[0] === 'repo')
 			.length,
-		1,
-	);
+	).toBe(1);
 	const glabCalls = calls.filter(call => call.command === 'glab');
-	t.is(glabCalls.length, 1);
-	t.is(glabCalls[0]!.args[1], 'list');
-	t.is(glabCalls[0]!.host, 'gitlab.fixture.test');
+	expect(glabCalls.length).toBe(1);
+	expect(glabCalls[0]!.args[1]).toBe('list');
+	expect(glabCalls[0]!.host).toBe('gitlab.fixture.test');
 });

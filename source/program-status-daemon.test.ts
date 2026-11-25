@@ -4,7 +4,8 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {
 	killProcessesNaming,
 	processesNaming,
@@ -50,7 +51,6 @@ const report = (state: string): ProgramReport[] => [{state, id: ''}];
 
 /** A monitor's publisher whose clock, flag and reconnects the test moves. */
 function testPublisher(
-	t: ExecutionContext,
 	socketPath: string,
 	options: {
 		daemonMode: boolean;
@@ -91,7 +91,7 @@ function testPublisher(
 			};
 		},
 	});
-	t.teardown(() => {
+	teardown(() => {
 		for (const client of clients) client.close();
 	});
 	return {
@@ -133,8 +133,8 @@ async function sentSoFar(client: StatusClient, rail: RawConnection) {
 	);
 }
 
-test('of a snapshot the daemon holds and a snapshot file, the newer is read', async t => {
-	const state = testState(t, {sqlite: true});
+test('of a snapshot the daemon holds and a snapshot file, the newer is read', async () => {
+	const state = testState({sqlite: true});
 	await publishSnapshot(
 		state,
 		snapshotOf(target, report('working'), {updatedAt: at}),
@@ -143,30 +143,30 @@ test('of a snapshot the daemon holds and a snapshot file, the newer is read', as
 		state,
 		snapshotOf(target, report('done'), {updatedAt: at + 1000}),
 	);
-	t.is(await readStatus(state, 'STA-1', pane), 'done');
+	expect(await readStatus(state, 'STA-1', pane)).toBe('done');
 
 	await publishSnapshot(
 		state,
 		snapshotOf(target, report('blocked'), {updatedAt: at + 2000}),
 	);
-	t.is(await readStatus(state, 'STA-1', pane), 'blocked');
+	expect(await readStatus(state, 'STA-1', pane)).toBe('blocked');
 });
 
-test('a snapshot from a monitor that writes only files is read with the flag on', async t => {
-	const state = testState(t, {sqlite: true});
+test('a snapshot from a monitor that writes only files is read with the flag on', async () => {
+	const state = testState({sqlite: true});
 	publishSnapshotFile(
 		state,
 		snapshotOf(target, [{state: 'working', id: '', app: 'older-binary'}]),
 	);
 
-	t.like(await state.daos.programStatus.read('STA-1', pane), {
+	expect(await state.daos.programStatus.read('STA-1', pane)).toMatchObject({
 		info: {status: 'working', app: 'older-binary'},
 	});
 });
 
-test('with no daemon running a snapshot file is still read, and no daemon is started', async t => {
-	const socketPath = testSocketPath(t);
-	const state = testState(t, {
+test('with no daemon running a snapshot file is still read, and no daemon is started', async () => {
+	const socketPath = testSocketPath();
+	const state = testState({
 		sqlite: false,
 		stateDir: path.dirname(socketPath),
 	});
@@ -179,7 +179,7 @@ test('with no daemon running a snapshot file is still read, and no daemon is sta
 			started.push(daemonSocket);
 		},
 	});
-	t.teardown(() => {
+	teardown(() => {
 		client.close();
 	});
 	const store = createProgramStatusDao({
@@ -189,35 +189,37 @@ test('with no daemon running a snapshot file is still read, and no daemon is sta
 		statusClient: client,
 	});
 
-	t.like(await store.read('STA-1', pane), {info: {status: 'working'}});
+	expect(await store.read('STA-1', pane)).toMatchObject({
+		info: {status: 'working'},
+	});
 	await store.remove('STA-1');
-	t.is(await store.read('STA-1', pane), null);
-	t.deepEqual(started, []);
+	expect(await store.read('STA-1', pane)).toBe(null);
+	expect(started).toStrictEqual([]);
 });
 
-test('a monitor’s first send to a connected daemon removes the snapshot file from before the flag was on', async t => {
-	const state = testState(t, {sqlite: true});
+test('a monitor’s first send to a connected daemon removes the snapshot file from before the flag was on', async () => {
+	const state = testState({sqlite: true});
 	const socketPath = statusSocketPath(state.stateDir);
-	const h = testPublisher(t, socketPath, {daemonMode: true});
+	const h = testPublisher(socketPath, {daemonMode: true});
 	const before = snapshotOf(target, report('working'), {updatedAt: at});
 	publishSnapshotFile(state, before);
-	t.true(existsSync(h.file));
+	expect(existsSync(h.file)).toBe(true);
 
 	h.publisher.publish(
 		snapshotOf(target, report('blocked'), {updatedAt: at + 1000}),
 	);
 
 	await waitUntil(() => !existsSync(h.file), 'the file to be removed');
-	await sentSoFar(h.clients[0]!, await subscribeRaw(t, socketPath, 'repo'));
-	t.is(await readStatus(state, 'STA-1', pane), 'blocked');
-	t.true(existsSync(`${h.file}.lease`));
+	await sentSoFar(h.clients[0]!, await subscribeRaw(socketPath, 'repo'));
+	expect(await readStatus(state, 'STA-1', pane)).toBe('blocked');
+	expect(existsSync(`${h.file}.lease`)).toBe(true);
 });
 
-test('a snapshot published while the monitor is still connecting to the daemon is sent once', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
-	const h = testPublisher(t, socketPath, {daemonMode: true});
+test('a snapshot published while the monitor is still connecting to the daemon is sent once', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	const rail = await subscribeRaw(socketPath, 'repo');
+	const h = testPublisher(socketPath, {daemonMode: true});
 	h.grantLease();
 
 	h.publisher.publish(snapshotOf(target, report('working')));
@@ -227,15 +229,15 @@ test('a snapshot published while the monitor is still connecting to the daemon i
 		'the published snapshot',
 	);
 	await sentSoFar(h.clients[0]!, rail);
-	t.deepEqual(sentStatuses(rail), ['working']);
+	expect(sentStatuses(rail)).toStrictEqual(['working']);
 });
 
-test('a monitor that cannot reach a daemon keeps its snapshot file, and sends its latest snapshot once one is there', async t => {
-	const socketPath = testSocketPath(t);
-	const h = testPublisher(t, socketPath, {daemonMode: false});
+test('a monitor that cannot reach a daemon keeps its snapshot file, and sends its latest snapshot once one is there', async () => {
+	const socketPath = testSocketPath();
+	const h = testPublisher(socketPath, {daemonMode: false});
 	h.grantLease();
 	h.publisher.publish(snapshotOf(target, report('working')));
-	t.true(existsSync(h.file));
+	expect(existsSync(h.file)).toBe(true);
 
 	h.setFlag(true);
 	h.advance(1000);
@@ -246,34 +248,32 @@ test('a monitor that cannot reach a daemon keeps its snapshot file, and sends it
 		() => h.clock.delays().length === 1,
 		'the publisher to find no daemon',
 	);
-	t.is(
+	expect(
 		(JSON.parse(readFileSync(h.file, 'utf8')) as ProgramStatusSnapshot).info
 			.status,
-		'working',
-	);
+	).toBe('working');
 
-	await serveTestDaemon(t, socketPath);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
+	await serveTestDaemon(socketPath);
+	const rail = await subscribeRaw(socketPath, 'repo');
 	h.clock.fire();
 
 	await waitUntil(() => !existsSync(h.file), 'the file to be removed');
 	await sentSoFar(h.clients[0]!, rail);
-	t.deepEqual(sentStatuses(rail), ['done']);
-	t.deepEqual(
+	expect(sentStatuses(rail)).toStrictEqual(['done']);
+	expect(
 		rail.messages.find(message => message.type === 'snapshot'),
-		{type: 'snapshot', snapshot: latest},
-	);
+	).toStrictEqual({type: 'snapshot', snapshot: latest});
 });
 
-test('a monitor sends its latest snapshot again to a daemon that replaced the first, and nothing once its lease is revoked', async t => {
-	const socketPath = testSocketPath(t);
-	const first = await serveTestDaemon(t, socketPath);
-	const h = testPublisher(t, socketPath, {daemonMode: true});
+test('a monitor sends its latest snapshot again to a daemon that replaced the first, and nothing once its lease is revoked', async () => {
+	const socketPath = testSocketPath();
+	const first = await serveTestDaemon(socketPath);
+	const h = testPublisher(socketPath, {daemonMode: true});
 	h.grantLease();
 	h.publisher.publish(snapshotOf(target, report('working')));
 	const latest = snapshotOf(target, report('blocked'));
 	h.publisher.publish(latest);
-	const before = await subscribeRaw(t, socketPath, 'repo');
+	const before = await subscribeRaw(socketPath, 'repo');
 	await sentSoFar(h.clients[0]!, before);
 
 	await first.close();
@@ -281,16 +281,16 @@ test('a monitor sends its latest snapshot again to a daemon that replaced the fi
 		() => h.clock.delays().length === 1,
 		'the publisher to see that the daemon went away',
 	);
-	const second = await serveTestDaemon(t, socketPath);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
+	const second = await serveTestDaemon(socketPath);
+	const rail = await subscribeRaw(socketPath, 'repo');
 	h.clock.fire();
 	await rail.received(
 		message => message.type === 'snapshot',
 		'the snapshot sent again',
 	);
 	await sentSoFar(h.clients[0]!, rail);
-	t.deepEqual(sentStatuses(rail), ['blocked']);
-	t.deepEqual(rail.messages[1], {type: 'snapshot', snapshot: latest});
+	expect(sentStatuses(rail)).toStrictEqual(['blocked']);
+	expect(rail.messages[1]).toStrictEqual({type: 'snapshot', snapshot: latest});
 
 	h.revokeLease();
 	await second.close();
@@ -298,8 +298,8 @@ test('a monitor sends its latest snapshot again to a daemon that replaced the fi
 		() => h.clock.delays().length === 1,
 		'the publisher to see that the second daemon went away',
 	);
-	await serveTestDaemon(t, socketPath);
-	const after = await subscribeRaw(t, socketPath, 'repo');
+	await serveTestDaemon(socketPath);
+	const after = await subscribeRaw(socketPath, 'repo');
 	let connected = false;
 	h.clients[0]!.onConnect(() => {
 		connected = true;
@@ -307,14 +307,14 @@ test('a monitor sends its latest snapshot again to a daemon that replaced the fi
 	h.clock.fire();
 	await waitUntil(() => connected, 'the publisher to reconnect');
 	await sentSoFar(h.clients[0]!, after);
-	t.deepEqual(sentStatuses(after), []);
+	expect(sentStatuses(after)).toStrictEqual([]);
 });
 
-test('a snapshot published after the lease was revoked is not sent', async t => {
-	const state = testState(t, {sqlite: true});
+test('a snapshot published after the lease was revoked is not sent', async () => {
+	const state = testState({sqlite: true});
 	const socketPath = statusSocketPath(state.stateDir);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
-	const h = testPublisher(t, socketPath, {daemonMode: true});
+	const rail = await subscribeRaw(socketPath, 'repo');
+	const h = testPublisher(socketPath, {daemonMode: true});
 	h.grantLease();
 	h.publisher.publish(snapshotOf(target, report('working')));
 	await rail.received(
@@ -326,18 +326,20 @@ test('a snapshot published after the lease was revoked is not sent', async t => 
 	h.publisher.publish(snapshotOf(target, report('blocked')));
 
 	await sentSoFar(h.clients[0]!, rail);
-	t.deepEqual([...new Set(sentStatuses(rail))], ['working']);
-	t.true(rail.messages.some(message => message.type === 'forgotten'));
-	t.false(existsSync(h.file));
+	expect([...new Set(sentStatuses(rail))]).toStrictEqual(['working']);
+	expect(rail.messages.some(message => message.type === 'forgotten')).toBe(
+		true,
+	);
+	expect(existsSync(h.file)).toBe(false);
 });
 
-test('a snapshot that reaches the daemon after its space was forgotten is dropped', async t => {
-	const state = testState(t, {sqlite: true});
+test('a snapshot that reaches the daemon after its space was forgotten is dropped', async () => {
+	const state = testState({sqlite: true});
 	const socketPath = statusSocketPath(state.stateDir);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
+	const rail = await subscribeRaw(socketPath, 'repo');
 	let closed = false;
 	let dropSent = false;
-	const h = testPublisher(t, socketPath, {
+	const h = testPublisher(socketPath, {
 		daemonMode: true,
 		async beforeSend(message) {
 			if (message.type === 'drop') dropSent = true;
@@ -351,18 +353,18 @@ test('a snapshot that reaches the daemon after its space was forgotten is droppe
 
 	await waitUntil(() => dropSent, 'the monitor to drop its snapshot');
 	await sentSoFar(h.clients[0]!, rail);
-	const after = await subscribeRaw(t, socketPath, 'repo');
+	const after = await subscribeRaw(socketPath, 'repo');
 	const [held] = after.messages;
-	t.deepEqual(held?.type === 'state' ? held.snapshots : undefined, []);
+	expect(held?.type === 'state' ? held.snapshots : undefined).toStrictEqual([]);
 });
 
 // The closer's forget and the monitor's snapshot come on different
 // connections, so the daemon can take the forget first even when the monitor
 // checked its lease before the close.
-test('a snapshot that reaches the daemon on another connection after its space was forgotten is not kept', async t => {
-	const state = testState(t, {sqlite: true});
+test('a snapshot that reaches the daemon on another connection after its space was forgotten is not kept', async () => {
+	const state = testState({sqlite: true});
 	const socketPath = statusSocketPath(state.stateDir);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
+	const rail = await subscribeRaw(socketPath, 'repo');
 	grantLease(state, target);
 
 	await state.daos.programStatus.remove('STA-1');
@@ -375,18 +377,18 @@ test('a snapshot that reaches the daemon on another connection after its space w
 		snapshot: snapshotOf(target, report('working')),
 	});
 
-	const after = await subscribeRaw(t, socketPath, 'repo');
+	const after = await subscribeRaw(socketPath, 'repo');
 	const [held] = after.messages;
-	t.deepEqual(held?.type === 'state' ? held.snapshots : undefined, []);
-	t.deepEqual(sentStatuses(rail), []);
+	expect(held?.type === 'state' ? held.snapshots : undefined).toStrictEqual([]);
+	expect(sentStatuses(rail)).toStrictEqual([]);
 });
 
-test('a monitor whose lease a process with the flag off revoked drops its snapshot from the daemon, once', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
+test('a monitor whose lease a process with the flag off revoked drops its snapshot from the daemon, once', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	const rail = await subscribeRaw(socketPath, 'repo');
 	const drops: ClientMessage[] = [];
-	const h = testPublisher(t, socketPath, {
+	const h = testPublisher(socketPath, {
 		daemonMode: true,
 		async beforeSend(message) {
 			if (message.type === 'drop') drops.push(message);
@@ -408,24 +410,24 @@ test('a monitor whose lease a process with the flag off revoked drops its snapsh
 	);
 	await sentSoFar(h.clients[0]!, rail);
 
-	t.is(drops.length, 1);
-	const after = await subscribeRaw(t, socketPath, 'repo');
+	expect(drops.length).toBe(1);
+	const after = await subscribeRaw(socketPath, 'repo');
 	const [held] = after.messages;
-	t.deepEqual(held?.type === 'state' ? held.snapshots : undefined, []);
+	expect(held?.type === 'state' ? held.snapshots : undefined).toStrictEqual([]);
 });
 
 // An agent can sit idle for hours. Its monitor publishes nothing in that
 // time, so only the liveness check can move its status.
-test('an idle monitor moves its snapshot to the daemon on the liveness check after the flag turns on, and back to its file after it turns off', async t => {
-	const state = testState(t, {sqlite: true});
+test('an idle monitor moves its snapshot to the daemon on the liveness check after the flag turns on, and back to its file after it turns off', async () => {
+	const state = testState({sqlite: true});
 	const socketPath = statusSocketPath(state.stateDir);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
-	const h = testPublisher(t, socketPath, {daemonMode: false});
+	const rail = await subscribeRaw(socketPath, 'repo');
+	const h = testPublisher(socketPath, {daemonMode: false});
 	h.grantLease();
 	const snapshot = snapshotOf(target, report('blocked'));
 	h.publisher.publish(snapshot);
-	t.deepEqual(JSON.parse(readFileSync(h.file, 'utf8')), snapshot);
-	t.is(h.clients.length, 0);
+	expect(JSON.parse(readFileSync(h.file, 'utf8'))).toStrictEqual(snapshot);
+	expect(h.clients.length).toBe(0);
 
 	h.setFlag(true);
 	h.advance(5000);
@@ -435,51 +437,48 @@ test('an idle monitor moves its snapshot to the daemon on the liveness check aft
 		'the idle pane’s snapshot',
 	);
 	await waitUntil(() => !existsSync(h.file), 'the file to be removed');
-	t.deepEqual(
+	expect(
 		rail.messages.find(message => message.type === 'snapshot'),
-		{type: 'snapshot', snapshot},
-	);
+	).toStrictEqual({type: 'snapshot', snapshot});
 
 	h.setFlag(false);
 	h.advance(5000);
 	h.publisher.followFlag();
-	t.deepEqual(JSON.parse(readFileSync(h.file, 'utf8')), snapshot);
-	t.is(
+	expect(JSON.parse(readFileSync(h.file, 'utf8'))).toStrictEqual(snapshot);
+	expect(
 		await h.clients[0]!.send({type: 'hook', state: hookState('repo-A')}),
-		'unreachable',
-	);
+	).toBe('unreachable');
 	// A later snapshot goes to the file, and no connection is opened for it.
 	h.publisher.publish(snapshotOf(target, report('done')));
-	t.is(
+	expect(
 		(JSON.parse(readFileSync(h.file, 'utf8')) as ProgramStatusSnapshot).info
 			.status,
-		'done',
-	);
-	t.is(h.clients.length, 1);
+	).toBe('done');
+	expect(h.clients.length).toBe(1);
 });
 
-test('a monitor asks for the flag again once its answer is a second old', async t => {
-	const state = testState(t, {sqlite: true});
+test('a monitor asks for the flag again once its answer is a second old', async () => {
+	const state = testState({sqlite: true});
 	const socketPath = statusSocketPath(state.stateDir);
-	const h = testPublisher(t, socketPath, {daemonMode: false});
+	const h = testPublisher(socketPath, {daemonMode: false});
 	h.grantLease();
 	const fileStatus = () =>
 		(JSON.parse(readFileSync(h.file, 'utf8')) as ProgramStatusSnapshot).info
 			.status;
 
 	h.publisher.publish(snapshotOf(target, report('working')));
-	t.is(fileStatus(), 'working');
+	expect(fileStatus()).toBe('working');
 
 	h.setFlag(true);
 	h.advance(999);
 	h.publisher.publish(snapshotOf(target, report('blocked')));
 	h.publisher.followFlag();
-	t.is(fileStatus(), 'blocked');
-	t.is(h.clients.length, 0);
+	expect(fileStatus()).toBe('blocked');
+	expect(h.clients.length).toBe(0);
 
 	h.advance(1);
 	h.publisher.publish(snapshotOf(target, report('done')));
-	t.is(h.clients.length, 1);
+	expect(h.clients.length).toBe(1);
 	await waitUntil(() => !existsSync(h.file), 'the file to be removed');
 });
 
@@ -504,8 +503,8 @@ function heldClient() {
 	};
 }
 
-function heldPublisher(t: ExecutionContext) {
-	const socketPath = testSocketPath(t);
+function heldPublisher() {
+	const socketPath = testSocketPath();
 	const clock = manualTimers();
 	const held = heldClient();
 	const dir = path.dirname(socketPath);
@@ -528,51 +527,51 @@ function heldPublisher(t: ExecutionContext) {
 	return {clock, held, closing, over: () => over};
 }
 
-test('a monitor that is stopping waits for its last snapshot to be written', async t => {
-	const h = heldPublisher(t);
+test('a monitor that is stopping waits for its last snapshot to be written', async () => {
+	const h = heldPublisher();
 	await delay(20);
-	t.false(h.over());
-	t.false(h.held.closed());
+	expect(h.over()).toBe(false);
+	expect(h.held.closed()).toBe(false);
 
 	h.held.settles[0]!('sent');
 	await h.closing;
 
-	t.true(h.held.closed());
-	t.deepEqual(h.clock.delays(), []);
+	expect(h.held.closed()).toBe(true);
+	expect(h.clock.delays()).toStrictEqual([]);
 });
 
 // The monitor of a pane that is gone has nothing else to do, and a daemon
 // that is stopped never takes the line.
-test('a monitor that is stopping gives up on a daemon that does not take its last snapshot', async t => {
-	const h = heldPublisher(t);
+test('a monitor that is stopping gives up on a daemon that does not take its last snapshot', async () => {
+	const h = heldPublisher();
 	await delay(20);
-	t.false(h.over());
-	t.deepEqual(h.clock.delays(), [LAST_SEND_WAIT_MS]);
+	expect(h.over()).toBe(false);
+	expect(h.clock.delays()).toStrictEqual([LAST_SEND_WAIT_MS]);
 
 	h.clock.fire();
 	await h.closing;
 
-	t.true(h.held.closed());
+	expect(h.held.closed()).toBe(true);
 });
 
 const monitorCli = fileURLToPath(
 	new URL('program-status-monitor-cli.ts', import.meta.url),
 );
-const tmuxTest =
-	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.skip;
+const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 // start-agent-session.sh waits for `attach`, so an `attach` that stays up
 // holds every agent launch. Each part is its own process here, as it is for
 // a launched agent: tmux starts the monitor, and the monitor the daemon.
 tmuxTest(
 	'attach exits with no daemon and with one, the monitor it starts under tmux starts the daemon, and the daemon outlives the monitors',
-	async t => {
-		t.timeout(120_000);
-		const statusSocket = testSocketPath(t);
+	async () => {
+		const statusSocket = testSocketPath();
 		const root = path.dirname(statusSocket);
 		const tmuxSocket = path.join(root, 'tmux.sock');
 		const env = {
 			PATH: process.env['PATH'],
+			// tmux falls back to the live tmux directory without it.
+			TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
 			HOME: root,
 			SHELL: '/bin/sh',
 			// tmux replaces the tabs between the fields attach reads with `_`
@@ -592,7 +591,7 @@ tmuxTest(
 		const daemons = () => processesNaming('status-daemon-cli', statusSocket);
 		const monitors = () =>
 			processesNaming('program-status-monitor-cli', ' watch ', statusSocket);
-		t.teardown(() => {
+		teardown(() => {
 			try {
 				tmux('kill-server');
 			} catch {}
@@ -615,7 +614,7 @@ tmuxTest(
 			60_000,
 		);
 		const [daemon] = daemons();
-		const rail = await subscribeRaw(t, statusSocket, 'repo');
+		const rail = await subscribeRaw(statusSocket, 'repo');
 		const held = (key: string, exited: boolean) =>
 			rail.messages.some(message =>
 				(message.type === 'state'
@@ -641,7 +640,7 @@ tmuxTest(
 			'the second monitor’s snapshot',
 			30_000,
 		);
-		t.deepEqual(daemons(), [daemon]);
+		expect(daemons()).toStrictEqual([daemon]);
 
 		tmux('kill-server');
 		await waitUntil(
@@ -653,6 +652,7 @@ tmuxTest(
 			() => held('STA-1', true) && held('STA-2', true),
 			'the snapshot each monitor sent as it stopped',
 		);
-		t.deepEqual(daemons(), [daemon]);
+		expect(daemons()).toStrictEqual([daemon]);
 	},
+	120_000,
 );
