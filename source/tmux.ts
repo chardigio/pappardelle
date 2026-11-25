@@ -2499,16 +2499,15 @@ async function closeOrphanedViewerPanes(
 
 // A command list that stops part-way has still printed what its earlier
 // commands had to say, which the caller needs.
+//
+// It goes over the control client: tmux 3.4 crashes when a command from
+// another client notifies a control client that is still being set up, and
+// the layout's splits are sent while the control client starts.
 async function runSetup(
 	args: string[],
 ): Promise<{ok: boolean; stdout: string; stderr: string}> {
 	try {
-		const {stdout, stderr} = await execFileAsync('tmux', args, {
-			cwd: TMUX_SERVER_CWD,
-			encoding: 'utf-8',
-			timeout: 10_000,
-		});
-		return {ok: true, stdout, stderr};
+		return {ok: true, stdout: await runTmux(args), stderr: ''};
 	} catch (error) {
 		const failed = error as {stdout?: string; stderr?: string};
 		return {

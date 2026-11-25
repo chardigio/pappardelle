@@ -128,6 +128,19 @@ test('real tmux answers quoted commands, command lists and failures like a proce
 			'@branch',
 		]),
 	).toBe('from the branch\ntaken\n');
+	// A list that stops part-way has still printed what came before.
+	const partial = await rejectionOf(
+		run([
+			'display-message',
+			'-p',
+			'before',
+			';',
+			'has-session',
+			'-t',
+			'=no-such-session:',
+		]),
+	);
+	expect((partial as unknown as {stdout: string}).stdout).toBe('before\n');
 	// The queue keeps answering after a failure.
 	expect(await run(['show-option', '-gqv', '@probe'])).toBe(`${awkward}\n`);
 });
