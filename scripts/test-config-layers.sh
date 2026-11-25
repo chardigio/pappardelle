@@ -51,21 +51,30 @@ assert_eq() {
 # shellcheck source=provider-helpers.sh
 source "$SCRIPT_DIR/provider-helpers.sh"
 
+# layer_file <home|project|local>
+layer_file() {
+    case "$1" in
+        home) echo "$TMPDIR_ROOT/home/.pappardelle.yml" ;;
+        project) echo "$TMPDIR_ROOT/.pappardelle.yml" ;;
+        local) echo "$TMPDIR_ROOT/.pappardelle.local.yml" ;;
+    esac
+}
+
 # setup_configs <project_yaml> [local_yaml] [home_yaml]
 setup_configs() {
     TMPDIR_ROOT=$(mktemp -d)
     mkdir -p "$TMPDIR_ROOT/home"
-    printf '%s\n' "$1" > "$TMPDIR_ROOT/.pappardelle.yml"
+    printf '%s\n' "$1" > "$(layer_file project)"
     if [[ -n "${2:-}" ]]; then
-        printf '%s\n' "$2" > "$TMPDIR_ROOT/.pappardelle.local.yml"
+        printf '%s\n' "$2" > "$(layer_file local)"
     fi
     if [[ -n "${3:-}" ]]; then
-        printf '%s\n' "$3" > "$TMPDIR_ROOT/home/.pappardelle.yml"
+        printf '%s\n' "$3" > "$(layer_file home)"
     fi
 }
 
 merged() {
-    merge_config_layers "$TMPDIR_ROOT/home/.pappardelle.yml" "$TMPDIR_ROOT/.pappardelle.yml" "$TMPDIR_ROOT/.pappardelle.local.yml"
+    merge_config_layers "$(layer_file home)" "$(layer_file project)" "$(layer_file local)"
 }
 
 # ==========================================================================
@@ -162,7 +171,7 @@ setup_configs "version: 1
 team_prefix: ONLY"
 assert_eq "no home, no local" "ONLY" "$(merged | yq -r '.team_prefix')"
 assert_eq "nonexistent explicit path is skipped" "ONLY" \
-    "$(merge_config_layers "/nonexistent/home.yml" "$TMPDIR_ROOT/.pappardelle.yml" "" | yq -r '.team_prefix')"
+    "$(merge_config_layers "/nonexistent/home.yml" "$(layer_file project)" "" | yq -r '.team_prefix')"
 cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
@@ -220,7 +229,7 @@ team_prefix: KEEP
 profiles:
   api:
     display_name: API"
-    printf '%s' "$local_text" > "$TMPDIR_ROOT/.pappardelle.local.yml"
+    printf '%s' "$local_text" > "$(layer_file local)"
     assert_eq "$kind local layer keeps team_prefix" "KEEP" "$(merged | yq -r '.team_prefix')"
     assert_eq "$kind local layer keeps profiles" "api" "$(merged | yq -r '.profiles | keys | .[]')"
     cleanup; unset TMPDIR_ROOT
@@ -228,14 +237,14 @@ done
 
 setup_configs "version: 1
 team_prefix: PROJECT" "team_prefix: LOCAL"
-: > "$TMPDIR_ROOT/home/.pappardelle.yml"
+: > "$(layer_file home)"
 assert_eq "zero-byte home layer: local still beats project" "LOCAL" "$(merged | yq -r '.team_prefix')"
 cleanup; unset TMPDIR_ROOT
 
 setup_configs "version: 1
 claude:
   initialization_command: /project"
-: > "$TMPDIR_ROOT/.pappardelle.local.yml"
+: > "$(layer_file local)"
 assert_eq "empty layer beside a deprecated init command spelling" "/project" "$(merged | yq -r '.initialization_command')"
 cleanup; unset TMPDIR_ROOT
 
@@ -246,14 +255,14 @@ profiles:
   api:
     <<: *defaults
     team_prefix: API"
-: > "$TMPDIR_ROOT/.pappardelle.local.yml"
+: > "$(layer_file local)"
 assert_eq "empty layer beside a YAML merge key" "Shared/API" "$(merged | yq -r '.profiles.api.display_name + "/" + .profiles.api.team_prefix')"
 cleanup; unset TMPDIR_ROOT
 
 setup_configs ""
-: > "$TMPDIR_ROOT/.pappardelle.yml"
-: > "$TMPDIR_ROOT/.pappardelle.local.yml"
-: > "$TMPDIR_ROOT/home/.pappardelle.yml"
+: > "$(layer_file project)"
+: > "$(layer_file local)"
+: > "$(layer_file home)"
 assert_eq "every layer empty merges to an empty map" "{}" "$(merged)"
 cleanup; unset TMPDIR_ROOT
 
@@ -265,10 +274,10 @@ agent_profile: codex
 agent_profiles:
   codex:
     command: codex"
-: > "$TMPDIR_ROOT/.pappardelle.local.yml"
+: > "$(layer_file local)"
 RESOLVED=$("$SCRIPT_DIR/resolve-agent-config.sh" \
-    --config "$TMPDIR_ROOT/.pappardelle.yml" \
-    --local-config "$TMPDIR_ROOT/.pappardelle.local.yml")
+    --config "$(layer_file project)" \
+    --local-config "$(layer_file local)")
 assert_eq "agent_command" "codex" "$(jq -r '.agent_command' <<<"$RESOLVED")"
 assert_eq "init_cmd" "/init-workspace" "$(jq -r '.init_cmd' <<<"$RESOLVED")"
 assert_eq "workspace_aware" "true" "$(jq -r '.workspace_aware' <<<"$RESOLVED")"
@@ -286,11 +295,7 @@ for kind in scalar list; do
         setup_configs "version: 1
 team_prefix: PROJECT" "team_prefix: LOCAL" "version: 1
 team_prefix: HOME"
-        case "$layer" in
-            home) bad_file="$TMPDIR_ROOT/home/.pappardelle.yml" ;;
-            project) bad_file="$TMPDIR_ROOT/.pappardelle.yml" ;;
-            local) bad_file="$TMPDIR_ROOT/.pappardelle.local.yml" ;;
-        esac
+        bad_file=$(layer_file "$layer")
         printf '%s\n' "$bad_text" > "$bad_file"
         status=0
         stderr=$(merged 2>&1 >/dev/null) || status=$?
@@ -315,11 +320,7 @@ companion_command: hunk"
             project) expected="LOCAL/hunk" ;;
             local) expected="PROJECT/hunk" ;;
         esac
-        case "$layer" in
-            home) printf '%s\n' "$doc" > "$TMPDIR_ROOT/home/.pappardelle.yml" ;;
-            project) printf '%s\n' "$doc" > "$TMPDIR_ROOT/.pappardelle.yml" ;;
-            local) printf '%s\n' "$doc" > "$TMPDIR_ROOT/.pappardelle.local.yml" ;;
-        esac
+        printf '%s\n' "$doc" > "$(layer_file "$layer")"
         assert_eq "$doc $layer layer" "$expected" "$(merged | yq -r '.team_prefix + "/" + (.companion_command // "none")')"
         cleanup; unset TMPDIR_ROOT
     done
