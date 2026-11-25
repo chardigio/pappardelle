@@ -11,9 +11,10 @@
 # (top-level and per-profile) to the initialization_command key beside it.
 # merge_config_layers applies it to each layer before that layer merges, so
 # layer precedence, not spelling, decides which value wins. A layer that sets
-# both keys keeps the new one, and a non-string value is left alone. Mirrors
+# both keys keeps the new one, and a non-string value or a claude that isn't a
+# map is left alone for the TUI's validator to report. Mirrors
 # renameDeprecatedInitializationCommand() in source/config-deprecation.ts.
-_RENAME_ONE_INIT_CMD='with(select(.initialization_command == null and (.claude.initialization_command | tag) == "!!str"); .initialization_command = .claude.initialization_command | del(.claude.initialization_command))'
+_RENAME_ONE_INIT_CMD='with(select((.claude | tag) == "!!map"); with(select(.initialization_command == null and (.claude.initialization_command | tag) == "!!str"); .initialization_command = .claude.initialization_command | del(.claude.initialization_command)))'
 RENAME_DEPRECATED_INIT_CMD_EXPR="($_RENAME_ONE_INIT_CMD | with(select(.profiles | tag == \"!!map\"); .profiles[] |= ($_RENAME_ONE_INIT_CMD)))"
 
 # Whether the YAML text uses a merge key (`<<: *anchor`). A `<<` with no colon

@@ -193,6 +193,18 @@ claude:
 assert_eq "a layer with both spellings keeps the new one" "/new" "$(merged | yq -r '.initialization_command')"
 cleanup; unset TMPDIR_ROOT
 
+# A claude list is a schema error for the TUI's validator to report, so the
+# rename must leave it alone rather than fail the merge.
+setup_configs "version: 1
+claude: [opus]
+profiles:
+  api:
+    claude: [sonnet]"
+merged > "$TMPDIR_ROOT/merged.yml" 2>&1 || true
+assert_eq "top-level claude list passes through" "opus" "$(yq -r '.claude[0]' "$TMPDIR_ROOT/merged.yml" 2>&1)"
+assert_eq "profile claude list passes through" "sonnet" "$(yq -r '.profiles.api.claude[0]' "$TMPDIR_ROOT/merged.yml" 2>&1)"
+cleanup; unset TMPDIR_ROOT
+
 # ==========================================================================
 
 echo -e "\n${BOLD}Test: a layer with no YAML document adds nothing to the merge${RESET}"
