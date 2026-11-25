@@ -783,7 +783,7 @@ export function readHomeSqliteState(
 	}
 }
 
-/** Parse one config file's text; null when it holds no mapping. */
+/** Parse one config file's text; null when the file holds no document. */
 export function parseConfigLayer(
 	label: string,
 	content: string,
@@ -803,9 +803,12 @@ export function parseConfigLayer(
 		const msg = error instanceof Error ? error.message : String(error);
 		throw new ConfigValidationError([`${label}: ${msg}`]);
 	}
-	return parsed && typeof parsed === 'object'
-		? (parsed as Record<string, unknown>)
-		: null;
+	if (parsed === null || parsed === undefined) return null;
+	if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+		throw new ConfigValidationError([`${label}: the top level must be a map`]);
+	}
+
+	return parsed as Record<string, unknown>;
 }
 
 function misplacedSqliteStateErrors(
