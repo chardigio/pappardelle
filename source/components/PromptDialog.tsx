@@ -11,13 +11,13 @@ import {maybeStripSkinTones, useTmuxSkinToneWide} from '../tmux-skin-tone.ts';
 import {
 	determineProfileForInput,
 	exampleIssueKeys,
-	inlineConfigErrors,
 	listAgentProfiles,
 	loadAgentProfileSources,
 	resolveAgentProfileName,
 	type PappardelleConfig,
 	type ProfileSelection,
 } from '../config.ts';
+import {inlineConfigErrors} from '../config-errors.ts';
 import {readReportedConfig} from '../config-report.ts';
 import {truncateToWidth} from '../truncate-to-width.ts';
 import {useWidthMethod} from './use-width-method.ts';

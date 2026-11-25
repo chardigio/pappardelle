@@ -3,14 +3,14 @@ import path from 'node:path';
 import test from 'ava';
 import {parse, stringify} from 'yaml';
 import {
-	findDeprecatedClaudeFields,
 	getAgentProfile,
 	getInitializationCommand,
 	loadConfigFromPaths,
-	renderAgentLaunchFlags,
 	type ConfigPaths,
 	type PappardelleConfig,
 } from './config.ts';
+import {findDeprecatedClaudeFields} from './config-deprecation.ts';
+import {renderAgentLaunchFlags} from './config-launch-flags.ts';
 import {
 	applyConfigMigrations,
 	buildConfigMigrationConfirmContent,

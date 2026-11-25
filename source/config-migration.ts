@@ -14,27 +14,31 @@ import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	buildConfigFromLayers,
-	builtinAgentDefaults,
-	builtinPromptFlag,
 	configLayerFiles,
 	defaultConfigPaths,
-	deprecationWarnings,
-	dismissDeprecationWarnings,
-	findDeprecatedClaudeFields,
 	getAgentProfile,
 	getInitializationCommand,
 	getNamedAgentProfile,
-	LAUNCH_FIELDS,
 	mergeConfigLayers,
 	mergedAgentProfiles,
-	needsConfigRewrite,
 	parseConfigLayer,
-	quoteLaunchValue,
-	renderAgentLaunchFlags,
 	resolveAgentProfileName,
 	type ConfigPaths,
 	type PappardelleConfig,
 } from './config.ts';
+import {
+	builtinAgentDefaults,
+	builtinPromptFlag,
+	LAUNCH_FIELDS,
+	quoteLaunchValue,
+	renderAgentLaunchFlags,
+} from './config-launch-flags.ts';
+import {
+	deprecationWarnings,
+	dismissDeprecationWarnings,
+	findDeprecatedClaudeFields,
+	needsConfigRewrite,
+} from './config-deprecation.ts';
 
 type Fields = Record<string, unknown>;
 

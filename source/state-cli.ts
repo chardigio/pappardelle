@@ -11,13 +11,13 @@ import {
 } from './space-identity.ts';
 import {
 	checkAgentProfile,
-	formatConfigErrors,
 	getDefaultHomeConfigDir,
 	loadConfigFromPaths,
 	readConfig,
 	unknownAgentProfileMessage,
 	type ConfigPaths,
 } from './config.ts';
+import {formatConfigErrors} from './config-errors.ts';
 import {createStateDaos} from './state-daos.ts';
 import {openStateDb} from './state-db.ts';
 

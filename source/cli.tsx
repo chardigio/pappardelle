@@ -38,7 +38,6 @@ import {
 	getMainRepoRoot,
 	getRepoName,
 	readConfig,
-	formatConfigErrors,
 	DEFAULT_TEAM_PREFIX,
 	checkAgentProfile,
 	unknownAgentProfileMessage,
@@ -48,9 +47,12 @@ import {
 	getTeamPrefix,
 	getProfileTeamPrefix,
 	validateHomeOnlySqliteState,
+} from './config.ts';
+import {
+	formatConfigErrors,
 	ConfigNotFoundError,
 	ConfigValidationError,
-} from './config.ts';
+} from './config-errors.ts';
 import {
 	captureStderr,
 	setStderrTerminalPassthrough,

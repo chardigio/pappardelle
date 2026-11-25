@@ -2,7 +2,8 @@ import test from 'ava';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {inlineConfigErrors, readConfig} from './config.ts';
+import {readConfig} from './config.ts';
+import {inlineConfigErrors} from './config-errors.ts';
 
 function layers(
 	t: {teardown: (fn: () => void) => void},

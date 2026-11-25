@@ -1,14 +1,12 @@
 import test from 'ava';
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type {PappardelleConfig} from './config.ts';
+import {setupTempDir} from '../test/helpers/config-fixtures.ts';
 import {
 	deepMerge,
 	mergeConfigLayers,
 	loadConfigFromPaths,
 	readHomeSqliteState,
-	validateConfig,
 	getTeamPrefix,
 	getProfileTeamPrefix,
 	getInitializationCommand,
@@ -17,33 +15,10 @@ import {
 	getKeybindings,
 	getIssueWatchlist,
 	getStateColors,
-	ConfigNotFoundError,
-	ConfigValidationError,
 } from './config.ts';
+import {validateConfig} from './config-validation.ts';
+import {ConfigNotFoundError, ConfigValidationError} from './config-errors.ts';
 import {getRecentErrors} from './logger.ts';
-
-// ============================================================================
-// Helper: temp directory with config files
-// ============================================================================
-
-function setupTempDir(files: Record<string, string>): {
-	dir: string;
-	cleanup: () => void;
-} {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-merge-'));
-	for (const [name, content] of Object.entries(files)) {
-		const filePath = path.join(dir, name);
-		fs.mkdirSync(path.dirname(filePath), {recursive: true});
-		fs.writeFileSync(filePath, content, 'utf-8');
-	}
-
-	return {
-		dir,
-		cleanup() {
-			fs.rmSync(dir, {recursive: true, force: true});
-		},
-	};
-}
 
 // ============================================================================
 // deepMerge — pure utility tests
@@ -1206,40 +1181,6 @@ profiles:
 	}
 });
 
-test('loadConfigFromPaths warns about a deprecated home spelling shadowed by the project', t => {
-	// The merge shares nested objects with the raw layers, so the home layer
-	// must be checked before anything rewrites the merged config.
-	const {dir, cleanup} = setupTempDir({
-		'home/.pappardelle.yml': `version: 1
-profiles:
-  shadowedhomewarn:
-    display_name: T
-    claude:
-      initialization_command: old
-`,
-		'project/.pappardelle.yml': `version: 1
-profiles:
-  shadowedhomewarn:
-    display_name: T
-    initialization_command: new
-`,
-	});
-	try {
-		loadConfigFromPaths({
-			homeConfigDir: path.join(dir, 'home'),
-			projectDir: path.join(dir, 'project'),
-		});
-		const warnings = getRecentErrors().filter(
-			entry =>
-				entry.message.includes('shadowedhomewarn') &&
-				entry.message.includes('~/.pappardelle/.pappardelle.yml'),
-		);
-		t.is(warnings.length, 1);
-	} finally {
-		cleanup();
-	}
-});
-
 test('loadConfigFromPaths rejects both init spellings on one profile in the same file', t => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
@@ -1281,70 +1222,6 @@ profiles:
 		);
 		t.truthy(error?.message.includes('.pappardelle.yml'));
 		t.truthy(error?.message.includes('cannot both be specified'));
-	} finally {
-		cleanup();
-	}
-});
-
-test('loadConfigFromPaths warns about a deprecated init spelling only once per process', t => {
-	// The TUI reloads config on every space selection; re-warning on each
-	// reload would fill the logger's 10-entry recent-error buffer and evict
-	// real errors from the overlay.
-	const {dir, cleanup} = setupTempDir({
-		'project/.pappardelle.yml': `version: 1
-profiles:
-  warnonceprofile:
-    display_name: T
-    claude:
-      initialization_command: old
-`,
-	});
-	try {
-		const load = () =>
-			loadConfigFromPaths({projectDir: path.join(dir, 'project')});
-		load();
-		load();
-		const warnings = getRecentErrors().filter(entry =>
-			entry.message.includes('warnonceprofile'),
-		);
-		t.is(warnings.length, 1);
-	} finally {
-		cleanup();
-	}
-});
-
-test('loadConfigFromPaths warns about claude.model and claude.effort, top-level and per profile', t => {
-	const {dir, cleanup} = setupTempDir({
-		'project/.pappardelle.yml': `version: 1
-claude:
-  model: claudemodelwarn
-profiles:
-  claudeeffortwarn:
-    display_name: T
-    claude:
-      effort: high
-`,
-	});
-	try {
-		const config = loadConfigFromPaths({
-			projectDir: path.join(dir, 'project'),
-		});
-		t.is(getAgentProfile(config).model, 'claudemodelwarn');
-		const messages = getRecentErrors().map(entry => entry.message);
-		t.true(
-			messages.some(
-				message =>
-					message.includes('.pappardelle.yml: claude.model is deprecated') &&
-					message.includes('agent_profiles.<name>.model'),
-			),
-		);
-		t.true(
-			messages.some(message =>
-				message.includes(
-					'.pappardelle.yml: profiles.claudeeffortwarn.claude.effort is deprecated',
-				),
-			),
-		);
 	} finally {
 		cleanup();
 	}

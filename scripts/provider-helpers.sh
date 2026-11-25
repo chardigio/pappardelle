@@ -12,7 +12,7 @@
 # Applied to each layer before merging so layer precedence, not spelling,
 # decides which value wins. A layer that sets both keys keeps the new one,
 # and a non-string value is left alone. Mirrors
-# renameDeprecatedInitializationCommand() in source/config.ts.
+# renameDeprecatedInitializationCommand() in source/config-deprecation.ts.
 _RENAME_ONE_INIT_CMD='with(select(.initialization_command == null and (.claude.initialization_command | tag) == "!!str"); .initialization_command = .claude.initialization_command | del(.claude.initialization_command))'
 RENAME_DEPRECATED_INIT_CMD_EXPR="($_RENAME_ONE_INIT_CMD | with(select(.profiles | tag == \"!!map\"); .profiles[] |= ($_RENAME_ONE_INIT_CMD)))"
 
