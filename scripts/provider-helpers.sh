@@ -306,8 +306,6 @@ check_existing_pr() {
             fi
             ;;
         gitlab)
-            local branch
-            branch=$(git branch --show-current)
             local gitlab_host
             gitlab_host=$(get_gitlab_host "$config_path")
             if [[ -n "$gitlab_host" ]]; then
