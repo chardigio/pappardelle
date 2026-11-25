@@ -26,8 +26,6 @@ Config is assembled from up to three files, deep-merged lowest → highest prior
 
 Later layers override earlier ones key by key, so a home config setting `initialization_command` still applies in a repo whose `.pappardelle.yml` never mentions it. Only the conflicting keys are replaced — `keybindings` are smart-merged rather than wholesale replaced.
 
-Each layer must be a map at its top level; a file holding only a string or a list makes the config invalid, while an empty or comment-only file adds nothing. YAML anchors, aliases and `<<:` merge keys resolve within their own file before the layers merge, so an alias can't point into another file, and a higher layer overriding an anchored value doesn't change what the alias already copied.
-
 ## Configuration Schema
 
 ```yaml
