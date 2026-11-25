@@ -61,11 +61,8 @@ assert_eq "a cut that lands after a space drops the space" \
     "$("$DERIVE" "${EIGHTY:0:76} tail of the prompt")"
 
 for blank in "" "   " $'\n\t'; do
-    if "$DERIVE" "$blank" >/dev/null 2>&1; then
-        assert_eq "blank prompt $(printf '%q' "$blank") fails" "exit 1" "exit 0"
-    else
-        assert_eq "blank prompt $(printf '%q' "$blank") fails" "exit 1" "exit 1"
-    fi
+    "$DERIVE" "$blank" >/dev/null 2>&1 && rc=0 || rc=$?
+    assert_eq "blank prompt $(printf '%q' "$blank") exits 1" "1" "$rc"
 done
 
 echo ""
