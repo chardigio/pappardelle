@@ -1,11 +1,8 @@
 import test from 'ava';
 import type {PappardelleConfig} from './config.ts';
-import {
-	getAgentProfile,
-	getCompanionCommand,
-	validateConfig,
-	ConfigValidationError,
-} from './config.ts';
+import {getAgentProfile, getCompanionCommand} from './config.ts';
+import {validateConfig} from './config-validation.ts';
+import {ConfigValidationError} from './config-errors.ts';
 import {buildAgentResumeCommand} from './tmux.ts';
 import {
 	DEFAULT_RESOLVED_AGENT_PROFILE,

@@ -1,10 +1,10 @@
 import {
 	getRepoName,
 	getRepoRoot,
-	inlineConfigErrors,
 	loadProviderConfigs,
 	readHomeSqliteState,
 } from './config.ts';
+import {inlineConfigErrors} from './config-errors.ts';
 import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {
 	createIssueTracker,

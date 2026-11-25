@@ -49,8 +49,9 @@
 # Fields a profile leaves unset come from builtin-agents.json, beside this
 # script: the claude entry when the profile gates as claude, else the entry
 # named by the command's basename (never claude), same as
-# builtinAgentDefaults() in source/config.ts. agent_resume_args comes back with
-# {session_id} unfilled; idow fills it from the space's agent-sessions file.
+# builtinAgentDefaults() in source/config-launch-flags.ts. agent_resume_args
+# comes back with {session_id} unfilled; idow fills it from the space's
+# agent-sessions file.
 # agent_prompt_args is the template the launch prompt goes through, or empty
 # for a bare prompt. agent_skill_prefix is what goes before a skill name, "/"
 # when nothing sets it. agent_rules_flags renders the entry's rules_args, which

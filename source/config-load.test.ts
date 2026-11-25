@@ -2,7 +2,13 @@ import test from 'ava';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {inlineConfigErrors, readConfig} from './config.ts';
+import {
+	loadProviderConfigs,
+	readConfig,
+	readHomeSqliteState,
+} from './config.ts';
+import {inlineConfigErrors} from './config-errors.ts';
+import {getRecentErrors} from './logger.ts';
 
 function layers(
 	t: {teardown: (fn: () => void) => void},
@@ -77,6 +83,30 @@ test('a config file that cannot be read makes the config invalid', t => {
 	t.true(load.kind === 'invalid' && load.errors[0]!.includes('EISDIR'));
 });
 
+test('every layer that fails to parse is reported, not just the first', t => {
+	const {paths} = layers(t, {
+		'project/.pappardelle.yml': 'version: [unclosed\n',
+		'project/.pappardelle.local.yml': 'profiles: [unclosed\n',
+	});
+	const load = readConfig(paths);
+	t.is(load.kind, 'invalid');
+	const errors = load.kind === 'invalid' ? load.errors : [];
+	t.true(errors.some(error => error.startsWith('.pappardelle.yml: ')));
+	t.true(errors.some(error => error.startsWith('.pappardelle.local.yml: ')));
+});
+
+test('a config file that cannot be read is named in its error', t => {
+	const {dir, paths} = layers(t, {});
+	fs.mkdirSync(path.join(dir, 'project', '.pappardelle.local.yml'));
+	const load = readConfig(paths);
+	t.deepEqual(
+		load.kind === 'invalid'
+			? load.errors.map(error => error.split(': ')[0])
+			: [],
+		['.pappardelle.local.yml'],
+	);
+});
+
 test('a YAML error fits on one line without its code excerpt', t => {
 	const {paths} = layers(t, {
 		'project/.pappardelle.yml': 'version: 1\nprofiles: {}\n',
@@ -87,4 +117,70 @@ test('a YAML error fits on one line without its code excerpt', t => {
 	t.true(inline.startsWith('.pappardelle.local.yml'));
 	t.false(inline.includes('\n'));
 	t.false(inline.endsWith(':'));
+});
+
+const layerFiles = {
+	'~/.pappardelle/.pappardelle.yml': 'home/.pappardelle.yml',
+	'.pappardelle.yml': 'project/.pappardelle.yml',
+	'.pappardelle.local.yml': 'project/.pappardelle.local.yml',
+};
+const validProject = 'version: 1\nprofiles: {}\n';
+
+for (const [label, file] of Object.entries(layerFiles)) {
+	for (const [shape, content] of [
+		['scalar', 'just a string\n'],
+		['list', '- version: 1\n'],
+	]) {
+		test(`a ${shape} ${label} is an invalid config naming the file`, t => {
+			const {paths} = layers(t, {
+				...(file === 'project/.pappardelle.yml'
+					? {}
+					: {'project/.pappardelle.yml': validProject}),
+				[file]: content!,
+			});
+			t.deepEqual(readConfig(paths), {
+				kind: 'invalid',
+				errors: [`${label}: the top level must be a map`],
+			});
+		});
+	}
+}
+
+for (const [shape, content] of [
+	['an empty', ''],
+	['a null', '~\n'],
+	['a document-marker-only', '---\n'],
+]) {
+	test(`${shape} layer adds nothing`, t => {
+		const {paths} = layers(t, {
+			'home/.pappardelle.yml': content!,
+			'project/.pappardelle.yml': validProject,
+			'project/.pappardelle.local.yml': content!,
+		});
+		t.is(readConfig(paths).kind, 'valid');
+	});
+}
+
+test('a scalar layer is listed as unparsable by loadProviderConfigs', t => {
+	const {paths} = layers(t, {
+		'project/.pappardelle.yml':
+			'version: 1\nprofiles: {}\nissue_tracker: {provider: beads}\n',
+		'project/.pappardelle.local.yml': 'oops\n',
+	});
+	const providers = loadProviderConfigs(paths);
+	t.deepEqual(providers.unparsable, [
+		'.pappardelle.local.yml: the top level must be a map',
+	]);
+	t.deepEqual(providers.issue_tracker, {provider: 'beads'});
+});
+
+test('a scalar home config leaves the sqlite flag off and says so', t => {
+	const {dir} = layers(t, {'home/.pappardelle.yml': 'true\n'});
+	t.false(readHomeSqliteState(path.join(dir, 'home')));
+	t.like(
+		getRecentErrors().filter(entry =>
+			entry.message.includes(path.join(dir, 'home', '.pappardelle.yml')),
+		),
+		[{level: 'warn'}],
+	);
 });

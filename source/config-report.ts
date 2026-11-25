@@ -1,9 +1,5 @@
-import {
-	inlineConfigErrors,
-	readConfig,
-	type ConfigLoad,
-	type ConfigPaths,
-} from './config.ts';
+import {readConfig, type ConfigLoad, type ConfigPaths} from './config.ts';
+import {inlineConfigErrors} from './config-errors.ts';
 import {createLogger, dismissRecentErrors, getRecentErrors} from './logger.ts';
 
 const log = createLogger('config');

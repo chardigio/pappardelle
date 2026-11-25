@@ -920,7 +920,8 @@ export PAPPARDELLE_TMUX_SOCKET
 # to its directory-scoped --continue while other agents launch fresh with the
 # prompt. Resume args without {session_id} aren't tied to the space (codex's
 # `resume --last` picks the most recent session from any directory), so a
-# recreated worktree drops them. Mirrors bindResumeArgs() in source/config.ts.
+# recreated worktree drops them. Mirrors bindResumeArgs() in
+# source/config-launch-flags.ts.
 if [[ "$FRESH_WORKSPACE" == true ]]; then
     AGENT_RESUME_ARGS=""
 elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then

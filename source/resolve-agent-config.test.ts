@@ -6,11 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {stringify} from 'yaml';
 import {BUILTIN_AGENTS} from './builtin-agents.ts';
-import {
-	getAgentProfile,
-	loadConfigFromPaths,
-	renderAgentLaunchFlags,
-} from './config.ts';
+import {getAgentProfile, loadConfigFromPaths} from './config.ts';
+import {renderAgentLaunchFlags} from './config-launch-flags.ts';
 
 const SCRIPT_PATH = path.resolve(
 	import.meta.dirname!,

@@ -7,7 +7,7 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {commandBasename, quoteLaunchValue} from './config.ts';
+import {commandBasename, quoteLaunchValue} from './config-launch-flags.ts';
 import {scriptsDir} from './runtime.ts';
 
 const execFileAsync = promisify(execFile);

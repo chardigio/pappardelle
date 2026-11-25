@@ -6,13 +6,6 @@ import path from 'node:path';
 import {scriptsDir} from './runtime.ts';
 import {parse as parseYaml, parseDocument} from 'yaml';
 import {
-	ANSI_COLOR_NAMES,
-	isValidStateColor,
-	normalizeStateName,
-} from './state-color-override.ts';
-import {
-	STATUS_CATEGORIES,
-	railGroupId,
 	railGroupsFromConfig,
 	type RailGroup,
 	type RailGroupConfig,
@@ -23,19 +16,26 @@ import {
 	issueKeyTeamPrefix,
 } from './issue-utils.ts';
 import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
-import {isPaneWidth, type PaneWidth, type PaneWidths} from './layout-sizing.ts';
-import {
-	DEFAULT_SPLIT,
-	isPaneName,
-	isSplitDirection,
-	MAIN_PANE,
-	PANE_NAME_RULE,
-	type SplitDirection,
-} from './companion-splits.ts';
-import {BUILTIN_AGENTS, type BuiltinAgentDefaults} from './builtin-agents.ts';
-import {dismissRecentErrors, logger} from './logger.ts';
+import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
+import {DEFAULT_SPLIT, type SplitDirection} from './companion-splits.ts';
+import {logger} from './logger.ts';
 import {unwrapBeadsJson} from './providers/beads-json.ts';
-import {shellQuote} from './shell-quote.ts';
+import {
+	ConfigNotFoundError,
+	ConfigValidationError,
+	NotInGitRepoError,
+} from './config-errors.ts';
+import {
+	initializationCommandConflictErrors,
+	renameDeprecatedInitializationCommand,
+	warnDeprecatedClaudeFields,
+} from './config-deprecation.ts';
+import {
+	builtinAgentDefaults,
+	isClaudeAgentProfile,
+	type LaunchField,
+} from './config-launch-flags.ts';
+import {configErrors} from './config-validation.ts';
 
 // ============================================================================
 // Types
@@ -458,111 +458,6 @@ export interface PappardelleConfig {
 	profiles: Record<string, Profile>;
 }
 
-/**
- * Var key names that must not be used in profile `vars:` blocks.
- * Includes built-in template variables (which would be silently overwritten)
- * and critical shell variables (which would break the idow bash script).
- */
-export const RESERVED_VAR_NAMES = new Set([
-	// Built-in template variables
-	'ISSUE_KEY',
-	'ISSUE_URL',
-	'ISSUE_NUMBER',
-	'TITLE',
-	'DESCRIPTION',
-	'WORKTREE_PATH',
-	'REPO_ROOT',
-	'REPO_NAME',
-	'PR_URL',
-	'MR_URL',
-	'SCRIPT_DIR',
-	'GITHUB_LABEL',
-	'VCS_LABEL',
-	'TRACKER_PROVIDER',
-	'VCS_PROVIDER',
-	// Critical shell variables
-	'PATH',
-	'HOME',
-	'IFS',
-	'SHELL',
-	'USER',
-	'PWD',
-	'OLDPWD',
-	'LANG',
-	'TERM',
-	'TMPDIR',
-]);
-
-/**
- * Navigation and system keys that cannot be overridden by custom keybindings.
- */
-export const NON_OVERRIDABLE_KEYS = new Set(['j', 'k', 'n', 'q', '?']);
-
-/**
- * Keys with built-in default behavior that CAN be overridden by custom keybindings.
- * When overridden, the custom binding replaces the default action entirely.
- * Use `disabled: true` to suppress a default without adding a replacement.
- */
-export const DEFAULT_KEYBINDING_KEYS = new Set([
-	'g',
-	'i',
-	'd',
-	'o',
-	'e',
-	'p',
-	'K',
-	's',
-]);
-
-/**
- * Union of NON_OVERRIDABLE_KEYS and DEFAULT_KEYBINDING_KEYS.
- * Kept for backwards compatibility and tests that need the full set.
- */
-export const RESERVED_KEYS = new Set([
-	...NON_OVERRIDABLE_KEYS,
-	...DEFAULT_KEYBINDING_KEYS,
-]);
-
-export class ConfigNotFoundError extends Error {
-	repoRoot: string;
-
-	constructor(repoRoot: string) {
-		super(`No .pappardelle.yml found at repository root: ${repoRoot}`);
-		this.name = 'ConfigNotFoundError';
-		this.repoRoot = repoRoot;
-	}
-}
-
-export function formatConfigErrors(errors: string[]): string {
-	return `Invalid .pappardelle.yml configuration:\n${errors
-		.map(e => `  - ${e}`)
-		.join('\n')}`;
-}
-
-/** The errors on one line, for the rail and other one-line places; a YAML error's code excerpt is dropped. */
-export function inlineConfigErrors(errors: string[]): string {
-	return errors
-		.map(error => error.split('\n')[0]!.trim().replace(/:$/, ''))
-		.join('; ');
-}
-
-export class ConfigValidationError extends Error {
-	errors: string[];
-
-	constructor(errors: string[]) {
-		super(formatConfigErrors(errors));
-		this.name = 'ConfigValidationError';
-		this.errors = errors;
-	}
-}
-
-export class NotInGitRepoError extends Error {
-	constructor() {
-		super('Not in a git repository');
-		this.name = 'NotInGitRepoError';
-	}
-}
-
 // ============================================================================
 // Config Loading
 // ============================================================================
@@ -751,19 +646,17 @@ export function deepMerge(
 }
 
 /**
- * Merge up to three config layers with proper override semantics.
- * Priority (lowest → highest): home → project → local.
+ * Merge config layers with proper override semantics, lowest priority first
+ * (home → project → local); a null layer adds nothing.
  *
  * Uses deep merge for most fields. Keybindings use the smart
  * add/override/disable merge logic from `mergeKeybindings`.
  */
 export function mergeConfigLayers(
-	home: Record<string, unknown> | null,
-	project: Record<string, unknown> | null,
-	local: Record<string, unknown> | null,
+	allLayers: Array<Record<string, unknown> | null>,
 ): Record<string, unknown> {
-	const layers = [home, project, local].filter(
-		(l): l is Record<string, unknown> => l !== null && l !== undefined,
+	const layers = allLayers.filter(
+		(l): l is Record<string, unknown> => l !== null,
 	);
 	if (layers.length === 0) {
 		return {};
@@ -805,14 +698,12 @@ export function getDefaultHomeConfigDir(): string {
  * At least one layer must provide a config file, otherwise throws ConfigNotFoundError.
  */
 export function loadConfigFromPaths(opts: ConfigPaths): PappardelleConfig {
-	const layers = configLayerFiles(opts).map(({label, path: filePath}) =>
-		filePath
-			? {
-					label,
-					layer: parseConfigLayer(label, fs.readFileSync(filePath, 'utf8')),
-				}
-			: {label, layer: null},
-	);
+	const layers = readConfigLayers(opts);
+	const errors = layers.flatMap(({errors}) => errors ?? []);
+	if (errors.length > 0) {
+		throw new ConfigValidationError(errors);
+	}
+
 	if (layers.every(({layer}) => !layer)) {
 		throw new ConfigNotFoundError(opts.projectDir ?? '(no project dir)');
 	}
@@ -892,7 +783,7 @@ export function readHomeSqliteState(
 	}
 }
 
-/** Parse one config file's text; null when it holds no mapping. */
+/** Parse one config file's text; null when the file holds no document. */
 export function parseConfigLayer(
 	label: string,
 	content: string,
@@ -912,9 +803,12 @@ export function parseConfigLayer(
 		const msg = error instanceof Error ? error.message : String(error);
 		throw new ConfigValidationError([`${label}: ${msg}`]);
 	}
-	return parsed && typeof parsed === 'object'
-		? (parsed as Record<string, unknown>)
-		: null;
+	if (parsed === null || parsed === undefined) return null;
+	if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+		throw new ConfigValidationError([`${label}: the top level must be a map`]);
+	}
+
+	return parsed as Record<string, unknown>;
 }
 
 function misplacedSqliteStateErrors(
@@ -962,230 +856,47 @@ export function buildConfigFromLayers(
 		}
 	}
 
-	const [home, project, local] = layers.map(({layer}) => layer);
-	const merged = mergeConfigLayers(
-		home ?? null,
-		project ?? null,
-		local ?? null,
-	);
-	validateConfig(merged);
-	return merged as PappardelleConfig;
-}
-
-function initCommandSpellings(container: Record<string, unknown>): {
-	newKey: boolean;
-	oldKey: boolean;
-} {
-	const {claude} = container;
-	return {
-		newKey: container['initialization_command'] !== undefined,
-		oldKey:
-			claude !== null &&
-			typeof claude === 'object' &&
-			(claude as Record<string, unknown>)['initialization_command'] !==
-				undefined,
-	};
-}
-
-/**
- * The containers an initialization_command can live on — the config's top
- * level plus each profile — with the message label for each (`''` at the top
- * level, `profiles.<name>.` per profile, ready to prefix a key path).
- */
-function configContainers(layer: Record<string, unknown>): Array<{
-	container: Record<string, unknown>;
-	label: string;
-	profileName?: string;
-}> {
-	const containers: Array<{
-		container: Record<string, unknown>;
-		label: string;
-		profileName?: string;
-	}> = [{container: layer, label: ''}];
-	const {profiles} = layer;
-	if (profiles && typeof profiles === 'object') {
-		for (const [name, profile] of Object.entries(
-			profiles as Record<string, unknown>,
-		)) {
-			if (!profile || typeof profile !== 'object') continue;
-			containers.push({
-				container: profile as Record<string, unknown>,
-				label: `profiles.${name}.`,
-				profileName: name,
-			});
-		}
+	const merged = mergeConfigLayers(layers.map(({layer}) => layer));
+	const errors = configErrors(merged);
+	if (errors.length > 0) {
+		throw new ConfigValidationError(labelErrorsByLayer(errors, layers));
 	}
-	return containers;
+
+	return merged as unknown as PappardelleConfig;
 }
 
 /**
- * Same-file both-spellings conflicts, top-level and per-profile, labeled with
- * the layer's file name. Runs on a single raw layer before merging.
+ * Name the file an error comes from: the one file whose absence from the
+ * merge makes the error go away. An error that no single file explains, like
+ * a duplicate spread over two files, or one whose wording depends on another
+ * file (a keybinding's index), keeps no file name. A single-file config's
+ * errors are already about that file.
  */
-function initializationCommandConflictErrors(
-	layer: Record<string, unknown>,
-	file: string,
+function labelErrorsByLayer(
+	errors: string[],
+	layers: Array<{label: string; layer: Record<string, unknown> | null}>,
 ): string[] {
-	const errors: string[] = [];
-	for (const {container, label} of configContainers(layer)) {
-		const {newKey, oldKey} = initCommandSpellings(container);
-		if (newKey && oldKey) {
-			errors.push(
-				`${file}: ${label}initialization_command and ${label}claude.initialization_command cannot both be specified (use initialization_command)`,
-			);
-		}
-	}
-	return errors;
-}
-
-/**
- * Move a raw layer's deprecated `claude.initialization_command` to the
- * `initialization_command` key beside it. Runs after the per-layer conflict
- * check, so the new key is never already set. A non-string value stays put so
- * validateConfig reports the type error under the key the user wrote.
- */
-function renameDeprecatedInitializationCommand(
-	layer: Record<string, unknown>,
-): void {
-	for (const {container} of configContainers(layer)) {
-		const {claude} = container;
-		if (!claude || typeof claude !== 'object') continue;
-		const claudeFields = claude as Record<string, unknown>;
-		const value = claudeFields['initialization_command'];
-		if (typeof value !== 'string') continue;
-		container['initialization_command'] = value;
-		delete claudeFields['initialization_command'];
-	}
-}
-
-/**
- * Each distinct deprecation warning fires once per process: the TUI reloads
- * config on every space selection, and re-warning on each reload would fill
- * the logger's small recent-error buffer and evict real errors from the
- * overlay.
- */
-const emittedDeprecationWarnings = new Set<string>();
-
-function warnDeprecatedOnce(message: string): void {
-	if (emittedDeprecationWarnings.has(message)) {
-		return;
-	}
-
-	emittedDeprecationWarnings.add(message);
-	logger.warn(message);
-}
-
-/** Drop the deprecation warnings from the error pane, except the `remaining` ones the config still earns. */
-export function dismissDeprecationWarnings(
-	remaining: ReadonlySet<string> = new Set(),
-): void {
-	const stale = new Set(
-		[...emittedDeprecationWarnings].filter(message => !remaining.has(message)),
-	);
-	dismissRecentErrors(entry => stale.has(entry.message));
-	for (const message of stale) emittedDeprecationWarnings.delete(message);
-}
-
-/**
- * Every deprecated `claude.<field>` a raw layer sets, top-level or
- * per-profile, with the profile-name label of the container it sits in.
- */
-export function findDeprecatedClaudeFields(
-	layer: Record<string, unknown>,
-): Array<{label: string; profileName?: string; field: DeprecatedClaudeField}> {
-	return configContainers(layer).flatMap(({container, label, profileName}) => {
-		const {claude} = container;
-		if (!claude || typeof claude !== 'object') return [];
-		return DEPRECATED_CLAUDE_FIELDS.filter(
-			field => (claude as Record<string, unknown>)[field] !== undefined,
-		).map(field => ({label, profileName, field}));
+	const files = layers.filter(({layer}) => layer);
+	if (files.length < 2) return errors;
+	const errorsWithout = files.map(({label}) => ({
+		label,
+		// configErrors fills in defaults, so each merge gets its own copies.
+		errors: new Set(
+			configErrors(
+				mergeConfigLayers(
+					layers.map(other =>
+						other.label === label || !other.layer
+							? null
+							: structuredClone(other.layer),
+					),
+				),
+			),
+		),
+	}));
+	return errors.map(error => {
+		const sources = errorsWithout.filter(({errors}) => !errors.has(error));
+		return sources.length === 1 ? `${sources[0]!.label}: ${error}` : error;
 	});
-}
-
-function deprecationMessage(
-	file: string,
-	label: string,
-	field: DeprecatedClaudeField,
-): string {
-	switch (field) {
-		case 'initialization_command': {
-			const target = label
-				? `${label}initialization_command`
-				: 'the top-level initialization_command';
-			return `${file}: ${label}claude.initialization_command is deprecated — rename it to ${target}`;
-		}
-
-		case 'extra_args': {
-			return `${file}: ${label}claude.extra_args is deprecated — set args on an agent profile (agent_profiles.<name>.args) and select it with ${label}agent_profile`;
-		}
-
-		case 'model':
-		case 'effort': {
-			return `${file}: ${label}claude.${field} is deprecated — set ${field} on an agent profile (agent_profiles.<name>.${field}) and select it with ${label}agent_profile`;
-		}
-	}
-}
-
-/**
- * Log a deprecation warning per deprecated `claude.<field>` in a single
- * config layer. Runs on the raw layer, before the initialization_command
- * rename, so the warning names the file to edit. `claude.model` / `effort` /
- * `extra_args` keep working for claude agent profiles, so unlike the init
- * command they are not renamed; the warning only points at where the value
- * belongs now.
- */
-function warnDeprecatedClaudeFields(
-	layer: Record<string, unknown>,
-	file: string,
-	agentProfiles: Record<string, unknown>,
-): void {
-	for (const message of deprecationWarnings(layer, file, agentProfiles)) {
-		warnDeprecatedOnce(message);
-	}
-}
-
-export function deprecationWarnings(
-	layer: Record<string, unknown>,
-	file: string,
-	agentProfiles: Record<string, unknown>,
-): string[] {
-	return [
-		...findDeprecatedClaudeFields(layer).map(({label, field}) =>
-			deprecationMessage(file, label, field),
-		),
-		...findPrefixedInitializationCommands(layer).map(
-			({key, value}) =>
-				`${file}: ${key} "${value}" includes the skill prefix — write "${value.slice(1)}"; the agent profile's skill_prefix is added at launch`,
-		),
-		...findTrailingPromptFlags(layer, agentProfiles).map(
-			({name, field, flag}) =>
-				`${file}: agent_profiles.${name}.${field} ends with ${flag}, which the built-in prompt_args now adds — remove it`,
-		),
-	];
-}
-
-/**
- * Every initialization_command a raw layer writes in the old form, with the
- * skill's `/` in front, in either spelling. That form predates skill_prefix:
- * read as a skill name, `/idow` would launch claude with `//idow`.
- */
-export function findPrefixedInitializationCommands(
-	layer: Record<string, unknown>,
-): Array<{key: string; value: string}> {
-	return configContainers(layer).flatMap(({container, label}) =>
-		[
-			{key: 'initialization_command', fields: container},
-			{key: 'claude.initialization_command', fields: container['claude']},
-		].flatMap(({key, fields}) => {
-			const value =
-				fields && typeof fields === 'object'
-					? (fields as Record<string, unknown>)['initialization_command']
-					: undefined;
-			return typeof value === 'string' && value.startsWith('/')
-				? [{key: `${label}${key}`, value}]
-				: [];
-		}),
-	);
 }
 
 /** The agent_profiles of raw layers, merged as the config merges them. */
@@ -1204,61 +915,12 @@ export function mergedAgentProfiles(
 }
 
 /**
- * Every model_args or effort_args a raw layer sets that still ends with the
- * prompt flag its agent's built-in prompt_args adds (see builtinPromptFlag).
- * The agent is read from the merged agent profiles, since another file can
- * set its command or prompt_args.
- */
-export function findTrailingPromptFlags(
-	layer: Record<string, unknown>,
-	agentProfiles: Record<string, unknown>,
-): Array<{name: string; field: 'model_args' | 'effort_args'; flag: string}> {
-	const profiles = layer['agent_profiles'];
-	if (!profiles || typeof profiles !== 'object') return [];
-	return Object.entries(profiles as Record<string, unknown>).flatMap(
-		([name, value]) => {
-			const definition = agentProfiles[name] as
-				| Partial<AgentProfileConfig>
-				| undefined;
-			if (typeof definition?.command !== 'string') return [];
-			const flag = builtinPromptFlag(definition as AgentProfileConfig);
-			if (!flag) return [];
-			const fields = value as Partial<AgentProfileConfig> | null;
-			return (['model_args', 'effort_args'] as const)
-				.filter(field => {
-					const args = fields?.[field];
-					return (
-						typeof args === 'string' && args.trimEnd().endsWith(` ${flag}`)
-					);
-				})
-				.map(field => ({name, field, flag}));
-		},
-	);
-}
-
-/** Whether a raw layer still uses a format the config rewrite replaces. */
-export function needsConfigRewrite(
-	layer: Record<string, unknown>,
-	agentProfiles: Record<string, unknown>,
-): boolean {
-	return (
-		findDeprecatedClaudeFields(layer).length > 0 ||
-		findPrefixedInitializationCommands(layer).length > 0 ||
-		findTrailingPromptFlags(layer, agentProfiles).length > 0
-	);
-}
-
-/**
  * Load the .pappardelle.yml config from the repository root.
  * Supports 3-layer merge: home (~/.pappardelle/.pappardelle.yml) →
  * project (.pappardelle.yml) → local (.pappardelle.local.yml).
  */
 export function loadConfig(): PappardelleConfig {
-	return loadConfigFromPaths({
-		homeConfigDir: getDefaultHomeConfigDir(),
-		projectDir: getRepoRoot(),
-		fallbackProjectDir: getMainRepoRoot,
-	});
+	return loadConfigFromPaths(defaultConfigPaths());
 }
 
 export type ConfigLoad =
@@ -1302,27 +964,38 @@ export function defaultConfigPaths(): ConfigPaths {
 	};
 }
 
-/**
- * The raw config layers, lowest priority first, labeled the way config errors
- * name them. A layer that is missing or fails to parse is null, so callers
- * that only need part of the config keep working while another section is
- * broken; `errors` says why a file that exists was left out.
- */
-function readConfigLayers(paths: ConfigPaths): Array<{
+export type ConfigLayerRead = {
 	label: string;
+	path: string | undefined;
+	content?: string;
 	layer: Record<string, unknown> | null;
 	errors?: string[];
-}> {
+};
+
+/**
+ * The raw config layers, always home, project and local in that order,
+ * labeled the way config errors name them. A layer that is missing or fails
+ * to parse is null, so callers that only need part of the config keep working
+ * while another section is broken; `errors` says why a file that exists was
+ * left out.
+ */
+export function readConfigLayers(paths: ConfigPaths): ConfigLayerRead[] {
 	return configLayerFiles(paths).map(({label, path: filePath}) => {
-		if (!filePath) return {label, layer: null};
+		if (!filePath) return {label, path: filePath, layer: null};
+		let content: string | undefined;
 		try {
+			content = fs.readFileSync(filePath, 'utf8');
 			return {
 				label,
-				layer: parseConfigLayer(label, fs.readFileSync(filePath, 'utf8')),
+				path: filePath,
+				content,
+				layer: parseConfigLayer(label, content),
 			};
 		} catch (error) {
 			return {
 				label,
+				path: filePath,
+				content,
 				layer: null,
 				errors:
 					error instanceof ConfigValidationError
@@ -1364,12 +1037,7 @@ export function loadProviderConfigs(opts?: ConfigPaths): {
 	unparsable: string[];
 } {
 	const layers = readConfigLayers(opts ?? defaultConfigPaths());
-	const [home, project, local] = layers.map(({layer}) => layer);
-	const merged = mergeConfigLayers(
-		home ?? null,
-		project ?? null,
-		local ?? null,
-	);
+	const merged = mergeConfigLayers(layers.map(({layer}) => layer));
 	return {
 		issue_tracker: merged['issue_tracker'] as IssueTrackerConfig | undefined,
 		vcs_host: merged['vcs_host'] as VcsHostConfig | undefined,
@@ -1407,995 +1075,6 @@ export function configExists(): boolean {
 	} catch {
 		return false;
 	}
-}
-
-// ============================================================================
-// Config Validation
-// ============================================================================
-
-export function validateConfig(
-	config: unknown,
-): asserts config is PappardelleConfig {
-	const errors: string[] = [];
-
-	if (!config || typeof config !== 'object') {
-		throw new ConfigValidationError(['Config must be an object']);
-	}
-
-	const cfg = config as Record<string, unknown>;
-
-	// Check version
-	if (cfg['version'] !== 1) {
-		errors.push('version: must be 1');
-	}
-
-	// Check default_profile (optional — falls back to first profile)
-	if (
-		cfg['default_profile'] !== undefined &&
-		(typeof cfg['default_profile'] !== 'string' ||
-			(cfg['default_profile'] as string).length === 0)
-	) {
-		errors.push('default_profile: must be a non-empty string when specified');
-	}
-
-	// Check default_emoji (optional)
-	// Empty string is allowed and means "reserve the emoji slot but render
-	// nothing in it" — useful when most profiles have an emoji and you want
-	// the unmatched ones to align without showing a glyph.
-	if (
-		cfg['default_emoji'] !== undefined &&
-		typeof cfg['default_emoji'] !== 'string'
-	) {
-		errors.push('default_emoji: must be a string when specified');
-	}
-
-	// Check issue_tracker (optional)
-	if (cfg['issue_tracker'] !== undefined) {
-		if (
-			typeof cfg['issue_tracker'] !== 'object' ||
-			cfg['issue_tracker'] === null
-		) {
-			errors.push('issue_tracker: must be an object');
-		} else {
-			const it = cfg['issue_tracker'] as Record<string, unknown>;
-			const {provider} = it;
-			if (
-				provider !== 'linear' &&
-				provider !== 'jira' &&
-				provider !== 'beads'
-			) {
-				errors.push(
-					'issue_tracker.provider: must be "linear", "jira", or "beads"',
-				);
-			} else if (provider === 'jira' && typeof it['base_url'] !== 'string') {
-				errors.push('issue_tracker.base_url: required when provider is "jira"');
-			}
-		}
-	}
-
-	// Check vcs_host (optional)
-	if (cfg['vcs_host'] !== undefined) {
-		if (typeof cfg['vcs_host'] !== 'object' || cfg['vcs_host'] === null) {
-			errors.push('vcs_host: must be an object');
-		} else {
-			const vh = cfg['vcs_host'] as Record<string, unknown>;
-			const {provider} = vh;
-			if (provider !== 'github' && provider !== 'gitlab') {
-				errors.push('vcs_host.provider: must be "github" or "gitlab"');
-			}
-		}
-	}
-
-	// Check claude (optional)
-	if (cfg['claude'] !== undefined) {
-		if (typeof cfg['claude'] !== 'object' || cfg['claude'] === null) {
-			errors.push('claude: must be an object');
-		} else {
-			const cl = cfg['claude'] as Record<string, unknown>;
-			if (
-				cl['initialization_command'] !== undefined &&
-				typeof cl['initialization_command'] !== 'string'
-			) {
-				errors.push('claude.initialization_command: must be a string');
-			}
-			if (
-				cl['dangerously_skip_permissions'] !== undefined &&
-				typeof cl['dangerously_skip_permissions'] !== 'boolean'
-			) {
-				errors.push('claude.dangerously_skip_permissions: must be a boolean');
-			}
-			errors.push(...validateClaudeLaunchFields(cl, 'claude'));
-		}
-	}
-
-	// Check initialization_command (optional)
-	errors.push(...validateInitializationCommandField(cfg, ''));
-
-	// Check agent_profiles (optional map of named agent profiles)
-	const agentProfileNames = new Set<string>(['claude']);
-	if (cfg['agent_profiles'] !== undefined) {
-		if (
-			typeof cfg['agent_profiles'] !== 'object' ||
-			cfg['agent_profiles'] === null ||
-			Array.isArray(cfg['agent_profiles'])
-		) {
-			errors.push('agent_profiles: must be an object');
-		} else {
-			for (const [name, def] of Object.entries(
-				cfg['agent_profiles'] as Record<string, unknown>,
-			)) {
-				agentProfileNames.add(name);
-				if (typeof def !== 'object' || def === null) {
-					errors.push(`agent_profiles.${name}: must be an object`);
-					continue;
-				}
-				const agentProfile = def as Record<string, unknown>;
-				if (
-					typeof agentProfile['command'] !== 'string' ||
-					agentProfile['command'].trim().length === 0
-				) {
-					errors.push(
-						`agent_profiles.${name}.command: required non-empty string`,
-					);
-				}
-				for (const field of AGENT_PROFILE_STRING_FIELDS) {
-					if (
-						agentProfile[field] !== undefined &&
-						typeof agentProfile[field] !== 'string'
-					) {
-						errors.push(`agent_profiles.${name}.${field}: must be a string`);
-					}
-				}
-				// The fields are typed into the pane as one launch line.
-				for (const field of ['command', ...AGENT_PROFILE_STRING_FIELDS]) {
-					const value = agentProfile[field];
-					if (typeof value === 'string' && /[\r\n]/.test(value.trimEnd())) {
-						errors.push(
-							`agent_profiles.${name}.${field}: must be a single line`,
-						);
-					}
-				}
-				if (
-					agentProfile['is_claude'] !== undefined &&
-					typeof agentProfile['is_claude'] !== 'boolean'
-				) {
-					errors.push(`agent_profiles.${name}.is_claude: must be a boolean`);
-				}
-				errors.push(
-					...validateAgentProfileEnv(name, agentProfile['env']),
-					...validateAgentLaunchTemplates(
-						name,
-						agentProfile as Partial<AgentProfileConfig>,
-					),
-				);
-			}
-		}
-	}
-
-	// Check agent_profile (optional reference into the agent_profiles map;
-	// 'claude' is built in)
-	if (cfg['agent_profile'] !== undefined) {
-		errors.push(
-			...validateAgentProfileReference(
-				cfg['agent_profile'],
-				'agent_profile',
-				agentProfileNames,
-			),
-		);
-	}
-
-	// Check issue_watchlist (optional). Same shape is also accepted per-profile,
-	// so the field checks live in a shared helper keyed by an error-message prefix.
-	if (cfg['issue_watchlist'] !== undefined) {
-		errors.push(
-			...validateIssueWatchlist(cfg['issue_watchlist'], 'issue_watchlist'),
-		);
-	}
-
-	// Check state_colors (optional, off by default)
-	if (cfg['state_colors'] !== undefined) {
-		errors.push(...validateStateColors(cfg['state_colors']));
-	}
-
-	// Check auto_remove_when_done (optional, off by default)
-	if (
-		cfg['auto_remove_when_done'] !== undefined &&
-		typeof cfg['auto_remove_when_done'] !== 'boolean'
-	) {
-		errors.push('auto_remove_when_done: must be a boolean');
-	}
-
-	const sousChefKey = cfg['sous_chef_key'];
-	if (
-		sousChefKey !== undefined &&
-		sousChefKey !== false &&
-		(typeof sousChefKey !== 'string' || sousChefKey.trim() === '')
-	) {
-		errors.push('sous_chef_key: must be a tmux key name or false');
-	}
-	if (cfg['sous_chef'] !== undefined && typeof cfg['sous_chef'] !== 'boolean') {
-		errors.push('sous_chef: must be a boolean');
-	} else if (
-		cfg['sous_chef'] === true &&
-		cfg['workspace_aware_agents'] !== true
-	) {
-		errors.push(
-			'sous_chef: needs workspace_aware_agents: true, since the sous-chef works through its tools',
-		);
-	}
-
-	if (
-		cfg['workspace_aware_agents'] !== undefined &&
-		typeof cfg['workspace_aware_agents'] !== 'boolean'
-	) {
-		errors.push('workspace_aware_agents: must be a boolean');
-	}
-
-	const {experimental} = cfg;
-	if (experimental !== undefined) {
-		if (
-			typeof experimental !== 'object' ||
-			experimental === null ||
-			Array.isArray(experimental)
-		) {
-			errors.push('experimental: must be an object');
-		} else if (
-			(experimental as Record<string, unknown>)['sqliteState'] !== undefined &&
-			typeof (experimental as Record<string, unknown>)['sqliteState'] !==
-				'boolean'
-		) {
-			errors.push('experimental.sqliteState: must be a boolean');
-		}
-	}
-
-	// Check list_view (optional; an absent layout defers to the tracker default)
-	if (cfg['list_view'] !== undefined) {
-		if (typeof cfg['list_view'] !== 'object' || cfg['list_view'] === null) {
-			errors.push('list_view: must be an object');
-		} else {
-			const listView = cfg['list_view'] as Record<string, unknown>;
-			if (
-				listView['layout'] !== undefined &&
-				listView['layout'] !== 'single_line' &&
-				listView['layout'] !== 'two_line'
-			) {
-				errors.push('list_view.layout: must be "single_line" or "two_line"');
-			}
-
-			if (
-				listView['group_by'] !== undefined &&
-				listView['group_by'] !== 'status'
-			) {
-				errors.push('list_view.group_by: must be "status"');
-			}
-
-			if (listView['groups'] !== undefined) {
-				errors.push(...validateRailGroups(listView['groups']));
-			}
-		}
-	}
-
-	// Check layout (optional pane widths)
-	if (cfg['layout'] !== undefined) {
-		if (typeof cfg['layout'] !== 'object' || cfg['layout'] === null) {
-			errors.push('layout: must be an object');
-		} else {
-			const layout = cfg['layout'] as Record<string, unknown>;
-			for (const key of ['rail_width', 'claude_width', 'companion_width']) {
-				const value = layout[key];
-				if (value !== undefined && !isPaneWidth(value)) {
-					errors.push(
-						`layout.${key}: must be a positive whole number of columns or a percentage like "25%"`,
-					);
-				}
-			}
-		}
-	}
-
-	// Check companion_command (optional, free-form shell command). Any string is
-	// accepted — including the empty string, which means "leave a plain shell".
-	if (
-		cfg['companion_command'] !== undefined &&
-		typeof cfg['companion_command'] !== 'string'
-	) {
-		errors.push('companion_command: must be a string');
-	}
-
-	validateCompanionSplits(cfg['companion_splits'], 'companion_splits', errors);
-
-	// Check ide_command (optional, free-form shell command). Any string is
-	// accepted — including the empty string, which disables the `d` key.
-	if (
-		cfg['ide_command'] !== undefined &&
-		typeof cfg['ide_command'] !== 'string'
-	) {
-		errors.push('ide_command: must be a string');
-	}
-
-	// Check post_workspace_init / post_worktree_init (optional, mutually exclusive)
-	if (
-		cfg['post_workspace_init'] !== undefined &&
-		cfg['post_worktree_init'] !== undefined
-	) {
-		errors.push(
-			'post_workspace_init and post_worktree_init cannot both be specified (use post_workspace_init)',
-		);
-	}
-	const globalPostInit =
-		cfg['post_workspace_init'] ?? cfg['post_worktree_init'];
-	if (globalPostInit !== undefined) {
-		const label =
-			cfg['post_workspace_init'] !== undefined
-				? 'post_workspace_init'
-				: 'post_worktree_init';
-		if (!Array.isArray(globalPostInit)) {
-			errors.push(`${label}: must be an array`);
-		} else {
-			const cmds = globalPostInit as Array<Record<string, unknown>>;
-			for (let i = 0; i < cmds.length; i++) {
-				const cmd = cmds[i]!;
-				if (typeof cmd['run'] !== 'string') {
-					errors.push(`${label}[${i}].run: required string field`);
-				}
-				if (
-					cmd['continue_on_error'] !== undefined &&
-					typeof cmd['continue_on_error'] !== 'boolean'
-				) {
-					errors.push(`${label}[${i}].continue_on_error: must be a boolean`);
-				}
-			}
-		}
-	}
-
-	// Check pre_workspace_deinit (optional)
-	if (cfg['pre_workspace_deinit'] !== undefined) {
-		if (!Array.isArray(cfg['pre_workspace_deinit'])) {
-			errors.push('pre_workspace_deinit: must be an array');
-		} else {
-			const cmds = cfg['pre_workspace_deinit'] as Array<
-				Record<string, unknown>
-			>;
-			for (let i = 0; i < cmds.length; i++) {
-				const cmd = cmds[i]!;
-				if (typeof cmd['run'] !== 'string') {
-					errors.push(`pre_workspace_deinit[${i}].run: required string field`);
-				}
-				if (
-					cmd['continue_on_error'] !== undefined &&
-					typeof cmd['continue_on_error'] !== 'boolean'
-				) {
-					errors.push(
-						`pre_workspace_deinit[${i}].continue_on_error: must be a boolean`,
-					);
-				}
-			}
-		}
-	}
-
-	// Check hooks (optional)
-	if (cfg['hooks'] !== undefined) {
-		if (typeof cfg['hooks'] !== 'object' || cfg['hooks'] === null) {
-			errors.push('hooks: must be an object');
-		} else {
-			const hooks = cfg['hooks'] as Record<string, unknown>;
-			if (hooks['post_workspace_create'] !== undefined) {
-				if (!Array.isArray(hooks['post_workspace_create'])) {
-					errors.push('hooks.post_workspace_create: must be an array');
-				} else {
-					const cmds = hooks['post_workspace_create'] as Array<
-						Record<string, unknown>
-					>;
-					for (let i = 0; i < cmds.length; i++) {
-						const cmd = cmds[i]!;
-						if (typeof cmd['run'] !== 'string') {
-							errors.push(
-								`hooks.post_workspace_create[${i}].run: required string field`,
-							);
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Check keybindings (optional)
-	if (cfg['keybindings'] !== undefined) {
-		if (!Array.isArray(cfg['keybindings'])) {
-			errors.push('keybindings: must be an array');
-		} else {
-			const bindings = cfg['keybindings'] as Array<Record<string, unknown>>;
-			const seenKeys = new Set<string>();
-			for (let i = 0; i < bindings.length; i++) {
-				const binding = bindings[i]!;
-				if (
-					typeof binding['key'] !== 'string' ||
-					(binding['key'] as string).length !== 1
-				) {
-					errors.push(`keybindings[${i}].key: must be a single character`);
-				} else {
-					const k = binding['key'] as string;
-					if (NON_OVERRIDABLE_KEYS.has(k)) {
-						errors.push(
-							`keybindings[${i}].key: "${k}" conflicts with built-in shortcut`,
-						);
-					}
-					if (seenKeys.has(k)) {
-						errors.push(`keybindings[${i}].key: "${k}" is already bound`);
-					}
-					seenKeys.add(k);
-				}
-
-				// Disabled bindings only need a valid key
-				if (binding['disabled'] === true) {
-					continue;
-				}
-				if (typeof binding['name'] !== 'string') {
-					errors.push(`keybindings[${i}].name: required string field`);
-				}
-				const actions = ['run', 'send_to_claude', 'send_skill'].filter(
-					action => typeof binding[action] === 'string',
-				);
-				if (actions.length !== 1) {
-					errors.push(
-						`keybindings[${i}]: must have exactly one of 'run', 'send_to_claude' or 'send_skill'`,
-					);
-				}
-			}
-		}
-	}
-
-	// Check profiles
-	if (!cfg['profiles'] || typeof cfg['profiles'] !== 'object') {
-		errors.push('profiles: required object field');
-	} else {
-		const profiles = cfg['profiles'] as Record<string, unknown>;
-
-		// Check that default_profile exists (when specified)
-		if (
-			typeof cfg['default_profile'] === 'string' &&
-			cfg['default_profile'].length > 0 &&
-			!profiles[cfg['default_profile']]
-		) {
-			errors.push(
-				`default_profile: profile "${cfg['default_profile']}" not found in profiles`,
-			);
-		}
-
-		// If no default_profile specified, resolve it to the first profile key
-		if (cfg['default_profile'] === undefined) {
-			const firstKey = Object.keys(profiles)[0];
-			if (firstKey) {
-				(cfg as Record<string, unknown>)['default_profile'] = firstKey;
-			}
-		}
-
-		// Validate each profile
-		for (const [name, profile] of Object.entries(profiles)) {
-			const profileErrors = validateProfile(name, profile, agentProfileNames);
-			errors.push(...profileErrors);
-		}
-	}
-
-	if (errors.length > 0) {
-		throw new ConfigValidationError(errors);
-	}
-}
-
-/**
- * Launch fields that exist identically on agent profiles and, deprecated, on
- * the top-level and per-profile `claude:` blocks.
- */
-export const LAUNCH_FIELDS = ['model', 'effort'] as const;
-
-type LaunchField = (typeof LAUNCH_FIELDS)[number];
-
-const DEPRECATED_CLAUDE_FIELDS = [
-	'initialization_command',
-	...LAUNCH_FIELDS,
-	'extra_args',
-] as const;
-
-type DeprecatedClaudeField = (typeof DEPRECATED_CLAUDE_FIELDS)[number];
-
-const AGENT_PROFILE_STRING_FIELDS = [
-	'args',
-	'resume_args',
-	'model',
-	'effort',
-	'model_args',
-	'effort_args',
-	'prompt_args',
-	'skill_prefix',
-] as const;
-
-const ENV_NAME_PATTERN = /^[A-Za-z_]\w*$/;
-
-function validateAgentProfileEnv(name: string, env: unknown): string[] {
-	if (env === undefined) return [];
-	if (typeof env !== 'object' || env === null || Array.isArray(env)) {
-		return [
-			`agent_profiles.${name}.env: must be a map of variable names to strings`,
-		];
-	}
-
-	return Object.entries(env).flatMap(([key, value]) => {
-		const prefix = `agent_profiles.${name}.env.${key}`;
-		if (!ENV_NAME_PATTERN.test(key)) {
-			return [`${prefix}: must be an environment variable name`];
-		}
-
-		if (key.startsWith('PAPPARDELLE_')) {
-			return [`${prefix}: PAPPARDELLE_ variables are set by pappardelle`];
-		}
-
-		return typeof value === 'string' ? [] : [`${prefix}: must be a string`];
-	});
-}
-
-/**
- * A template must carry its placeholder, or the configured value would be
- * silently dropped; and a value with no template, built in or configured,
- * has no way to reach the CLI.
- */
-function validateAgentLaunchTemplates(
-	name: string,
-	agentProfile: Partial<AgentProfileConfig>,
-): string[] {
-	if (typeof agentProfile.command !== 'string') return [];
-	const errors: string[] = [];
-	const builtin = builtinAgentDefaults({
-		command: agentProfile.command,
-		is_claude: agentProfile.is_claude,
-	});
-	for (const field of LAUNCH_FIELDS) {
-		const templateField = `${field}_args` as const;
-		const template = agentProfile[templateField];
-		const placeholder = LAUNCH_PLACEHOLDERS[field];
-		if (typeof template === 'string' && !template.includes(placeholder)) {
-			errors.push(
-				`agent_profiles.${name}.${templateField}: must contain ${placeholder}`,
-			);
-		}
-		const value = agentProfile[field];
-		if (
-			typeof value === 'string' &&
-			value !== '' &&
-			template === undefined &&
-			builtin[templateField] === undefined
-		) {
-			errors.push(
-				`agent_profiles.${name}.${field}: "${agentProfile.command}" has no built-in ${field} flag; set ${templateField}`,
-			);
-		}
-	}
-	const promptArgs = agentProfile.prompt_args;
-	if (
-		typeof promptArgs === 'string' &&
-		promptArgs.split(PROMPT_PLACEHOLDER).length !== 2
-	) {
-		errors.push(
-			`agent_profiles.${name}.prompt_args: must contain ${PROMPT_PLACEHOLDER} exactly once`,
-		);
-	}
-	return errors;
-}
-
-/**
- * Validate the pass-through launch flags in a `claude:` block.
- *
- * Type-only on purpose: these values are handed straight to `claude --model` /
- * `claude --effort`, and any allowlist we bake in here would rot the moment a
- * new model alias or effort level ships. A typo therefore surfaces when Claude
- * Code itself rejects the flag, not at config load. Every consumer
- * shell-quotes the value, so "loose" costs nothing in safety.
- *
- * An empty string is explicitly legal and meaningful: at profile level it
- * clears a value inherited from the top-level block.
- */
-function validateClaudeLaunchFields(
-	claudeBlock: Record<string, unknown>,
-	prefix: string,
-): string[] {
-	const errors: string[] = [];
-	for (const field of LAUNCH_FIELDS) {
-		if (
-			claudeBlock[field] !== undefined &&
-			typeof claudeBlock[field] !== 'string'
-		) {
-			errors.push(`${prefix}.${field}: must be a string`);
-		}
-	}
-	const extraArgs = claudeBlock['extra_args'];
-	if (
-		extraArgs !== undefined &&
-		!(
-			Array.isArray(extraArgs) &&
-			extraArgs.every(arg => typeof arg === 'string')
-		)
-	) {
-		errors.push(`${prefix}.extra_args: must be a list of strings`);
-	}
-	return errors;
-}
-
-/**
- * Validate a single issue_watchlist block. Shared by the top-level
- * `issue_watchlist` and each profile's `issue_watchlist` so their field rules
- * and error messages can never drift. `prefix` is the dotted path used in error
- * messages (e.g. `issue_watchlist` or `profiles.chaz.issue_watchlist`).
- */
-function validateIssueWatchlist(value: unknown, prefix: string): string[] {
-	const errors: string[] = [];
-
-	if (typeof value !== 'object' || value === null) {
-		errors.push(`${prefix}: must be an object`);
-		return errors;
-	}
-
-	const wl = value as Record<string, unknown>;
-	if (wl['assignee'] !== undefined && typeof wl['assignee'] !== 'string') {
-		errors.push(`${prefix}.assignee: must be a string`);
-	}
-
-	if (!Array.isArray(wl['statuses']) || wl['statuses'].length === 0) {
-		errors.push(`${prefix}.statuses: required non-empty array`);
-	} else {
-		const statuses = wl['statuses'] as unknown[];
-		for (let i = 0; i < statuses.length; i++) {
-			if (typeof statuses[i] !== 'string') {
-				errors.push(`${prefix}.statuses[${i}]: must be a string`);
-			}
-		}
-	}
-
-	if (wl['labels'] !== undefined) {
-		if (!Array.isArray(wl['labels'])) {
-			errors.push(`${prefix}.labels: must be an array`);
-		} else {
-			const labels = wl['labels'] as unknown[];
-			for (let i = 0; i < labels.length; i++) {
-				if (typeof labels[i] !== 'string') {
-					errors.push(`${prefix}.labels[${i}]: must be a string`);
-				}
-			}
-		}
-	}
-
-	if (wl['key_prefixes'] !== undefined) {
-		if (!Array.isArray(wl['key_prefixes'])) {
-			errors.push(`${prefix}.key_prefixes: must be an array`);
-		} else {
-			const prefixes = wl['key_prefixes'] as unknown[];
-			for (let i = 0; i < prefixes.length; i++) {
-				const p = prefixes[i];
-				if (typeof p !== 'string') {
-					errors.push(`${prefix}.key_prefixes[${i}]: must be a string`);
-				} else if (p.trim() === '') {
-					errors.push(`${prefix}.key_prefixes[${i}]: must not be empty`);
-				}
-			}
-		}
-	}
-
-	if (wl['max_workspaces'] !== undefined) {
-		const max = wl['max_workspaces'];
-		if (typeof max !== 'number' || !Number.isInteger(max) || max < 1) {
-			errors.push(`${prefix}.max_workspaces: must be an integer >= 1`);
-		}
-	}
-
-	return errors;
-}
-
-/**
- * Type-check `initialization_command` on one container (top level or profile).
- * Shared by validateConfig and validateProfile, keyed by an error-message
- * prefix (`''` at the top level, `profiles.<name>.` per profile) like
- * validateIssueWatchlist. Both-spellings conflicts are rejected per file in
- * loadConfigFromPaths, before layers merge.
- */
-function validateInitializationCommandField(
-	container: Record<string, unknown>,
-	prefix: string,
-): string[] {
-	const errors: string[] = [];
-	if (
-		container['initialization_command'] !== undefined &&
-		typeof container['initialization_command'] !== 'string'
-	) {
-		errors.push(`${prefix}initialization_command: must be a string`);
-	}
-	return errors;
-}
-
-/**
- * Validate an `agent_profile:` reference (top-level or per-profile). `''` clears an
- * inherited reference back to claude, so only non-empty names must resolve.
- */
-function validateAgentProfileReference(
-	value: unknown,
-	label: string,
-	agentProfileNames: Set<string>,
-): string[] {
-	if (typeof value !== 'string') {
-		return [`${label}: must be a string`];
-	}
-	if (value !== '' && !agentProfileNames.has(value)) {
-		return [`${label}: agent profile "${value}" not found in agent_profiles`];
-	}
-	return [];
-}
-
-function validateCompanionSplits(
-	value: unknown,
-	path: string,
-	errors: string[],
-): void {
-	if (value === undefined) return;
-	if (!Array.isArray(value)) {
-		errors.push(`${path}: must be a list of splits`);
-		return;
-	}
-
-	const names = new Set<string>();
-	for (const [index, entry] of value.entries()) {
-		const at = `${path}[${index}]`;
-		if (typeof entry !== 'object' || entry === null) {
-			errors.push(`${at}: must be an object with name and command`);
-			continue;
-		}
-
-		const split = entry as Record<string, unknown>;
-		if (!isPaneName(split['name']) || split['name'] === MAIN_PANE) {
-			errors.push(`${at}.name: must be ${PANE_NAME_RULE}, and not main`);
-		} else if (names.has(split['name'])) {
-			errors.push(`${at}.name: ${split['name']} is listed twice`);
-		} else {
-			names.add(split['name']);
-		}
-
-		if (typeof split['command'] !== 'string')
-			errors.push(`${at}.command: must be a string`);
-		if (split['split'] !== undefined && !isSplitDirection(split['split']))
-			errors.push(`${at}.split: must be right or down`);
-		if (split['size'] !== undefined && !isPaneWidth(split['size']))
-			errors.push(
-				`${at}.size: must be a positive whole number of cells or a percentage like "30%"`,
-			);
-	}
-}
-
-function validateProfile(
-	name: string,
-	profile: unknown,
-	agentProfileNames: Set<string>,
-): string[] {
-	const errors: string[] = [];
-	const prefix = `profiles.${name}`;
-
-	if (!profile || typeof profile !== 'object') {
-		return [`${prefix}: must be an object`];
-	}
-
-	const p = profile as Record<string, unknown>;
-
-	// keywords (optional — defaults to empty array)
-	if (p['keywords'] !== undefined && !Array.isArray(p['keywords'])) {
-		errors.push(`${prefix}.keywords: must be an array when specified`);
-	} else if (p['keywords'] === undefined) {
-		(p as Record<string, unknown>)['keywords'] = [];
-	}
-
-	// tracker_projects (optional)
-	if (p['tracker_projects'] !== undefined) {
-		if (!Array.isArray(p['tracker_projects'])) {
-			errors.push(
-				`${prefix}.tracker_projects: must be an array when specified`,
-			);
-		} else {
-			const projects = p['tracker_projects'] as unknown[];
-			for (let i = 0; i < projects.length; i++) {
-				if (typeof projects[i] !== 'string') {
-					errors.push(`${prefix}.tracker_projects[${i}]: must be a string`);
-				}
-			}
-		}
-	}
-
-	if (typeof p['display_name'] !== 'string') {
-		errors.push(`${prefix}.display_name: required string field`);
-	}
-
-	// Optional emoji. Empty string is allowed (renders as a blank slot that
-	// still reserves the emoji width — useful for keeping rows aligned when
-	// some profiles have an emoji and others don't).
-	if (p['emoji'] !== undefined && typeof p['emoji'] !== 'string') {
-		errors.push(`${prefix}.emoji: must be a string when specified`);
-	}
-
-	// Optional team_prefix
-	if (p['team_prefix'] !== undefined && typeof p['team_prefix'] !== 'string') {
-		errors.push(`${prefix}.team_prefix: must be a string`);
-	}
-
-	// Optional per-profile companion_command override (any string, incl. empty)
-	if (
-		p['companion_command'] !== undefined &&
-		typeof p['companion_command'] !== 'string'
-	) {
-		errors.push(`${prefix}.companion_command: must be a string`);
-	}
-
-	validateCompanionSplits(
-		p['companion_splits'],
-		`${prefix}.companion_splits`,
-		errors,
-	);
-
-	// Optional per-profile ide_command override (any string, incl. empty)
-	if (p['ide_command'] !== undefined && typeof p['ide_command'] !== 'string') {
-		errors.push(`${prefix}.ide_command: must be a string`);
-	}
-
-	// Optional vars
-	if (p['vars'] !== undefined) {
-		if (typeof p['vars'] !== 'object' || p['vars'] === null) {
-			errors.push(`${prefix}.vars: must be an object`);
-		} else {
-			const vars = p['vars'] as Record<string, unknown>;
-			for (const [k, v] of Object.entries(vars)) {
-				if (typeof v !== 'string') {
-					errors.push(`${prefix}.vars.${k}: must be a string`);
-				}
-
-				if (RESERVED_VAR_NAMES.has(k)) {
-					errors.push(
-						`${prefix}.vars.${k}: reserved name (collides with built-in template variable or shell variable)`,
-					);
-				}
-			}
-		}
-	}
-
-	// Optional GitHub config
-	if (p['github'] !== undefined) {
-		if (typeof p['github'] !== 'object' || p['github'] === null) {
-			errors.push(`${prefix}.github: must be an object`);
-		} else {
-			const gh = p['github'] as Record<string, unknown>;
-			if (typeof gh['label'] !== 'string') {
-				errors.push(`${prefix}.github.label: required string field`);
-			}
-		}
-	}
-
-	// Optional per-profile claude config
-	if (p['claude'] !== undefined) {
-		if (typeof p['claude'] !== 'object' || p['claude'] === null) {
-			errors.push(`${prefix}.claude: must be an object`);
-		} else {
-			const cl = p['claude'] as Record<string, unknown>;
-			if (
-				cl['initialization_command'] !== undefined &&
-				typeof cl['initialization_command'] !== 'string'
-			) {
-				errors.push(
-					`${prefix}.claude.initialization_command: must be a string`,
-				);
-			}
-			errors.push(...validateClaudeLaunchFields(cl, `${prefix}.claude`));
-		}
-	}
-
-	// Optional per-profile agent_profile reference ('' clears an inherited reference)
-	if (p['agent_profile'] !== undefined) {
-		errors.push(
-			...validateAgentProfileReference(
-				p['agent_profile'],
-				`${prefix}.agent_profile`,
-				agentProfileNames,
-			),
-		);
-	}
-
-	// Optional per-profile initialization_command
-	errors.push(...validateInitializationCommandField(p, `${prefix}.`));
-
-	// Optional per-profile post_workspace_init / post_worktree_init (mutually exclusive)
-	if (
-		p['post_workspace_init'] !== undefined &&
-		p['post_worktree_init'] !== undefined
-	) {
-		errors.push(
-			`${prefix}.post_workspace_init and post_worktree_init cannot both be specified (use post_workspace_init)`,
-		);
-	}
-	const profilePostInit = p['post_workspace_init'] ?? p['post_worktree_init'];
-	if (profilePostInit !== undefined) {
-		const label =
-			p['post_workspace_init'] !== undefined
-				? 'post_workspace_init'
-				: 'post_worktree_init';
-		if (!Array.isArray(profilePostInit)) {
-			errors.push(`${prefix}.${label}: must be an array`);
-		} else {
-			const cmds = profilePostInit as Array<Record<string, unknown>>;
-			for (let i = 0; i < cmds.length; i++) {
-				const cmd = cmds[i]!;
-				if (typeof cmd['run'] !== 'string') {
-					errors.push(`${prefix}.${label}[${i}].run: required string field`);
-				}
-				if (
-					cmd['continue_on_error'] !== undefined &&
-					typeof cmd['continue_on_error'] !== 'boolean'
-				) {
-					errors.push(
-						`${prefix}.${label}[${i}].continue_on_error: must be a boolean`,
-					);
-				}
-			}
-		}
-	}
-
-	// Optional per-profile pre_workspace_deinit
-	if (p['pre_workspace_deinit'] !== undefined) {
-		if (!Array.isArray(p['pre_workspace_deinit'])) {
-			errors.push(`${prefix}.pre_workspace_deinit: must be an array`);
-		} else {
-			const cmds = p['pre_workspace_deinit'] as Array<Record<string, unknown>>;
-			for (let i = 0; i < cmds.length; i++) {
-				const cmd = cmds[i]!;
-				if (typeof cmd['run'] !== 'string') {
-					errors.push(
-						`${prefix}.pre_workspace_deinit[${i}].run: required string field`,
-					);
-				}
-				if (
-					cmd['continue_on_error'] !== undefined &&
-					typeof cmd['continue_on_error'] !== 'boolean'
-				) {
-					errors.push(
-						`${prefix}.pre_workspace_deinit[${i}].continue_on_error: must be a boolean`,
-					);
-				}
-			}
-		}
-	}
-
-	// Optional commands array
-	if (p['commands'] !== undefined) {
-		if (!Array.isArray(p['commands'])) {
-			errors.push(`${prefix}.commands: must be an array`);
-		} else {
-			const commands = p['commands'] as Array<Record<string, unknown>>;
-			for (let i = 0; i < commands.length; i++) {
-				const cmd = commands[i]!;
-				if (typeof cmd['run'] !== 'string') {
-					errors.push(`${prefix}.commands[${i}].run: required string field`);
-				}
-				if (
-					cmd['continue_on_error'] !== undefined &&
-					typeof cmd['continue_on_error'] !== 'boolean'
-				) {
-					errors.push(
-						`${prefix}.commands[${i}].continue_on_error: must be a boolean`,
-					);
-				}
-			}
-		}
-	}
-
-	// Optional per-profile issue_watchlist (same shape as the top-level one)
-	if (p['issue_watchlist'] !== undefined) {
-		errors.push(
-			...validateIssueWatchlist(
-				p['issue_watchlist'],
-				`${prefix}.issue_watchlist`,
-			),
-		);
-	}
-
-	return errors;
 }
 
 // ============================================================================
@@ -3077,10 +1756,6 @@ export function getInitializationCommand(config: PappardelleConfig): string {
 	);
 }
 
-/**
- * Get the Claude dangerously_skip_permissions flag from config.
- * Returns false if not configured (safe default).
- */
 export const SOUS_CHEF_NAME = 'sous-chef';
 
 /** The user's own instructions for the sous-chef, at the main checkout's root. */
@@ -3113,6 +1788,10 @@ export function sousChefLaunch(
 		: undefined;
 }
 
+/**
+ * Get the Claude dangerously_skip_permissions flag from config.
+ * Returns false if not configured (safe default).
+ */
 export function getDangerouslySkipPermissions(
 	config: PappardelleConfig,
 ): boolean {
@@ -3219,88 +1898,6 @@ function resolveClaudeExtraArgs(
 	);
 }
 
-const LAUNCH_PLACEHOLDERS: Record<LaunchField, string> = {
-	model: '{model}',
-	effort: '{effort}',
-};
-
-const PROMPT_PLACEHOLDER = '{prompt}';
-
-/**
- * The built-in defaults an agent profile gets (scripts/builtin-agents.json).
- * The claude entry follows the claude gate rather than the basename, so a
- * wrapper with `is_claude: true` gets it and a `claude` with
- * `is_claude: false` doesn't. String inspection only, so
- * resolve-agent-config.sh applies the same rule.
- */
-export function builtinAgentDefaults(
-	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
-): BuiltinAgentDefaults {
-	if (isClaudeAgentProfile(definition)) return BUILTIN_AGENTS['claude']!;
-	const name = commandBasename(definition.command);
-	return name !== 'claude' && Object.hasOwn(BUILTIN_AGENTS, name)
-		? BUILTIN_AGENTS[name]!
-		: {};
-}
-
-/**
- * Before prompt_args, agy profiles ended model_args with `-i` so the bare
- * prompt after it went to that flag. With the built-in `-i {prompt}` that
- * flag now comes twice, and on resume it takes `--conversation` as the
- * prompt. The flag, for a profile that gets a built-in `<flag> {prompt}`.
- */
-export function builtinPromptFlag(
-	definition: Pick<AgentProfileConfig, 'command' | 'is_claude' | 'prompt_args'>,
-): string | undefined {
-	if (definition.prompt_args !== undefined) return undefined;
-	const [before, after] = (
-		builtinAgentDefaults(definition).prompt_args ?? ''
-	).split(PROMPT_PLACEHOLDER);
-	const flag = before?.trim();
-	return after === '' && flag ? flag : undefined;
-}
-
-/**
- * Model ids like `claude-opus-5[1m]` carry glob characters, so anything that
- * isn't a bare token is single-quoted. resolve-agent-config.sh quotes the same
- * way, which keeps TUI- and idow-created launch lines identical.
- */
-export function quoteLaunchValue(value: string): string {
-	return /^[A-Za-z0-9._-]+$/.test(value) ? value : shellQuote(value);
-}
-
-/**
- * Render the model/effort flags, then the extra args, for an agent profile,
- * each with a leading space, or '' when none apply. An unset value or a CLI
- * without a template passes no flag.
- */
-export function renderAgentLaunchFlags(
-	agentProfile: Partial<
-		Pick<
-			ResolvedAgentProfile,
-			'model' | 'effort' | 'modelArgs' | 'effortArgs' | 'extraArgs'
-		>
-	>,
-): string {
-	const templates: Record<LaunchField, string | undefined> = {
-		model: agentProfile.modelArgs,
-		effort: agentProfile.effortArgs,
-	};
-	let flags = '';
-	for (const field of LAUNCH_FIELDS) {
-		const value = agentProfile[field];
-		const template = templates[field];
-		if (!value || !template) continue;
-		const quoted = quoteLaunchValue(value);
-		// A function, so `$'` and `$&` in the value aren't replacement patterns.
-		flags += ` ${template.replaceAll(LAUNCH_PLACEHOLDERS[field], () => quoted)}`;
-	}
-	for (const arg of agentProfile.extraArgs ?? []) {
-		flags += ` ${quoteLaunchValue(arg)}`;
-	}
-	return flags;
-}
-
 /**
  * The agent profile every config gets without any `agent_profiles:` section.
  * Defining `agent_profiles.claude` shadows this.
@@ -3325,74 +1922,6 @@ function lookupAgentProfile(
 			typeof value === 'string' ? value.trimEnd() : value,
 		]),
 	) as AgentProfileConfig;
-}
-
-/**
- * Stands in for the space's recorded agent session id in `resume_args`. A
- * resume by id is what keeps a space on its own conversation: "most recent"
- * flags like codex's `resume --last` aren't scoped to the directory, so they
- * resume whichever space ran that agent last.
- */
-export const SESSION_ID_PLACEHOLDER = '{session_id}';
-
-/**
- * Claude's `--continue` is scoped to the directory, so it is a safe stand-in
- * when no id was recorded: spaces whose sessions predate id recording, or
- * whose hook never ran, keep their conversation.
- */
-const CLAUDE_UNRECORDED_RESUME_ARGS = '--continue';
-
-/** Claude's resume-by-id flag, in each spelling claude accepts. */
-const CLAUDE_RESUME_BY_ID = /(?:--resume[ =]|-r )\{session_id\}/g;
-
-/**
- * Fill `{session_id}` in an agent profile's resume args. Without a usable id,
- * claude's resume-by-id flag becomes `--continue`, keeping any other flags
- * (`--fork-session`), and any other agent drops the resume attempt
- * (`undefined`) rather than run with a literal placeholder. The id lands
- * unquoted in a shell command, hence the charset check; claude and codex ids
- * are UUIDs, and a leading dash would turn the id into a flag.
- */
-export function bindResumeArgs(
-	agentProfile: Pick<ResolvedAgentProfile, 'resumeArgs' | 'isClaude'>,
-	sessionId: string | undefined,
-): string | undefined {
-	const {resumeArgs} = agentProfile;
-	if (!resumeArgs?.includes(SESSION_ID_PLACEHOLDER)) return resumeArgs;
-	if (!sessionId || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(sessionId)) {
-		if (!agentProfile.isClaude) return undefined;
-		const continued = resumeArgs.replaceAll(
-			CLAUDE_RESUME_BY_ID,
-			CLAUDE_UNRECORDED_RESUME_ARGS,
-		);
-		return continued.includes(SESSION_ID_PLACEHOLDER)
-			? CLAUDE_UNRECORDED_RESUME_ARGS
-			: continued;
-	}
-
-	return resumeArgs.replaceAll(SESSION_ID_PLACEHOLDER, sessionId);
-}
-
-/**
- * Whether a command string gets claude treatment (pre-trust, --name/model/
- * effort/dsp injection): basename of the first whitespace-separated token
- * equals 'claude'. String inspection only — no probing the binary — so the
- * bash resolver (resolve-agent-config.sh) can apply the identical rule. An agent
- * profile's explicit `is_claude` overrides this.
- */
-export function isClaudeCommand(command: string): boolean {
-	return commandBasename(command) === 'claude';
-}
-
-function isClaudeAgentProfile(
-	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
-): boolean {
-	return definition.is_claude ?? isClaudeCommand(definition.command);
-}
-
-export function commandBasename(command: string): string {
-	const firstToken = command.trim().split(/\s+/)[0] ?? '';
-	return path.basename(firstToken);
 }
 
 /**
@@ -3655,46 +2184,6 @@ export function getResolvedWatchlists(
 }
 
 /**
- * Validate the top-level `state_colors` map.
- *
- * Names are rejected when blank, or when two of them normalize to the same
- * string — the rail matches case-insensitively, so `In Progress` and
- * `in progress` would otherwise be an unresolvable tie decided by key order.
- */
-function validateStateColors(value: unknown): string[] {
-	const errors: string[] = [];
-
-	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-		errors.push('state_colors: must be an object');
-		return errors;
-	}
-
-	const seen = new Set<string>();
-	for (const [name, color] of Object.entries(value)) {
-		const normalized = normalizeStateName(name);
-		if (normalized.length === 0) {
-			errors.push('state_colors: state names must not be empty');
-		} else if (seen.has(normalized)) {
-			errors.push(
-				`state_colors: duplicate state name "${normalized}" (names are matched case-insensitively)`,
-			);
-		} else {
-			seen.add(normalized);
-		}
-
-		if (!isValidStateColor(color)) {
-			errors.push(
-				`state_colors."${name}": must be a hex color (#rgb or #rrggbb) or an ANSI color name (${[
-					...ANSI_COLOR_NAMES,
-				].join(', ')})`,
-			);
-		}
-	}
-
-	return errors;
-}
-
-/**
  * The configured issue-status color overrides for the ticket rail, or undefined
  * when the config has none (or could not be loaded at all).
  */
@@ -3744,78 +2233,6 @@ export function isRailGroupedByStatus(
 
 export function getRailGroups(config: PappardelleConfig | null): RailGroup[] {
 	return railGroupsFromConfig(config?.list_view?.groups);
-}
-
-function validateRailGroups(value: unknown): string[] {
-	if (!Array.isArray(value) || value.length === 0) {
-		return ['list_view.groups: must be a non-empty list'];
-	}
-
-	const errors: string[] = [];
-	const names = new Set<string>();
-	const statusOwners = new Map<string, string>();
-	for (const [index, item] of value.entries()) {
-		const at = `list_view.groups[${index}]`;
-		if (typeof item !== 'object' || item === null) {
-			errors.push(`${at}: must be an object`);
-			continue;
-		}
-
-		const group = item as Record<string, unknown>;
-		const {name, color, statuses, categories} = group;
-		if (typeof name !== 'string' || name.trim().length === 0) {
-			errors.push(`${at}.name: must be a non-empty string`);
-		} else if (names.has(railGroupId(name))) {
-			errors.push(`${at}.name: duplicate group "${name}"`);
-		} else {
-			names.add(railGroupId(name));
-		}
-
-		if (!isValidStateColor(color)) {
-			errors.push(
-				`${at}.color: must be a hex color (#rgb or #rrggbb) or an ANSI color name`,
-			);
-		}
-
-		const isEmpty = (list: unknown) =>
-			list === undefined || (Array.isArray(list) && list.length === 0);
-		if (isEmpty(statuses) && isEmpty(categories)) {
-			errors.push(`${at}: needs statuses, categories or both`);
-		}
-
-		if (statuses !== undefined) {
-			if (
-				!Array.isArray(statuses) ||
-				statuses.some(s => typeof s !== 'string' || s.trim().length === 0)
-			) {
-				errors.push(`${at}.statuses: must be a list of status names`);
-			} else {
-				for (const status of statuses as string[]) {
-					const key = normalizeStateName(status);
-					const owner = statusOwners.get(key);
-					if (owner !== undefined && owner !== at) {
-						errors.push(`${at}.statuses: "${status}" is already in ${owner}`);
-					}
-
-					statusOwners.set(key, at);
-				}
-			}
-		}
-
-		if (
-			categories !== undefined &&
-			(!Array.isArray(categories) ||
-				categories.some(
-					c => !(STATUS_CATEGORIES as readonly unknown[]).includes(c),
-				))
-		) {
-			errors.push(
-				`${at}.categories: must be a list of ${STATUS_CATEGORIES.map(c => `"${c}"`).join(', ')}`,
-			);
-		}
-	}
-
-	return errors;
 }
 
 export function getListLayout(config: PappardelleConfig | null): ListLayout {

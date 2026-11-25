@@ -1,7 +1,8 @@
 import {legacyAgentSession, type SpaceSessionNames} from './space-identity.ts';
 import {spawn} from 'node:child_process';
 import {selfLaunchArgs} from './runtime.ts';
-import {formatConfigErrors, getMainRepoRoot} from './config.ts';
+import {getMainRepoRoot} from './config.ts';
+import {formatConfigErrors} from './config-errors.ts';
 import {confirm} from './confirm.ts';
 import {
 	deinitSkipped,
