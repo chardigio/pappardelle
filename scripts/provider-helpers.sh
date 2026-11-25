@@ -408,7 +408,7 @@ create_issue() {
             ;;
         jira)
             local quoted_prompt
-            quoted_prompt=$(echo "$prompt" | sed 's/^/> /')
+            quoted_prompt=$(printf '%s\n' "$prompt" | sed 's/^/> /')
             local description="👨‍🍳🍝 More details coming soon...
 
 ---
@@ -450,7 +450,7 @@ $quoted_prompt"
             ;;
         beads)
             local quoted_prompt
-            quoted_prompt=$(echo "$prompt" | sed 's/^/> /')
+            quoted_prompt=$(printf '%s\n' "$prompt" | sed 's/^/> /')
             local description="👨‍🍳🍝 More details coming soon...
 
 ---
@@ -474,7 +474,7 @@ $quoted_prompt"
             out_tmp=$(mktemp /tmp/pappardelle-beads-out-XXXXXX)
             # No project assignment: a beads issue's prefix comes from the
             # database it lands in, not from anything the caller can choose.
-            run_bd create "$title" --type "$beads_type" --body-file "$desc_tmp" --json \
+            run_bd create --title "$title" --type "$beads_type" --body-file "$desc_tmp" --json \
                 >"$out_tmp" 2>"$err_tmp" && bd_rc=0 || bd_rc=$?
             rm -f "$desc_tmp"
             issue_key=$(beads_first_issue <"$out_tmp" 2>/dev/null | jq -r '.id // empty' 2>/dev/null)

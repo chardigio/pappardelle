@@ -13,4 +13,5 @@
 - **Default-terminal viewer**: the `pappardelle-view-<repo>-<key>` session the default-terminal launcher keeps on the user's default tmux server, with one pane attached to the space's agent session and one to its companion session. Not the TUI's viewer panes. A viewer that lost a pane is rebuilt inside the same session, never killed and created again, since it may be the server's last session
 - **Forgotten generation**: a pane generation the status daemon was told to forget when its space closed or its pane was replaced. The daemon ignores status snapshots that arrive for it later
 - **Composer**: the agent's input box: Claude's `❯` (`!` in shell mode) between two rules, Codex's `›`. Not read while a dialog is open
+- **Derived title**: the title `idow` gives an issue it creates from a description (`scripts/derive-title.sh`): the description on one line with whitespace runs collapsed, cut to 80 characters with `...`. No prefix, since it is what the rail shows for the space
 - **Unsubmitted send**: a send whose text showed in the composer and was still there after two Enters
