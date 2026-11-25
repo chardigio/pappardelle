@@ -1612,6 +1612,31 @@ test('an error about a missing key is labelled with the file that sets its paren
 	);
 });
 
+test('an error under a name with a dot is labelled with its file', t => {
+	t.deepEqual(
+		schemaErrors({
+			'home/.pappardelle.yml': 'agent_profiles:\n  gpt-4.1:\n    command: 1\n',
+			'project/.pappardelle.yml': opusProfile,
+			'project/.pappardelle.local.yml':
+				'agent_profiles:\n  codex:\n    command: codex\n',
+		}),
+		[
+			'~/.pappardelle/.pappardelle.yml: agent_profiles.gpt-4.1.command: required non-empty string',
+		],
+	);
+	t.deepEqual(
+		schemaErrors({
+			'project/.pappardelle.yml': opusProfile.replace(
+				'    command: claude\n',
+				'    command: claude\n  gpt-4:\n    command: codex\n',
+			),
+			'project/.pappardelle.local.yml':
+				'agent_profiles:\n  gpt-4.1:\n    command: codex\n    model: 5\n',
+		}),
+		['.pappardelle.local.yml: agent_profiles.gpt-4.1.model: must be a string'],
+	);
+});
+
 test('a bad keybinding in a higher file stays unlabelled', t => {
 	t.deepEqual(
 		schemaErrors({

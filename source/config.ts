@@ -914,20 +914,48 @@ function labelErrorsByLayer(
 		const sources = errorsWithout.filter(({errors}) => !errors.has(error));
 		// The merged keybindings list is re-indexed, so its indexes name no file's entries.
 		if (sources.length !== 1 || error.startsWith('keybindings[')) return error;
-		const keys = error
-			.split(': ', 1)[0]!
-			.replaceAll(/\[(\d+)]/g, '.$1')
-			.split('.');
-		let depth = keys.length;
-		while (depth > 0 && !hasKeyPath(merged, keys.slice(0, depth))) depth--;
-		if (depth === 0) return error;
-		const winner = files.findLast(({layer}) =>
-			hasKeyPath(layer, keys.slice(0, depth)),
-		);
+		const keys = keyPathIn(merged, error.split(': ', 1)[0]!);
+		if (keys.length === 0) return error;
+		const winner = files.findLast(({layer}) => hasKeyPath(layer, keys));
 		return winner?.label === sources[0]!.label
 			? `${winner.label}: ${error}`
 			: error;
 	});
+}
+
+/**
+ * The keys of `config` an error's path runs through, as far as they exist.
+ * The path is written with '.' and [n], but names can hold either (an agent
+ * profile called gpt-4.1), so each level takes its longest key that the rest
+ * of the path starts with.
+ */
+function keyPathIn(config: unknown, errorPath: string): string[] {
+	const keys: string[] = [];
+	let node = config;
+	let rest = errorPath;
+	while (rest && node && typeof node === 'object') {
+		let key: string | undefined;
+		if (Array.isArray(node)) {
+			key = /^\[(\d+)]/.exec(rest)?.[1];
+			if (key !== undefined) rest = rest.slice(key.length + 2);
+		} else {
+			key = Object.keys(node)
+				.filter(
+					name =>
+						rest.startsWith(name) &&
+						['', '.', '['].includes(rest.charAt(name.length)),
+				)
+				.sort((a, b) => b.length - a.length)[0];
+			if (key !== undefined) rest = rest.slice(key.length);
+		}
+
+		if (key === undefined || !Object.hasOwn(node, key)) break;
+		keys.push(key);
+		node = (node as Record<string, unknown>)[key];
+		if (rest.startsWith('.')) rest = rest.slice(1);
+	}
+
+	return keys;
 }
 
 function hasKeyPath(value: unknown, keys: string[]): boolean {
