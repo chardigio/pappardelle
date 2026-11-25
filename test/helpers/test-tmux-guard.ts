@@ -1,5 +1,5 @@
 // Loaded into every test process (ava.config.js, require), so a worker
-// started without the test tmux guard (docs/glossary.md) fails before any of
+// started without the test tmux guard fails before any of
 // its tests can reach the user's tmux servers.
 import path from 'node:path';
 

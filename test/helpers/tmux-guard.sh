@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# The test tmux guard (docs/glossary.md). Sourced by the tmux wrapper that
+# The test tmux guard. Sourced by the tmux wrapper that
 # tmux-guard-env.sh writes, which sets guard_real_tmux, guard_live_dirs (a
 # file listing each live tmux directory a run has found) and guard_shared_log
 # first. Some tests run tmux with a PATH holding nothing but tmux, so this uses
