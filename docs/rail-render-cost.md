@@ -17,7 +17,7 @@ It measures two frames:
 
 Every presented frame reads OpenTUI's `getNativeStats()`, which describes only the last frame, so each phase adds up per-frame values. The JSONL has an environment line, one line per run, phase and variant, and one summary line per metric with median, min, max, range and spread (range over median). Each summary line says whether the metric is a **gate** metric.
 
-Gate metrics are rates per second: frames, CPU, terminal output bytes, cells updated, `nativeRenderTime` and the `frameWork` counters, plus `fullPathFrames`. Per-frame figures are diagnostic, because when animations share frames there are fewer frames that each carry more, so a per-frame figure rises while the terminal receives less. `frameTimeMs` is the renderer loop's own time. Since `1eded02` the spinner and blink commit inside that loop, from the renderer's animation tick, so frame time is diagnostic too. `nativeRenderTime` is in OpenTUI's native units (about 5 to 8 per frame here, against about 1 ms of whole frame time, so likely microseconds).
+Gate metrics are rates per second: frames, CPU, terminal output bytes, cells updated, `nativeRenderTime` and the `frameWork` counters, plus `fullPathFrames`. Per-frame figures are diagnostic, because when animations share frames there are fewer frames that each carry more, so a per-frame figure rises while the terminal receives less. `frameTimeMs` is the renderer loop's own time. Since the animation clock, the spinner and blink commit inside that loop, from the renderer's animation tick, so frame time is diagnostic too. `nativeRenderTime` is in OpenTUI's native units (about 5 to 8 per frame here, against about 1 ms of whole frame time, so likely microseconds).
 
 The spinner (150 ms) and the blink (500 ms) tick on multiples of their interval on the renderer's clock. Each phase starts 75 ms past a multiple of 1500 ms on that clock, between two spinner ticks, and lasts a multiple of 1500 ms, so no tick falls on either edge of a phase or in the 30 ms the parent waits for output still in flight, and every run sees the same ticks against the same keys. The child starts the next phase's setup only after the parent has counted the last phase's bytes. Before this a blink frame could land in that 30 ms tail (one 251-byte frame more in some runs), and the burst's cells took one of several values from run to run, depending on where the blink toggles fell in the selection sweep.
 
@@ -78,7 +78,7 @@ native-border:
 
 ## Rows as text with spans
 
-Each row line is a box with two texts holding spans, instead of a box or text per styled run: 3 renderables for a single-line row (19 before for the benchmark's row) and 6 for a two-line row (23). Base `338f8a0` against the change, `--checkout`, same machine under load, 5 runs, gate metrics, median (min-max).
+Each row line is a box with two texts holding spans, instead of a box or text per styled run: 3 renderables for a single-line row (19 before for the benchmark's row) and 6 for a two-line row (23). The commit before against the change, `--checkout`, same machine under load, 5 runs, gate metrics, median (min-max).
 
 pane-frame:
 
@@ -120,8 +120,23 @@ native-border:
 
 Cells and output bytes per run are the same on both sides: 242 cells and 2779 bytes in every idle run, 444 and 3468 in every blink run, and 6383-6384 cells and 47563-47670 bytes in burst runs on both sides (a key frame more or less with 109 or 110 frames). Paint visits fall from 764 to 124 a frame and members painted from 22.5 to 6.25 a frame in idle; the cells they paint are the same.
 
+## Against main
+
+`5f109e2` (main before these changes) against the finished change set, `--checkout`, same machine, 5 runs, median (min-max). The run was before the rebase onto `cc899bf`. Between the two, the benchmark's imports changed only in module wiring: `config.ts` was split into `config-validation.ts`, `config-errors.ts`, `config-launch-flags.ts` and `config-deprecation.ts`, which the benchmark loads through `render-tui.ts` and `tmux.ts`, and `tmux.ts`, `companion-rules.ts` and `config-report.ts` import from the new modules. Rendering calls only `isInTmux` from them, which did not change. pane-frame:
+
+| Metric                    | Idle base        | Idle head        | Burst base          | Burst head          | Blink base       | Blink head       |
+| ------------------------- | ---------------- | ---------------- | ------------------- | ------------------- | ---------------- | ---------------- |
+| `framesPerSecond`         | 8.66 (8.66-8.66) | 8.00 (7.99-8.00) | 37.0 (36.7-37.3)    | 36.7 (36.3-36.7)    | 2.00 (2.00-2.00) | 2.00 (2.00-2.00) |
+| `cpuMsPerSecond`          | 29.5 (26.3-32.9) | 23.1 (22.0-36.7) | 120 (105-144)       | 86.1 (81.4-131)     | 7.83 (6.42-13.1) | 5.24 (5.05-6.88) |
+| `outputBytesPerSecond`    | 943 (943-943)    | 926 (925-926)    | 15387 (15376-15405) | 15880 (15858-15888) | 578 (578-578)    | 578 (578-578)    |
+| `cellsUpdatedPerSecond`   | 80.7 (80.6-80.7) | 80.7 (80.6-80.7) | 2054 (2051-2054)    | 2127 (2127-2128)    | 74.0 (73.9-74.0) | 74.0 (74.0-74.0) |
+| `paintVisitsPerSecond`    | 6620 (6620-6620) | 992 (991-992)    | 28264 (28010-28519) | 4544 (4463-4546)    | 1528 (1527-1528) | 248 (248-248)    |
+| `membersPaintedPerSecond` | 182 (182-182)    | 50.0 (50.0-50.0) | 1299 (1292-1310)    | 308 (305-308)       | 42.0 (42.0-42.0) | 12.0 (12.0-12.0) |
+
+native-border CPU: idle 25.6 to 19.9, burst 93.5 to 68.1, blink 6.31 to 3.81 ms/s. Every other gate metric is within the spread except burst cells and bytes, 3-3.6% higher: head draws 6383-6384 cells in every burst run, base 6161-6162 in 8 of 10 and 6310 or 6347 in the other two. The gap is 222 cells, six toggles of the 37-cell blink, which on the animation clock land at the same places in every run (see Reading it). Per key the work falls: CPU and paint visits drop in the same phase.
+
 ## Reading it
 
-- **Gate**: on the same machine, run base and head together with `--checkout`. A gate metric (a rate per second) whose head median is worse than base by more than the larger of the two ranges is a regression. A base from before `1eded02` runs its animations on timers started at mount, not on the renderer's clock, so its burst cells still vary from run to run
+- **Gate**: on the same machine, run base and head together with `--checkout`. A gate metric (a rate per second) whose head median is worse than base by more than the larger of the two ranges is a regression. A base from before the animation clock (spinner and blink on `renderer.onAnimationTick`) runs its animations on timers started at mount, not on the renderer's clock, so its burst cells still vary from run to run
 - **The paint hook**: with `PaneFrame`, every frame makes one host request and one JS paint visit per renderable in the rail: 764 when a row was a box or text per styled run, 124 since a row line is text with spans. Without the hook it makes none. No frame takes OpenTUI's full path in either variant. Cells, bytes and damage rows are the same, so the hook costs CPU (idle median 27.9 against 23.6 ms/s, burst 109 against 90) but not output
-- **The spinner**: idle minus blink is the spinner's cost: about 6 frames a second (6.7 ticks, one in three shared with the blink since `1eded02`) and about 350 bytes a second
+- **The spinner**: idle minus blink is the spinner's cost: about 6 frames a second (6.7 ticks, one in three shared with the blink on the animation clock) and about 350 bytes a second
