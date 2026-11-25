@@ -29,7 +29,8 @@ export function builtinAgentDefaults(
 	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
 ): BuiltinAgentDefaults {
 	if (isClaudeAgentProfile(definition)) return BUILTIN_AGENTS['claude']!;
-	const name = commandBasename(definition.command);
+	const word = unwrappedCommandWord(definition.command);
+	const name = word === null ? '' : path.basename(word);
 	return name !== 'claude' && Object.hasOwn(BUILTIN_AGENTS, name)
 		? BUILTIN_AGENTS[name]!
 		: {};
@@ -159,4 +160,96 @@ export function isClaudeAgentProfile(
 export function commandBasename(command: string): string {
 	const firstToken = command.trim().split(/\s+/)[0] ?? '';
 	return path.basename(firstToken);
+}
+
+const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const ENV_ARG_FLAGS = new Set([
+	'-u',
+	'--unset',
+	'-C',
+	'--chdir',
+	'-S',
+	'--split-string',
+]);
+
+export type UnwrappedCommand = {
+	word: string;
+	env: Record<string, string>;
+	unset: string[];
+};
+
+function stripOuterQuotes(value: string): string {
+	return value.length >= 2 &&
+		((value.startsWith("'") && value.endsWith("'")) ||
+			(value.startsWith('"') && value.endsWith('"')))
+		? value.slice(1, -1)
+		: value;
+}
+
+/**
+ * Unwraps leading `VAR=val` assignments and `env` wrappers from an agent
+ * launch command string, returning the target command word, assigned env vars,
+ * and any explicitly unset env var names.
+ */
+export function unwrapCommand(command: string): UnwrappedCommand | null {
+	const tokens = command.trim().split(/\s+/).filter(Boolean);
+	const env = new Map<string, string>();
+	const unset: string[] = [];
+	const recordAssignment = (token: string) => {
+		const eq = token.indexOf('=');
+		env.set(token.slice(0, eq), stripOuterQuotes(token.slice(eq + 1)));
+	};
+
+	const consumeEnvFlags = (start: number): number => {
+		let cursor = start;
+		while (cursor < tokens.length) {
+			const arg = tokens[cursor]!;
+			if (ENV_ARG_FLAGS.has(arg)) {
+				const target = tokens[cursor + 1];
+				if ((arg === '-u' || arg === '--unset') && target) {
+					unset.push(target);
+					env.delete(target);
+				}
+
+				cursor += 2;
+			} else if (arg.startsWith('-')) {
+				cursor++;
+			} else if (ENV_ASSIGNMENT.test(arg)) {
+				recordAssignment(arg);
+				cursor++;
+			} else {
+				break;
+			}
+		}
+
+		return cursor;
+	};
+
+	let index = 0;
+	while (index < tokens.length) {
+		const token = tokens[index]!;
+		if (ENV_ASSIGNMENT.test(token)) {
+			recordAssignment(token);
+			index++;
+			continue;
+		}
+
+		if (path.posix.basename(token) === 'env') {
+			index = consumeEnvFlags(index + 1);
+			continue;
+		}
+
+		return {word: token, env: Object.fromEntries(env), unset};
+	}
+
+	return null;
+}
+
+export function unwrappedCommandWord(command: string): string | null {
+	return unwrapCommand(command)?.word ?? null;
+}
+
+export function isAgyCommand(command: string): boolean {
+	const word = unwrappedCommandWord(command);
+	return word !== null && path.posix.basename(word) === 'agy';
 }

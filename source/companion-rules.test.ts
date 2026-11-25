@@ -8,6 +8,7 @@ import {
 	agentRulesFlags,
 	companionRules,
 	installAgentRules,
+	isAgyCommand,
 } from './companion-rules.ts';
 import {buildAgentResumeCommand} from './tmux.ts';
 import {getNamedAgentProfile} from './config.ts';
@@ -132,5 +133,68 @@ test('agy gets an always-on rule the worktree stays clean of', async () => {
 test('other agents get no rule file', async () => {
 	const {tree} = worktree();
 	await installAgentRules('codex', tree);
+	await installAgentRules('env FOO=agy codex', tree);
+	await installAgentRules('codex --note agy', tree);
 	expect(fs.existsSync(path.join(tree, '.agents'))).toBe(false);
+});
+
+test('wrapper commands still detect agy and write space identity and role-appropriate messaging rules', async () => {
+	expect(isAgyCommand('env FOO=1 agy --model gemini-4')).toBe(true);
+	expect(isAgyCommand('/usr/bin/env -u BAR FOO=1 /usr/local/bin/agy')).toBe(
+		true,
+	);
+	expect(isAgyCommand('FOO=1 agy')).toBe(true);
+	expect(isAgyCommand('env FOO=agy codex')).toBe(false);
+	expect(isAgyCommand('codex --prompt agy')).toBe(false);
+
+	const {tree: workerTree} = worktree();
+	await installAgentRules('env FOO=1 agy --flag', workerTree, {
+		space: 'STA-42',
+		repo: 'pappardelle',
+		role: 'worker',
+	});
+	const workerRule = fs.readFileSync(
+		path.join(workerTree, '.agents', 'rules', 'pappardelle.md'),
+		'utf8',
+	);
+	expect(workerRule).toMatch(/space STA-42 \(repo pappardelle\)/);
+	expect(workerRule).toMatch(/space_send/);
+	expect(workerRule).toMatch(/spaces_list/);
+	expect(workerRule).toMatch(
+		/sous-chef in the main checkout \(space key `main`\)/,
+	);
+	expect(workerRule).not.toMatch(/use SendMessage|reach it with SendMessage/i);
+
+	const {tree: mainTree} = worktree();
+	await installAgentRules('/usr/local/bin/agy', mainTree, {
+		space: 'main',
+		repo: 'pappardelle',
+		role: 'sous-chef',
+	});
+	const mainRule = fs.readFileSync(
+		path.join(mainTree, '.agents', 'rules', 'pappardelle.md'),
+		'utf8',
+	);
+	expect(mainRule).toMatch(
+		/space main \(repo pappardelle\), running in sous-chef mode/,
+	);
+	expect(mainRule).toMatch(/space_watch/);
+	expect(mainRule).toMatch(/space_answer/);
+	expect(mainRule).toMatch(/space_send/);
+	expect(mainRule).not.toMatch(/use SendMessage|reach it with SendMessage/i);
+
+	const script = path.join(
+		import.meta.dirname,
+		'..',
+		'scripts',
+		'install-agent-rules.sh',
+	);
+	const missingValue = spawnSync(script, ['agy', workerTree, '--space'], {
+		encoding: 'utf8',
+	});
+	expect(missingValue.status).toBe(2);
+	const unknownFlag = spawnSync(script, ['agy', workerTree, '--bogus', '1'], {
+		encoding: 'utf8',
+	});
+	expect(unknownFlag.status).toBe(2);
 });

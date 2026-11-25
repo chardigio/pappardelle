@@ -1,0 +1,60 @@
+  [94mmain › self[39m                                               
+  [38;5;220m●[39m running · Gemini 4 Hydrogen (Medium) · 1m21s · 5 steps                            
+  [90mID: 4dd768ac-8502-4d78-910a-617cfc775f85
+[39m  [90m────────────────────────────────────────────────────────────
+
+[39m  [1mPrompt
+[0m  [37mRun exactly one shell command: `printf a > sub-1.txt`. Then call the `qa_echo` MCP tool from server `qastub` once
+[39m  [37mwith `{"text": "sub-1"}` (its schema is at `/tmp/q-agy-d/home/.gemini/antigravity-cli/mcp/qastub/qa_echo.json` with
+[39m  [37mrequired string parameter `text`). Do nothing else and reply DONE when finished.[39m                     
+  [90m────────────────────────────────────────────────────────────
+
+[39m  [1mTools
+[0m    [37mBash, qastub/qa_echo[39m                                  
+  [90m────────────────────────────────────────────────────────────
+
+[39m  [1m[38;5;220m⚠ Approval Required[0m                                                                             
+    [94m> qastub/qa_echo
+[39m      qastub/qa_echo                                          
+      [94m> 1. Yes, approve
+[39m        2. No, deny
+
+  [90m────────────────────────────────────────────────────────────
+
+[39m  [1mTrajectory — self (5 steps)
+
+[0m  [37m▸ Thought for 2s, 216 tokens
+[39m  [37m  Creating the file `sub-1.txt` with the character "a" confirms the initial setup. Next, the specified tool from...
+[39m  [32m●[39m [1m[33mBash[0m[37m(printf a > sub-1.txt)[39m [37m(ctrl+o to expand)
+[39m  [33m●[39m [1m[33mqastub/qa_echo[0m[37m({"text":"sub-1"})[39m [37m(ctrl+o to expand)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[39m  [1m[94m↑/↓[0m[90m navigate · [1m[94m/[0m[90m select · [1m[94menter[0m[90m confirm · [1m[94mesc[0m[90m cancel[39m                                                                  
+                                                                       [33mauto[2m[39m · Gemini 4 Hydrogen · medium · 2 subagent(s)

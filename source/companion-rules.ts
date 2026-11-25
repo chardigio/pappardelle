@@ -7,12 +7,14 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {commandBasename, quoteLaunchValue} from './config-launch-flags.ts';
+import {isAgyCommand, quoteLaunchValue} from './config-launch-flags.ts';
 import {scriptsDir} from './runtime.ts';
 
 const execFileAsync = promisify(execFile);
 const SCRIPTS_DIR = scriptsDir;
 const RULES_PLACEHOLDER = '{rules}';
+
+export {isAgyCommand, unwrappedCommandWord} from './config-launch-flags.ts';
 
 export function companionRules(): string {
 	return fs
@@ -39,10 +41,18 @@ export function agentRulesFlags(rulesArgs: readonly string[]): string {
 export async function installAgentRules(
 	command: string,
 	worktreePath: string,
+	options: {
+		space?: string;
+		repo?: string;
+		role?: 'sous-chef' | 'worker';
+	} = {},
 ): Promise<void> {
-	if (commandBasename(command) !== 'agy') return;
+	if (!isAgyCommand(command)) return;
 	await execFileAsync(path.join(SCRIPTS_DIR, 'install-agent-rules.sh'), [
 		command,
 		worktreePath,
+		...(options.space ? ['--space', options.space] : []),
+		...(options.repo ? ['--repo', options.repo] : []),
+		...(options.role ? ['--role', options.role] : []),
 	]);
 }

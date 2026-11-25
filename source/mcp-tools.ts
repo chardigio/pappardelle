@@ -11,6 +11,7 @@ import {MAX_WAIT_SECONDS} from './supervise-args.ts';
 import {WATCH_TARGETS, type WatchTarget} from './space-watch.ts';
 
 export type CliCall = {args: string[]; stdin?: string; cwd?: string};
+export type ToolContext = {sender?: string};
 
 export type McpTool = {
 	name: string;
@@ -18,7 +19,7 @@ export type McpTool = {
 	readOnly: boolean;
 	destructive: boolean;
 	inputSchema: z.ZodRawShape;
-	toCli: (input: Record<string, unknown>) => CliCall;
+	toCli: (input: Record<string, unknown>, context?: ToolContext) => CliCall;
 };
 
 function defineTool<Shape extends z.ZodRawShape>(tool: {
@@ -27,7 +28,7 @@ function defineTool<Shape extends z.ZodRawShape>(tool: {
 	readOnly?: boolean;
 	destructive?: boolean;
 	inputSchema: Shape;
-	toCli: (input: z.infer<z.ZodObject<Shape>>) => CliCall;
+	toCli: (input: z.infer<z.ZodObject<Shape>>, context?: ToolContext) => CliCall;
 }): McpTool {
 	return {
 		readOnly: false,
@@ -331,10 +332,17 @@ export const MCP_TOOLS: readonly McpTool[] = [
 					"Send even though the agent's input box has text in it, which sending clears. Without it, a draft fails the send so a person's typing isn't thrown away",
 				),
 		},
-		toCli: ({key, text, force}) => ({
-			args: ['send', key, ...(force ? ['--force'] : [])],
-			stdin: text,
-		}),
+		toCli({key, text, force}, context) {
+			const sender = context?.sender;
+			// Slash commands (/clear, /compact), Codex skills ($skill), shell
+			// escapes (!) and Claude notes (#) are dispatched directly, never tagged.
+			const body =
+				sender && !/^\s*[/$!#]/.test(text) ? `[from ${sender}] ${text}` : text;
+			return {
+				args: ['send', key, ...(force ? ['--force'] : [])],
+				stdin: body,
+			};
+		},
 	}),
 	defineTool({
 		name: 'space_press_keys',

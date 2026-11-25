@@ -27,6 +27,7 @@ import {
 	type PermissionPrompt,
 	type PromptOption,
 	type QuestionDialog,
+	type UsageLimit,
 } from './agent-screen.ts';
 import {
 	decideAnswer,
@@ -65,6 +66,13 @@ import {recordSupervision, type SuperviseEntry} from './supervise-log.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
+export type AgyQuotaResult =
+	| {kind: 'limited'; limit: UsageLimit}
+	| {kind: 'available'}
+	| {kind: 'unparsed'}
+	| {kind: 'error'}
+	| {kind: 'not_agy'};
+
 export type SuperviseDeps = {
 	repo: () => string;
 	identities: Pick<SpaceIdentityDao, 'list' | 'get'>;
@@ -75,6 +83,11 @@ export type SuperviseDeps = {
 	/** The whole record the hook last wrote, with the prompt's file and cwd. */
 	readHookState: (hookKey: string) => Promise<StoredClaudeStatus>;
 	readSnapshot: AgentStateDeps['readSnapshot'];
+	/** On-demand `agy -p /quota` lookup, called only for `state` on a limit notice without reset time, `--after-limit`, or `fire` of an `after_limit` job. */
+	readAgyQuota?: (
+		key: string,
+		report: AgentStateReport,
+	) => Promise<AgyQuotaResult>;
 	runner: OuterTmuxRunner;
 	serverRunner: OuterTmuxRunner;
 	now: () => Date;
@@ -105,7 +118,29 @@ const SCREEN_POLL_MS = 2000;
 const SOONEST_WAKE_MS = 60_000;
 const TAB_SETTLE_MS = 300;
 
-async function readState(key: string, deps: SuperviseDeps) {
+function withoutUsageLimit(
+	report: AgentStateReport,
+	now: Date,
+): AgentStateReport {
+	const working =
+		report.status?.status === 'working' ||
+		parseAgentScreen(report.screen, now).spinner;
+	const state =
+		report.state !== 'usage_limit'
+			? report.state
+			: working
+				? 'working'
+				: report.composer
+					? 'draft'
+					: 'idle';
+	return {...report, usageLimit: null, state};
+}
+
+async function readState(
+	key: string,
+	deps: SuperviseDeps,
+	{quota = 'on_notice'}: {quota?: 'on_notice' | 'always' | 'never'} = {},
+): Promise<AgentStateReport> {
 	const stateDeps: AgentStateDeps = {
 		identities: deps.identities,
 		runner: deps.runner,
@@ -115,7 +150,28 @@ async function readState(key: string, deps: SuperviseDeps) {
 		readHook: deps.readHook,
 		readSnapshot: deps.readSnapshot,
 	};
-	return readAgentState(key, stateDeps);
+	const report = await readAgentState(key, stateDeps);
+	if (
+		quota === 'never' ||
+		!deps.readAgyQuota ||
+		report.state === 'no_session'
+	) {
+		return report;
+	}
+
+	const shouldLookup =
+		quota === 'always'
+			? !limitLiftsAt(report)
+			: Boolean(report.usageLimit && !report.usageLimit.resetAt);
+	if (!shouldLookup) return report;
+
+	const result = await deps.readAgyQuota(key, report);
+	if (result.kind === 'limited') return {...report, usageLimit: result.limit};
+	if (result.kind === 'available' && report.usageLimit) {
+		return withoutUsageLimit(report, deps.now());
+	}
+
+	return report;
 }
 
 function formatOptions(options: PromptOption[]): string {
@@ -245,7 +301,7 @@ async function waitFor(
 	deps: SuperviseDeps,
 ): Promise<AgentStateReport & {timedOut: boolean}> {
 	const deadline = deps.now().getTime() + command.timeoutSeconds * 1000;
-	const first = await readState(key, deps);
+	const first = await readState(key, deps, {quota: 'never'});
 	const matches = (report: AgentStateReport) =>
 		command.until === 'changed'
 			? report.state !== first.state
@@ -265,7 +321,7 @@ async function waitFor(
 		await deps.waitForStatusChange(
 			Math.min(SCREEN_POLL_MS, deadline - deps.now().getTime()),
 		);
-		report = await readState(key, deps);
+		report = await readState(key, deps, {quota: 'never'});
 		if (matches(report)) return {...report, timedOut: false};
 	}
 
@@ -365,7 +421,9 @@ async function watchSpaces(
 		);
 
 	const read = async () =>
-		Promise.all(keys().map(async key => readState(key, deps)));
+		Promise.all(
+			keys().map(async key => readState(key, deps, {quota: 'never'})),
+		);
 	const targets = targetStates(command.until);
 	let reports = await read();
 	// Without a cursor, every space already in a target state is news; with no
@@ -522,7 +580,7 @@ function planQuestionAnswer(
 	const leaveRow: AnswerStep[] = row?.open
 		? [
 				{
-					keys: ['Up'],
+					keys: [row.closeKey ?? 'Up'],
 					expect: 'the cursor off the free-text row',
 					shows: report =>
 						report.question?.question === asked &&
@@ -661,7 +719,7 @@ async function settlesOn(
 		// eslint-disable-next-line no-await-in-loop
 		await deps.sleep(ANSWER_POLL_MS);
 		// eslint-disable-next-line no-await-in-loop
-		if (shows(await readState(key, deps))) return true;
+		if (shows(await readState(key, deps, {quota: 'never'}))) return true;
 	}
 
 	return false;
@@ -831,7 +889,7 @@ async function newJob(
 		}
 
 		case 'after_limit': {
-			const report = await readState(key, deps);
+			const report = await readState(key, deps, {quota: 'always'});
 			const lifts = limitLiftsAt(report);
 			if (!lifts) {
 				throw new SuperviseUsageError(
@@ -1242,7 +1300,10 @@ async function execute(
 			const result: FireResult = await fireJob(job, {
 				store: deps.store(),
 				now: deps.now(),
-				readState: async key => readState(key, deps),
+				readState: async key =>
+					readState(key, deps, {
+						quota: job.kind === 'after_limit' ? 'always' : 'on_notice',
+					}),
 				async send(key, text) {
 					const outcome = await deps.send(key, text);
 					log({action: 'send', key, sent: text, detail: outcome}, caller);

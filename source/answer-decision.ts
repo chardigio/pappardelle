@@ -158,9 +158,13 @@ export function decideAnswer(
 ): AnswerDecision {
 	const chosen = command.options[0];
 	if (report.state === 'dialog') {
-		// Codex's dialogs decide things like trusting a folder, and Escape on
-		// one can quit Codex, so a person answers them.
+		// Codex's and agy's modal dialogs take keyboard focus (Escape on Codex
+		// trust quits Codex), so a person answers them unless forced.
 		const sent = chosen === undefined ? command.keys.join(' ') : String(chosen);
+		const dialogKind = report.codexDialog ? 'Codex dialog' : 'agy dialog';
+		const dialogTitle = report.codexDialog?.title
+			? ` ("${report.codexDialog.title}")`
+			: '';
 		const entry = {
 			action: 'answer' as const,
 			key,
@@ -171,8 +175,8 @@ export function decideAnswer(
 			return {
 				kind: 'error',
 				exit: POLICY_REFUSED_EXIT,
-				message: `${key} shows a Codex dialog ("${report.codexDialog?.title ?? ''}"); a person answers it`,
-				entry: {...entry, verdict: 'refused: Codex dialog'},
+				message: `${key} shows a ${dialogKind}${dialogTitle}; a person answers it`,
+				entry: {...entry, verdict: `refused: ${dialogKind}`},
 			};
 		}
 
@@ -181,6 +185,14 @@ export function decideAnswer(
 				kind: 'press',
 				pressed: command.keys,
 				entry: {...entry, verdict: 'forced'},
+			};
+		}
+
+		if (!report.codexDialog) {
+			return {
+				kind: 'error',
+				exit: 1,
+				message: `${key}'s dialog needs --keys`,
 			};
 		}
 

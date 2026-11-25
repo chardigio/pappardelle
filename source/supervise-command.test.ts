@@ -3,12 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
+import type {AgyQuotaResult} from './supervise-command.ts';
 import {runSuperviseCommand, type SuperviseDeps} from './supervise-command.ts';
 import {POLICY_REFUSED_EXIT} from './answer-decision.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 import type {ClassifierVerdict} from './approve-classifier.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
 import type {Hold} from './holds.ts';
+import type {UsageLimit} from './agent-screen.ts';
 import type {SuperviseEntry} from './supervise-log.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 import {idowIdentities, testState} from '../test/helpers/state.ts';
@@ -54,10 +56,21 @@ const policy: ApprovalPolicy = {
 /** An agent session showing each of `screens` in turn, the last one after. */
 function harness(
 	screens: string[],
-	{ignoresKeys = false, caller = 'main'} = {},
+	{
+		ignoresKeys = false,
+		caller = 'main',
+		app = null as string | null,
+		readAgyQuota,
+	}: {
+		ignoresKeys?: boolean;
+		caller?: string;
+		app?: string | null;
+		readAgyQuota?: SuperviseDeps['readAgyQuota'];
+	} = {},
 ) {
 	const {schedules, holds} = testState().daos;
 	const pressed: string[][] = [];
+	const typed: string[] = [];
 	const classified: string[] = [];
 	const sent: Array<{text: string}> = [];
 	let classifierVerdicts: ClassifierVerdict[] = [];
@@ -99,7 +112,9 @@ function harness(
 		readHook: async () => ({status: 'unknown'}),
 		readHookState: async () =>
 			hook ? {kind: 'state', state: hook} : {kind: 'none'},
-		readSnapshot: async () => null,
+		readSnapshot: async () =>
+			app ? {app, status: 'idle', source: 'osc'} : null,
+		...(readAgyQuota ? {readAgyQuota} : {}),
 		runner,
 		serverRunner: () => ({status: 1, stdout: ''}),
 		now: () => new Date(clock),
@@ -120,7 +135,10 @@ function harness(
 			if (!ignoresKeys && !movesTab) redraws = 1;
 			return 'sent';
 		},
-		typeText: () => 'sent',
+		typeText(_key, text) {
+			typed.push(text);
+			return 'sent';
+		},
 		async classify(_key, request) {
 			classified.push(request.command);
 			return (
@@ -142,6 +160,7 @@ function harness(
 	};
 	return {
 		pressed,
+		typed,
 		classified,
 		sent,
 		holds,
@@ -829,4 +848,198 @@ test('a timeout past the cap and a missing --until are usage errors', () => {
 	expect(() =>
 		parseSuperviseArgs(['schedule', 'STA-1', '--after-limit', '--keep-going']),
 	).toThrow(SuperviseUsageError);
+});
+
+test('state and answer handle agy question lists without misreading codexDialog', async () => {
+	const h = harness([fixture('agy-question')], {app: 'antigravity'});
+	expect(await h.run('state', 'STA-1', '--json')).toBe(0);
+	expect(JSON.parse(h.out[0]!)).toMatchObject({
+		state: 'question',
+		codexDialog: null,
+		question: {
+			question: 'Which color do you choose?',
+			textOption: {number: 4, text: '', open: false},
+		},
+	});
+
+	expect(await h.run('state', 'STA-1')).toBe(0);
+	expect(h.out[1]!).toMatch(/Which color do you choose\?/);
+	expect(h.out[1]!).not.toMatch(/Codex dialog/);
+
+	expect(await h.run('answer', 'STA-1', '--option', '4')).toBe(1);
+	expect(h.err[0]!).toMatch(/free-text row; answer it with --text/);
+	expect(await h.run('answer', 'STA-1', '--option', '2')).toBe(0);
+	expect(h.pressed).toStrictEqual([['2']]);
+	expect(h.logged[0]).toMatchObject({action: 'answer', sent: '2. green'});
+});
+
+test('agy Write-in row works with --text, refuses pre-filled overwrite, and closes with Escape for --option', async () => {
+	const writeInEmpty = [
+		'Question 1/1: Which color do you choose?',
+		'  1. red',
+		'  2. green',
+		'  3. blue',
+		'> 4. Write-in...',
+		'',
+		'  Your answer:',
+		'',
+		'  enter Submit · esc Back',
+		'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+	].join('\n');
+	const writeInTyped = writeInEmpty.replace(
+		'  Your answer:\n',
+		'  Your answer:\n  purple',
+	);
+
+	const textRun = harness(
+		[fixture('agy-question'), writeInEmpty, writeInTyped, fixture('agy-idle')],
+		{ignoresKeys: true},
+	);
+	expect(await textRun.run('answer', 'STA-1', '--text', 'purple')).toBe(0);
+	expect(textRun.pressed).toStrictEqual([['4'], ['Enter']]);
+	expect(textRun.typed).toStrictEqual(['purple']);
+	expect(textRun.logged[0]).toMatchObject({action: 'answer', sent: 'purple'});
+
+	const prefilled = harness([writeInTyped]);
+	expect(await prefilled.run('answer', 'STA-1', '--text', 'orange')).toBe(1);
+	expect(prefilled.err[0]!).toMatch(/already holds "purple"/);
+	expect(prefilled.pressed).toStrictEqual([]);
+	expect(prefilled.typed).toStrictEqual([]);
+
+	const optionFromOpen = harness(
+		[writeInEmpty, fixture('agy-question'), fixture('agy-idle')],
+		{ignoresKeys: true},
+	);
+	expect(await optionFromOpen.run('answer', 'STA-1', '--option', '2')).toBe(0);
+	expect(optionFromOpen.pressed).toStrictEqual([['Escape'], ['2']]);
+});
+
+test('schedule --after-limit, state clearing, wait/watch isolation, and schedule fire re-check for agy quota', async () => {
+	let quotaCalls = 0;
+	let quotaResult: AgyQuotaResult = {
+		kind: 'limited',
+		limit: {
+			resetText: '2026-11-09T18:30:00Z',
+			resetAt: new Date('2026-11-09T18:30:00Z'),
+			passed: false,
+		},
+	};
+	const h = harness([fixture('agy-idle')], {
+		app: 'antigravity',
+		async readAgyQuota() {
+			quotaCalls++;
+			return quotaResult;
+		},
+	});
+
+	// Normal state reads and wait/watch polling must NEVER shell out to /quota.
+	expect(await h.run('state', 'STA-1')).toBe(0);
+	expect(
+		await h.run('wait', 'STA-1', '--until', 'idle', '--timeout', '1'),
+	).toBe(0);
+	expect(quotaCalls).toBe(0);
+
+	// 0% limit with future ISO reset schedules resetAt + 60s margin with 1 quota call.
+	expect(await h.run('schedule', 'STA-1', '--after-limit')).toBe(0);
+	expect(quotaCalls).toBe(1);
+	expect(h.out[2]!).toMatch(
+		/after the usage limit, at 2026-11-09T18:31:00\.000Z/,
+	);
+
+	// Already-passed ISO reset schedules at now + 60s soonest margin.
+	const expectedSoonest = new Date(
+		new Date(2026, 10, 9, 12, 0).getTime() + 60_000,
+	).toISOString();
+	quotaResult = {
+		kind: 'limited',
+		limit: {
+			resetText: '2026-11-09T10:00:00Z',
+			resetAt: new Date('2026-11-09T10:00:00Z'),
+			passed: true,
+		},
+	};
+	expect(await h.run('schedule', 'STA-1', '--after-limit')).toBe(0);
+	expect(quotaCalls).toBe(2);
+	expect(h.out[3]!).toMatch(
+		new RegExp(String.raw`after the usage limit, at ${expectedSoonest}`),
+	);
+
+	// Early-firing after_limit timer re-checks /quota and re-arms if still depleted.
+	const jobId = /Scheduled (\S+)/.exec(h.out[3]!)![1]!;
+	quotaResult = {
+		kind: 'limited',
+		limit: {
+			resetText: '2026-11-09T19:00:00Z',
+			resetAt: new Date('2026-11-09T19:00:00Z'),
+			passed: false,
+		},
+	};
+	expect(await h.run('schedule', 'fire', jobId)).toBe(0);
+	expect(quotaCalls).toBe(3);
+	expect(h.out[4]!).toMatch(new RegExp(`^${jobId}: waiting$`));
+
+	// >0% remaining or error refuses --after-limit in 1 call (never twice).
+	quotaResult = {kind: 'available'};
+	expect(await h.run('schedule', 'STA-1', '--after-limit')).toBe(2);
+	expect(quotaCalls).toBe(4);
+	expect(h.err.at(-1)!).toMatch(/no usage limit reset to wait for/);
+
+	quotaResult = {kind: 'error'};
+	expect(await h.run('schedule', 'STA-1', '--after-limit')).toBe(2);
+	expect(quotaCalls).toBe(5);
+
+	// Screen showing an agy quota notice checks /quota on state, NOT on watch/wait;
+	// keeps usage_limit on unparsed output, and clears/reclassifies only on available.
+	const limitScreen = [
+		'✕ Quota exhausted for Gemini Models',
+		'────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────',
+		'auto · Gemini 4 Hydrogen · medium',
+	].join('\n');
+	let watchQuotaCalls = 0;
+	let limitQuota: AgyQuotaResult = {kind: 'unparsed'};
+	const hLimit = harness([limitScreen], {
+		app: 'antigravity',
+		async readAgyQuota() {
+			watchQuotaCalls++;
+			return limitQuota;
+		},
+	});
+	expect(await hLimit.run('watch', 'STA-1', '--timeout', '1')).toBe(0);
+	expect(
+		await hLimit.run('wait', 'STA-1', '--until', 'blocked', '--timeout', '1'),
+	).toBe(0);
+	expect(watchQuotaCalls).toBe(0);
+
+	// Unparsed /quota output preserves the on-screen usage limit.
+	expect(await hLimit.run('state', 'STA-1', '--json')).toBe(0);
+	expect(watchQuotaCalls).toBe(1);
+	expect(JSON.parse(hLimit.out[2]!)).toMatchObject({
+		state: 'usage_limit',
+		usageLimit: {resetText: ''},
+	});
+
+	limitQuota = {
+		kind: 'limited',
+		limit: {
+			resetText: '2026-11-09T18:30:00Z',
+			resetAt: new Date('2026-11-09T18:30:00Z'),
+			passed: false,
+		},
+	};
+	expect(await hLimit.run('state', 'STA-1', '--json')).toBe(0);
+	expect(watchQuotaCalls).toBe(2);
+	expect(JSON.parse(hLimit.out[3]!)).toMatchObject({
+		state: 'usage_limit',
+		usageLimit: {resetText: '2026-11-09T18:30:00Z'},
+	});
+
+	limitQuota = {kind: 'available'};
+	expect(await hLimit.run('state', 'STA-1', '--json')).toBe(0);
+	expect(watchQuotaCalls).toBe(3);
+	expect(JSON.parse(hLimit.out[4]!)).toMatchObject({
+		state: 'idle',
+		usageLimit: null,
+	});
 });

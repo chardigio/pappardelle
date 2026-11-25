@@ -1,16 +1,26 @@
 // The real dependencies of the supervision verbs: this machine's tmux, clock,
 // timers and environment. Read once here, so the verbs stay testable.
 
-import {spawnSync} from 'node:child_process';
+import {execFile, spawnSync} from 'node:child_process';
 import {realpathSync} from 'node:fs';
 import {homedir, tmpdir, userInfo} from 'node:os';
 import path from 'node:path';
+import {promisify} from 'node:util';
+import {inferAgyModel, parseAgyQuotaResult} from './agent-screen.ts';
+import type {AgentStateReport} from './agent-state.ts';
 import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 import {newHoldId} from './holds.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {spaceStatusKey} from './claude-status.ts';
-import {getMainRepoRoot, getRepoName} from './config.ts';
+import {
+	getAgentProfile,
+	getMainRepoRoot,
+	getNamedAgentProfile,
+	getRepoName,
+	readConfig,
+} from './config.ts';
+import {isAgyCommand, unwrapCommand} from './config-launch-flags.ts';
 import {selfLaunchArgs} from './runtime.ts';
 import {rearmMissingTimers, type ScheduleDao} from './schedule.ts';
 import {
@@ -19,8 +29,13 @@ import {
 	type TimerBackend,
 	type TimerContext,
 } from './schedule-timers.ts';
+import type {SpaceStateDao} from './space-state.ts';
 import type {StateDaos} from './state-daos.ts';
-import {defaultReadStdin, type SuperviseDeps} from './supervise-command.ts';
+import {
+	defaultReadStdin,
+	type AgyQuotaResult,
+	type SuperviseDeps,
+} from './supervise-command.ts';
 import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {createLogger} from './logger.ts';
 import {
@@ -36,6 +51,171 @@ import {
 } from './tmux.ts';
 
 const log = createLogger('supervise');
+const execFileAsync = promisify(execFile);
+
+export const AGY_QUOTA_CACHE_MS = 60_000;
+export const AGY_QUOTA_TIMEOUT_MS = 10_000;
+
+/**
+ * Strip `PAPPARDELLE_*` and `TMUX*` so `agy -p /quota` does not trigger
+ * session-recording hooks or interact with the caller's tmux session.
+ */
+export function sanitizedAgyEnv(
+	env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+	return Object.fromEntries(
+		Object.entries(env).filter(
+			([name]) => !name.startsWith('PAPPARDELLE_') && !name.startsWith('TMUX'),
+		),
+	);
+}
+
+export type QuotaCommandResult = {kind: 'ok'; output: string} | {kind: 'error'};
+
+export type QuotaCommandRunner = (
+	command: string,
+	args: readonly string[],
+	options: {env: NodeJS.ProcessEnv; timeoutMs: number},
+) => Promise<QuotaCommandResult>;
+
+async function defaultQuotaRunner(
+	command: string,
+	args: readonly string[],
+	{env, timeoutMs}: {env: NodeJS.ProcessEnv; timeoutMs: number},
+): Promise<QuotaCommandResult> {
+	try {
+		const {stdout} = await execFileAsync(command, [...args], {
+			env,
+			timeout: timeoutMs,
+			encoding: 'utf8',
+		});
+		return {kind: 'ok', output: stdout};
+	} catch (error) {
+		log.warn(`agy quota check failed for ${command}`, error as Error);
+		return {kind: 'error'};
+	}
+}
+
+function expandLeadingTilde(command: string, env: NodeJS.ProcessEnv): string {
+	if (!command.startsWith('~/')) return command;
+	const home = env['HOME'] || homedir();
+	return path.join(home, command.slice(2));
+}
+
+export function createAgyQuotaReader({
+	run = defaultQuotaRunner,
+	now,
+	env = process.env,
+	cacheTtlMs = AGY_QUOTA_CACHE_MS,
+	timeoutMs = AGY_QUOTA_TIMEOUT_MS,
+}: {
+	run?: QuotaCommandRunner;
+	now: () => Date;
+	env?: NodeJS.ProcessEnv;
+	cacheTtlMs?: number;
+	timeoutMs?: number;
+}): (
+	command: string,
+	options?: {
+		env?: Record<string, string>;
+		unset?: readonly string[];
+		model?: string;
+	},
+) => Promise<AgyQuotaResult> {
+	const cache = new Map<string, {result: QuotaCommandResult; at: number}>();
+	const inflight = new Map<string, Promise<QuotaCommandResult>>();
+
+	const fetchOutput = async (
+		executable: string,
+		spawnEnv: NodeJS.ProcessEnv,
+		cacheKey: string,
+	): Promise<QuotaCommandResult> => {
+		const cached = cache.get(cacheKey);
+		const currentMs = now().getTime();
+		if (cached && currentMs - cached.at < cacheTtlMs) {
+			return cached.result;
+		}
+
+		let pending = inflight.get(cacheKey);
+		if (!pending) {
+			pending = run(executable, ['-p', '/quota'], {
+				env: spawnEnv,
+				timeoutMs,
+			})
+				.then(result => {
+					cache.set(cacheKey, {result, at: now().getTime()});
+					return result;
+				})
+				.finally(() => {
+					inflight.delete(cacheKey);
+				});
+			inflight.set(cacheKey, pending);
+		}
+
+		return pending;
+	};
+
+	return async (command: string, options = {}) => {
+		const unset = new Set(options.unset ?? []);
+		const spawnEnv = Object.fromEntries(
+			Object.entries(sanitizedAgyEnv({...env, ...options.env})).filter(
+				([name]) => !unset.has(name),
+			),
+		);
+		const executable = expandLeadingTilde(command, spawnEnv);
+		const cacheKey = JSON.stringify([
+			executable,
+			Object.entries(options.env ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+			options.unset ?? [],
+		]);
+		const result = await fetchOutput(executable, spawnEnv, cacheKey);
+		if (result.kind === 'error') return {kind: 'error'};
+		return parseAgyQuotaResult(result.output, now(), options.model);
+	};
+}
+
+function agyQuotaTargetForSpace(
+	key: string,
+	report: AgentStateReport,
+	spaceState: Pick<SpaceStateDao, 'read'>,
+): {
+	command: string;
+	env: Record<string, string>;
+	unset: string[];
+	model: string | undefined;
+} | null {
+	if (report.app && report.app !== 'antigravity') return null;
+	const state = spaceState.read(key);
+	const load = readConfig();
+	if (load.kind === 'valid') {
+		const profile = state?.agentProfile?.name
+			? getNamedAgentProfile(
+					load.config,
+					state.agentProfile.name,
+					state.issueTitle,
+					state.profile,
+				)
+			: getAgentProfile(load.config, state?.issueTitle, state?.profile);
+		const unwrapped = unwrapCommand(profile.command);
+		if (unwrapped && isAgyCommand(profile.command)) {
+			return {
+				command: unwrapped.word,
+				env: {...profile.env, ...unwrapped.env},
+				unset: unwrapped.unset,
+				model: profile.model || inferAgyModel(report.screen),
+			};
+		}
+	}
+
+	return report.app === 'antigravity'
+		? {
+				command: 'agy',
+				env: {},
+				unset: [],
+				model: inferAgyModel(report.screen),
+			}
+		: null;
+}
 
 // Timer services start with a bare environment; these decide which tmux
 // server, status files, state database and status daemon `pappardelle`
@@ -181,11 +361,19 @@ export function defaultSuperviseDeps(
 		holds,
 		programStatus,
 		spaceIdentities,
+		spaceState,
 	}: Pick<
 		StateDaos,
-		'claudeStatus' | 'schedules' | 'holds' | 'programStatus' | 'spaceIdentities'
+		| 'claudeStatus'
+		| 'schedules'
+		| 'holds'
+		| 'programStatus'
+		| 'spaceIdentities'
+		| 'spaceState'
 	>,
 ): SuperviseDeps {
+	const now = () => new Date();
+	const quotaReader = createAgyQuotaReader({now});
 	return {
 		repo: getRepoName,
 		identities: spaceIdentities,
@@ -198,9 +386,19 @@ export function defaultSuperviseDeps(
 		readHook: async hookKey => claudeStatus.read(hookKey),
 		readHookState: async hookKey => claudeStatus.readState(hookKey),
 		readSnapshot: async (key, pane) => programStatus.read(key, pane),
+		async readAgyQuota(key, report) {
+			const target = agyQuotaTargetForSpace(key, report, spaceState);
+			return target
+				? quotaReader(target.command, {
+						env: target.env,
+						unset: target.unset,
+						model: target.model,
+					})
+				: {kind: 'not_agy'};
+		},
 		runner: supervisedInnerTmuxRunner,
 		serverRunner: supervisedServerTmuxRunner,
-		now: () => new Date(),
+		now,
 		async sleep(ms) {
 			await new Promise(resolve => {
 				setTimeout(resolve, ms);

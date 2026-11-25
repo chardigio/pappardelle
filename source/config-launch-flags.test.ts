@@ -1,6 +1,7 @@
 import {test, expect} from 'bun:test';
 import {
 	bindResumeArgs,
+	builtinAgentDefaults,
 	isClaudeCommand,
 	renderAgentLaunchFlags,
 } from './config-launch-flags.ts';
@@ -101,4 +102,13 @@ test('isClaudeCommand matches bare names and paths, not wrappers', () => {
 	expect(isClaudeCommand('codex')).toBe(false);
 	expect(isClaudeCommand('claude-local')).toBe(false);
 	expect(isClaudeCommand('my-claude-wrapper')).toBe(false);
+});
+
+test('builtinAgentDefaults unwraps env wrappers for built-in agents like agy', () => {
+	const bare = builtinAgentDefaults({command: 'agy'});
+	const wrapped = builtinAgentDefaults({
+		command: 'env FOO=1 /usr/local/bin/agy --flag',
+	});
+	expect(wrapped).toStrictEqual(bare);
+	expect(wrapped.prompt_args).toBeTruthy();
 });

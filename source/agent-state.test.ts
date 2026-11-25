@@ -73,6 +73,7 @@ test('the screen alone shows a Codex usage limit, a draft and a spinner', async 
 	expect(await stateOf(fixture('claude-draft-named'))).toBe('draft');
 	expect(await stateOf(fixture('claude-shell-draft'))).toBe('draft');
 	expect(await stateOf(fixture('claude-shell-empty'))).toBe('idle');
+	expect(await stateOf(fixture('agy-subagent-manage'))).toBe('dialog');
 });
 
 test('a space with no agent session says so', async () => {
