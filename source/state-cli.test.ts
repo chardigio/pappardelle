@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {testState} from '../test/helpers/state.ts';
+import {sqliteRun, testState} from '../test/helpers/state.ts';
 
 const helper = fileURLToPath(
 	new URL('../scripts/state-cli.sh', import.meta.url),
@@ -296,9 +296,10 @@ test('prepare-space --register without an owner records nothing', t => {
 		result.stderr.trim(),
 		'pappardelle --internal-state: prepare-space: --register needs --owner <pid>',
 	);
-	const lookup = testState(t, {stateDir}).daos.spaceIdentities.get('STA-1');
-	t.false(
-		lookup.kind === 'identity' &&
-			lookup.identity.worktreePath === path.join(home, 'elsewhere'),
-	);
+	t.false(fs.existsSync(stateDir));
+	if (sqliteRun)
+		t.is(
+			testState(t, {stateDir}).daos.spaceIdentities.get('STA-1').kind,
+			'unknown',
+		);
 });
