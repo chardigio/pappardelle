@@ -234,3 +234,26 @@ test('check-config passes a valid or missing config and fails an invalid one wit
 	t.is(invalid.status, 1);
 	t.regex(invalid.stderr, /agent_profiles\.opus\.model: must be a string/);
 });
+
+test('migrate takes one database path and nothing else', t => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
+	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const migrate = (...args: string[]) =>
+		spawnSync(
+			process.execPath,
+			[
+				fileURLToPath(new URL('state-cli.ts', import.meta.url)),
+				'migrate',
+				...args,
+			],
+			{encoding: 'utf8', cwd: dir},
+		);
+
+	const flag = migrate('--bogus');
+	t.is(flag.status, 2, `stderr: ${flag.stderr}`);
+	t.regex(flag.stderr, /migrate: Unknown option '--bogus'/);
+	const extra = migrate('a.db', 'b.db');
+	t.is(extra.status, 2, `stderr: ${extra.stderr}`);
+	t.regex(extra.stderr, /migrate needs one database path/);
+	t.deepEqual(fs.readdirSync(dir), []);
+});

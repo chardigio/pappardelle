@@ -250,8 +250,11 @@ const verbs: Record<string, Verb> = {
 	},
 
 	/** Create or upgrade the database at a path, for the hooks' tests. */
-	migrate([dbPath]) {
-		if (!dbPath) return usage('migrate needs a database path');
+	migrate(args) {
+		const {positionals} = parseArgs({args, allowPositionals: true});
+		const [dbPath] = positionals;
+		if (!dbPath || positionals.length !== 1)
+			return usage('migrate needs one database path');
 		openStateDb(dbPath);
 		return 0;
 	},
