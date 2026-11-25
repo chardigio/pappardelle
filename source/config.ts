@@ -35,7 +35,7 @@ import {
 	isClaudeAgentProfile,
 	type LaunchField,
 } from './config-launch-flags.ts';
-import {validateConfig} from './config-validation.ts';
+import {configErrors} from './config-validation.ts';
 
 // ============================================================================
 // Types
@@ -857,8 +857,46 @@ export function buildConfigFromLayers(
 	}
 
 	const merged = mergeConfigLayers(layers.map(({layer}) => layer));
-	validateConfig(merged);
-	return merged as PappardelleConfig;
+	const errors = configErrors(merged);
+	if (errors.length > 0) {
+		throw new ConfigValidationError(labelErrorsByLayer(errors, layers));
+	}
+
+	return merged as unknown as PappardelleConfig;
+}
+
+/**
+ * Name the file an error comes from: the one file whose absence from the
+ * merge makes the error go away. An error that no single file explains, like
+ * a duplicate spread over two files, or one whose wording depends on another
+ * file (a keybinding's index), keeps no file name. A single-file config's
+ * errors are already about that file.
+ */
+function labelErrorsByLayer(
+	errors: string[],
+	layers: Array<{label: string; layer: Record<string, unknown> | null}>,
+): string[] {
+	const files = layers.filter(({layer}) => layer);
+	if (files.length < 2) return errors;
+	const errorsWithout = files.map(({label}) => ({
+		label,
+		// configErrors fills in defaults, so each merge gets its own copies.
+		errors: new Set(
+			configErrors(
+				mergeConfigLayers(
+					layers.map(other =>
+						other.label === label || !other.layer
+							? null
+							: structuredClone(other.layer),
+					),
+				),
+			),
+		),
+	}));
+	return errors.map(error => {
+		const sources = errorsWithout.filter(({errors}) => !errors.has(error));
+		return sources.length === 1 ? `${sources[0]!.label}: ${error}` : error;
+	});
 }
 
 /** The agent_profiles of raw layers, merged as the config merges them. */

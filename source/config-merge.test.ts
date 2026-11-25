@@ -1457,14 +1457,120 @@ state_colors:
 		const error = t.throws(() => loadConfigFromPaths({projectDir: dir}), {
 			instanceOf: ConfigValidationError,
 		});
-		t.truthy(
-			error?.message.includes(
-				'state_colors: duplicate state name "in progress"',
-			),
-		);
+		t.deepEqual(error?.errors, [
+			'state_colors: duplicate state name "in progress" (names are matched case-insensitively)',
+		]);
 	} finally {
 		cleanup();
 	}
+});
+
+// ============================================================================
+// Schema errors name the file they come from
+// ============================================================================
+
+const opusProfile = `version: 1
+agent_profiles:
+  opus:
+    command: claude
+profiles:
+  test:
+    display_name: Test
+`;
+
+function schemaErrors(files: Record<string, string>): string[] {
+	const {dir, cleanup} = setupTempDir(files);
+	try {
+		loadConfigFromPaths({
+			homeConfigDir: path.join(dir, 'home'),
+			projectDir: path.join(dir, 'project'),
+		});
+		return [];
+	} catch (error) {
+		if (error instanceof ConfigValidationError) return error.errors;
+		throw error;
+	} finally {
+		cleanup();
+	}
+}
+
+test('a single-file config reports its schema errors without a file name', t => {
+	t.deepEqual(
+		schemaErrors({
+			'project/.pappardelle.yml': opusProfile.replace(
+				'    command: claude\n',
+				'    command: claude\n    model: 5\n',
+			),
+		}),
+		['agent_profiles.opus.model: must be a string'],
+	);
+});
+
+test('a schema error from the local file is labelled with it', t => {
+	t.deepEqual(
+		schemaErrors({
+			'project/.pappardelle.yml': opusProfile,
+			'project/.pappardelle.local.yml':
+				'agent_profiles:\n  opus:\n    model: 5\n',
+		}),
+		['.pappardelle.local.yml: agent_profiles.opus.model: must be a string'],
+	);
+});
+
+test('a schema error from the home file is labelled with it', t => {
+	t.deepEqual(
+		schemaErrors({
+			'home/.pappardelle.yml': 'agent_profiles:\n  opus:\n    model: 5\n',
+			'project/.pappardelle.yml': opusProfile,
+		}),
+		[
+			'~/.pappardelle/.pappardelle.yml: agent_profiles.opus.model: must be a string',
+		],
+	);
+});
+
+test('an error no single file causes stays unlabelled', t => {
+	t.deepEqual(
+		schemaErrors({
+			'home/.pappardelle.yml': 'team_prefix: ABC\n',
+			'project/.pappardelle.yml': 'profiles: {}\n',
+		}),
+		['version: must be 1'],
+	);
+});
+
+test('a bad value shadowed by a good one in a higher file is no error', t => {
+	t.deepEqual(
+		schemaErrors({
+			'project/.pappardelle.yml': opusProfile.replace(
+				'    command: claude\n',
+				'    command: claude\n    model: 5\n',
+			),
+			'project/.pappardelle.local.yml':
+				'agent_profiles:\n  opus:\n    model: opus\n',
+		}),
+		[],
+	);
+});
+
+// Leaving the project file out moves the local binding from index 1 to 0, so
+// the message differs in both leave-one-out merges and no file is named.
+test('a bad keybinding in a higher file stays unlabelled, a known gap', t => {
+	t.deepEqual(
+		schemaErrors({
+			'project/.pappardelle.yml': `${opusProfile}keybindings:
+  - key: x
+    name: X
+    run: echo x
+`,
+			'project/.pappardelle.local.yml': `keybindings:
+  - key: q
+    name: Q
+    run: echo q
+`,
+		}),
+		['keybindings[1].key: "q" conflicts with built-in shortcut'],
+	);
 });
 
 test('a layer that repeats a state name verbatim overrides it cleanly', t => {

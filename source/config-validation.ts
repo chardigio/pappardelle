@@ -88,10 +88,21 @@ export const RESERVED_KEYS = new Set([
 export function validateConfig(
 	config: unknown,
 ): asserts config is PappardelleConfig {
+	const errors = configErrors(config);
+	if (errors.length > 0) {
+		throw new ConfigValidationError(errors);
+	}
+}
+
+/**
+ * What validateConfig rejects the config for, or none. Like validateConfig it
+ * fills in the defaults it checks (default_profile, each profile's keywords).
+ */
+export function configErrors(config: unknown): string[] {
 	const errors: string[] = [];
 
 	if (!config || typeof config !== 'object') {
-		throw new ConfigValidationError(['Config must be an object']);
+		return ['Config must be an object'];
 	}
 
 	const cfg = config as Record<string, unknown>;
@@ -548,9 +559,7 @@ export function validateConfig(
 		}
 	}
 
-	if (errors.length > 0) {
-		throw new ConfigValidationError(errors);
-	}
+	return errors;
 }
 
 const AGENT_PROFILE_STRING_FIELDS = [
