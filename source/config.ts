@@ -1135,14 +1135,14 @@ export function loadProviderConfigs(opts?: ConfigPaths): {
 	issue_tracker?: IssueTrackerConfig;
 	vcs_host?: VcsHostConfig;
 	/** Why a layer that exists was skipped; its providers are missing from the result. */
-	unparsable: string[];
+	layerErrors: string[];
 } {
 	const files = readConfigLayers(opts ?? defaultConfigPaths());
 	const merged = mergeConfigLayers(files.map(file => layerOf(file)));
 	return {
 		issue_tracker: merged['issue_tracker'] as IssueTrackerConfig | undefined,
 		vcs_host: merged['vcs_host'] as VcsHostConfig | undefined,
-		unparsable: layerErrors(files),
+		layerErrors: layerErrors(files),
 	};
 }
 

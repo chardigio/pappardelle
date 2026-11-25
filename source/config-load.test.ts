@@ -161,14 +161,14 @@ for (const [shape, content] of [
 	});
 }
 
-test('a scalar layer is listed as unparsable by loadProviderConfigs', t => {
+test("loadProviderConfigs reports a scalar layer's error", t => {
 	const {paths} = layers(t, {
 		'project/.pappardelle.yml':
 			'version: 1\nprofiles: {}\nissue_tracker: {provider: beads}\n',
 		'project/.pappardelle.local.yml': 'oops\n',
 	});
 	const providers = loadProviderConfigs(paths);
-	t.deepEqual(providers.unparsable, [
+	t.deepEqual(providers.layerErrors, [
 		'.pappardelle.local.yml: the top level must be a map',
 	]);
 	t.deepEqual(providers.issue_tracker, {provider: 'beads'});

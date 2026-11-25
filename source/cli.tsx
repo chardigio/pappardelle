@@ -354,8 +354,8 @@ if (cli.input[0] === 'link-pr') {
 			);
 		const providers = loadProviderConfigs();
 		// A GitLab host from a layer that failed to parse would link the wrong MR.
-		if (providers.unparsable.length > 0)
-			throw new Error(formatConfigErrors(providers.unparsable));
+		if (providers.layerErrors.length > 0)
+			throw new Error(formatConfigErrors(providers.layerErrors));
 		const result = await linkPr(
 			cli.input[1]!,
 			process.cwd(),
