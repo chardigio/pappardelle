@@ -1637,6 +1637,26 @@ test('an error under a name with a dot is labelled with its file', t => {
 	);
 });
 
+test('keybindings that are not a list of bindings fail validation, not the merge', t => {
+	for (const [local, expected] of [
+		[
+			'keybindings: nope\n',
+			'.pappardelle.local.yml: keybindings: must be an array',
+		],
+		['keybindings:\n  - ~\n', 'keybindings[0]: must be a map'],
+	]) {
+		const errors = schemaErrors(t, {
+			'project/.pappardelle.yml': `${opusProfile}keybindings:
+  - key: x
+    name: X
+    run: echo x
+`,
+			'project/.pappardelle.local.yml': local!,
+		});
+		t.deepEqual(errors, [expected]);
+	}
+});
+
 test('a bad keybinding in a higher file stays unlabelled', t => {
 	t.deepEqual(
 		schemaErrors(t, {

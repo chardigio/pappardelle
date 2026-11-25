@@ -490,6 +490,11 @@ export function configErrors(config: unknown): string[] {
 			const seenKeys = new Set<string>();
 			for (let i = 0; i < bindings.length; i++) {
 				const binding = bindings[i]!;
+				if (!binding || typeof binding !== 'object') {
+					errors.push(`keybindings[${i}]: must be a map`);
+					continue;
+				}
+
 				if (
 					typeof binding['key'] !== 'string' ||
 					(binding['key'] as string).length !== 1

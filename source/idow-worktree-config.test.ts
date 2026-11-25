@@ -315,6 +315,12 @@ test("a new worktree links the main checkout's CLAUDE.local.md", async t => {
 	fs.writeFileSync(notes, '# notes\n');
 	await fixture.run();
 	t.is(fs.readlinkSync(path.join(fixture.workspace, 'CLAUDE.local.md')), notes);
+	const status = execFileSync(
+		'git',
+		['-C', fixture.workspace, 'status', '--porcelain'],
+		{encoding: 'utf8'},
+	);
+	t.false(status.includes('CLAUDE.local.md'), status);
 });
 
 test('idow creates a session using main config and worktree-local overrides', async t => {

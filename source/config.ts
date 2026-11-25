@@ -668,18 +668,26 @@ export function mergeConfigLayers(
 		const layer = layers[i]!;
 
 		// Extract keybindings before deep merge so we can smart-merge them
-		const baseKb = result['keybindings'] as KeybindingConfig[] | undefined;
-		const layerKb = layer['keybindings'] as KeybindingConfig[] | undefined;
+		const baseKb = result['keybindings'];
+		const layerKb = layer['keybindings'];
 
 		result = deepMerge(result, layer);
 
-		// Smart-merge keybindings instead of replacing
-		if (baseKb && layerKb) {
+		// Smart-merge keybindings instead of replacing. Anything else is left for
+		// the validator to report.
+		if (isKeybindingList(baseKb) && isKeybindingList(layerKb)) {
 			result['keybindings'] = mergeKeybindings(baseKb, layerKb);
 		}
 	}
 
 	return result;
+}
+
+function isKeybindingList(value: unknown): value is KeybindingConfig[] {
+	return (
+		Array.isArray(value) &&
+		value.every(binding => binding && typeof binding === 'object')
+	);
 }
 
 /**

@@ -784,7 +784,7 @@ profiles:
 });
 
 maybeMacro('claude predicate splits the first token on any whitespace', t => {
-	// Matches isClaudeCommand()'s /\s+/ split in source/config.ts — a
+	// Matches isClaudeCommand()'s /\s+/ split in source/config-launch-flags.ts — a
 	// tab-separated command must gate identically on both paths.
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1

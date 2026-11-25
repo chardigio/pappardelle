@@ -892,7 +892,14 @@ if [[ "$WORKTREE_CREATED" == true ]]; then
     # A link, not a copy: the main checkout's notes (such as the glossary) stay
     # one file that every worktree reads and updates.
     CLAUDE_LOCAL_MD="$MAIN_REPO_ROOT/CLAUDE.local.md"
-    if [[ -f "$CLAUDE_LOCAL_MD" && ! -e "$WORKTREE_PATH/CLAUDE.local.md" ]]; then
+    if [[ -f "$CLAUDE_LOCAL_MD" && ! -e "$WORKTREE_PATH/CLAUDE.local.md" && ! -L "$WORKTREE_PATH/CLAUDE.local.md" ]]; then
+        # Not every repo ignores CLAUDE.local.md, and a committed link would
+        # point into one person's checkout.
+        if ! git -C "$WORKTREE_PATH" check-ignore -q CLAUDE.local.md; then
+            exclude="$(git -C "$WORKTREE_PATH" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+            mkdir -p "${exclude%/*}"
+            echo CLAUDE.local.md >>"$exclude"
+        fi
         ln -s "$CLAUDE_LOCAL_MD" "$WORKTREE_PATH/CLAUDE.local.md"
         print_success "Linked CLAUDE.local.md"
     fi
