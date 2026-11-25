@@ -151,18 +151,16 @@ export class StatusHarness {
 	 */
 	async heldSnapshots(repo: string, key: string): Promise<number> {
 		if (!this.sqlite) return 0;
-		const closers: Array<() => void | Promise<void>> = [];
+		const closers: Array<() => void> = [];
 		try {
-			const rail = await subscribeRaw(
-				{teardown: close => closers.push(close)},
-				this.statusSocket,
-				repo,
+			const rail = await subscribeRaw(this.statusSocket, repo, close =>
+				closers.push(close),
 			);
 			return rail.messages
 				.flatMap(message => (message.type === 'state' ? message.snapshots : []))
 				.filter(snapshot => snapshot.key === key).length;
 		} finally {
-			for (const close of closers) await close();
+			for (const close of closers) close();
 		}
 	}
 

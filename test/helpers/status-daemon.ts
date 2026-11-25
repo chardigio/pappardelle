@@ -144,8 +144,14 @@ export type RawConnection = {
 	): Promise<void>;
 };
 
-/** A socket to the daemon that speaks the protocol and nothing more. */
-export async function connectRaw(socketPath: string): Promise<RawConnection> {
+/**
+ * A socket to the daemon that speaks the protocol and nothing more. Scripts
+ * outside bun test pass their own cleanup.
+ */
+export async function connectRaw(
+	socketPath: string,
+	cleanup: Cleanup = teardown,
+): Promise<RawConnection> {
 	const socket = net.connect(socketPath);
 	const reader = new LineReader();
 	const messages: DaemonMessage[] = [];
@@ -157,7 +163,7 @@ export async function connectRaw(socketPath: string): Promise<RawConnection> {
 		}
 	});
 	socket.on('error', () => {});
-	teardown(() => {
+	cleanup(() => {
 		socket.destroy();
 	});
 	await new Promise((resolve, reject) => {
@@ -180,8 +186,9 @@ export async function connectRaw(socketPath: string): Promise<RawConnection> {
 export async function subscribeRaw(
 	socketPath: string,
 	repo: string,
+	cleanup: Cleanup = teardown,
 ): Promise<RawConnection> {
-	const connection = await connectRaw(socketPath);
+	const connection = await connectRaw(socketPath, cleanup);
 	connection.send({type: 'subscribe', repo});
 	await connection.received(
 		message => message.type === 'state',
