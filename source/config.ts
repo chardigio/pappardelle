@@ -934,28 +934,26 @@ function keyPathIn(config: unknown, errorPath: string): string[] {
 	let node = config;
 	let rest = errorPath;
 	while (rest && node && typeof node === 'object') {
-		let key: string | undefined;
-		if (Array.isArray(node)) {
-			key = /^\[(\d+)]/.exec(rest)?.[1];
-			if (key !== undefined) rest = rest.slice(key.length + 2);
-		} else {
-			key = Object.keys(node)
-				.filter(
-					name =>
-						rest.startsWith(name) &&
-						['', '.', '['].includes(rest.charAt(name.length)),
-				)
-				.sort((a, b) => b.length - a.length)[0];
-			if (key !== undefined) rest = rest.slice(key.length);
-		}
-
+		const key = leadingKey(node, rest);
 		if (key === undefined || !Object.hasOwn(node, key)) break;
 		keys.push(key);
-		node = (node as Record<string, unknown>)[key];
+		rest = rest.slice(Array.isArray(node) ? `[${key}]`.length : key.length);
 		if (rest.startsWith('.')) rest = rest.slice(1);
+		node = (node as Record<string, unknown>)[key];
 	}
 
 	return keys;
+}
+
+function leadingKey(node: object, errorPath: string): string | undefined {
+	if (Array.isArray(node)) return /^\[(\d+)]/.exec(errorPath)?.[1];
+	return Object.keys(node)
+		.filter(
+			name =>
+				errorPath.startsWith(name) &&
+				['', '.', '['].includes(errorPath.charAt(name.length)),
+		)
+		.sort((a, b) => b.length - a.length)[0];
 }
 
 function hasKeyPath(value: unknown, keys: string[]): boolean {
