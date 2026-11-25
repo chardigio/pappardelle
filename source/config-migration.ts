@@ -28,6 +28,7 @@ import {
 	type ConfigPaths,
 	type PappardelleConfig,
 } from './config.ts';
+import {shellQuote} from './shell-quote.ts';
 import {
 	builtinAgentDefaults,
 	builtinPromptFlag,
@@ -881,4 +882,34 @@ export function buildConfigFixPrompt(
 		"- to move a profile's claude.* values, copy the agent profile it launches today (command, args, resume_args, model_args, effort_args, prompt_args, skill_prefix, is_claude) into a new entry under agent_profiles, add the values to it, and select it with profiles.<name>.agent_profile",
 		'- keep comments and formatting',
 	].join('\n');
+}
+
+/**
+ * --add-dir: the home config sits outside the repo, where claude would
+ * otherwise ask before every edit. The prompt is read from a file because
+ * tmux refuses a command line over about 16KB, which a config with many
+ * deprecated keys reaches.
+ */
+function buildConfigFixCommand(
+	promptFile: string,
+	homeConfigDir: string | undefined,
+): string {
+	const addDir = homeConfigDir ? ` --add-dir ${shellQuote(homeConfigDir)}` : '';
+	return `claude${addDir} "$(cat ${shellQuote(promptFile)})"`;
+}
+
+/** Hand a failed rewrite to Claude through `run`, which runs a shell command and resolves its exit code. */
+export async function runConfigFix(
+	reason: string,
+	run: (command: string) => Promise<number | undefined>,
+	paths: ConfigPaths = defaultConfigPaths(),
+): Promise<number | undefined> {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-config-fix-'));
+	try {
+		const promptFile = path.join(dir, 'prompt.md');
+		fs.writeFileSync(promptFile, buildConfigFixPrompt(reason, paths));
+		return await run(buildConfigFixCommand(promptFile, paths.homeConfigDir));
+	} finally {
+		fs.rmSync(dir, {recursive: true, force: true});
+	}
 }

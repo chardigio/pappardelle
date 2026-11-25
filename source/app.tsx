@@ -17,8 +17,7 @@ import {WorkspaceCloseTasks} from './workspace-close.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {scriptsDir, cliFilePath} from './runtime.ts';
-import fs from 'node:fs';
-import {homedir, tmpdir} from 'node:os';
+import {homedir} from 'node:os';
 import path from 'node:path';
 
 import SpaceListItem, {ROW_PADDING_CELLS} from './components/SpaceListItem.tsx';
@@ -96,7 +95,6 @@ import {
 	type PopupHandlers,
 } from './popup/host.ts';
 import type {PopupSpec} from './popup/spec.ts';
-import {shellQuote} from './shell-quote.ts';
 import {
 	routeSession,
 	isPendingSessionResolved,
@@ -107,7 +105,6 @@ import {
 	type PendingSession,
 } from './session-routing.ts';
 import {
-	getDefaultHomeConfigDir,
 	readConfig,
 	DEFAULT_TEAM_PREFIX,
 	sousChefLaunch,
@@ -158,12 +155,12 @@ import {
 import {buildSpawnEnv} from './spawn-env.ts';
 import {
 	buildConfigFixConfirmContent,
-	buildConfigFixPrompt,
 	buildConfigMigrationConfirmContent,
 	confirmConfigMigrations,
 	dismissResolvedDeprecationWarnings,
 	planConfigMigrations,
 	type ConfigMigration,
+	runConfigFix,
 } from './config-migration.ts';
 import {deinitSkipped, runCloseHooks, shouldAttach} from './close-space.ts';
 import {
@@ -1631,25 +1628,14 @@ export default function App({
 			{
 				closeBeforeConfirm: true,
 				async onConfirm() {
-					// Read from a file: tmux refuses a command line over about
-					// 16KB, which a config with many deprecated keys reaches.
-					const dir = fs.mkdtempSync(
-						path.join(tmpdir(), 'pappardelle-config-fix-'),
+					const exitCode = await runConfigFix(reason, command =>
+						runCommandPopup(command, {
+							cwd: process.cwd(),
+							title: ' Fix pappardelle config ',
+						}),
 					);
-					const promptFile = path.join(dir, 'prompt.md');
-					fs.writeFileSync(promptFile, buildConfigFixPrompt(reason));
-					try {
-						// --add-dir: the home config sits outside the repo, where
-						// claude would otherwise ask before every edit.
-						const exitCode = await runCommandPopup(
-							`claude --add-dir ${shellQuote(getDefaultHomeConfigDir())} "$(cat ${shellQuote(promptFile)})"`,
-							{cwd: process.cwd(), title: ' Fix pappardelle config '},
-						);
-						if (exitCode !== 0) {
-							log.warn(`claude for the config fix exited with ${exitCode}`);
-						}
-					} finally {
-						fs.rmSync(dir, {recursive: true, force: true});
+					if (exitCode !== 0) {
+						log.warn(`claude for the config fix exited with ${exitCode}`);
 					}
 
 					if (dismissResolvedDeprecationWarnings()) {
