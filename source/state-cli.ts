@@ -23,6 +23,15 @@ import {openStateDb} from './state-db.ts';
 
 type Verb = (args: string[]) => number | Promise<number>;
 
+function isParseArgsError(error: unknown): error is Error {
+	return (
+		error instanceof Error &&
+		'code' in error &&
+		typeof error.code === 'string' &&
+		error.code.startsWith('ERR_PARSE_ARGS_')
+	);
+}
+
 function usage(message: string): number {
 	console.error(`pappardelle --internal-state: ${message}`);
 	return 2;
@@ -255,9 +264,13 @@ try {
 		? await verb(args)
 		: usage(name ? `unknown verb ${name}` : 'missing verb');
 } catch (error) {
-	console.error(
-		`pappardelle --internal-state ${name}: ${error instanceof Error ? error.message : String(error)}`,
-	);
-	// Not 1: idow reads `space get`'s 1 as "no such space" and carries on.
-	process.exitCode = 3;
+	if (isParseArgsError(error)) {
+		process.exitCode = usage(`${name}: ${error.message}`);
+	} else {
+		console.error(
+			`pappardelle --internal-state ${name}: ${error instanceof Error ? error.message : String(error)}`,
+		);
+		// Not 1: idow reads `space get`'s 1 as "no such space" and carries on.
+		process.exitCode = 3;
+	}
 }

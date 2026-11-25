@@ -59,6 +59,31 @@ test('a verb that fails exits 3, never the not-found 1', t => {
 	t.is(result.status, 3, `stderr: ${result.stderr}`);
 });
 
+// idow reads 3 as a verb that ran and failed; a mistyped flag never ran it.
+test('a bad flag on a verb is a usage error naming the verb and the flag', t => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
+	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const cases: Array<[string[], RegExp]> = [
+		[
+			['check-config', '--project-root', home, '--main-root', home, '--bogus'],
+			/check-config: Unknown option '--bogus'/,
+		],
+		[
+			['prepare-space', '--bogus', 'STA-1'],
+			/prepare-space: Unknown option '--bogus'/,
+		],
+		[
+			['prepare-space', 'STA-1', '--repo'],
+			/prepare-space: Option '--repo <value>' argument missing/,
+		],
+	];
+	for (const [args, stderr] of cases) {
+		const result = pappardelleState(args, home);
+		t.is(result.status, 2, `${args.join(' ')}: ${result.stderr}`);
+		t.regex(result.stderr, stderr);
+	}
+});
+
 test('check-agent-profile reads the layers idow reads, from the roots it is given', t => {
 	const home = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
