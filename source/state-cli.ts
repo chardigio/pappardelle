@@ -11,17 +11,26 @@ import {
 } from './space-identity.ts';
 import {
 	checkAgentProfile,
-	formatConfigErrors,
 	getDefaultHomeConfigDir,
 	loadConfigFromPaths,
 	readConfig,
 	unknownAgentProfileMessage,
 	type ConfigPaths,
 } from './config.ts';
+import {formatConfigErrors} from './config-errors.ts';
 import {createStateDaos} from './state-daos.ts';
 import {openStateDb} from './state-db.ts';
 
 type Verb = (args: string[]) => number | Promise<number>;
+
+function isParseArgsError(error: unknown): error is Error {
+	return (
+		error instanceof Error &&
+		'code' in error &&
+		typeof error.code === 'string' &&
+		error.code.startsWith('ERR_PARSE_ARGS_')
+	);
+}
 
 function usage(message: string): number {
 	console.error(`pappardelle --internal-state: ${message}`);
@@ -88,6 +97,9 @@ const verbs: Record<string, Verb> = {
 			return usage(
 				'prepare-space needs --repo <name>, --worktree <path>, --main-root <path> and one space key',
 			);
+		const owner = Number(values.owner);
+		if (values.register && (!Number.isInteger(owner) || owner <= 0))
+			return usage('prepare-space: --register needs --owner <pid>');
 		const daos = createStateDaos({repo});
 		// A registered key must always have an identity, so it is written first.
 		await daos.spaceIdentities.record(
@@ -104,12 +116,7 @@ const verbs: Record<string, Verb> = {
 			mainIdentity({repo, mainRoot, env: process.env}),
 		);
 
-		if (values.register) {
-			const owner = Number(values.owner);
-			if (!Number.isInteger(owner) || owner <= 0)
-				return usage('--register needs --owner <pid>');
-			await daos.registry.reserveStart(key, owner);
-		}
+		if (values.register) await daos.registry.reserveStart(key, owner);
 
 		if (values.fresh) await daos.agentSessions.clear(key);
 		if (values['created-issue']) await daos.issueMeta.markCreated(key);
@@ -241,8 +248,11 @@ const verbs: Record<string, Verb> = {
 	},
 
 	/** Create or upgrade the database at a path, for the hooks' tests. */
-	migrate([dbPath]) {
-		if (!dbPath) return usage('migrate needs a database path');
+	migrate(args) {
+		const {positionals} = parseArgs({args, allowPositionals: true});
+		const [dbPath] = positionals;
+		if (!dbPath || positionals.length !== 1)
+			return usage('migrate needs one database path');
 		openStateDb(dbPath);
 		return 0;
 	},
@@ -255,9 +265,13 @@ try {
 		? await verb(args)
 		: usage(name ? `unknown verb ${name}` : 'missing verb');
 } catch (error) {
-	console.error(
-		`pappardelle --internal-state ${name}: ${error instanceof Error ? error.message : String(error)}`,
-	);
-	// Not 1: idow reads `space get`'s 1 as "no such space" and carries on.
-	process.exitCode = 3;
+	if (isParseArgsError(error)) {
+		process.exitCode = usage(`${name}: ${error.message}`);
+	} else {
+		console.error(
+			`pappardelle --internal-state ${name}: ${error instanceof Error ? error.message : String(error)}`,
+		);
+		// Not 1: idow reads `space get`'s 1 as "no such space" and carries on.
+		process.exitCode = 3;
+	}
 }

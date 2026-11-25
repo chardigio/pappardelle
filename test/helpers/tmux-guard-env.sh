@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prints the environment for a test run that keeps its tmux off the user's own
-# servers, as lines to eval: the test tmux guard (docs/glossary.md) first on
+# servers, as lines to eval: the test tmux guard first on
 # PATH, a private TMUX_TMPDIR and no TMUX. Prints nothing without tmux, since
 # the tmux tests then skip themselves.
 #
@@ -16,7 +16,7 @@ if [[ ${1:-} == --finish ]]; then
 	[[ -n $refusals ]] || exit 0
 	status=0
 	if [[ -s $refusals ]]; then
-		echo "The test tmux guard refused tmux calls against the live tmux directory (docs/glossary.md):"
+		echo "The test tmux guard refused tmux calls against the live tmux directory:"
 		cat -- "$refusals"
 		status=1
 	fi

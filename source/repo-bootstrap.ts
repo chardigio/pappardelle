@@ -1,10 +1,10 @@
 import {
 	getRepoName,
 	getRepoRoot,
-	inlineConfigErrors,
 	loadProviderConfigs,
 	readHomeSqliteState,
 } from './config.ts';
+import {inlineConfigErrors} from './config-errors.ts';
 import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {
 	createIssueTracker,
@@ -67,9 +67,9 @@ export function bootstrapRepo(): {repoName: string; daos: StateDaos} {
 	// profiles) have validation errors.
 	try {
 		const providerCfg = loadProviderConfigs();
-		if (providerCfg.unparsable.length > 0)
+		if (providerCfg.layerErrors.length > 0)
 			log.error(
-				`The tracker and VCS host settings of a config file that failed to parse are ignored: ${inlineConfigErrors(providerCfg.unparsable)}`,
+				`The tracker and VCS host settings of a config file that can't be used are ignored: ${inlineConfigErrors(providerCfg.layerErrors)}`,
 			);
 		createIssueTracker(providerCfg.issue_tracker);
 		createVcsHost(providerCfg.vcs_host);

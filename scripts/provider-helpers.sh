@@ -9,11 +9,12 @@
 
 # yq expression that moves a layer's deprecated claude.initialization_command
 # (top-level and per-profile) to the initialization_command key beside it.
-# Applied to each layer before merging so layer precedence, not spelling,
-# decides which value wins. A layer that sets both keys keeps the new one,
-# and a non-string value is left alone. Mirrors
-# renameDeprecatedInitializationCommand() in source/config.ts.
-_RENAME_ONE_INIT_CMD='with(select(.initialization_command == null and (.claude.initialization_command | tag) == "!!str"); .initialization_command = .claude.initialization_command | del(.claude.initialization_command))'
+# merge_config_layers applies it to each layer before that layer merges, so
+# layer precedence, not spelling, decides which value wins. A layer that sets
+# both keys keeps the new one, and a non-string value or a claude that isn't a
+# map is left alone for the TUI's validator to report. Mirrors
+# renameDeprecatedInitializationCommand() in source/config-deprecation.ts.
+_RENAME_ONE_INIT_CMD='with(select((.claude | tag) == "!!map"); with(select(.initialization_command == null and (.claude.initialization_command | tag) == "!!str"); .initialization_command = .claude.initialization_command | del(.claude.initialization_command)))'
 RENAME_DEPRECATED_INIT_CMD_EXPR="($_RENAME_ONE_INIT_CMD | with(select(.profiles | tag == \"!!map\"); .profiles[] |= ($_RENAME_ONE_INIT_CMD)))"
 
 # Whether the YAML text uses a merge key (`<<: *anchor`). A `<<` with no colon
@@ -26,59 +27,30 @@ has_yaml_merge_keys() {
 
 # Deep-merge the config layers into one YAML document on stdout, lowest to
 # highest priority: home -> project -> local. Missing files are skipped, and a
-# file with no YAML document (empty, or only comments) adds nothing. Maps
-# merge key by key and arrays replace wholesale, which is what deepMerge() in
-# source/config.ts does, so the TUI and idow see the same effective config.
-# YAML merge keys (`<<: *anchor`) are resolved here, the way the YAML spec and
-# the TUI's parser do (a map's own keys win wherever the merge key sits), so
-# nothing downstream reads one with yq's older rules. That needs yq 4.47+, so
-# only configs that use merge keys need it.
+# file with no YAML document (empty, only comments, `---` or `null`) adds
+# nothing. A layer whose top level is a scalar or a list fails with its file
+# named, since the TUI rejects it too. Maps merge key by key and arrays replace
+# wholesale, which is what deepMerge() in source/config.ts does, so the TUI and
+# idow see the same effective config.
+# Aliases resolve within their own file before it merges, as they do in the
+# TUI's parser, so a higher layer overriding an anchored value can't leave an
+# alias pointing at nothing. YAML merge keys (`<<: *anchor`) resolve the way
+# the YAML spec and the TUI's parser do (a map's own keys win wherever the
+# merge key sits). That needs yq 4.47+, so only configs that use merge keys
+# need it.
 # Args: $1=home_config_path, $2=project_config_path, $3=local_config_path
 merge_config_layers() {
-    local files=() f needs_rename=false has_merge_keys=false
+    local files=() f spec_merge=()
     for f in "$@"; do
         [[ -n "$f" && -f "$f" ]] || continue
         files+=("$f")
-        # A layer that never names the key has nothing to rename, and the yq
-        # pass per layer is most of a merge's cost. Read without a subprocess.
-        local content
-        content="$(<"$f")"
-        [[ "$content" == *initialization_command* ]] && needs_rename=true
-        has_yaml_merge_keys "$content" && has_merge_keys=true
+        has_yaml_merge_keys "$(<"$f")" && spec_merge=(--yaml-fix-merge-anchor-to-spec)
     done
+    # yq with no file arguments reads stdin.
     [[ ${#files[@]} -gt 0 ]] || { echo "{}"; return; }
-    local spec_merge=() explode=""
-    if [[ "$has_merge_keys" == true ]]; then
-        spec_merge=(--yaml-fix-merge-anchor-to-spec)
-        explode=" | explode(.)"
-    fi
-    if [[ ${#files[@]} -eq 1 ]]; then
-        if [[ "$needs_rename" == true || "$has_merge_keys" == true ]]; then
-            yq eval "${spec_merge[@]}" ".$explode | $RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[0]}"
-        else
-            cat "${files[0]}"
-        fi
-        return
-    fi
-    local expr="(.$explode) as \$item ireduce ({}; . * \$item)" i
-    if [[ "$needs_rename" == false ]]; then
-        yq eval-all "${spec_merge[@]}" "$expr" "${files[@]}"
-        return
-    fi
-    # Each layer is rewritten to its own file first: yq's `*` ignores per-document
-    # rewrites done inside the same eval-all expression.
-    # The subshell scopes the EXIT trap, so a failed yq still removes the
-    # temp dir without replacing a trap the caller set.
-    (
-        tmpdir=$(mktemp -d)
-        trap 'rm -rf "$tmpdir"' EXIT
-        renamed=()
-        for (( i=0; i<${#files[@]}; i++ )); do
-            yq eval "${spec_merge[@]}" ".$explode | $RENAME_DEPRECATED_INIT_CMD_EXPR" "${files[$i]}" > "$tmpdir/$i.yml" || exit 1
-            renamed+=("$tmpdir/$i.yml")
-        done
-        yq eval-all "$expr" "${renamed[@]}"
-    )
+    local expr='with(select(tag != "!!map" and tag != "!!null"); error(filename + ": the top level must be a map"))'
+    expr+=" | (select(tag == \"!!map\") | explode(.) | $RENAME_DEPRECATED_INIT_CMD_EXPR) as \$item ireduce ({}; . * \$item)"
+    yq eval-all "${spec_merge[@]}" "$expr" "${files[@]}"
 }
 
 # Get the issue tracker provider from .pappardelle.yml
@@ -335,8 +307,6 @@ check_existing_pr() {
             fi
             ;;
         gitlab)
-            local branch
-            branch=$(git branch --show-current)
             local gitlab_host
             gitlab_host=$(get_gitlab_host "$config_path")
             if [[ -n "$gitlab_host" ]]; then

@@ -336,7 +336,7 @@ Pappardelle is configured via a `.pappardelle.yml` file at your repo root. The k
 - **Template variables** — All string values support `${VAR_NAME}` expansion (`${ISSUE_KEY}`, `${WORKTREE_PATH}`, `${PR_URL}`, profile `vars`, env vars, etc.).
 - **Custom keybindings** — Bind single keys to bash commands (`run`), skills (`send_skill`) or text for the agent (`send_to_claude`).
 - **Providers** — Pluggable issue trackers (Linear, Jira, beads) and VCS hosts (GitHub, GitLab). Defaults to Linear + GitHub.
-- **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist).
+- **Built-in file copies** — `.pappardelle.local.yml` and `.claude/settings.local.json` are automatically copied from the main repo to new worktrees (if they exist), and `CLAUDE.local.md` is symlinked to the main checkout's copy.
 - **Workspace lifecycle hooks** — `post_workspace_init` commands run after worktree creation (e.g., copying `.env` files, installing dependencies). Initialization hooks with `background: true` continue without delaying workspace readiness; their output goes to that workspace's idow log in `~/Library/Logs/stardust-workspace/` (see [Logging](#logging)). `pre_workspace_deinit` commands run before workspace deletion (e.g., closing issues, removing worktrees).
 
 For the full schema, all fields, and examples, see the [configuration reference](pappardelle-config.md).

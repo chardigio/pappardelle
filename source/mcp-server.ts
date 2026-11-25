@@ -11,7 +11,6 @@ import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
 	getMainRepoRoot,
 	getRepoName,
-	inlineConfigErrors,
 	readConfig,
 	SOUS_CHEF_FILE,
 	SOUS_CHEF_NAME,
@@ -19,6 +18,7 @@ import {
 	workspaceAwareAgents,
 	type ConfigLoad,
 } from './config.ts';
+import {inlineConfigErrors} from './config-errors.ts';
 import {createLogger} from './logger.ts';
 
 const log = createLogger('mcp');

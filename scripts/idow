@@ -889,6 +889,21 @@ if [[ "$WORKTREE_CREATED" == true ]]; then
         print_success "Copied .claude/settings.local.json"
     fi
 
+    # A link, not a copy: the main checkout's notes (such as the glossary) stay
+    # one file that every worktree reads and updates.
+    CLAUDE_LOCAL_MD="$MAIN_REPO_ROOT/CLAUDE.local.md"
+    if [[ -f "$CLAUDE_LOCAL_MD" && ! -e "$WORKTREE_PATH/CLAUDE.local.md" && ! -L "$WORKTREE_PATH/CLAUDE.local.md" ]]; then
+        # Not every repo ignores CLAUDE.local.md, and a committed link would
+        # point into one person's checkout.
+        if ! git -C "$WORKTREE_PATH" check-ignore -q CLAUDE.local.md; then
+            exclude="$(git -C "$WORKTREE_PATH" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+            mkdir -p "${exclude%/*}"
+            echo CLAUDE.local.md >>"$exclude"
+        fi
+        ln -s "$CLAUDE_LOCAL_MD" "$WORKTREE_PATH/CLAUDE.local.md"
+        print_success "Linked CLAUDE.local.md"
+    fi
+
     # post_worktree_init is the legacy name, used only when post_workspace_init is empty
     run_configured_commands '(.post_workspace_init | select(length > 0)) // .post_worktree_init' post_workspace_init 'post_workspace_init[%d]' || true
     run_configured_commands "(.profiles.$SELECTED_PROFILE.post_workspace_init | select(length > 0)) // .profiles.$SELECTED_PROFILE.post_worktree_init" "profile post_workspace_init" 'profile_post_init[%d]' || true
@@ -920,7 +935,8 @@ export PAPPARDELLE_TMUX_SOCKET
 # to its directory-scoped --continue while other agents launch fresh with the
 # prompt. Resume args without {session_id} aren't tied to the space (codex's
 # `resume --last` picks the most recent session from any directory), so a
-# recreated worktree drops them. Mirrors bindResumeArgs() in source/config.ts.
+# recreated worktree drops them. Mirrors bindResumeArgs() in
+# source/config-launch-flags.ts.
 if [[ "$FRESH_WORKSPACE" == true ]]; then
     AGENT_RESUME_ARGS=""
 elif [[ "$AGENT_RESUME_ARGS" == *"{session_id}"* ]]; then

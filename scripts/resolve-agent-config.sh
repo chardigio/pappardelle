@@ -49,8 +49,9 @@
 # Fields a profile leaves unset come from builtin-agents.json, beside this
 # script: the claude entry when the profile gates as claude, else the entry
 # named by the command's basename (never claude), same as
-# builtinAgentDefaults() in source/config.ts. agent_resume_args comes back with
-# {session_id} unfilled; idow fills it from the space's agent-sessions file.
+# builtinAgentDefaults() in source/config-launch-flags.ts. agent_resume_args
+# comes back with {session_id} unfilled; idow fills it from the space's
+# agent-sessions file.
 # agent_prompt_args is the template the launch prompt goes through, or empty
 # for a bare prompt. agent_skill_prefix is what goes before a skill name, "/"
 # when nothing sets it. agent_rules_flags renders the entry's rules_args, which
@@ -272,8 +273,8 @@ if [[ -n "$AGENT_PROFILE_MISSING" ]]; then
     exit 1
 fi
 
-# merge_config_layers already renamed the deprecated claude.* spellings per
-# layer, so the warnings read the raw layers to name the file to edit: the
+# merge_config_layers already moved claude.initialization_command per layer,
+# so the warnings read the raw layers to name the file to edit: the
 # top-level ones, and the selected profile's. `eval` (not eval-all) keeps
 # filename per file.
 LAYER_SPEC_MERGE=()
@@ -282,6 +283,7 @@ for layer in "${LAYERS[@]}"; do
 done
 # shellcheck disable=SC2016 # yq and jq expressions, not shell
 LAYER_CHECKS=$(PROFILE="$PROFILE" yq eval "${LAYER_SPEC_MERGE[@]}" -o=json -I=0 '
+    explode(.) |
     ["model", "effort", "extra_args"] as $launch_keys |
     (.profiles[strenv(PROFILE)].claude // {}) as $profile_claude |
     {

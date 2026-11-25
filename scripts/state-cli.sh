@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Sourced by scripts that record workspace state. They ask the pappardelle
-# binary to do it, so the state files and the database have one writer.
+# Sourced by scripts that record workspace state or check the config. They ask
+# the pappardelle binary to do it, so the state files and the database have one
+# writer and the config has one validator.
 
 _STATE_CLI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -18,7 +19,7 @@ pappardelle_state() {
     elif [[ -x "$bun" && -f "$_STATE_CLI_DIR/../source/state-cli.ts" ]]; then
         "$bun" --no-env-file --config=/dev/null "$_STATE_CLI_DIR/../source/state-cli.ts" "$@"
     else
-        echo "pappardelle: no binary or Bun found to record workspace state" >&2
+        echo "pappardelle: no binary or Bun found to run pappardelle --internal-state $1" >&2
         return 127
     fi
 }

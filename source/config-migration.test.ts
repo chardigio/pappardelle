@@ -1,22 +1,24 @@
+import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'ava';
 import {parse, stringify} from 'yaml';
 import {
-	findDeprecatedClaudeFields,
 	getAgentProfile,
 	getInitializationCommand,
 	loadConfigFromPaths,
-	renderAgentLaunchFlags,
 	type ConfigPaths,
 	type PappardelleConfig,
 } from './config.ts';
+import {findDeprecatedClaudeFields} from './config-deprecation.ts';
+import {renderAgentLaunchFlags} from './config-launch-flags.ts';
 import {
 	applyConfigMigrations,
 	buildConfigMigrationConfirmContent,
 	confirmConfigMigrations,
 	dismissResolvedDeprecationWarnings,
 	planConfigMigrations,
+	runConfigFix,
 	type ConfigMigration,
 } from './config-migration.ts';
 import {getRecentErrors} from './logger.ts';
@@ -366,6 +368,17 @@ test('a config on the current format needs no rewrite', t => {
 		version: 1,
 		initialization_command: 'idow',
 		agent_profiles: {claude: {command: 'claude', model: 'opus'}},
+		profiles: {plain: {display_name: 'Plain'}},
+	});
+
+	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+});
+
+test('no rewrite is offered for a project config that sets experimental.sqliteState', t => {
+	const paths = setup(t, undefined, {
+		version: 1,
+		experimental: {sqliteState: true},
+		claude: {model: 'opus'},
 		profiles: {plain: {display_name: 'Plain'}},
 	});
 
@@ -893,4 +906,66 @@ test("a rewrite that would drop an agent profile's env from a higher layer is un
 	);
 
 	t.like(planConfigMigrations(paths), {kind: 'unsupported'});
+});
+
+/** Runs a fix command with a stub claude that records the arguments it gets. */
+function stubClaude(t: Teardown) {
+	const bin = tempDir(t, 'config-fix-bin-');
+	const argsFile = path.join(bin, 'args');
+	fs.writeFileSync(
+		path.join(bin, 'claude'),
+		`#!/bin/sh\nprintf '%s\\0' "$@" > '${argsFile}'\n`,
+		{mode: 0o755},
+	);
+	return {
+		run(command: string) {
+			const result = spawnSync('bash', ['-c', command], {
+				env: {...process.env, PATH: `${bin}:${process.env['PATH']}`},
+			});
+			return result.status ?? undefined;
+		},
+		args: () => fs.readFileSync(argsFile, 'utf8').split('\0').slice(0, -1),
+	};
+}
+
+test('the config fix hands claude the prompt and the home config dir, then removes the prompt', async t => {
+	const paths = setup(
+		t,
+		{version: 1, claude: {model: 'opus'}},
+		{version: 1, profiles: {plain: {display_name: 'Plain'}}},
+	);
+	const claude = stubClaude(t);
+	let promptDir: string | undefined;
+	const exitCode = await runConfigFix(
+		'a reason',
+		async command => {
+			promptDir = path.dirname(/cat '([^']+)'/.exec(command)![1]!);
+			return claude.run(command);
+		},
+		paths,
+	);
+
+	t.is(exitCode, 0);
+	const [flag, addedDir, prompt] = claude.args();
+	t.deepEqual([flag, addedDir], ['--add-dir', paths.homeConfigDir]);
+	t.true(prompt!.includes('a reason'));
+	t.true(prompt!.includes('claude.model is deprecated'));
+	t.false(fs.existsSync(promptDir!));
+});
+
+test('the config fix removes the prompt when running claude fails', async t => {
+	const paths = setup(t, undefined, {version: 1, claude: {model: 'opus'}});
+	let promptDir: string | undefined;
+	await t.throwsAsync(
+		runConfigFix(
+			'a reason',
+			async command => {
+				promptDir = path.dirname(/cat '([^']+)'/.exec(command)![1]!);
+				throw new Error('no popup');
+			},
+			paths,
+		),
+		{message: 'no popup'},
+	);
+	t.false(fs.existsSync(promptDir!));
 });

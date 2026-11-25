@@ -113,8 +113,8 @@ profiles:
 		});
 		t.is(cfg.issue_tracker?.provider, 'beads');
 		t.is(cfg.vcs_host?.host, 'gitlab.example.com');
-		t.is(cfg.unparsable.length, 1);
-		t.true(cfg.unparsable[0]!.startsWith('.pappardelle.local.yml'));
+		t.is(cfg.layerErrors.length, 1);
+		t.true(cfg.layerErrors[0]!.startsWith('.pappardelle.local.yml'));
 	} finally {
 		cleanup();
 	}
@@ -128,7 +128,7 @@ test('loadProviderConfigs returns empty when no layer exists', t => {
 				homeConfigDir: path.join(dir, 'home'),
 				projectDir: path.join(dir, 'project'),
 			}),
-			{issue_tracker: undefined, vcs_host: undefined, unparsable: []},
+			{issue_tracker: undefined, vcs_host: undefined, layerErrors: []},
 		);
 	} finally {
 		cleanup();

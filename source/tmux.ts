@@ -125,15 +125,12 @@ const runTmux: AsyncTmuxRunner = async args => {
 };
 import {
 	DEFAULT_COMPANION_COMMAND,
-	bindResumeArgs,
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	getAgentProfile,
 	getNamedAgentProfile,
 	resolveAgentProfileName,
-	renderAgentLaunchFlags,
 	getCompanionCommand,
 	getCompanionSplits,
-	quoteLaunchValue,
 	getDangerouslySkipPermissions,
 	getMainRepoRoot,
 	getListLayout,
@@ -147,6 +144,11 @@ import {
 	type AgentLaunch,
 	workspaceAwareAgents,
 } from './config.ts';
+import {
+	bindResumeArgs,
+	renderAgentLaunchFlags,
+	quoteLaunchValue,
+} from './config-launch-flags.ts';
 import {agentRulesFlags, installAgentRules} from './companion-rules.ts';
 import {
 	MAIN_PANE,

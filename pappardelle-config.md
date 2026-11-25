@@ -426,7 +426,9 @@ Invalid .pappardelle.yml configuration:
 Please fix the configuration and try again.
 ```
 
-A config that fails validation, fails to parse or can't be read is invalid, never treated as a missing one, so nothing falls back to the built-in defaults in its place:
+When more than one config file exists, an error that comes from a single file names it, as in `.pappardelle.local.yml: agent_profiles.opus.model: must be a string`.
+
+A config that fails validation, fails to parse, has a layer whose top level isn't a map or can't be read is invalid, never treated as a missing one, so nothing falls back to the built-in defaults in its place:
 
 - The TUI still starts, and the rail shows `.pappardelle.yml is invalid: …` until the file loads. Settings read once at startup (keybindings, watchlists, `auto_remove_when_done`, rail layout) stay off until Pappardelle restarts, and the rail says so when the file loads
 - Spaces aren't created or opened: the new-space dialog shows the errors, `idow` and `pappardelle <prompt>` exit with them, and keybinding commands don't run
@@ -1431,7 +1433,9 @@ When creating a new worktree, `idow` automatically copies these gitignored files
 
 Both use `cp -n` (no-clobber), so existing files in the worktree are never overwritten. If the source file doesn't exist, it's silently skipped.
 
-These copies are built into the `idow` script itself — you don't need to configure them in `post_workspace_init`.
+`CLAUDE.local.md` is linked rather than copied: the new worktree gets a symlink to the main checkout's file, so notes an agent adds from any worktree land in that one file. An existing `CLAUDE.local.md` in the worktree is left alone, and if git doesn't already ignore the name, idow adds it to the repository's `info/exclude` so the link is never committed.
+
+These copies and the link are built into the `idow` script itself — you don't need to configure them in `post_workspace_init`.
 
 ## Post-Workspace-Init Commands
 

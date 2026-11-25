@@ -8,7 +8,7 @@ import {isHostPappardelleEnv} from './test/helpers/env.ts';
 // xo's ava rules load this file in a worker thread, where an exit listener
 // never fires: the run tmpdir is only for the ava run itself.
 if (isMainThread) {
-	// The test tmux guard (docs/glossary.md): tests and everything they start
+	// The test tmux guard: tests and everything they start
 	// get a tmux that refuses the user's own servers, a private TMUX_TMPDIR and
 	// no TMUX. A test that reached the inner server once ended every agent
 	// session the user had open.
@@ -99,7 +99,7 @@ if (isMainThread) {
 		const refused = refusals();
 		if (refused.length > 0) {
 			console.error(
-				`The test tmux guard refused ${refused.length} tmux calls against the live tmux directory (docs/glossary.md). Give each test its own TMUX_TMPDIR or a -S socket:`,
+				`The test tmux guard refused ${refused.length} tmux calls against the live tmux directory. Give each test its own TMUX_TMPDIR or a -S socket:`,
 			);
 			for (const line of refused) console.error(`  ${line}`);
 			process.exitCode = 1;

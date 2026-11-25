@@ -6,11 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {stringify} from 'yaml';
 import {BUILTIN_AGENTS} from './builtin-agents.ts';
-import {
-	getAgentProfile,
-	loadConfigFromPaths,
-	renderAgentLaunchFlags,
-} from './config.ts';
+import {getAgentProfile, loadConfigFromPaths} from './config.ts';
+import {renderAgentLaunchFlags} from './config-launch-flags.ts';
 
 const SCRIPT_PATH = path.resolve(
 	import.meta.dirname!,
@@ -787,7 +784,7 @@ profiles:
 });
 
 maybeMacro('claude predicate splits the first token on any whitespace', t => {
-	// Matches isClaudeCommand()'s /\s+/ split in source/config.ts — a
+	// Matches isClaudeCommand()'s /\s+/ split in source/config-launch-flags.ts — a
 	// tab-separated command must gate identically on both paths.
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1
@@ -1356,6 +1353,36 @@ post_workspace_init:
 		}
 	},
 );
+
+// YAML aliases are copies, so a claude map shared through an anchor is
+// deprecated wherever it is used.
+test('a claude map that is an alias resolves and warns', t => {
+	const {configPath, cleanup} = setupConfigFiles(`version: 1
+team_prefix: BASE
+default_profile: main
+issue_tracker: {provider: beads}
+x: &c {model: opus}
+claude: *c
+profiles:
+  main: {display_name: M, claude: *c}
+`);
+	try {
+		const result = spawnSync(
+			'bash',
+			[SCRIPT_PATH, '--config', configPath, '--profile', 'main'],
+			{encoding: 'utf8'},
+		);
+		t.is(result.status, 0, `stderr: ${result.stderr}`);
+		const resolved = JSON.parse(result.stdout) as Record<string, string>;
+		t.regex(resolved['deprecation_warnings']!, /: claude\.model is deprecated/);
+		t.regex(
+			resolved['profile_deprecation_warnings']!,
+			/: profiles\.main\.claude\.model is deprecated/,
+		);
+	} finally {
+		cleanup();
+	}
+});
 
 // macOS ships jq 1.7, which rejects a bare `if` as an object value
 // (`key: if ... end`). jq 1.8 accepts it, so a newer jq on the dev machine or in
