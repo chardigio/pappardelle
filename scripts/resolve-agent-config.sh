@@ -283,6 +283,7 @@ for layer in "${LAYERS[@]}"; do
 done
 # shellcheck disable=SC2016 # yq and jq expressions, not shell
 LAYER_CHECKS=$(PROFILE="$PROFILE" yq eval "${LAYER_SPEC_MERGE[@]}" -o=json -I=0 '
+    explode(.) |
     ["model", "effort", "extra_args"] as $launch_keys |
     (.profiles[strenv(PROFILE)].claude // {}) as $profile_claude |
     {
