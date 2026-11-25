@@ -26,6 +26,8 @@ Config is assembled from up to three files, deep-merged lowest → highest prior
 
 Later layers override earlier ones key by key, so a home config setting `initialization_command` still applies in a repo whose `.pappardelle.yml` never mentions it. Only the conflicting keys are replaced — `keybindings` are smart-merged rather than wholesale replaced.
 
+Each layer must be a map at its top level; a file holding only a string or a list makes the config invalid, while an empty or comment-only file adds nothing. YAML anchors, aliases and `<<:` merge keys resolve within their own file before the layers merge, so an alias can't point into another file, and a higher layer overriding an anchored value doesn't change what the alias already copied.
+
 ## Configuration Schema
 
 ```yaml
@@ -426,7 +428,9 @@ Invalid .pappardelle.yml configuration:
 Please fix the configuration and try again.
 ```
 
-A config that fails validation, fails to parse or can't be read is invalid, never treated as a missing one, so nothing falls back to the built-in defaults in its place:
+When more than one config file exists, an error that comes from a single file names it, as in `.pappardelle.local.yml: agent_profiles.opus.model: must be a string`.
+
+A config that fails validation, fails to parse, has a layer whose top level isn't a map or can't be read is invalid, never treated as a missing one, so nothing falls back to the built-in defaults in its place:
 
 - The TUI still starts, and the rail shows `.pappardelle.yml is invalid: …` until the file loads. Settings read once at startup (keybindings, watchlists, `auto_remove_when_done`, rail layout) stay off until Pappardelle restarts, and the rail says so when the file loads
 - Spaces aren't created or opened: the new-space dialog shows the errors, `idow` and `pappardelle <prompt>` exit with them, and keybinding commands don't run
