@@ -4,9 +4,6 @@
 #
 # Usage: derive-title.sh "<prompt text>"
 #
-# The title is the prompt on one line with whitespace runs collapsed, cut to
-# MAX_TITLE_LENGTH with an ellipsis.
-#
 # Outputs: Plain text title (e.g., "Add dark mode to settings...")
 # Exit code: 0 on success, 1 on failure
 
