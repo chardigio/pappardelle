@@ -286,7 +286,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 1. **Profile selection** — Your input is keyword-matched against a profile in `.pappardelle.yml`, and you confirm (or override) the match in the picker.
 
-2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira, or beads) issue is created with a WIP title. For existing issue keys, the issue is fetched.
+2. **Issue creation/fetch** — For new descriptions, a Linear (or Jira, or beads) issue is created with a title taken from the first 80 characters of the description. For existing issue keys, the issue is fetched.
 
 3. **Git worktree** — An isolated worktree is created at `~/.worktrees/{repo-name}/{issue-key}/`. This is a full working copy of your repo on a new branch, completely isolated from your main checkout.
 

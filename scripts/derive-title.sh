@@ -1,47 +1,32 @@
 #!/bin/bash
 
-# derive-title.sh - Generate a WIP title from a prompt
+# derive-title.sh - Generate an issue title from a prompt
 #
 # Usage: derive-title.sh "<prompt text>"
 #
-# Creates a simple "[WIP] <truncated prompt>" title for Linear issues and GitHub PRs.
-# The title is truncated to fit within reasonable limits.
+# The title is the prompt on one line with whitespace runs collapsed, cut to
+# MAX_TITLE_LENGTH with an ellipsis.
 #
-# Outputs: Plain text title (e.g., "[WIP] Add dark mode to settings...")
+# Outputs: Plain text title (e.g., "Add dark mode to settings...")
 # Exit code: 0 on success, 1 on failure
 
 set -e
 
 PROMPT="$1"
 
-if [[ -z "$PROMPT" ]]; then
+MAX_TITLE_LENGTH=80
+ELLIPSIS="..."
+
+CLEANED_PROMPT=$(printf '%s' "$PROMPT" | tr -s '[:space:]' ' ' | sed 's/^ //;s/ $//')
+
+if [[ -z "$CLEANED_PROMPT" ]]; then
     echo "Usage: derive-title.sh \"<prompt text>\"" >&2
     exit 1
 fi
 
-# Configuration
-WIP_PREFIX="[WIP] "
-MAX_TITLE_LENGTH=80
-ELLIPSIS="..."
-
-# Calculate available space for the prompt text
-PREFIX_LENGTH=${#WIP_PREFIX}
-ELLIPSIS_LENGTH=${#ELLIPSIS}
-AVAILABLE_LENGTH=$((MAX_TITLE_LENGTH - PREFIX_LENGTH))
-
-# Clean up the prompt: remove newlines and extra whitespace
-CLEANED_PROMPT=$(echo "$PROMPT" | tr '\n' ' ' | sed 's/  */ /g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
-# Truncate if necessary
-if [[ ${#CLEANED_PROMPT} -gt $AVAILABLE_LENGTH ]]; then
-    # Truncate and add ellipsis
-    TRUNCATE_AT=$((AVAILABLE_LENGTH - ELLIPSIS_LENGTH))
-    TRUNCATED_PROMPT="${CLEANED_PROMPT:0:$TRUNCATE_AT}${ELLIPSIS}"
+if [[ ${#CLEANED_PROMPT} -gt $MAX_TITLE_LENGTH ]]; then
+    TRUNCATED_PROMPT="${CLEANED_PROMPT:0:$((MAX_TITLE_LENGTH - ${#ELLIPSIS}))}"
+    printf '%s\n' "${TRUNCATED_PROMPT% }${ELLIPSIS}"
 else
-    TRUNCATED_PROMPT="$CLEANED_PROMPT"
+    printf '%s\n' "$CLEANED_PROMPT"
 fi
-
-# Build the final title
-TITLE="${WIP_PREFIX}${TRUNCATED_PROMPT}"
-
-echo "$TITLE"

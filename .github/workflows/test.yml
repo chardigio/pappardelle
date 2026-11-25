@@ -112,6 +112,9 @@ jobs:
       - name: Beads ID prefix matching
         run: ./scripts/test-beads-id-prefixes.sh
 
+      - name: Derived issue title
+        run: ./scripts/test-derive-title.sh
+
       - name: Issue project extraction
         run: ./scripts/test-extract-issue-project.sh
 
