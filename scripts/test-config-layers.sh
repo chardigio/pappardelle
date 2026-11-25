@@ -8,7 +8,8 @@
 # config never reached the launch path. It now merges the three layers once
 # (merge_config_layers in provider-helpers.sh) and points CONFIG_PATH at the
 # result. This pins the merge semantics (must match deepMerge() in
-# source/config.ts: maps merge key by key, arrays replace) and guards the idow
+# source/config.ts: maps merge key by key, arrays replace; aliases resolve per
+# file; a layer whose top level isn't a map is invalid) and guards the idow
 # wiring.
 #
 # Usage: ./test-config-layers.sh
@@ -263,6 +264,95 @@ cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
+echo -e "\n${BOLD}Test: a layer whose top level is a scalar or a list fails, naming the file${RESET}"
+for kind in scalar list; do
+    case "$kind" in
+        scalar) bad_text="just a string" ;;
+        list) bad_text=$'- a\n- b' ;;
+    esac
+    for layer in home project local; do
+        setup_configs "version: 1
+team_prefix: PROJECT" "team_prefix: LOCAL" "version: 1
+team_prefix: HOME"
+        case "$layer" in
+            home) bad_file="$TMPDIR_ROOT/home/.pappardelle.yml" ;;
+            project) bad_file="$TMPDIR_ROOT/.pappardelle.yml" ;;
+            local) bad_file="$TMPDIR_ROOT/.pappardelle.local.yml" ;;
+        esac
+        printf '%s\n' "$bad_text" > "$bad_file"
+        status=0
+        stderr=$(merged 2>&1 >/dev/null) || status=$?
+        assert_eq "$kind $layer layer fails" "failed" "$([[ $status -ne 0 ]] && echo failed || echo "exit 0")"
+        assert_eq "$kind $layer layer error names the file" "$bad_file: the top level must be a map" \
+            "$(grep -o "$bad_file: the top level must be a map" <<<"$stderr" || echo "$stderr")"
+        cleanup; unset TMPDIR_ROOT
+    done
+done
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: a ---, null or ~ layer adds nothing to the merge${RESET}"
+for doc in --- null "~"; do
+    for layer in home project local; do
+        setup_configs "version: 1
+team_prefix: PROJECT" "team_prefix: LOCAL" "version: 1
+team_prefix: HOME
+companion_command: hunk"
+        case "$layer" in
+            home) expected="LOCAL/none" ;;
+            project) expected="LOCAL/hunk" ;;
+            local) expected="PROJECT/hunk" ;;
+        esac
+        case "$layer" in
+            home) printf '%s\n' "$doc" > "$TMPDIR_ROOT/home/.pappardelle.yml" ;;
+            project) printf '%s\n' "$doc" > "$TMPDIR_ROOT/.pappardelle.yml" ;;
+            local) printf '%s\n' "$doc" > "$TMPDIR_ROOT/.pappardelle.local.yml" ;;
+        esac
+        assert_eq "$doc $layer layer" "$expected" "$(merged | yq -r '.team_prefix + "/" + (.companion_command // "none")')"
+        cleanup; unset TMPDIR_ROOT
+    done
+done
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: an alias resolves even when a higher layer overrides its anchor${RESET}"
+setup_configs "version: 1
+a: &x {k: 1}
+b: *x" "a: {k: 2}"
+merged > "$TMPDIR_ROOT/merged.yml" || true
+assert_eq "the alias keeps the anchor's own value" "1" "$(yq -r '.b.k' "$TMPDIR_ROOT/merged.yml" 2>&1)"
+assert_eq "the higher layer's value wins" "2" "$(yq -r '.a.k' "$TMPDIR_ROOT/merged.yml" 2>&1)"
+cleanup; unset TMPDIR_ROOT
+
+# ==========================================================================
+
+echo -e "\n${BOLD}Test: an alias, a merge key and the deprecated init spelling across three layers${RESET}"
+setup_configs "version: 1
+base: &base
+  team_prefix: BASE
+  display_name: Base
+profiles:
+  api:
+    <<: *base
+    display_name: API" "command: &cmd /local-old
+claude:
+  initialization_command: *cmd" "version: 1
+initialization_command: /home-new
+profiles:
+  api:
+    emoji: X"
+assert_eq "merge key keys and the profile's own key" "BASE/API" \
+    "$(merged | yq -r '.profiles.api.team_prefix + "/" + .profiles.api.display_name')"
+assert_eq "home profile key survives" "X" "$(merged | yq -r '.profiles.api.emoji')"
+assert_eq "local's aliased old spelling beats home's new one" "/local-old" "$(merged | yq -r '.initialization_command')"
+assert_eq "no alias or merge key is left" "0" "$(merged | grep -cE '[*&]|<<' || true)"
+cleanup; unset TMPDIR_ROOT
+
+assert_eq "no layer files merge to an empty map without reading stdin" "{}" \
+    "$(merge_config_layers "" "/nonexistent/project.yml" "" </dev/null)"
+
+# ==========================================================================
+
 echo -e "\n${BOLD}Test: idow wiring${RESET}"
 IDOW="$SCRIPT_DIR/idow"
 assert_eq "idow merges the layers into CONFIG_PATH" "1" "$(grep -c 'CONFIG_PATH="\$MERGED_CONFIG_PATH"' "$IDOW" || true)"
@@ -276,8 +366,8 @@ assert_eq "resolver calls reuse the merged snapshot" "0" \
 assert_eq "terminal resolver reuses the merged snapshot" "0" \
     "$(grep 'resolve-terminal-app\.sh"' "$IDOW" | grep -vc -- '--config "$CONFIG_PATH"' || true)"
 
-# The merge is subtle enough (yq eval-all ireduce, single-file
-# shortcut, missing-layer skipping) that a second copy drifts silently, which is
+# The merge is subtle enough (yq eval-all ireduce, per-layer explode and
+# rename, missing-layer skipping) that a second copy drifts silently, which is
 # how idow and the TUI stopped agreeing on the effective config before.
 assert_eq "no resolver re-implements the merge" "" \
     "$(grep -lE 'ireduce|fileIndex' "$SCRIPT_DIR"/resolve-*.sh 2>/dev/null || true)"

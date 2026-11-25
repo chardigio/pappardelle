@@ -272,8 +272,8 @@ if [[ -n "$AGENT_PROFILE_MISSING" ]]; then
     exit 1
 fi
 
-# merge_config_layers already renamed the deprecated claude.* spellings per
-# layer, so the warnings read the raw layers to name the file to edit: the
+# merge_config_layers already moved claude.initialization_command per layer,
+# so the warnings read the raw layers to name the file to edit: the
 # top-level ones, and the selected profile's. `eval` (not eval-all) keeps
 # filename per file.
 LAYER_SPEC_MERGE=()
