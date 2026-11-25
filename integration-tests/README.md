@@ -1,6 +1,6 @@
 # Integration Tests — Local Verification
 
-Standalone scripts that exercise pappardelle's providers and config against **real instances**. They are not part of the unit tests (`bun run test:unit`). Account-free program status checks also run in CI, on the runner's tmux and on tmux 3.3a, the oldest Pappardelle supports.
+Standalone scripts that exercise pappardelle's providers and config against **real instances**. They are not part of the unit tests (`bun run test:unit`). Account-free program status checks also run in CI, on the runner's tmux and on tmux 3.4, the oldest Pappardelle supports.
 
 ## Program status
 

@@ -682,7 +682,7 @@ export function monitorPane(
 			process.stdin.destroy();
 		});
 	};
-	// respawn-pane -k, and on tmux 3.3 a process exit under remain-on-exit,
+	// respawn-pane -k, and on tmux 3.4 a process exit under remain-on-exit,
 	// leave the pipe open, so no EOF arrives. Usually the pane's process is
 	// gone by then.
 	const liveness = setInterval(() => {

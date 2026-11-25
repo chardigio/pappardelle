@@ -1,9 +1,11 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 
-// display-popup -B, -T and -e, which the issue and agent popups pass, arrived
-// in tmux 3.3.
-export const MIN_TMUX_VERSION = {major: 3, minor: 3};
+// A tmux 3.3a server built against ncurses 6.4-20230424 or later crashes when
+// any pane sets the cursor colour (OSC 12), which every visible OpenTUI cursor
+// does: ncurses' tparm refuses the colour string and 3.3a writes the NULL it
+// returns. tmux 3.4 switched to tiparm_s.
+export const MIN_TMUX_VERSION = {major: 3, minor: 4};
 
 const execFileAsync = promisify(execFile);
 

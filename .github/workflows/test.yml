@@ -98,7 +98,7 @@ jobs:
         run: bun integration-tests/verify-rail-boxes.ts
 
   tmux-floor:
-    name: Program status on tmux 3.3a (sqliteState ${{ matrix.sqlite_state }})
+    name: Program status on tmux 3.4 (sqliteState ${{ matrix.sqlite_state }})
     strategy:
       fail-fast: false
       matrix:
@@ -108,8 +108,8 @@ jobs:
       PAPPARDELLE_SQLITE_STATE: ${{ matrix.sqlite_state }}
       # The oldest tmux Pappardelle supports: MIN_TMUX_VERSION in
       # source/tmux-version.ts. Move both together.
-      TMUX_FLOOR_VERSION: 3.3a
-      TMUX_FLOOR_SHA256: e4fd347843bd0772c4f48d6dde625b0b109b7a380ff15db21e97c11a4dcdf93f
+      TMUX_FLOOR_VERSION: '3.4'
+      TMUX_FLOOR_SHA256: 551ab8dea0bf505c0ad6b7bb35ef567cdde0ccb84357df142c254f35a23e19aa
 
     steps:
       - name: Checkout repository

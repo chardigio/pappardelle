@@ -17,7 +17,6 @@ const exec = promisify(execFile);
 
 // Each case runs its own tmux server with an attached control client, so keys
 // are pressed through the client's key tables the way a user's would be.
-// `send-keys -K` arrived in tmux 3.4; older servers skip these cases.
 async function fixture() {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-sous-chef-'));
 	const socket = path.join(dir, 'outer');
@@ -131,24 +130,7 @@ async function fixture() {
 	};
 }
 
-async function supportsKeyPresses(): Promise<boolean> {
-	try {
-		const {stdout} = await exec('tmux', ['-V']);
-		const match = /(\d+)\.(\d+)/.exec(stdout);
-		if (!match) return false;
-		const [major, minor] = [Number(match[1]), Number(match[2])];
-		return major > 3 || (major === 3 && minor >= 4);
-	} catch {
-		return false;
-	}
-}
-
 test('the key runs the jump in its own window without disturbing the pane', async () => {
-	if (!(await supportsKeyPresses())) {
-		expect().pass('tmux without send-keys -K');
-		return;
-	}
-
 	const f = await fixture();
 	await f.install('M-s');
 	await f.press(0, 'M-s');
@@ -168,11 +150,6 @@ test('the key runs the jump in its own window without disturbing the pane', asyn
 });
 
 test('the key reaches the program in any other window', async () => {
-	if (!(await supportsKeyPresses())) {
-		expect().pass('tmux without send-keys -K');
-		return;
-	}
-
 	const f = await fixture();
 	await f.install('M-s');
 	await f.press(1, 'M-s');
@@ -182,11 +159,6 @@ test('the key reaches the program in any other window', async () => {
 });
 
 test('a changed key stops the old one from acting in the window', async () => {
-	if (!(await supportsKeyPresses())) {
-		expect().pass('tmux without send-keys -K');
-		return;
-	}
-
 	const f = await fixture();
 	await f.install('M-s');
 	await f.install('M-j');
@@ -202,11 +174,6 @@ test('a changed key stops the old one from acting in the window', async () => {
 });
 
 test('a key turned off passes through in the window', async () => {
-	if (!(await supportsKeyPresses())) {
-		expect().pass('tmux without send-keys -K');
-		return;
-	}
-
 	const f = await fixture();
 	await f.install('M-s');
 	await f.install(null);
