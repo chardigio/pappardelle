@@ -97,6 +97,9 @@ const verbs: Record<string, Verb> = {
 			return usage(
 				'prepare-space needs --repo <name>, --worktree <path>, --main-root <path> and one space key',
 			);
+		const owner = Number(values.owner);
+		if (values.register && (!Number.isInteger(owner) || owner <= 0))
+			return usage('prepare-space: --register needs --owner <pid>');
 		const daos = createStateDaos({repo});
 		// A registered key must always have an identity, so it is written first.
 		await daos.spaceIdentities.record(
@@ -113,12 +116,7 @@ const verbs: Record<string, Verb> = {
 			mainIdentity({repo, mainRoot, env: process.env}),
 		);
 
-		if (values.register) {
-			const owner = Number(values.owner);
-			if (!Number.isInteger(owner) || owner <= 0)
-				return usage('--register needs --owner <pid>');
-			await daos.registry.reserveStart(key, owner);
-		}
+		if (values.register) await daos.registry.reserveStart(key, owner);
 
 		if (values.fresh) await daos.agentSessions.clear(key);
 		if (values['created-issue']) await daos.issueMeta.markCreated(key);

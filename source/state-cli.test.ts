@@ -257,3 +257,48 @@ test('migrate takes one database path and nothing else', t => {
 	t.regex(extra.stderr, /migrate needs one database path/);
 	t.deepEqual(fs.readdirSync(dir), []);
 });
+
+// idow takes a recorded identity as the space's: a registration that is
+// refused must not leave one behind.
+test('prepare-space --register without an owner records nothing', t => {
+	const home = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
+	);
+	t.teardown(() => {
+		fs.rmSync(home, {recursive: true, force: true});
+	});
+	const stateDir = path.join(home, '.pappardelle');
+	const result = spawnSync(
+		process.execPath,
+		[
+			fileURLToPath(new URL('state-cli.ts', import.meta.url)),
+			'prepare-space',
+			'--repo',
+			'repo',
+			'--worktree',
+			path.join(home, 'elsewhere'),
+			'--main-root',
+			path.join(home, 'repo'),
+			'--register',
+			'STA-1',
+		],
+		{
+			encoding: 'utf8',
+			env: {
+				...process.env,
+				HOME: home,
+				PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
+			},
+		},
+	);
+	t.is(result.status, 2, `stderr: ${result.stderr}`);
+	t.is(
+		result.stderr.trim(),
+		'pappardelle --internal-state: prepare-space: --register needs --owner <pid>',
+	);
+	const lookup = testState(t, {stateDir}).daos.spaceIdentities.get('STA-1');
+	t.false(
+		lookup.kind === 'identity' &&
+			lookup.identity.worktreePath === path.join(home, 'elsewhere'),
+	);
+});
