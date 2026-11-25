@@ -646,19 +646,17 @@ export function deepMerge(
 }
 
 /**
- * Merge up to three config layers with proper override semantics.
- * Priority (lowest → highest): home → project → local.
+ * Merge config layers with proper override semantics, lowest priority first
+ * (home → project → local); a null layer adds nothing.
  *
  * Uses deep merge for most fields. Keybindings use the smart
  * add/override/disable merge logic from `mergeKeybindings`.
  */
 export function mergeConfigLayers(
-	home: Record<string, unknown> | null,
-	project: Record<string, unknown> | null,
-	local: Record<string, unknown> | null,
+	allLayers: Array<Record<string, unknown> | null>,
 ): Record<string, unknown> {
-	const layers = [home, project, local].filter(
-		(l): l is Record<string, unknown> => l !== null && l !== undefined,
+	const layers = allLayers.filter(
+		(l): l is Record<string, unknown> => l !== null,
 	);
 	if (layers.length === 0) {
 		return {};
@@ -700,14 +698,12 @@ export function getDefaultHomeConfigDir(): string {
  * At least one layer must provide a config file, otherwise throws ConfigNotFoundError.
  */
 export function loadConfigFromPaths(opts: ConfigPaths): PappardelleConfig {
-	const layers = configLayerFiles(opts).map(({label, path: filePath}) =>
-		filePath
-			? {
-					label,
-					layer: parseConfigLayer(label, fs.readFileSync(filePath, 'utf8')),
-				}
-			: {label, layer: null},
-	);
+	const layers = readConfigLayers(opts);
+	const errors = layers.flatMap(({errors}) => errors ?? []);
+	if (errors.length > 0) {
+		throw new ConfigValidationError(errors);
+	}
+
 	if (layers.every(({layer}) => !layer)) {
 		throw new ConfigNotFoundError(opts.projectDir ?? '(no project dir)');
 	}
@@ -857,12 +853,7 @@ export function buildConfigFromLayers(
 		}
 	}
 
-	const [home, project, local] = layers.map(({layer}) => layer);
-	const merged = mergeConfigLayers(
-		home ?? null,
-		project ?? null,
-		local ?? null,
-	);
+	const merged = mergeConfigLayers(layers.map(({layer}) => layer));
 	validateConfig(merged);
 	return merged as PappardelleConfig;
 }
@@ -888,11 +879,7 @@ export function mergedAgentProfiles(
  * project (.pappardelle.yml) → local (.pappardelle.local.yml).
  */
 export function loadConfig(): PappardelleConfig {
-	return loadConfigFromPaths({
-		homeConfigDir: getDefaultHomeConfigDir(),
-		projectDir: getRepoRoot(),
-		fallbackProjectDir: getMainRepoRoot,
-	});
+	return loadConfigFromPaths(defaultConfigPaths());
 }
 
 export type ConfigLoad =
@@ -936,27 +923,38 @@ export function defaultConfigPaths(): ConfigPaths {
 	};
 }
 
-/**
- * The raw config layers, lowest priority first, labeled the way config errors
- * name them. A layer that is missing or fails to parse is null, so callers
- * that only need part of the config keep working while another section is
- * broken; `errors` says why a file that exists was left out.
- */
-function readConfigLayers(paths: ConfigPaths): Array<{
+export type ConfigLayerRead = {
 	label: string;
+	path: string | undefined;
+	content?: string;
 	layer: Record<string, unknown> | null;
 	errors?: string[];
-}> {
+};
+
+/**
+ * The raw config layers, always home, project and local in that order,
+ * labeled the way config errors name them. A layer that is missing or fails
+ * to parse is null, so callers that only need part of the config keep working
+ * while another section is broken; `errors` says why a file that exists was
+ * left out.
+ */
+export function readConfigLayers(paths: ConfigPaths): ConfigLayerRead[] {
 	return configLayerFiles(paths).map(({label, path: filePath}) => {
-		if (!filePath) return {label, layer: null};
+		if (!filePath) return {label, path: filePath, layer: null};
+		let content: string | undefined;
 		try {
+			content = fs.readFileSync(filePath, 'utf8');
 			return {
 				label,
-				layer: parseConfigLayer(label, fs.readFileSync(filePath, 'utf8')),
+				path: filePath,
+				content,
+				layer: parseConfigLayer(label, content),
 			};
 		} catch (error) {
 			return {
 				label,
+				path: filePath,
+				content,
 				layer: null,
 				errors:
 					error instanceof ConfigValidationError
@@ -998,12 +996,7 @@ export function loadProviderConfigs(opts?: ConfigPaths): {
 	unparsable: string[];
 } {
 	const layers = readConfigLayers(opts ?? defaultConfigPaths());
-	const [home, project, local] = layers.map(({layer}) => layer);
-	const merged = mergeConfigLayers(
-		home ?? null,
-		project ?? null,
-		local ?? null,
-	);
+	const merged = mergeConfigLayers(layers.map(({layer}) => layer));
 	return {
 		issue_tracker: merged['issue_tracker'] as IssueTrackerConfig | undefined,
 		vcs_host: merged['vcs_host'] as VcsHostConfig | undefined,

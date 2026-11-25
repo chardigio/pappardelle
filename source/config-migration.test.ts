@@ -372,6 +372,17 @@ test('a config on the current format needs no rewrite', t => {
 	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
 });
 
+test('no rewrite is offered for a project config that sets experimental.sqliteState', t => {
+	const paths = setup(t, undefined, {
+		version: 1,
+		experimental: {sqliteState: true},
+		claude: {model: 'opus'},
+		profiles: {plain: {display_name: 'Plain'}},
+	});
+
+	t.deepEqual(planConfigMigrations(paths), {kind: 'none'});
+});
+
 test('the rewrite clears the deprecation warnings from the error pane', t => {
 	const paths = setup(t, {
 		version: 1,

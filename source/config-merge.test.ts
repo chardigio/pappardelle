@@ -133,7 +133,7 @@ test('mergeConfigLayers with home config only', t => {
 			music: {display_name: 'Music', keywords: ['music']},
 		},
 	};
-	const result = mergeConfigLayers(home, null, null);
+	const result = mergeConfigLayers([home, null, null]);
 	t.is(result['version'], 1);
 	t.is(result['team_prefix'], 'HOME');
 	const profiles = result['profiles'] as Record<string, unknown>;
@@ -148,7 +148,7 @@ test('mergeConfigLayers with project config only', t => {
 			hive: {display_name: 'Hive', keywords: ['hive']},
 		},
 	};
-	const result = mergeConfigLayers(null, project, null);
+	const result = mergeConfigLayers([null, project, null]);
 	t.is(result['team_prefix'], 'STA');
 });
 
@@ -160,7 +160,7 @@ test('mergeConfigLayers with local config only', t => {
 			test: {display_name: 'Test', keywords: ['test']},
 		},
 	};
-	const result = mergeConfigLayers(null, null, local);
+	const result = mergeConfigLayers([null, null, local]);
 	t.is(result['team_prefix'], 'LOCAL');
 });
 
@@ -180,7 +180,7 @@ test('mergeConfigLayers project overrides home', t => {
 			hive: {display_name: 'Hive', keywords: ['hive']},
 		},
 	};
-	const result = mergeConfigLayers(home, project, null);
+	const result = mergeConfigLayers([home, project, null]);
 	t.is(result['team_prefix'], 'STA');
 	// Home's claude config is preserved since project didn't set it
 	const claude = result['claude'] as Record<string, unknown>;
@@ -204,7 +204,7 @@ test('mergeConfigLayers local overrides project', t => {
 		team_prefix: 'LOCAL',
 		claude: {dangerously_skip_permissions: true},
 	};
-	const result = mergeConfigLayers(null, project, local);
+	const result = mergeConfigLayers([null, project, local]);
 	t.is(result['team_prefix'], 'LOCAL');
 	const claude = result['claude'] as Record<string, unknown>;
 	t.is(claude['dangerously_skip_permissions'], true);
@@ -233,7 +233,7 @@ test('mergeConfigLayers three-layer merge: local > project > home', t => {
 	const local = {
 		claude: {dangerously_skip_permissions: true},
 	};
-	const result = mergeConfigLayers(home, project, local);
+	const result = mergeConfigLayers([home, project, local]);
 
 	// team_prefix: project overrides home, local doesn't set it
 	t.is(result['team_prefix'], 'STA');
@@ -268,7 +268,7 @@ test('mergeConfigLayers smart-merges keybindings across layers', t => {
 			{key: 'v', name: 'VS Code', run: 'code .'},
 		],
 	};
-	const result = mergeConfigLayers(home, project, local);
+	const result = mergeConfigLayers([home, project, local]);
 	const bindings = result['keybindings'] as Array<Record<string, unknown>>;
 
 	// 'b' overridden by project
@@ -290,27 +290,27 @@ test('mergeConfigLayers smart-merges keybindings across layers', t => {
 // ============================================================================
 
 test('team_prefix from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{version: 1, team_prefix: 'HOME', profiles: {t: {display_name: 'T'}}},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	t.is(getTeamPrefix(result as PappardelleConfig), 'HOME');
 });
 
 test('team_prefix from local config overrides project', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		null,
 		{version: 1, team_prefix: 'STA', profiles: {t: {display_name: 'T'}}},
 		{team_prefix: 'LOCAL'},
-	);
+	]);
 	validateConfig(result);
 	t.is(getTeamPrefix(result as PappardelleConfig), 'LOCAL');
 });
 
 test('issue_tracker from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			issue_tracker: {provider: 'jira', base_url: 'https://jira.example.com'},
@@ -318,7 +318,7 @@ test('issue_tracker from home config works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(config.issue_tracker!.provider, 'jira');
@@ -326,7 +326,7 @@ test('issue_tracker from home config works', t => {
 });
 
 test('vcs_host from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			vcs_host: {provider: 'gitlab', host: 'https://gitlab.example.com'},
@@ -334,14 +334,14 @@ test('vcs_host from home config works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(config.vcs_host!.provider, 'gitlab');
 });
 
 test('claude config from home works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			claude: {
@@ -352,7 +352,7 @@ test('claude config from home works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(getInitializationCommand(config), '/dow');
@@ -360,7 +360,7 @@ test('claude config from home works', t => {
 });
 
 test('issue_watchlist from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			issue_watchlist: {assignee: 'me', statuses: ['To Do', 'In Progress']},
@@ -368,7 +368,7 @@ test('issue_watchlist from home config works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	const wl = getIssueWatchlist(config)!;
@@ -377,7 +377,7 @@ test('issue_watchlist from home config works', t => {
 });
 
 test('issue_watchlist from local overrides project', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		null,
 		{
 			version: 1,
@@ -390,7 +390,7 @@ test('issue_watchlist from local overrides project', t => {
 				statuses: ['In Progress', 'In Review'],
 			},
 		},
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	const wl = getIssueWatchlist(config)!;
@@ -399,7 +399,7 @@ test('issue_watchlist from local overrides project', t => {
 });
 
 test('post_workspace_init from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			post_workspace_init: [{name: 'setup', run: 'make setup'}],
@@ -407,7 +407,7 @@ test('post_workspace_init from home config works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(config.post_workspace_init!.length, 1);
@@ -415,7 +415,7 @@ test('post_workspace_init from home config works', t => {
 });
 
 test('pre_workspace_deinit from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			pre_workspace_deinit: [{name: 'cleanup', run: 'make clean'}],
@@ -423,7 +423,7 @@ test('pre_workspace_deinit from home config works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(config.pre_workspace_deinit!.length, 1);
@@ -431,7 +431,7 @@ test('pre_workspace_deinit from home config works', t => {
 });
 
 test('terminal from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			terminal: {app: 'Warp'},
@@ -439,14 +439,14 @@ test('terminal from home config works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(config.terminal!.app, 'Warp');
 });
 
 test('hooks from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			hooks: {post_workspace_create: [{name: 'notify', run: 'echo created'}]},
@@ -454,14 +454,14 @@ test('hooks from home config works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(config.hooks!.post_workspace_create!.length, 1);
 });
 
 test('keybindings from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			keybindings: [{key: 'b', name: 'Build', run: 'make build'}],
@@ -469,7 +469,7 @@ test('keybindings from home config works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(getKeybindings(config).length, 1);
@@ -477,7 +477,7 @@ test('keybindings from home config works', t => {
 });
 
 test('profiles from home config work with all profile features', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			profiles: {
@@ -498,7 +498,7 @@ test('profiles from home config work with all profile features', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	const profile = config.profiles['music']!;
@@ -517,7 +517,7 @@ test('profiles from home config work with all profile features', t => {
 });
 
 test('default_profile from home config works', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			default_profile: 'music',
@@ -528,14 +528,14 @@ test('default_profile from home config works', t => {
 		},
 		null,
 		null,
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(config.default_profile, 'music');
 });
 
 test('default_profile from local config overrides project', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		null,
 		{
 			version: 1,
@@ -546,14 +546,14 @@ test('default_profile from local config overrides project', t => {
 			},
 		},
 		{default_profile: 'music'},
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(config.default_profile, 'music');
 });
 
 test('default_profile from local config overrides home', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			default_profile: 'music',
@@ -564,14 +564,14 @@ test('default_profile from local config overrides home', t => {
 		},
 		null,
 		{default_profile: 'hive'},
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(config.default_profile, 'hive');
 });
 
 test('default_profile from local overrides all three layers', t => {
-	const result = mergeConfigLayers(
+	const result = mergeConfigLayers([
 		{
 			version: 1,
 			default_profile: 'music',
@@ -586,7 +586,7 @@ test('default_profile from local overrides all three layers', t => {
 			},
 		},
 		{default_profile: 'music'},
-	);
+	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	// local wins: picks 'music' even though project set 'hive'
@@ -611,7 +611,7 @@ test('config works without project config when home provides everything', t => {
 			music: {display_name: 'Music', keywords: ['music']},
 		},
 	};
-	const result = mergeConfigLayers(home, null, null);
+	const result = mergeConfigLayers([home, null, null]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(getTeamPrefix(config), 'HOME');
@@ -629,7 +629,7 @@ test('config works without project config when local provides everything', t => 
 			test: {display_name: 'Test', keywords: ['test']},
 		},
 	};
-	const result = mergeConfigLayers(null, null, local);
+	const result = mergeConfigLayers([null, null, local]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(getTeamPrefix(config), 'LOCAL');
@@ -648,7 +648,7 @@ test('home + local works without project config', t => {
 		team_prefix: 'LOCAL',
 		claude: {dangerously_skip_permissions: true},
 	};
-	const result = mergeConfigLayers(home, null, local);
+	const result = mergeConfigLayers([home, null, local]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	t.is(getTeamPrefix(config), 'LOCAL');
@@ -677,7 +677,7 @@ test('profiles from all three layers are merged', t => {
 			test: {display_name: 'Test', keywords: ['test']},
 		},
 	};
-	const result = mergeConfigLayers(home, project, local);
+	const result = mergeConfigLayers([home, project, local]);
 	const profiles = result['profiles'] as Record<
 		string,
 		Record<string, unknown>
@@ -703,7 +703,7 @@ test('local profile overrides same-named project profile', t => {
 			music: {display_name: 'Music V2'},
 		},
 	};
-	const result = mergeConfigLayers(null, project, local);
+	const result = mergeConfigLayers([null, project, local]);
 	const profiles = result['profiles'] as Record<
 		string,
 		Record<string, unknown>

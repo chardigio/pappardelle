@@ -78,6 +78,30 @@ test('a config file that cannot be read makes the config invalid', t => {
 	t.true(load.kind === 'invalid' && load.errors[0]!.includes('EISDIR'));
 });
 
+test('every layer that fails to parse is reported, not just the first', t => {
+	const {paths} = layers(t, {
+		'project/.pappardelle.yml': 'version: [unclosed\n',
+		'project/.pappardelle.local.yml': 'profiles: [unclosed\n',
+	});
+	const load = readConfig(paths);
+	t.is(load.kind, 'invalid');
+	const errors = load.kind === 'invalid' ? load.errors : [];
+	t.true(errors.some(error => error.startsWith('.pappardelle.yml: ')));
+	t.true(errors.some(error => error.startsWith('.pappardelle.local.yml: ')));
+});
+
+test('a config file that cannot be read is named in its error', t => {
+	const {dir, paths} = layers(t, {});
+	fs.mkdirSync(path.join(dir, 'project', '.pappardelle.local.yml'));
+	const load = readConfig(paths);
+	t.deepEqual(
+		load.kind === 'invalid'
+			? load.errors.map(error => error.split(': ')[0])
+			: [],
+		['.pappardelle.local.yml'],
+	);
+});
+
 test('a YAML error fits on one line without its code excerpt', t => {
 	const {paths} = layers(t, {
 		'project/.pappardelle.yml': 'version: 1\nprofiles: {}\n',
