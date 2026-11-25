@@ -237,3 +237,83 @@ test('a wide title clipped mid-glyph stays inside the row and the bar', async ()
 		expect(inverseCells(spans!), `Rendered row: ${line}`).toBe(boxWidth);
 	}
 });
+
+// A rail dragged to 16 or 20 columns gives each row 14 or 18. The status icon
+// is the row's call for attention, so it outlasts the emoji and the key.
+test('a row too narrow for its emoji keeps its status icon and rail icons', async () => {
+	const blockedRows: Array<{
+		kind: 'permission' | 'question';
+		icon: string;
+		emoji: string;
+		railStatus: RailStatus;
+		icons: string;
+	}> = [
+		{
+			kind: 'permission',
+			icon: '!',
+			emoji: '❤️',
+			railStatus: {
+				pipeline: 'failing',
+				unresolvedCommentCount: 12,
+				hasConflict: true,
+			},
+			icons: ' (12) ↯ ✗',
+		},
+		{
+			kind: 'question',
+			icon: '?',
+			emoji: '👩‍💻',
+			railStatus: {
+				pipeline: 'progressing_dirty',
+				unresolvedCommentCount: 140,
+				hasConflict: true,
+			},
+			icons: ' (140) ↯ ◐◑',
+		},
+	];
+	for (const {kind, icon, emoji, railStatus, icons} of blockedRows) {
+		for (const width of [14, 18]) {
+			for (const isSelected of [false, true]) {
+				const [spans] = await rowSpans({
+					row: {
+						...space,
+						profileEmoji: emoji,
+						programStatus: {status: 'blocked', kind},
+						railStatus,
+					},
+					width,
+					isSelected,
+				});
+				const line = spans!.map(span => span.text).join('');
+				const label = `${kind} ${width} selected=${isSelected}: ${line}`;
+				expect(stringWidth(line), label).toBe(width);
+				expect(line.includes(icon), label).toBe(true);
+				expect(line.endsWith(`${icons} `), label).toBe(true);
+			}
+		}
+	}
+});
+
+test('a two-line row too narrow for its emoji starts its title under the key', async () => {
+	const [keySpans, titleSpans] = await rowSpans({
+		row: {
+			...space,
+			profileEmoji: '❤️',
+			programStatus: {status: 'blocked', kind: 'permission'},
+			railStatus: {
+				pipeline: 'failing',
+				unresolvedCommentCount: 12,
+				hasConflict: true,
+			},
+		},
+		width: 14,
+		layout: 'two_line',
+	});
+	const keyLine = keySpans!.map(span => span.text).join('');
+	const titleLine = titleSpans!.map(span => span.text).join('');
+	const label = `${keyLine} / ${titleLine}`;
+	const keyStart = stringWidth(keyLine.slice(0, keyLine.indexOf('!'))) + 2;
+	const title = titleLine.trimStart();
+	expect(stringWidth(titleLine) - stringWidth(title), label).toBe(keyStart);
+	expect(stringWidth(title.trimEnd()), label).toBe(14 - 1 - keyStart);
+});

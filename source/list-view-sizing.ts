@@ -317,10 +317,13 @@ export function railPrefixWidth(icons?: RailIcons): number {
 	return width;
 }
 
+/** Cells the status icon occupies. */
+export const STATUS_ICON_CELLS = 1;
+
 /**
  * Cells the status icon and its trailing space always occupy, before the key.
  */
-export const ROW_ICON_CELLS = 2;
+export const ROW_ICON_CELLS = STATUS_ICON_CELLS + 1;
 
 /**
  * Clip an issue key to the columns a very narrow rail leaves for it.

@@ -14,6 +14,7 @@ import {
 	railPrefixWidth,
 	rowPrefixWidth,
 	ROW_ICON_CELLS,
+	STATUS_ICON_CELLS,
 	twoLineTitleIndent,
 	titleSharesKeyLine,
 } from '../list-view-sizing.ts';
@@ -136,6 +137,15 @@ function SpaceListItem({
 	// edges of the selection bar.
 	const contentWidth = Math.max(0, width - 2 * ROW_PADDING_CELLS);
 
+	// The status icon must stay visible like the rail icons do, so on a rail
+	// too narrow for the emoji, the status icon and the rail icons together,
+	// the key line drops the emoji.
+	const keyLineEmoji =
+		emojiPrefixCells + STATUS_ICON_CELLS + prefixCells <= contentWidth
+			? emoji
+			: undefined;
+	const keyLineEmojiCells = keyLineEmoji ? emojiPrefixCells : 0;
+
 	// Calculate available width for title
 	// Format: "[emoji ] ✢ STA-123 title…   [pipeline] [(N)]", with emoji on the
 	// far left, rail icons right-aligned. They reserve space by shrinking
@@ -151,16 +161,16 @@ function SpaceListItem({
 	// the very thing the clip exists to prevent.
 	const issueKey = clipIssueKey(
 		label ?? space.name,
-		contentWidth - emojiPrefixCells - ROW_ICON_CELLS - prefixCells,
+		contentWidth - keyLineEmojiCells - ROW_ICON_CELLS - prefixCells,
 	);
 	const hasIssueKey = issueKey.length > 0;
 	// emoji prefix + icon (1) + space (1) [+ issueKey (variable) + space (1)] + rail suffix
 	const fixedWidth =
-		emojiPrefixCells +
+		keyLineEmojiCells +
 		(hasIssueKey ? 1 + 1 + issueKey.length + 1 : 1 + 1) +
 		prefixCells;
 	const twoLineIndent = twoLineTitleIndent(
-		emoji ? {emoji, width: emojiCells} : undefined,
+		keyLineEmoji ? {emoji: keyLineEmoji, width: emojiCells} : undefined,
 	);
 	const availableTitleWidth = inlineTitle
 		? Math.max(0, contentWidth - fixedWidth)
@@ -214,8 +224,10 @@ function SpaceListItem({
 	const left = (
 		<text flexGrow={1} flexShrink={1} minWidth={0} wrapMode="none" height={1}>
 			{edgePad}
-			{emoji ? (
-				<span {...gap}>{emojiNeedsSeparator ? `${emoji} ` : emoji}</span>
+			{keyLineEmoji ? (
+				<span {...gap}>
+					{emojiNeedsSeparator ? `${keyLineEmoji} ` : keyLineEmoji}
+				</span>
 			) : null}
 			{isWorking ? (
 				<ClaudeAnimation
