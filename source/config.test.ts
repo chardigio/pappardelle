@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {thrownBy} from '../test/helpers/thrown.ts';
 import type {PappardelleConfig, Profile, KeybindingConfig} from './config.ts';
 import {
 	matchProfiles,
@@ -81,75 +82,75 @@ function createConfig(
 // Team Prefix Tests
 // ============================================================================
 
-test('getTeamPrefix returns configured team_prefix', t => {
+test('getTeamPrefix returns configured team_prefix', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 		'ENG',
 	);
-	t.is(getTeamPrefix(config), 'ENG');
+	expect(getTeamPrefix(config)).toBe('ENG');
 });
 
-test('getTeamPrefix returns default STA when not configured', t => {
+test('getTeamPrefix returns default STA when not configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
-	t.is(getTeamPrefix(config), 'STA');
+	expect(getTeamPrefix(config)).toBe('STA');
 });
 
-test('getTeamPrefix uppercases the team prefix', t => {
+test('getTeamPrefix uppercases the team prefix', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 		'eng',
 	);
-	t.is(getTeamPrefix(config), 'ENG');
+	expect(getTeamPrefix(config)).toBe('ENG');
 });
 
 // ============================================================================
 // Per-Profile Team Prefix Tests
 // ============================================================================
 
-test('getProfileTeamPrefix returns profile team_prefix when set', t => {
+test('getProfileTeamPrefix returns profile team_prefix when set', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
 		team_prefix: 'OTH',
 	};
 	const config = createConfig({'test-profile': profile}, 'test-profile', 'STA');
-	t.is(getProfileTeamPrefix(profile, config), 'OTH');
+	expect(getProfileTeamPrefix(profile, config)).toBe('OTH');
 });
 
-test('getProfileTeamPrefix falls back to global team_prefix', t => {
+test('getProfileTeamPrefix falls back to global team_prefix', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
 	};
 	const config = createConfig({'test-profile': profile}, 'test-profile', 'ENG');
-	t.is(getProfileTeamPrefix(profile, config), 'ENG');
+	expect(getProfileTeamPrefix(profile, config)).toBe('ENG');
 });
 
-test('getProfileTeamPrefix falls back to STA when neither set', t => {
+test('getProfileTeamPrefix falls back to STA when neither set', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
 	};
 	const config = createConfig({'test-profile': profile}, 'test-profile');
-	t.is(getProfileTeamPrefix(profile, config), 'STA');
+	expect(getProfileTeamPrefix(profile, config)).toBe('STA');
 });
 
-test('getProfileTeamPrefix uppercases profile team_prefix', t => {
+test('getProfileTeamPrefix uppercases profile team_prefix', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
 		team_prefix: 'oth',
 	};
 	const config = createConfig({'test-profile': profile}, 'test-profile', 'STA');
-	t.is(getProfileTeamPrefix(profile, config), 'OTH');
+	expect(getProfileTeamPrefix(profile, config)).toBe('OTH');
 });
 
-test('getProfileTeamPrefix prefers profile over global', t => {
+test('getProfileTeamPrefix prefers profile over global', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
@@ -160,14 +161,14 @@ test('getProfileTeamPrefix prefers profile over global', t => {
 		'test-profile',
 		'GLOBAL',
 	);
-	t.is(getProfileTeamPrefix(profile, config), 'PROJ');
+	expect(getProfileTeamPrefix(profile, config)).toBe('PROJ');
 });
 
 // ============================================================================
 // Profile emoji + default_emoji Tests
 // ============================================================================
 
-test('getProfileEmoji returns profile emoji when set', t => {
+test('getProfileEmoji returns profile emoji when set', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
@@ -179,10 +180,10 @@ test('getProfileEmoji returns profile emoji when set', t => {
 		default_emoji: '🍕',
 		profiles: {test: profile},
 	};
-	t.is(getProfileEmoji(profile, config), '🍝');
+	expect(getProfileEmoji(profile, config)).toBe('🍝');
 });
 
-test('getProfileEmoji falls back to default_emoji when profile has none', t => {
+test('getProfileEmoji falls back to default_emoji when profile has none', () => {
 	const profile: Profile = {keywords: ['test'], display_name: 'Test'};
 	const config: PappardelleConfig = {
 		version: 1,
@@ -190,26 +191,26 @@ test('getProfileEmoji falls back to default_emoji when profile has none', t => {
 		default_emoji: '🍕',
 		profiles: {test: profile},
 	};
-	t.is(getProfileEmoji(profile, config), '🍕');
+	expect(getProfileEmoji(profile, config)).toBe('🍕');
 });
 
-test('getProfileEmoji returns undefined when neither is set', t => {
+test('getProfileEmoji returns undefined when neither is set', () => {
 	const profile: Profile = {keywords: ['test'], display_name: 'Test'};
 	const config: PappardelleConfig = {
 		version: 1,
 		default_profile: 'test',
 		profiles: {test: profile},
 	};
-	t.is(getProfileEmoji(profile, config), undefined);
+	expect(getProfileEmoji(profile, config)).toBe(undefined);
 });
 
-test('getProfileEmoji uses default_emoji when profile is undefined', t => {
+test('getProfileEmoji uses default_emoji when profile is undefined', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		default_emoji: '🍕',
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
-	t.is(getProfileEmoji(undefined, config), '🍕');
+	expect(getProfileEmoji(undefined, config)).toBe('🍕');
 });
 
 // Regression: a config with no emoji fields anywhere — neither
@@ -218,7 +219,7 @@ test('getProfileEmoji uses default_emoji when profile is undefined', t => {
 // keys off of to skip the emoji slot entirely and render the row exactly as
 // it did on master. If this ever returns a string, every existing user gets
 // an unexpected blank slot in their TUI on the next upgrade.
-test('emoji-free config: getProfileEmoji returns undefined for every profile', t => {
+test('emoji-free config: getProfileEmoji returns undefined for every profile', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		default_profile: 'a',
@@ -229,18 +230,17 @@ test('emoji-free config: getProfileEmoji returns undefined for every profile', t
 		},
 	};
 	for (const profile of Object.values(config.profiles)) {
-		t.is(
+		expect(
 			getProfileEmoji(profile, config),
-			undefined,
 			'no emoji fields anywhere should yield undefined (master UI preserved)',
-		);
+		).toBe(undefined);
 	}
 
 	// Also: undefined profile (e.g., main worktree path) must stay undefined.
-	t.is(getProfileEmoji(undefined, config), undefined);
+	expect(getProfileEmoji(undefined, config)).toBe(undefined);
 });
 
-test('partial emoji config: profiles without emoji fall back to default_emoji', t => {
+test('partial emoji config: profiles without emoji fall back to default_emoji', () => {
 	// Sanity check the inverse: as soon as ANY emoji field is set, unmatched
 	// profiles inherit the default. (This is the "blank slot" case Charlie
 	// uses — default_emoji = "" means "reserve the slot but render nothing".)
@@ -253,15 +253,15 @@ test('partial emoji config: profiles without emoji fall back to default_emoji', 
 			b: {keywords: ['b'], display_name: 'B'},
 		},
 	};
-	t.is(getProfileEmoji(config.profiles['a']!, config), '🎸');
-	t.is(getProfileEmoji(config.profiles['b']!, config), '');
+	expect(getProfileEmoji(config.profiles['a']!, config)).toBe('🎸');
+	expect(getProfileEmoji(config.profiles['b']!, config)).toBe('');
 });
 
 // Footgun guard: if the user sets an `emoji:` on some profiles but forgets
 // `default_emoji`, we auto-promote to `''` (blank slot) for the rest so
 // rows stay aligned. Without this, one profile's emoji would silently
 // jut every other row's row out of alignment by 3 cells.
-test('footgun guard: any profile emoji + no default_emoji → "" for unset profiles', t => {
+test('footgun guard: any profile emoji + no default_emoji → "" for unset profiles', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		default_profile: 'a',
@@ -271,27 +271,24 @@ test('footgun guard: any profile emoji + no default_emoji → "" for unset profi
 			c: {keywords: ['c'], display_name: 'C'}, // no emoji
 		},
 	};
-	t.is(getProfileEmoji(config.profiles['a']!, config), '🎸');
-	t.is(
+	expect(getProfileEmoji(config.profiles['a']!, config)).toBe('🎸');
+	expect(
 		getProfileEmoji(config.profiles['b']!, config),
-		'',
 		'unset profile should inherit auto-blank slot so rows line up',
-	);
-	t.is(
+	).toBe('');
+	expect(
 		getProfileEmoji(config.profiles['c']!, config),
-		'',
 		'unset profile should inherit auto-blank slot so rows line up',
-	);
-	t.is(
+	).toBe('');
+	expect(
 		getProfileEmoji(undefined, config),
-		'',
 		'main worktree (undefined profile) should also inherit the auto-blank slot',
-	);
+	).toBe('');
 });
 
 // Same guard applies when the profile's emoji is explicitly empty — the
 // "any other profile has an emoji" check counts empty-string as set.
-test('footgun guard: explicit "" on one profile still promotes unset siblings', t => {
+test('footgun guard: explicit "" on one profile still promotes unset siblings', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		default_profile: 'a',
@@ -300,8 +297,8 @@ test('footgun guard: explicit "" on one profile still promotes unset siblings', 
 			b: {keywords: ['b'], display_name: 'B'},
 		},
 	};
-	t.is(getProfileEmoji(config.profiles['a']!, config), '');
-	t.is(getProfileEmoji(config.profiles['b']!, config), '');
+	expect(getProfileEmoji(config.profiles['a']!, config)).toBe('');
+	expect(getProfileEmoji(config.profiles['b']!, config)).toBe('');
 });
 
 // ============================================================================
@@ -319,7 +316,7 @@ test('footgun guard: explicit "" on one profile still promotes unset siblings', 
 // flips, every existing user gets a surprise blank slot in their TUI on
 // the next upgrade — exactly the regression the emoji rail feature was
 // careful to avoid in STA-924.
-test('resolvePendingProfileEmoji: emoji-free config → undefined regardless of profileName', t => {
+test('resolvePendingProfileEmoji: emoji-free config → undefined regardless of profileName', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		default_profile: 'a',
@@ -328,18 +325,18 @@ test('resolvePendingProfileEmoji: emoji-free config → undefined regardless of 
 			b: {keywords: ['b'], display_name: 'B'},
 		},
 	};
-	t.is(resolvePendingProfileEmoji(config, null), undefined);
-	t.is(resolvePendingProfileEmoji(config, undefined), undefined);
-	t.is(resolvePendingProfileEmoji(config, 'a'), undefined);
-	t.is(resolvePendingProfileEmoji(config, 'unknown-profile'), undefined);
+	expect(resolvePendingProfileEmoji(config, null)).toBe(undefined);
+	expect(resolvePendingProfileEmoji(config, undefined)).toBe(undefined);
+	expect(resolvePendingProfileEmoji(config, 'a')).toBe(undefined);
+	expect(resolvePendingProfileEmoji(config, 'unknown-profile')).toBe(undefined);
 });
 
-test('resolvePendingProfileEmoji: null config → undefined (load failure path)', t => {
-	t.is(resolvePendingProfileEmoji(null, null), undefined);
-	t.is(resolvePendingProfileEmoji(null, 'whatever'), undefined);
+test('resolvePendingProfileEmoji: null config → undefined (load failure path)', () => {
+	expect(resolvePendingProfileEmoji(null, null)).toBe(undefined);
+	expect(resolvePendingProfileEmoji(null, 'whatever')).toBe(undefined);
 });
 
-test('resolvePendingProfileEmoji: known profileName → that profile emoji', t => {
+test('resolvePendingProfileEmoji: known profileName → that profile emoji', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		default_profile: 'a',
@@ -349,10 +346,10 @@ test('resolvePendingProfileEmoji: known profileName → that profile emoji', t =
 			b: {keywords: ['b'], display_name: 'B'},
 		},
 	};
-	t.is(resolvePendingProfileEmoji(config, 'a'), '🎸');
+	expect(resolvePendingProfileEmoji(config, 'a')).toBe('🎸');
 });
 
-test('resolvePendingProfileEmoji: known profileName w/o emoji → default_emoji fallback', t => {
+test('resolvePendingProfileEmoji: known profileName w/o emoji → default_emoji fallback', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		default_profile: 'a',
@@ -361,10 +358,10 @@ test('resolvePendingProfileEmoji: known profileName w/o emoji → default_emoji 
 			a: {keywords: ['a'], display_name: 'A'}, // no emoji on profile
 		},
 	};
-	t.is(resolvePendingProfileEmoji(config, 'a'), '🍕');
+	expect(resolvePendingProfileEmoji(config, 'a')).toBe('🍕');
 });
 
-test('resolvePendingProfileEmoji: no profileName, default_emoji set → default_emoji', t => {
+test('resolvePendingProfileEmoji: no profileName, default_emoji set → default_emoji', () => {
 	// Description-route ("Starting new session…") never knows the profile
 	// upfront — the user just typed free text. Must still pick up the
 	// default emoji so the slot is reserved.
@@ -374,11 +371,11 @@ test('resolvePendingProfileEmoji: no profileName, default_emoji set → default_
 		default_emoji: '🍝',
 		profiles: {a: {keywords: ['a'], display_name: 'A'}},
 	};
-	t.is(resolvePendingProfileEmoji(config, null), '🍝');
-	t.is(resolvePendingProfileEmoji(config, undefined), '🍝');
+	expect(resolvePendingProfileEmoji(config, null)).toBe('🍝');
+	expect(resolvePendingProfileEmoji(config, undefined)).toBe('🍝');
 });
 
-test('resolvePendingProfileEmoji: no profileName, footgun guard active → "" blank slot', t => {
+test('resolvePendingProfileEmoji: no profileName, footgun guard active → "" blank slot', () => {
 	// Watchlist auto-spawn doesn't pass a profileName but other profiles
 	// have emoji set; the helper must reserve a blank slot so the pending
 	// row aligns with its emoji-bearing neighbors.
@@ -390,10 +387,10 @@ test('resolvePendingProfileEmoji: no profileName, footgun guard active → "" bl
 			b: {keywords: ['b'], display_name: 'B'},
 		},
 	};
-	t.is(resolvePendingProfileEmoji(config, null), '');
+	expect(resolvePendingProfileEmoji(config, null)).toBe('');
 });
 
-test('resolvePendingProfileEmoji: unknown profileName → falls back as if undefined', t => {
+test('resolvePendingProfileEmoji: unknown profileName → falls back as if undefined', () => {
 	// If the profileName the spawn site passes doesn't exist (config drift,
 	// renamed profile mid-flight, etc.), we must not crash and we must still
 	// reserve the slot when emoji machinery is in use. Cover both fallback
@@ -406,7 +403,9 @@ test('resolvePendingProfileEmoji: unknown profileName → falls back as if undef
 		default_emoji: '🍕',
 		profiles: {a: {keywords: ['a'], display_name: 'A'}},
 	};
-	t.is(resolvePendingProfileEmoji(configWithDefault, 'does-not-exist'), '🍕');
+	expect(resolvePendingProfileEmoji(configWithDefault, 'does-not-exist')).toBe(
+		'🍕',
+	);
 
 	// Footgun-guard path: no `default_emoji` but a profile has `emoji:` →
 	// `''` blank slot for unknown profileName too.
@@ -417,7 +416,9 @@ test('resolvePendingProfileEmoji: unknown profileName → falls back as if undef
 			a: {keywords: ['a'], display_name: 'A', emoji: '🎸'},
 		},
 	};
-	t.is(resolvePendingProfileEmoji(configWithFootgun, 'does-not-exist'), '');
+	expect(resolvePendingProfileEmoji(configWithFootgun, 'does-not-exist')).toBe(
+		'',
+	);
 });
 
 // ============================================================================
@@ -446,20 +447,20 @@ const templateVarsTestConfig = createConfig(
 	'STA',
 );
 
-test('buildWorkspaceTemplateVars sets base variables', t => {
+test('buildWorkspaceTemplateVars sets base variables', () => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
 		templateVarsTestConfig,
 	);
-	t.is(vars.ISSUE_KEY, 'STA-999');
-	t.is(vars.WORKTREE_PATH, '/tmp/worktree');
-	t.truthy(vars.REPO_ROOT);
-	t.truthy(vars.REPO_NAME);
-	t.truthy(vars.SCRIPT_DIR);
+	expect(vars.ISSUE_KEY).toBe('STA-999');
+	expect(vars.WORKTREE_PATH).toBe('/tmp/worktree');
+	expect(vars.REPO_ROOT).toBeTruthy();
+	expect(vars.REPO_NAME).toBeTruthy();
+	expect(vars.SCRIPT_DIR).toBeTruthy();
 });
 
-test('buildWorkspaceTemplateVars prefers an explicit profileName over the title match', t => {
+test('buildWorkspaceTemplateVars prefers an explicit profileName over the title match', () => {
 	// The `d` key resolves the profile from space-state, then expands that
 	// profile's ide_command. If the vars came from a keyword match on the title
 	// instead, the command would run with its own profile's vars unset.
@@ -470,11 +471,11 @@ test('buildWorkspaceTemplateVars prefers an explicit profileName over the title 
 		'fix stardust jams bug', // matches stardust-jams
 		'pappardelle', // but this is the profile the space was created with
 	);
-	t.is(vars['IOS_APP_DIR'], undefined);
-	t.is(vars['SCHEME'], undefined);
+	expect(vars['IOS_APP_DIR']).toBe(undefined);
+	expect(vars['SCHEME']).toBe(undefined);
 });
 
-test('buildWorkspaceTemplateVars uses the named profile vars even when the title matches nothing', t => {
+test('buildWorkspaceTemplateVars uses the named profile vars even when the title matches nothing', () => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
@@ -482,11 +483,11 @@ test('buildWorkspaceTemplateVars uses the named profile vars even when the title
 		'unrelated title',
 		'stardust-jams',
 	);
-	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
-	t.is(vars['SCHEME'], 'stardust-jams');
+	expect(vars['IOS_APP_DIR']).toBe('_ios/stardust-jams');
+	expect(vars['SCHEME']).toBe('stardust-jams');
 });
 
-test('buildWorkspaceTemplateVars falls back to the title match for an unknown profileName', t => {
+test('buildWorkspaceTemplateVars falls back to the title match for an unknown profileName', () => {
 	// A stale profile name persisted in space-state must not strip the vars.
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
@@ -495,10 +496,10 @@ test('buildWorkspaceTemplateVars falls back to the title match for an unknown pr
 		'fix stardust jams bug',
 		'deleted_profile',
 	);
-	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
+	expect(vars['IOS_APP_DIR']).toBe('_ios/stardust-jams');
 });
 
-test('buildWorkspaceTemplateVars merges profile vars when title matches', t => {
+test('buildWorkspaceTemplateVars merges profile vars when title matches', () => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
@@ -506,23 +507,23 @@ test('buildWorkspaceTemplateVars merges profile vars when title matches', t => {
 		'fix stardust jams bug',
 	);
 	// Profile vars from stardust-jams profile should be merged
-	t.is(vars['IOS_APP_DIR'], '_ios/stardust-jams');
-	t.is(vars['BUNDLE_ID'], 'io.stardustlabs.stardust');
-	t.is(vars['SCHEME'], 'stardust-jams');
+	expect(vars['IOS_APP_DIR']).toBe('_ios/stardust-jams');
+	expect(vars['BUNDLE_ID']).toBe('io.stardustlabs.stardust');
+	expect(vars['SCHEME']).toBe('stardust-jams');
 });
 
-test('buildWorkspaceTemplateVars sets VCS label from matched profile', t => {
+test('buildWorkspaceTemplateVars sets VCS label from matched profile', () => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
 		templateVarsTestConfig,
 		'fix stardust jams bug',
 	);
-	t.is(vars.VCS_LABEL, 'stardust_jams');
-	t.is(vars.GITHUB_LABEL, 'stardust_jams');
+	expect(vars.VCS_LABEL).toBe('stardust_jams');
+	expect(vars.GITHUB_LABEL).toBe('stardust_jams');
 });
 
-test('buildWorkspaceTemplateVars falls back to default profile when no title match', t => {
+test('buildWorkspaceTemplateVars falls back to default profile when no title match', () => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
@@ -530,21 +531,21 @@ test('buildWorkspaceTemplateVars falls back to default profile when no title mat
 		'zzz nonexistent topic',
 	);
 	// Default profile is "pappardelle" which has no vars, so custom vars should be absent
-	t.is(vars['IOS_APP_DIR'], undefined);
-	t.is(vars['BUNDLE_ID'], undefined);
+	expect(vars['IOS_APP_DIR']).toBe(undefined);
+	expect(vars['BUNDLE_ID']).toBe(undefined);
 });
 
-test('buildWorkspaceTemplateVars falls back to default profile when no title provided', t => {
+test('buildWorkspaceTemplateVars falls back to default profile when no title provided', () => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
 		templateVarsTestConfig,
 	);
 	// No title = no match = falls back to default profile (pappardelle, no vars)
-	t.is(vars['IOS_APP_DIR'], undefined);
+	expect(vars['IOS_APP_DIR']).toBe(undefined);
 });
 
-test('buildWorkspaceTemplateVars does not overwrite base vars with profile vars', t => {
+test('buildWorkspaceTemplateVars does not overwrite base vars with profile vars', () => {
 	const vars = buildWorkspaceTemplateVars(
 		'STA-999',
 		'/tmp/worktree',
@@ -552,36 +553,36 @@ test('buildWorkspaceTemplateVars does not overwrite base vars with profile vars'
 		'fix stardust jams bug',
 	);
 	// Base vars should remain even though profile vars were merged
-	t.is(vars.ISSUE_KEY, 'STA-999');
-	t.is(vars.WORKTREE_PATH, '/tmp/worktree');
+	expect(vars.ISSUE_KEY).toBe('STA-999');
+	expect(vars.WORKTREE_PATH).toBe('/tmp/worktree');
 });
 
 // ============================================================================
 // Basic Matching Tests
 // ============================================================================
 
-test('matches exact keyword', t => {
+test('matches exact keyword', () => {
 	const config = createConfig({
 		'test-profile': createProfile(['pappardelle'], 'Test Profile'),
 	});
 
 	const matches = matchProfiles(config, 'pappardelle');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'test-profile');
-	t.deepEqual(matches[0]!.matchedKeywords, ['pappardelle']);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('test-profile');
+	expect(matches[0]!.matchedKeywords).toStrictEqual(['pappardelle']);
 });
 
-test('matches keyword case-insensitively', t => {
+test('matches keyword case-insensitively', () => {
 	const config = createConfig({
 		'test-profile': createProfile(['Pappardelle'], 'Test Profile'),
 	});
 
 	const matches = matchProfiles(config, 'PAPPARDELLE');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'test-profile');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('test-profile');
 });
 
-test('matches keyword within sentence', t => {
+test('matches keyword within sentence', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle', 'tui', 'dow'], 'Pappardelle'),
 	});
@@ -590,37 +591,37 @@ test('matches keyword within sentence', t => {
 		config,
 		'fix the pappardelle profile detection',
 	);
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
-	t.deepEqual(matches[0]!.matchedKeywords, ['pappardelle']);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
+	expect(matches[0]!.matchedKeywords).toStrictEqual(['pappardelle']);
 });
 
-test('returns empty array when no match', t => {
+test('returns empty array when no match', () => {
 	const config = createConfig({
 		'test-profile': createProfile(['foo', 'bar'], 'Test Profile'),
 	});
 
 	const matches = matchProfiles(config, 'baz qux');
-	t.is(matches.length, 0);
+	expect(matches.length).toBe(0);
 });
 
 // ============================================================================
 // Multiple Profile Tests (Priority/Tie-breaking)
 // ============================================================================
 
-test('prioritizes profile with more keyword matches', t => {
+test('prioritizes profile with more keyword matches', () => {
 	const config = createConfig({
 		'profile-a': createProfile(['foo'], 'Profile A'),
 		'profile-b': createProfile(['foo', 'bar'], 'Profile B'),
 	});
 
 	const matches = matchProfiles(config, 'foo bar');
-	t.is(matches.length, 2);
-	t.is(matches[0]!.name, 'profile-b');
-	t.is(matches[0]!.score, 2);
+	expect(matches.length).toBe(2);
+	expect(matches[0]!.name).toBe('profile-b');
+	expect(matches[0]!.score).toBe(2);
 });
 
-test('returns pappardelle for pappardelle-related prompts, not stardust-jams', t => {
+test('returns pappardelle for pappardelle-related prompts, not stardust-jams', () => {
 	// This test reproduces the exact bug from the issue
 	const config = createConfig({
 		'stardust-jams': createProfile(
@@ -647,11 +648,11 @@ test('returns pappardelle for pappardelle-related prompts, not stardust-jams', t
 		config,
 		'test the profile detection logic in pappardelle',
 	);
-	t.true(matches.length >= 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length >= 1).toBe(true);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('both profiles match when input contains prefixes for both', t => {
+test('both profiles match when input contains prefixes for both', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['track'], 'Stardust Jams'),
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
@@ -659,119 +660,121 @@ test('both profiles match when input contains prefixes for both', t => {
 
 	// "tracking" prefix-matches "track", "pappardelle" exact-matches "pappardelle"
 	const matches = matchProfiles(config, 'pappardelle tracking test');
-	t.is(matches.length, 2);
+	expect(matches.length).toBe(2);
 });
 
 // ============================================================================
 // Prefix Matching Tests
 // ============================================================================
 
-test('SHOULD match "track" keyword when input has "tracking"', t => {
+test('SHOULD match "track" keyword when input has "tracking"', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['track'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'tracking the issue');
-	t.is(matches.length, 1, '"tracking" starts with "track" so it should match');
-	t.is(matches[0]!.name, 'stardust-jams');
+	expect(
+		matches.length,
+		'"tracking" starts with "track" so it should match',
+	).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
 });
 
-test('SHOULD match "record" keyword when input has "recording"', t => {
+test('SHOULD match "record" keyword when input has "recording"', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['record'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'recording a video');
-	t.is(
+	expect(
 		matches.length,
-		1,
 		'"recording" starts with "record" so it should match',
-	);
-	t.is(matches[0]!.name, 'stardust-jams');
+	).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
 });
 
-test('SHOULD NOT match "music" keyword when input has "mu"', t => {
+test('SHOULD NOT match "music" keyword when input has "mu"', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'mu test');
-	t.is(matches.length, 0, '"mu" does not start with "music"');
+	expect(matches.length, '"mu" does not start with "music"').toBe(0);
 });
 
-test('SHOULD match exact word even with punctuation nearby', t => {
+test('SHOULD match exact word even with punctuation nearby', () => {
 	const config = createConfig({
 		'test-profile': createProfile(['pappardelle'], 'Test Profile'),
 	});
 
 	// Note: This depends on how we split words - may need adjustment
 	const matches = matchProfiles(config, 'fix pappardelle,now');
-	t.true(matches.length >= 1);
-	t.is(matches[0]!.name, 'test-profile');
+	expect(matches.length >= 1).toBe(true);
+	expect(matches[0]!.name).toBe('test-profile');
 });
 
 // ============================================================================
 // Prefix Matching with Hyphens
 // ============================================================================
 
-test('"SHOP-" keyword matches "SHOP-313"', t => {
+test('"SHOP-" keyword matches "SHOP-313"', () => {
 	const config = createConfig({
 		shop: createProfile(['SHOP-'], 'Shop'),
 	});
 
 	const matches = matchProfiles(config, 'working on SHOP-313 today');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'shop');
-	t.deepEqual(matches[0]!.matchedKeywords, ['SHOP-']);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('shop');
+	expect(matches[0]!.matchedKeywords).toStrictEqual(['SHOP-']);
 });
 
-test('prefix keyword matches various suffixes', t => {
+test('prefix keyword matches various suffixes', () => {
 	const config = createConfig({
 		shop: createProfile(['SHOP-'], 'Shop'),
 	});
 
 	for (const input of ['SHOP-1', 'SHOP-999', 'SHOP-abc', 'fix SHOP-42 bug']) {
 		const matches = matchProfiles(config, input);
-		t.is(matches.length, 1, `"SHOP-" should match "${input}"`);
-		t.is(matches[0]!.name, 'shop');
+		expect(matches.length, `"SHOP-" should match "${input}"`).toBe(1);
+		expect(matches[0]!.name).toBe('shop');
 	}
 });
 
-test('prefix keyword is case-insensitive', t => {
+test('prefix keyword is case-insensitive', () => {
 	const config = createConfig({
 		shop: createProfile(['SHOP-'], 'Shop'),
 	});
 
 	const matches = matchProfiles(config, 'shop-42 is broken');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'shop');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('shop');
 });
 
-test('hyphenated keyword does NOT match word missing the hyphen', t => {
+test('hyphenated keyword does NOT match word missing the hyphen', () => {
 	const config = createConfig({
 		shop: createProfile(['SHOP-'], 'Shop'),
 	});
 
 	// "shop" does not start with "shop-"
 	const matches = matchProfiles(config, 'shop is broken');
-	t.is(matches.length, 0, '"shop" does not start with "shop-"');
+	expect(matches.length, '"shop" does not start with "shop-"').toBe(0);
 });
 
-test('multiple prefix keywords can match from different profiles', t => {
+test('multiple prefix keywords can match from different profiles', () => {
 	const config = createConfig({
 		shop: createProfile(['SHOP-'], 'Shop'),
 		warehouse: createProfile(['WH-'], 'Warehouse'),
 	});
 
 	const matches = matchProfiles(config, 'SHOP-42 needs WH-7 stock');
-	t.is(matches.length, 2);
+	expect(matches.length).toBe(2);
 });
 
 // ============================================================================
 // Keyword Buried Inside a Hyphen-Joined Input Word (STA-927)
 // ============================================================================
 
-test('keyword buried inside a hyphen-joined input word still matches', t => {
+test('keyword buried inside a hyphen-joined input word still matches', () => {
 	// Regression for STA-927: "something-keyword-something" should match
 	// keyword "keyword" — previously the input was treated as a single word
 	// that did not start with the keyword, so it silently failed.
@@ -780,43 +783,46 @@ test('keyword buried inside a hyphen-joined input word still matches', t => {
 	});
 
 	const matches = matchProfiles(config, 'something-keyword-something');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'test-profile');
-	t.deepEqual(matches[0]!.matchedKeywords, ['keyword']);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('test-profile');
+	expect(matches[0]!.matchedKeywords).toStrictEqual(['keyword']);
 });
 
-test('keyword buried in hyphenated word matches case-insensitively', t => {
+test('keyword buried in hyphenated word matches case-insensitively', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'Fix-MUSIC-Bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
 });
 
-test('prefix keyword matches buried hyphen-joined sub-token (e.g. "spot" → "add-spotify")', t => {
+test('prefix keyword matches buried hyphen-joined sub-token (e.g. "spot" → "add-spotify")', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['spot'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'add-spotify-integration');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
 });
 
-test('multiple distinct keywords buried in same hyphen-joined word both match', t => {
+test('multiple distinct keywords buried in same hyphen-joined word both match', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['music', 'spotify'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'fix-music-spotify-bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.score, 2);
-	t.deepEqual(matches[0]!.matchedKeywords.sort(), ['music', 'spotify']);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.score).toBe(2);
+	expect(matches[0]!.matchedKeywords.sort()).toStrictEqual([
+		'music',
+		'spotify',
+	]);
 });
 
-test('buried keyword does not bleed across whitespace word boundaries', t => {
+test('buried keyword does not bleed across whitespace word boundaries', () => {
 	// "mu" is a sub-token of "mu-foo" but it does not start with "music",
 	// so a profile keyworded "music" must not match.
 	const config = createConfig({
@@ -824,10 +830,10 @@ test('buried keyword does not bleed across whitespace word boundaries', t => {
 	});
 
 	const matches = matchProfiles(config, 'mu-foo bar');
-	t.is(matches.length, 0, '"mu" sub-token does not start with "music"');
+	expect(matches.length, '"mu" sub-token does not start with "music"').toBe(0);
 });
 
-test('regression: "shop" alone still does not match "SHOP-" keyword after hyphen-aware fix', t => {
+test('regression: "shop" alone still does not match "SHOP-" keyword after hyphen-aware fix', () => {
 	// Pin: the trailing-hyphen keyword "SHOP-" must still REJECT bare "shop"
 	// inputs, even after the fix walks hyphen sub-tokens. This is what makes
 	// "SHOP-" distinct from "SHOP" and prevents false-positive matches on
@@ -836,11 +842,11 @@ test('regression: "shop" alone still does not match "SHOP-" keyword after hyphen
 		shop: createProfile(['SHOP-'], 'Shop'),
 	});
 
-	t.is(matchProfiles(config, 'shop is broken').length, 0);
-	t.is(matchProfiles(config, 'fix-shop-bug').length, 0);
+	expect(matchProfiles(config, 'shop is broken').length).toBe(0);
+	expect(matchProfiles(config, 'fix-shop-bug').length).toBe(0);
 });
 
-test('regression: hyphen-aware fix still respects multi-word keyword adjacency in plain input', t => {
+test('regression: hyphen-aware fix still respects multi-word keyword adjacency in plain input', () => {
 	// Pin existing whitespace-adjacency semantics for multi-word keywords.
 	// The third assertion pins the *intentional* non-wiring of subTokens into
 	// the multi-word branch: a hyphenated input like "fix-venue-page" must NOT
@@ -851,20 +857,19 @@ test('regression: hyphen-aware fix still respects multi-word keyword adjacency i
 		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
 	});
 
-	t.is(matchProfiles(config, 'venue detail page').length, 0);
-	t.is(matchProfiles(config, 'fix the venue page').length, 1);
-	t.is(
+	expect(matchProfiles(config, 'venue detail page').length).toBe(0);
+	expect(matchProfiles(config, 'fix the venue page').length).toBe(1);
+	expect(
 		matchProfiles(config, 'fix-venue-page').length,
-		0,
 		'hyphenated input does not bypass multi-word adjacency requirement',
-	);
+	).toBe(0);
 });
 
 // ============================================================================
 // Real-world Scenario Tests
 // ============================================================================
 
-test('pappardelle profile for dow/idow related prompts', t => {
+test('pappardelle profile for dow/idow related prompts', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(
 			['stardust', 'jams', 'music'],
@@ -876,12 +881,16 @@ test('pappardelle profile for dow/idow related prompts', t => {
 		),
 	});
 
-	t.is(matchProfiles(config, 'fix the dow script')[0]?.name, 'pappardelle');
-	t.is(matchProfiles(config, 'idow is broken')[0]?.name, 'pappardelle');
-	t.is(matchProfiles(config, 'update tui colors')[0]?.name, 'pappardelle');
+	expect(matchProfiles(config, 'fix the dow script')[0]?.name).toBe(
+		'pappardelle',
+	);
+	expect(matchProfiles(config, 'idow is broken')[0]?.name).toBe('pappardelle');
+	expect(matchProfiles(config, 'update tui colors')[0]?.name).toBe(
+		'pappardelle',
+	);
 });
 
-test('stardust-jams profile for music-related prompts', t => {
+test('stardust-jams profile for music-related prompts', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(
 			['stardust', 'jams', 'music', 'spotify', 'playlist'],
@@ -890,18 +899,18 @@ test('stardust-jams profile for music-related prompts', t => {
 		pappardelle: createProfile(['pappardelle', 'tui', 'dow'], 'Pappardelle'),
 	});
 
-	t.is(
-		matchProfiles(config, 'add spotify integration')[0]?.name,
+	expect(matchProfiles(config, 'add spotify integration')[0]?.name).toBe(
 		'stardust-jams',
 	);
-	t.is(
-		matchProfiles(config, 'create new playlist feature')[0]?.name,
+	expect(matchProfiles(config, 'create new playlist feature')[0]?.name).toBe(
 		'stardust-jams',
 	);
-	t.is(matchProfiles(config, 'fix music player bug')[0]?.name, 'stardust-jams');
+	expect(matchProfiles(config, 'fix music player bug')[0]?.name).toBe(
+		'stardust-jams',
+	);
 });
 
-test('king-bee profile for hive/spelling related prompts', t => {
+test('king-bee profile for hive/spelling related prompts', () => {
 	const config = createConfig({
 		'king-bee': createProfile(
 			['king', 'bee', 'hive', 'spelling', 'wordle'],
@@ -913,11 +922,15 @@ test('king-bee profile for hive/spelling related prompts', t => {
 		),
 	});
 
-	t.is(matchProfiles(config, 'fix the hive puzzle')[0]?.name, 'king-bee');
-	t.is(matchProfiles(config, 'spelling bee scoring bug')[0]?.name, 'king-bee');
+	expect(matchProfiles(config, 'fix the hive puzzle')[0]?.name).toBe(
+		'king-bee',
+	);
+	expect(matchProfiles(config, 'spelling bee scoring bug')[0]?.name).toBe(
+		'king-bee',
+	);
 });
 
-test('no false positives from common words', t => {
+test('no false positives from common words', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(
 			['track', 'album', 'artist'],
@@ -928,53 +941,53 @@ test('no false positives from common words', t => {
 
 	// Words like "a", "the", "is", "it" should not match anything
 	const matches = matchProfiles(config, 'a the is it and or');
-	t.is(matches.length, 0);
+	expect(matches.length).toBe(0);
 });
 
 // ============================================================================
 // Multi-word Keyword Matching Tests
 // ============================================================================
 
-test('matches multi-word keyword as adjacent phrase', t => {
+test('matches multi-word keyword as adjacent phrase', () => {
 	const config = createConfig({
 		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
 	});
 
 	const matches = matchProfiles(config, 'fix the venue page layout');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'venue-profile');
-	t.deepEqual(matches[0]!.matchedKeywords, ['venue page']);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('venue-profile');
+	expect(matches[0]!.matchedKeywords).toStrictEqual(['venue page']);
 });
 
-test('does NOT match multi-word keyword when words are non-adjacent', t => {
+test('does NOT match multi-word keyword when words are non-adjacent', () => {
 	const config = createConfig({
 		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
 	});
 
 	const matches = matchProfiles(config, 'venue detail page');
-	t.is(matches.length, 0);
+	expect(matches.length).toBe(0);
 });
 
-test('does NOT match multi-word keyword when only partial words appear', t => {
+test('does NOT match multi-word keyword when only partial words appear', () => {
 	const config = createConfig({
 		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
 	});
 
 	const matches = matchProfiles(config, 'fix venue layout');
-	t.is(matches.length, 0);
+	expect(matches.length).toBe(0);
 });
 
-test('matches multi-word keyword case-insensitively', t => {
+test('matches multi-word keyword case-insensitively', () => {
 	const config = createConfig({
 		'venue-profile': createProfile(['Venue Page'], 'Venue Profile'),
 	});
 
 	const matches = matchProfiles(config, 'fix the VENUE PAGE bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'venue-profile');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('venue-profile');
 });
 
-test('matches mix of single-word and multi-word keywords', t => {
+test('matches mix of single-word and multi-word keywords', () => {
 	const config = createConfig({
 		'mixed-profile': createProfile(
 			['venue page', 'map', 'location detail'],
@@ -983,12 +996,12 @@ test('matches mix of single-word and multi-word keywords', t => {
 	});
 
 	const matches = matchProfiles(config, 'fix the venue page map');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.score, 2);
-	t.deepEqual(matches[0]!.matchedKeywords, ['venue page', 'map']);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.score).toBe(2);
+	expect(matches[0]!.matchedKeywords).toStrictEqual(['venue page', 'map']);
 });
 
-test('multi-word keyword scores 1 like single-word keyword', t => {
+test('multi-word keyword scores 1 like single-word keyword', () => {
 	const config = createConfig({
 		'profile-a': createProfile(['venue page'], 'Profile A'),
 		'profile-b': createProfile(['venue'], 'Profile B'),
@@ -996,385 +1009,385 @@ test('multi-word keyword scores 1 like single-word keyword', t => {
 
 	const matches = matchProfiles(config, 'venue page test');
 	// Both should match; profile-a matches "venue page", profile-b matches "venue"
-	t.is(matches.length, 2);
+	expect(matches.length).toBe(2);
 	// Both have score 1
-	t.is(matches[0]!.score, 1);
-	t.is(matches[1]!.score, 1);
+	expect(matches[0]!.score).toBe(1);
+	expect(matches[1]!.score).toBe(1);
 });
 
-test('multi-word keyword at start of input', t => {
+test('multi-word keyword at start of input', () => {
 	const config = createConfig({
 		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
 	});
 
 	const matches = matchProfiles(config, 'venue page needs fixing');
-	t.is(matches.length, 1);
+	expect(matches.length).toBe(1);
 });
 
-test('multi-word keyword at end of input', t => {
+test('multi-word keyword at end of input', () => {
 	const config = createConfig({
 		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
 	});
 
 	const matches = matchProfiles(config, 'fix the venue page');
-	t.is(matches.length, 1);
+	expect(matches.length).toBe(1);
 });
 
-test('multi-word keyword with punctuation between words in input', t => {
+test('multi-word keyword with punctuation between words in input', () => {
 	const config = createConfig({
 		'venue-profile': createProfile(['venue page'], 'Venue Profile'),
 	});
 
 	// Words separated by comma - the splitter should still produce adjacent words
 	const matches = matchProfiles(config, 'fix venue,page layout');
-	t.is(matches.length, 1);
+	expect(matches.length).toBe(1);
 });
 
-test('three-word keyword matches', t => {
+test('three-word keyword matches', () => {
 	const config = createConfig({
 		'detail-profile': createProfile(['venue detail page'], 'Detail Profile'),
 	});
 
 	const matches = matchProfiles(config, 'fix the venue detail page layout');
-	t.is(matches.length, 1);
-	t.deepEqual(matches[0]!.matchedKeywords, ['venue detail page']);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.matchedKeywords).toStrictEqual(['venue detail page']);
 });
 
-test('three-word keyword does NOT match with wrong order', t => {
+test('three-word keyword does NOT match with wrong order', () => {
 	const config = createConfig({
 		'detail-profile': createProfile(['venue detail page'], 'Detail Profile'),
 	});
 
 	const matches = matchProfiles(config, 'venue page detail');
-	t.is(matches.length, 0);
+	expect(matches.length).toBe(0);
 });
 
 // ============================================================================
 // Edge Cases
 // ============================================================================
 
-test('empty keyword does not match any input', t => {
+test('empty keyword does not match any input', () => {
 	const config = createConfig({
 		'bad-profile': createProfile(['', '   '], 'Bad Profile'),
 	});
 
 	const matches = matchProfiles(config, 'anything here');
-	t.is(matches.length, 0);
+	expect(matches.length).toBe(0);
 });
 
-test('handles empty input', t => {
+test('handles empty input', () => {
 	const config = createConfig({
 		'test-profile': createProfile(['foo'], 'Test Profile'),
 	});
 
 	const matches = matchProfiles(config, '');
-	t.is(matches.length, 0);
+	expect(matches.length).toBe(0);
 });
 
-test('handles whitespace-only input', t => {
+test('handles whitespace-only input', () => {
 	const config = createConfig({
 		'test-profile': createProfile(['foo'], 'Test Profile'),
 	});
 
 	const matches = matchProfiles(config, '   \t\n  ');
-	t.is(matches.length, 0);
+	expect(matches.length).toBe(0);
 });
 
-test('handles single character input', t => {
+test('handles single character input', () => {
 	const config = createConfig({
 		'test-profile': createProfile(['a'], 'Test Profile'),
 	});
 
 	const matches = matchProfiles(config, 'a');
-	t.is(matches.length, 1);
+	expect(matches.length).toBe(1);
 });
 
-test('handles hyphenated keywords', t => {
+test('handles hyphenated keywords', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['stardust-jams'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'fix stardust-jams bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
 });
 
 // ============================================================================
 // Special Character Tests
 // ============================================================================
 
-test('matches keyword in parentheses', t => {
+test('matches keyword in parentheses', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix (pappardelle) bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with trailing parenthesis', t => {
+test('matches keyword with trailing parenthesis', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'pappardelle) is broken');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with leading parenthesis', t => {
+test('matches keyword with leading parenthesis', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix (pappardelle today');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword in square brackets', t => {
+test('matches keyword in square brackets', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix [pappardelle] bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword in curly braces', t => {
+test('matches keyword in curly braces', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix {pappardelle} bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with forward slash', t => {
+test('matches keyword with forward slash', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix pappardelle/config issue');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with backslash', t => {
+test('matches keyword with backslash', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix pappardelle\\config issue');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with single quotes', t => {
+test('matches keyword with single quotes', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, "fix 'pappardelle' bug");
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with double quotes', t => {
+test('matches keyword with double quotes', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix "pappardelle" bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with underscore prefix', t => {
+test('matches keyword with underscore prefix', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix _pappardelle module');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with underscore suffix', t => {
+test('matches keyword with underscore suffix', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix pappardelle_ module');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with hyphen prefix', t => {
+test('matches keyword with hyphen prefix', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix -pappardelle option');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with at symbol', t => {
+test('matches keyword with at symbol', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix @pappardelle/cli bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with hash symbol', t => {
+test('matches keyword with hash symbol', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, '#pappardelle needs fix');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with backticks', t => {
+test('matches keyword with backticks', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix `pappardelle` command');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword surrounded by multiple special chars', t => {
+test('matches keyword surrounded by multiple special chars', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix ["pappardelle"] bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with ampersand', t => {
+test('matches keyword with ampersand', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 		config: createProfile(['config'], 'Config'),
 	});
 
 	const matches = matchProfiles(config, 'pappardelle & config');
-	t.is(matches.length, 2);
-	t.true(matches.some(m => m.name === 'pappardelle'));
-	t.true(matches.some(m => m.name === 'config'));
+	expect(matches.length).toBe(2);
+	expect(matches.some(m => m.name === 'pappardelle')).toBe(true);
+	expect(matches.some(m => m.name === 'config')).toBe(true);
 });
 
-test('matches keyword with pipe symbol', t => {
+test('matches keyword with pipe symbol', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'pappardelle | grep something');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with angle brackets', t => {
+test('matches keyword with angle brackets', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'fix <pappardelle> component');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with equals sign', t => {
+test('matches keyword with equals sign', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'profile=pappardelle issue');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with plus sign', t => {
+test('matches keyword with plus sign', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'pappardelle+config feature');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with percent sign', t => {
+test('matches keyword with percent sign', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, '%pappardelle variable');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with caret', t => {
+test('matches keyword with caret', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, '^pappardelle regex');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with asterisk', t => {
+test('matches keyword with asterisk', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, '*pappardelle* important');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with tilde', t => {
+test('matches keyword with tilde', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, '~pappardelle path');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches keyword with dollar sign', t => {
+test('matches keyword with dollar sign', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, '$pappardelle environment var');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
 });
 
-test('matches multiple keywords with mixed special chars', t => {
+test('matches multiple keywords with mixed special chars', () => {
 	const config = createConfig({
 		pappardelle: createProfile(['pappardelle', 'tui', 'dow'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, '(pappardelle) [tui] {dow}');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
-	t.is(matches[0]!.score, 3);
-	t.deepEqual(matches[0]!.matchedKeywords.sort(), [
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
+	expect(matches[0]!.score).toBe(3);
+	expect(matches[0]!.matchedKeywords.sort()).toStrictEqual([
 		'dow',
 		'pappardelle',
 		'tui',
@@ -1385,7 +1398,7 @@ test('matches multiple keywords with mixed special chars', t => {
 // Keyword Enforcement (!) Tests
 // ============================================================================
 
-test('! after keyword enforces that profile', t => {
+test('! after keyword enforces that profile', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(
 			['music', 'spotify', 'track'],
@@ -1396,12 +1409,12 @@ test('! after keyword enforces that profile', t => {
 
 	// "music!" should enforce stardust-jams even though "bee" matches king-bee
 	const matches = matchProfiles(config, 'fix the music! and bee stuff');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
-	t.true(matches[0]!.enforced);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
+	expect(matches[0]!.enforced).toBe(true);
 });
 
-test('! enforcement wins over higher-scoring non-enforced profile', t => {
+test('! enforcement wins over higher-scoring non-enforced profile', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
 		'king-bee': createProfile(['bee', 'hive', 'spelling'], 'King Bee'),
@@ -1409,12 +1422,12 @@ test('! enforcement wins over higher-scoring non-enforced profile', t => {
 
 	// "music!" enforces stardust-jams even though king-bee has more keyword matches
 	const matches = matchProfiles(config, 'music! bee hive spelling');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
-	t.true(matches[0]!.enforced);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
+	expect(matches[0]!.enforced).toBe(true);
 });
 
-test('! enforcement with prefix matching', t => {
+test('! enforcement with prefix matching', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['track'], 'Stardust Jams'),
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
@@ -1422,24 +1435,24 @@ test('! enforcement with prefix matching', t => {
 
 	// "tracking!" should enforce stardust-jams via prefix match on "track"
 	const matches = matchProfiles(config, 'tracking! pappardelle issue');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
-	t.true(matches[0]!.enforced);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
+	expect(matches[0]!.enforced).toBe(true);
 });
 
-test('! enforcement is case-insensitive', t => {
+test('! enforcement is case-insensitive', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
 		'king-bee': createProfile(['bee'], 'King Bee'),
 	});
 
 	const matches = matchProfiles(config, 'MUSIC! bee');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
-	t.true(matches[0]!.enforced);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
+	expect(matches[0]!.enforced).toBe(true);
 });
 
-test('! on non-keyword word falls back to normal matching', t => {
+test('! on non-keyword word falls back to normal matching', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
 		'king-bee': createProfile(['bee'], 'King Bee'),
@@ -1447,11 +1460,11 @@ test('! on non-keyword word falls back to normal matching', t => {
 
 	// "fix!" is not a keyword for any profile, so fall back to normal matching
 	const matches = matchProfiles(config, 'fix! the music and bee');
-	t.is(matches.length, 2);
-	t.false(matches[0]!.enforced);
+	expect(matches.length).toBe(2);
+	expect(matches[0]!.enforced).toBe(false);
 });
 
-test('multiple ! keywords from same profile', t => {
+test('multiple ! keywords from same profile', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(
 			['music', 'spotify', 'track'],
@@ -1461,58 +1474,58 @@ test('multiple ! keywords from same profile', t => {
 	});
 
 	const matches = matchProfiles(config, 'music! spotify! bee');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
-	t.true(matches[0]!.enforced);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
+	expect(matches[0]!.enforced).toBe(true);
 });
 
-test('multiple ! keywords from different profiles returns both enforced', t => {
+test('multiple ! keywords from different profiles returns both enforced', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
 		'king-bee': createProfile(['bee'], 'King Bee'),
 	});
 
 	const matches = matchProfiles(config, 'music! bee!');
-	t.is(matches.length, 2);
-	t.true(matches[0]!.enforced);
-	t.true(matches[1]!.enforced);
+	expect(matches.length).toBe(2);
+	expect(matches[0]!.enforced).toBe(true);
+	expect(matches[1]!.enforced).toBe(true);
 });
 
-test('! alone without preceding word does not enforce', t => {
+test('! alone without preceding word does not enforce', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, '! music');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
-	t.false(matches[0]!.enforced);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
+	expect(matches[0]!.enforced).toBe(false);
 });
 
-test('no ! in input means enforced is false', t => {
+test('no ! in input means enforced is false', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['music'], 'Stardust Jams'),
 	});
 
 	const matches = matchProfiles(config, 'music player bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
-	t.false(matches[0]!.enforced);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
+	expect(matches[0]!.enforced).toBe(false);
 });
 
-test('! enforcement with hyphenated keyword', t => {
+test('! enforcement with hyphenated keyword', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(['stardust-jams'], 'Stardust Jams'),
 		pappardelle: createProfile(['pappardelle'], 'Pappardelle'),
 	});
 
 	const matches = matchProfiles(config, 'stardust-jams! pappardelle bug');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'stardust-jams');
-	t.true(matches[0]!.enforced);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('stardust-jams');
+	expect(matches[0]!.enforced).toBe(true);
 });
 
-test('real-world: enforce pappardelle over stardust-jams', t => {
+test('real-world: enforce pappardelle over stardust-jams', () => {
 	const config = createConfig({
 		'stardust-jams': createProfile(
 			['stardust', 'jams', 'music', 'track', 'recording'],
@@ -1529,135 +1542,132 @@ test('real-world: enforce pappardelle over stardust-jams', t => {
 		config,
 		'pappardelle! recording keyword matching',
 	);
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'pappardelle');
-	t.true(matches[0]!.enforced);
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('pappardelle');
+	expect(matches[0]!.enforced).toBe(true);
 });
 
 // ============================================================================
 // Repo Name from Git Common Dir Tests
 // ============================================================================
 
-test('repoNameFromGitCommonDir extracts repo name from main repo .git path', t => {
-	t.is(
-		repoNameFromGitCommonDir('/Users/charlie/cs/stardust-labs/.git'),
+test('repoNameFromGitCommonDir extracts repo name from main repo .git path', () => {
+	expect(repoNameFromGitCommonDir('/Users/charlie/cs/stardust-labs/.git')).toBe(
 		'stardust-labs',
 	);
 });
 
-test('repoNameFromGitCommonDir extracts repo name from worktree .git path', t => {
+test('repoNameFromGitCommonDir extracts repo name from worktree .git path', () => {
 	// git common dir is always the main repo's .git, even from a worktree
-	t.is(
-		repoNameFromGitCommonDir('/Users/charlie/cs/my-project/.git'),
+	expect(repoNameFromGitCommonDir('/Users/charlie/cs/my-project/.git')).toBe(
 		'my-project',
 	);
 });
 
-test('repoNameFromGitCommonDir handles trailing slash', t => {
-	t.is(
+test('repoNameFromGitCommonDir handles trailing slash', () => {
+	expect(
 		repoNameFromGitCommonDir('/Users/charlie/cs/stardust-labs/.git/'),
-		'stardust-labs',
-	);
+	).toBe('stardust-labs');
 });
 
-test('repoNameFromGitCommonDir handles relative .git path', t => {
+test('repoNameFromGitCommonDir handles relative .git path', () => {
 	// Edge case: relative path — dirname of ".git" is "."
-	t.is(repoNameFromGitCommonDir('.git'), '.');
+	expect(repoNameFromGitCommonDir('.git')).toBe('.');
 });
 
 // ============================================================================
 // getProfileVcsLabel Tests
 // ============================================================================
 
-test('getProfileVcsLabel returns vcs.label when set', t => {
+test('getProfileVcsLabel returns vcs.label when set', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
 		vcs: {label: 'my_label'},
 		github: {label: 'gh_label'},
 	};
-	t.is(getProfileVcsLabel(profile), 'my_label');
+	expect(getProfileVcsLabel(profile)).toBe('my_label');
 });
 
-test('getProfileVcsLabel falls back to github.label', t => {
+test('getProfileVcsLabel falls back to github.label', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
 		github: {label: 'gh_label'},
 	};
-	t.is(getProfileVcsLabel(profile), 'gh_label');
+	expect(getProfileVcsLabel(profile)).toBe('gh_label');
 });
 
-test('getProfileVcsLabel returns undefined when neither set', t => {
+test('getProfileVcsLabel returns undefined when neither set', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
 	};
-	t.is(getProfileVcsLabel(profile), undefined);
+	expect(getProfileVcsLabel(profile)).toBe(undefined);
 });
 
-test('getProfileVcsLabel prefers vcs.label over github.label', t => {
+test('getProfileVcsLabel prefers vcs.label over github.label', () => {
 	const profile: Profile = {
 		keywords: ['test'],
 		display_name: 'Test',
 		vcs: {label: 'vcs_first'},
 		github: {label: 'gh_second'},
 	};
-	t.is(getProfileVcsLabel(profile), 'vcs_first');
+	expect(getProfileVcsLabel(profile)).toBe('vcs_first');
 });
 
 // ============================================================================
 // getDangerouslySkipPermissions Tests
 // ============================================================================
 
-test('getDangerouslySkipPermissions returns true when configured', t => {
+test('getDangerouslySkipPermissions returns true when configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
 	config.claude = {dangerously_skip_permissions: true};
-	t.is(getDangerouslySkipPermissions(config), true);
+	expect(getDangerouslySkipPermissions(config)).toBe(true);
 });
 
-test('getDangerouslySkipPermissions returns false when configured', t => {
+test('getDangerouslySkipPermissions returns false when configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
 	config.claude = {dangerously_skip_permissions: false};
-	t.is(getDangerouslySkipPermissions(config), false);
+	expect(getDangerouslySkipPermissions(config)).toBe(false);
 });
 
-test('getDangerouslySkipPermissions returns false when not configured', t => {
+test('getDangerouslySkipPermissions returns false when not configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
-	t.is(getDangerouslySkipPermissions(config), false);
+	expect(getDangerouslySkipPermissions(config)).toBe(false);
 });
 
-test('getDangerouslySkipPermissions returns false when claude section exists but no flag', t => {
+test('getDangerouslySkipPermissions returns false when claude section exists but no flag', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
 	config.claude = {initialization_command: '/idow'};
-	t.is(getDangerouslySkipPermissions(config), false);
+	expect(getDangerouslySkipPermissions(config)).toBe(false);
 });
 
 // ============================================================================
 // Keybinding Tests
 // ============================================================================
 
-test('getKeybindings returns empty array when not configured', t => {
+test('getKeybindings returns empty array when not configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
-	t.deepEqual(getKeybindings(config), []);
+	expect(getKeybindings(config)).toStrictEqual([]);
 });
 
-test('getKeybindings returns configured keybindings', t => {
+test('getKeybindings returns configured keybindings', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
@@ -1667,13 +1677,13 @@ test('getKeybindings returns configured keybindings', t => {
 		{key: 't', name: 'Test', run: 'make test'},
 	];
 	const bindings = getKeybindings(config);
-	t.is(bindings.length, 2);
-	t.is(bindings[0]!.key, 'b');
-	t.is(bindings[0]!.name, 'Build');
-	t.is(bindings[1]!.key, 't');
+	expect(bindings.length).toBe(2);
+	expect(bindings[0]!.key).toBe('b');
+	expect(bindings[0]!.name).toBe('Build');
+	expect(bindings[1]!.key).toBe('t');
 });
 
-test('getKeybindings returns send_to_claude keybindings', t => {
+test('getKeybindings returns send_to_claude keybindings', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
@@ -1687,31 +1697,31 @@ test('getKeybindings returns send_to_claude keybindings', t => {
 		},
 	];
 	const bindings = getKeybindings(config);
-	t.is(bindings.length, 2);
-	t.is(bindings[1]!.key, 'a');
-	t.is(bindings[1]!.send_to_claude, '/address-pr-feedback');
-	t.is(bindings[1]!.run, undefined);
+	expect(bindings.length).toBe(2);
+	expect(bindings[1]!.key).toBe('a');
+	expect(bindings[1]!.send_to_claude).toBe('/address-pr-feedback');
+	expect(bindings[1]!.run).toBe(undefined);
 });
 
 // ============================================================================
 // Optional default_profile Tests
 // ============================================================================
 
-test('getDefaultProfile falls back to first profile when default_profile is undefined', t => {
+test('getDefaultProfile falls back to first profile when default_profile is undefined', () => {
 	const config = createConfig(
 		{'first-profile': createProfile(['test'], 'First')},
 		undefined,
 	);
 	const result = getDefaultProfile(config);
-	t.is(result.name, 'first-profile');
-	t.is(result.profile.display_name, 'First');
+	expect(result.name).toBe('first-profile');
+	expect(result.profile.display_name).toBe('First');
 });
 
 // ============================================================================
 // Optional keywords Tests
 // ============================================================================
 
-test('profile without keywords never matches in matchProfiles', t => {
+test('profile without keywords never matches in matchProfiles', () => {
 	const config = createConfig(
 		{
 			'no-kw': {display_name: 'No Keywords'},
@@ -1720,24 +1730,24 @@ test('profile without keywords never matches in matchProfiles', t => {
 		'no-kw',
 	);
 	const matches = matchProfiles(config, 'foo bar');
-	t.is(matches.length, 1);
-	t.is(matches[0]!.name, 'has-kw');
+	expect(matches.length).toBe(1);
+	expect(matches[0]!.name).toBe('has-kw');
 });
 
 // ============================================================================
 // mergeKeybindings Tests
 // ============================================================================
 
-test('mergeKeybindings returns base keybindings when local is empty', t => {
+test('mergeKeybindings returns base keybindings when local is empty', () => {
 	const base: KeybindingConfig[] = [
 		{key: 'b', name: 'Build', run: 'make build'},
 		{key: 't', name: 'Test', run: 'make test'},
 	];
 	const result = mergeKeybindings(base, []);
-	t.deepEqual(result, base);
+	expect(result).toStrictEqual(base);
 });
 
-test('mergeKeybindings adds new keybindings from local', t => {
+test('mergeKeybindings adds new keybindings from local', () => {
 	const base: KeybindingConfig[] = [
 		{key: 'b', name: 'Build', run: 'make build'},
 	];
@@ -1745,13 +1755,13 @@ test('mergeKeybindings adds new keybindings from local', t => {
 		{key: 'v', name: 'Open in VS Code', run: 'code .'},
 	];
 	const result = mergeKeybindings(base, local);
-	t.is(result.length, 2);
-	t.is(result[0]!.key, 'b');
-	t.is(result[1]!.key, 'v');
-	t.is(result[1]!.name, 'Open in VS Code');
+	expect(result.length).toBe(2);
+	expect(result[0]!.key).toBe('b');
+	expect(result[1]!.key).toBe('v');
+	expect(result[1]!.name).toBe('Open in VS Code');
 });
 
-test('mergeKeybindings overrides existing key with local version', t => {
+test('mergeKeybindings overrides existing key with local version', () => {
 	const base: KeybindingConfig[] = [
 		{key: 'x', name: 'Open in Cursor', run: 'cursor .'},
 		{key: 'b', name: 'Build', run: 'make build'},
@@ -1760,13 +1770,13 @@ test('mergeKeybindings overrides existing key with local version', t => {
 		{key: 'x', name: 'Open in Nova', run: 'nova .'},
 	];
 	const result = mergeKeybindings(base, local);
-	t.is(result.length, 2);
+	expect(result.length).toBe(2);
 	const xBinding = result.find(kb => kb.key === 'x')!;
-	t.is(xBinding.name, 'Open in Nova');
-	t.is(xBinding.run, 'nova .');
+	expect(xBinding.name).toBe('Open in Nova');
+	expect(xBinding.run).toBe('nova .');
 });
 
-test('mergeKeybindings removes disabled keybindings', t => {
+test('mergeKeybindings removes disabled keybindings', () => {
 	const base: KeybindingConfig[] = [
 		{key: 'b', name: 'Build', run: 'make build'},
 		{key: 'r', name: 'Run', run: 'make run'},
@@ -1774,12 +1784,12 @@ test('mergeKeybindings removes disabled keybindings', t => {
 	];
 	const local: KeybindingConfig[] = [{key: 'r', name: '', disabled: true}];
 	const result = mergeKeybindings(base, local);
-	t.is(result.length, 2);
-	t.is(result[0]!.key, 'b');
-	t.is(result[1]!.key, 't');
+	expect(result.length).toBe(2);
+	expect(result[0]!.key).toBe('b');
+	expect(result[1]!.key).toBe('t');
 });
 
-test('mergeKeybindings handles add, override, and disable together', t => {
+test('mergeKeybindings handles add, override, and disable together', () => {
 	const base: KeybindingConfig[] = [
 		{key: 'b', name: 'Build', run: 'make build'},
 		{key: 'r', name: 'Run', run: 'make run'},
@@ -1791,48 +1801,48 @@ test('mergeKeybindings handles add, override, and disable together', t => {
 		{key: 'r', name: '', disabled: true},
 	];
 	const result = mergeKeybindings(base, local);
-	t.is(result.length, 3);
+	expect(result.length).toBe(3);
 	const keys = result.map(kb => kb.key);
-	t.deepEqual(keys, ['b', 'x', 'v']);
-	t.is(result.find(kb => kb.key === 'x')!.name, 'Open Nova');
+	expect(keys).toStrictEqual(['b', 'x', 'v']);
+	expect(result.find(kb => kb.key === 'x')!.name).toBe('Open Nova');
 });
 
-test('mergeKeybindings returns empty array when both are empty', t => {
+test('mergeKeybindings returns empty array when both are empty', () => {
 	const result = mergeKeybindings([], []);
-	t.deepEqual(result, []);
+	expect(result).toStrictEqual([]);
 });
 
-test('mergeKeybindings with only local keybindings (empty base)', t => {
+test('mergeKeybindings with only local keybindings (empty base)', () => {
 	const local: KeybindingConfig[] = [
 		{key: 'v', name: 'VS Code', run: 'code .'},
 	];
 	const result = mergeKeybindings([], local);
-	t.is(result.length, 1);
-	t.is(result[0]!.key, 'v');
+	expect(result.length).toBe(1);
+	expect(result[0]!.key).toBe('v');
 });
 
-test('mergeKeybindings: disabling a non-existent key is a no-op', t => {
+test('mergeKeybindings: disabling a non-existent key is a no-op', () => {
 	const base: KeybindingConfig[] = [
 		{key: 'b', name: 'Build', run: 'make build'},
 	];
 	const local: KeybindingConfig[] = [{key: 'z', name: '', disabled: true}];
 	const result = mergeKeybindings(base, local);
-	t.deepEqual(result, base);
+	expect(result).toStrictEqual(base);
 });
 
 // ============================================================================
 // getIssueWatchlist Tests
 // ============================================================================
 
-test('getIssueWatchlist returns undefined when not configured', t => {
+test('getIssueWatchlist returns undefined when not configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
-	t.is(getIssueWatchlist(config), undefined);
+	expect(getIssueWatchlist(config)).toBe(undefined);
 });
 
-test('getIssueWatchlist returns the configured watchlist', t => {
+test('getIssueWatchlist returns the configured watchlist', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
@@ -1842,12 +1852,12 @@ test('getIssueWatchlist returns the configured watchlist', t => {
 		statuses: ['To Do', 'In Progress'],
 	};
 	const watchlist = getIssueWatchlist(config);
-	t.truthy(watchlist);
-	t.is(watchlist!.assignee, 'me');
-	t.deepEqual(watchlist!.statuses, ['To Do', 'In Progress']);
+	expect(watchlist).toBeTruthy();
+	expect(watchlist!.assignee).toBe('me');
+	expect(watchlist!.statuses).toStrictEqual(['To Do', 'In Progress']);
 });
 
-test('getIssueWatchlist returns labels when configured', t => {
+test('getIssueWatchlist returns labels when configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
@@ -1858,33 +1868,33 @@ test('getIssueWatchlist returns labels when configured', t => {
 		labels: ['pappardelle', 'platform'],
 	};
 	const watchlist = getIssueWatchlist(config);
-	t.deepEqual(watchlist!.labels, ['pappardelle', 'platform']);
+	expect(watchlist!.labels).toStrictEqual(['pappardelle', 'platform']);
 });
 
 // ============================================================================
 // getResolvedWatchlists Tests (per-profile issue_watchlist)
 // ============================================================================
 
-test('getResolvedWatchlists returns [] when nothing is configured', t => {
+test('getResolvedWatchlists returns [] when nothing is configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
-	t.deepEqual(getResolvedWatchlists(config), []);
+	expect(getResolvedWatchlists(config)).toStrictEqual([]);
 });
 
-test('getResolvedWatchlists returns only the top-level watchlist when no profile defines one (off-by-default regression)', t => {
+test('getResolvedWatchlists returns only the top-level watchlist when no profile defines one (off-by-default regression)', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
 	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
-	t.deepEqual(getResolvedWatchlists(config), [
+	expect(getResolvedWatchlists(config)).toStrictEqual([
 		{profileName: null, watchlist: {assignee: 'me', statuses: ['To Do']}},
 	]);
 });
 
-test('getResolvedWatchlists never auto-scopes the top-level watchlist even when team_prefix is set', t => {
+test('getResolvedWatchlists never auto-scopes the top-level watchlist even when team_prefix is set', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
@@ -1892,12 +1902,12 @@ test('getResolvedWatchlists never auto-scopes the top-level watchlist even when 
 	);
 	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
 	const resolved = getResolvedWatchlists(config);
-	t.is(resolved.length, 1);
-	t.is(resolved[0]!.profileName, null);
-	t.is(resolved[0]!.watchlist.key_prefixes, undefined);
+	expect(resolved.length).toBe(1);
+	expect(resolved[0]!.profileName).toBe(null);
+	expect(resolved[0]!.watchlist.key_prefixes).toBe(undefined);
 });
 
-test('getResolvedWatchlists includes profile watchlists additively after the top-level one', t => {
+test('getResolvedWatchlists includes profile watchlists additively after the top-level one', () => {
 	const chaz: Profile = {
 		keywords: ['chaz'],
 		display_name: 'Charlie Personal',
@@ -1907,12 +1917,12 @@ test('getResolvedWatchlists includes profile watchlists additively after the top
 	const config = createConfig({chaz}, 'chaz');
 	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
 	const resolved = getResolvedWatchlists(config);
-	t.is(resolved.length, 2);
-	t.is(resolved[0]!.profileName, null);
-	t.is(resolved[1]!.profileName, 'chaz');
+	expect(resolved.length).toBe(2);
+	expect(resolved[0]!.profileName).toBe(null);
+	expect(resolved[1]!.profileName).toBe('chaz');
 });
 
-test('getResolvedWatchlists includes every profile that defines a watchlist', t => {
+test('getResolvedWatchlists includes every profile that defines a watchlist', () => {
 	const chaz: Profile = {
 		keywords: ['chaz'],
 		display_name: 'CHAZ',
@@ -1930,14 +1940,13 @@ test('getResolvedWatchlists includes every profile that defines a watchlist', t 
 	const config = createConfig({chaz, jams, idle}, 'chaz');
 	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
 	const resolved = getResolvedWatchlists(config);
-	t.is(resolved.length, 3);
-	t.deepEqual(
-		new Set(resolved.map(r => r.profileName)),
+	expect(resolved.length).toBe(3);
+	expect(new Set(resolved.map(r => r.profileName))).toStrictEqual(
 		new Set([null, 'chaz', 'jams']),
 	);
 });
 
-test('getResolvedWatchlists orders the top-level watchlist first, then profiles in definition order', t => {
+test('getResolvedWatchlists orders the top-level watchlist first, then profiles in definition order', () => {
 	// The poller dedups by "first match wins", so this ordering is the contract
 	// that decides which watchlist claims an issue on overlap. Pin it so a future
 	// refactor cannot silently invert the priority.
@@ -1956,13 +1965,14 @@ test('getResolvedWatchlists orders the top-level watchlist first, then profiles 
 	const config = createConfig({bravo, alpha}, 'bravo');
 	config.issue_watchlist = {assignee: 'me', statuses: ['To Do']};
 	const resolved = getResolvedWatchlists(config);
-	t.deepEqual(
-		resolved.map(r => r.profileName),
-		[null, 'bravo', 'alpha'],
-	);
+	expect(resolved.map(r => r.profileName)).toStrictEqual([
+		null,
+		'bravo',
+		'alpha',
+	]);
 });
 
-test('getResolvedWatchlists auto-scopes a profile watchlist to the profile team_prefix', t => {
+test('getResolvedWatchlists auto-scopes a profile watchlist to the profile team_prefix', () => {
 	const chaz: Profile = {
 		keywords: ['chaz'],
 		display_name: 'Charlie Personal',
@@ -1971,13 +1981,13 @@ test('getResolvedWatchlists auto-scopes a profile watchlist to the profile team_
 	};
 	const config = createConfig({chaz}, 'chaz');
 	const resolved = getResolvedWatchlists(config);
-	t.is(resolved.length, 1);
-	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['CHAZ']);
+	expect(resolved.length).toBe(1);
+	expect(resolved[0]!.watchlist.key_prefixes).toStrictEqual(['CHAZ']);
 	// The source config object must not be mutated by resolution.
-	t.is(chaz.issue_watchlist!.key_prefixes, undefined);
+	expect(chaz.issue_watchlist!.key_prefixes).toBe(undefined);
 });
 
-test('getResolvedWatchlists auto-scopes a profile watchlist to the global team_prefix when the profile has none', t => {
+test('getResolvedWatchlists auto-scopes a profile watchlist to the global team_prefix when the profile has none', () => {
 	const foo: Profile = {
 		keywords: ['foo'],
 		display_name: 'Foo',
@@ -1985,10 +1995,10 @@ test('getResolvedWatchlists auto-scopes a profile watchlist to the global team_p
 	};
 	const config = createConfig({foo}, 'foo', 'STA');
 	const resolved = getResolvedWatchlists(config);
-	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['STA']);
+	expect(resolved[0]!.watchlist.key_prefixes).toStrictEqual(['STA']);
 });
 
-test('getResolvedWatchlists leaves an explicit profile key_prefixes untouched (explicit wins over auto-scope)', t => {
+test('getResolvedWatchlists leaves an explicit profile key_prefixes untouched (explicit wins over auto-scope)', () => {
 	const chaz: Profile = {
 		keywords: ['chaz'],
 		display_name: 'Charlie Personal',
@@ -2001,10 +2011,10 @@ test('getResolvedWatchlists leaves an explicit profile key_prefixes untouched (e
 	};
 	const config = createConfig({chaz}, 'chaz');
 	const resolved = getResolvedWatchlists(config);
-	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['WAB']);
+	expect(resolved[0]!.watchlist.key_prefixes).toStrictEqual(['WAB']);
 });
 
-test('getResolvedWatchlists treats an empty profile key_prefixes as omitted and auto-scopes', t => {
+test('getResolvedWatchlists treats an empty profile key_prefixes as omitted and auto-scopes', () => {
 	const chaz: Profile = {
 		keywords: ['chaz'],
 		display_name: 'Charlie Personal',
@@ -2013,10 +2023,10 @@ test('getResolvedWatchlists treats an empty profile key_prefixes as omitted and 
 	};
 	const config = createConfig({chaz}, 'chaz');
 	const resolved = getResolvedWatchlists(config);
-	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['CHAZ']);
+	expect(resolved[0]!.watchlist.key_prefixes).toStrictEqual(['CHAZ']);
 });
 
-test('getResolvedWatchlists leaves a profile watchlist unscoped when no team_prefix is configured anywhere', t => {
+test('getResolvedWatchlists leaves a profile watchlist unscoped when no team_prefix is configured anywhere', () => {
 	const foo: Profile = {
 		keywords: ['foo'],
 		display_name: 'Foo',
@@ -2025,14 +2035,14 @@ test('getResolvedWatchlists leaves a profile watchlist unscoped when no team_pre
 	const config = createConfig({foo}, 'foo');
 	const resolved = getResolvedWatchlists(config);
 	// No explicit prefixes and nothing to derive from → unscoped (matches all).
-	t.is(resolved[0]!.watchlist.key_prefixes, undefined);
+	expect(resolved[0]!.watchlist.key_prefixes).toBe(undefined);
 });
 
 // ============================================================================
 // issue_watchlist key_prefixes Validation Tests
 // ============================================================================
 
-test('getIssueWatchlist returns key_prefixes when configured', t => {
+test('getIssueWatchlist returns key_prefixes when configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
@@ -2043,44 +2053,44 @@ test('getIssueWatchlist returns key_prefixes when configured', t => {
 		key_prefixes: ['STA'],
 	};
 	const watchlist = getIssueWatchlist(config);
-	t.deepEqual(watchlist!.key_prefixes, ['STA']);
+	expect(watchlist!.key_prefixes).toStrictEqual(['STA']);
 });
 
 // ============================================================================
 // getAutoRemoveWhenDone Tests
 // ============================================================================
 
-test('getAutoRemoveWhenDone defaults to false when not configured', t => {
+test('getAutoRemoveWhenDone defaults to false when not configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
-	t.false(getAutoRemoveWhenDone(config));
+	expect(getAutoRemoveWhenDone(config)).toBe(false);
 });
 
-test('getAutoRemoveWhenDone returns true when configured true', t => {
+test('getAutoRemoveWhenDone returns true when configured true', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
 	config.auto_remove_when_done = true;
-	t.true(getAutoRemoveWhenDone(config));
+	expect(getAutoRemoveWhenDone(config)).toBe(true);
 });
 
-test('getAutoRemoveWhenDone returns false when configured false', t => {
+test('getAutoRemoveWhenDone returns false when configured false', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
 	config.auto_remove_when_done = false;
-	t.false(getAutoRemoveWhenDone(config));
+	expect(getAutoRemoveWhenDone(config)).toBe(false);
 });
 
 // ============================================================================
 // getCompanionCommand Tests
 // ============================================================================
 
-test('companion_splits: a matched profile replaces the top-level list, and split defaults to down', t => {
+test('companion_splits: a matched profile replaces the top-level list, and split defaults to down', () => {
 	const config = createConfig(
 		{
 			backend: {
@@ -2094,43 +2104,43 @@ test('companion_splits: a matched profile replaces the top-level list, and split
 	config.companion_splits = [
 		{name: 'tests', command: 'bun test --watch', split: 'right', size: '30%'},
 	];
-	t.deepEqual(getCompanionSplits(config, 'fix backend timeout'), [
+	expect(getCompanionSplits(config, 'fix backend timeout')).toStrictEqual([
 		{name: 'api', command: 'make run', size: 40, split: 'down'},
 	]);
-	t.deepEqual(getCompanionSplits(config, 'web tweak'), [
+	expect(getCompanionSplits(config, 'web tweak')).toStrictEqual([
 		{name: 'tests', command: 'bun test --watch', split: 'right', size: '30%'},
 	]);
-	t.deepEqual(getCompanionSplits(createConfig({}, undefined)), []);
+	expect(getCompanionSplits(createConfig({}, undefined))).toStrictEqual([]);
 });
 
-test('getCompanionCommand defaults to gitui when nothing is configured', t => {
+test('getCompanionCommand defaults to gitui when nothing is configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
-	t.is(getCompanionCommand(config), DEFAULT_COMPANION_COMMAND);
-	t.true(getCompanionCommand(config).includes('gitui'));
+	expect(getCompanionCommand(config)).toBe(DEFAULT_COMPANION_COMMAND);
+	expect(getCompanionCommand(config).includes('gitui')).toBe(true);
 });
 
-test('getCompanionCommand returns the top-level command when set', t => {
+test('getCompanionCommand returns the top-level command when set', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
 	config.companion_command = 'lazygit';
-	t.is(getCompanionCommand(config), 'lazygit');
+	expect(getCompanionCommand(config)).toBe('lazygit');
 });
 
-test('getCompanionCommand preserves an explicit empty top-level command', t => {
+test('getCompanionCommand preserves an explicit empty top-level command', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
 	config.companion_command = '';
-	t.is(getCompanionCommand(config), '');
+	expect(getCompanionCommand(config)).toBe('');
 });
 
-test('getCompanionCommand prefers a matched profile override over top-level', t => {
+test('getCompanionCommand prefers a matched profile override over top-level', () => {
 	const config = createConfig(
 		{
 			backend: {
@@ -2141,30 +2151,29 @@ test('getCompanionCommand prefers a matched profile override over top-level', t 
 		'backend',
 	);
 	config.companion_command = 'gitui';
-	t.is(getCompanionCommand(config, 'fix backend timeout'), 'make run');
+	expect(getCompanionCommand(config, 'fix backend timeout')).toBe('make run');
 });
 
-test('getCompanionCommand falls back to top-level when the matched profile has no override', t => {
+test('getCompanionCommand falls back to top-level when the matched profile has no override', () => {
 	const config = createConfig(
 		{backend: createProfile(['backend'], 'Backend')},
 		'backend',
 	);
 	config.companion_command = 'lazygit';
-	t.is(getCompanionCommand(config, 'fix backend timeout'), 'lazygit');
+	expect(getCompanionCommand(config, 'fix backend timeout')).toBe('lazygit');
 });
 
-test('getCompanionCommand falls back to default when neither profile nor top-level set', t => {
+test('getCompanionCommand falls back to default when neither profile nor top-level set', () => {
 	const config = createConfig(
 		{backend: createProfile(['backend'], 'Backend')},
 		'backend',
 	);
-	t.is(
-		getCompanionCommand(config, 'fix backend timeout'),
+	expect(getCompanionCommand(config, 'fix backend timeout')).toBe(
 		DEFAULT_COMPANION_COMMAND,
 	);
 });
 
-test('getCompanionCommand uses top-level when the title matches no profile', t => {
+test('getCompanionCommand uses top-level when the title matches no profile', () => {
 	const config = createConfig(
 		{
 			backend: {
@@ -2176,7 +2185,7 @@ test('getCompanionCommand uses top-level when the title matches no profile', t =
 	);
 	config.companion_command = 'gitui';
 	// "unrelated" matches no keyword, so the backend override must NOT apply.
-	t.is(getCompanionCommand(config, 'unrelated task'), 'gitui');
+	expect(getCompanionCommand(config, 'unrelated task')).toBe('gitui');
 });
 
 // ============================================================================
@@ -2190,19 +2199,19 @@ const IDEA_IDE_COMMAND = 'idea "${WORKTREE_PATH}"';
 // getIdeCommand Tests
 // ============================================================================
 
-test('getIdeCommand defaults to Cursor when nothing is configured', t => {
+test('getIdeCommand defaults to Cursor when nothing is configured', () => {
 	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
-	t.is(getIdeCommand(config), DEFAULT_IDE_COMMAND);
-	t.true(getIdeCommand(config).includes('cursor'));
+	expect(getIdeCommand(config)).toBe(DEFAULT_IDE_COMMAND);
+	expect(getIdeCommand(config).includes('cursor')).toBe(true);
 });
 
-test('getIdeCommand returns the top-level command when set', t => {
+test('getIdeCommand returns the top-level command when set', () => {
 	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
 	config.ide_command = CODE_IDE_COMMAND;
-	t.is(getIdeCommand(config), CODE_IDE_COMMAND);
+	expect(getIdeCommand(config)).toBe(CODE_IDE_COMMAND);
 });
 
-test('getIdeCommand prefers the named profile override over top-level', t => {
+test('getIdeCommand prefers the named profile override over top-level', () => {
 	const config = createConfig({
 		backend: {
 			...createProfile(['backend'], 'Backend'),
@@ -2210,42 +2219,42 @@ test('getIdeCommand prefers the named profile override over top-level', t => {
 		},
 	});
 	config.ide_command = CODE_IDE_COMMAND;
-	t.is(getIdeCommand(config, 'backend'), IDEA_IDE_COMMAND);
+	expect(getIdeCommand(config, 'backend')).toBe(IDEA_IDE_COMMAND);
 });
 
-test('getIdeCommand falls back to top-level when the named profile has no override', t => {
+test('getIdeCommand falls back to top-level when the named profile has no override', () => {
 	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
 	config.ide_command = CODE_IDE_COMMAND;
-	t.is(getIdeCommand(config, 'backend'), CODE_IDE_COMMAND);
+	expect(getIdeCommand(config, 'backend')).toBe(CODE_IDE_COMMAND);
 });
 
-test('getIdeCommand falls back to top-level for a profile name not in config', t => {
+test('getIdeCommand falls back to top-level for a profile name not in config', () => {
 	// A stale profile name persisted in space-state must not crash or resolve to
 	// some other profile's editor.
 	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
 	config.ide_command = CODE_IDE_COMMAND;
-	t.is(getIdeCommand(config, 'deleted_profile'), CODE_IDE_COMMAND);
+	expect(getIdeCommand(config, 'deleted_profile')).toBe(CODE_IDE_COMMAND);
 });
 
-test('getIdeCommand preserves an explicit empty top-level command', t => {
+test('getIdeCommand preserves an explicit empty top-level command', () => {
 	const config = createConfig({backend: createProfile(['backend'], 'Backend')});
 	config.ide_command = '';
-	t.is(getIdeCommand(config), '');
+	expect(getIdeCommand(config)).toBe('');
 });
 
-test('getIdeCommand preserves an explicit empty profile command over a set top-level', t => {
+test('getIdeCommand preserves an explicit empty profile command over a set top-level', () => {
 	const config = createConfig({
 		backend: {...createProfile(['backend'], 'Backend'), ide_command: ''},
 	});
 	config.ide_command = CODE_IDE_COMMAND;
-	t.is(getIdeCommand(config, 'backend'), '');
+	expect(getIdeCommand(config, 'backend')).toBe('');
 });
 
 // ============================================================================
 // matchProfileByProject Tests
 // ============================================================================
 
-test('matchProfileByProject matches exact project name', t => {
+test('matchProfileByProject matches exact project name', () => {
 	const config = createConfig({
 		hive: {
 			display_name: 'King Bee',
@@ -2259,12 +2268,12 @@ test('matchProfileByProject matches exact project name', t => {
 		},
 	});
 	const match = matchProfileByProject(config, 'The Hive');
-	t.truthy(match);
-	t.is(match!.name, 'hive');
-	t.is(match!.profile.display_name, 'King Bee');
+	expect(match).toBeTruthy();
+	expect(match!.name).toBe('hive');
+	expect(match!.profile.display_name).toBe('King Bee');
 });
 
-test('matchProfileByProject is case-insensitive', t => {
+test('matchProfileByProject is case-insensitive', () => {
 	const config = createConfig({
 		hive: {
 			display_name: 'King Bee',
@@ -2273,11 +2282,11 @@ test('matchProfileByProject is case-insensitive', t => {
 		},
 	});
 	const match = matchProfileByProject(config, 'the hive');
-	t.truthy(match);
-	t.is(match!.name, 'hive');
+	expect(match).toBeTruthy();
+	expect(match!.name).toBe('hive');
 });
 
-test('matchProfileByProject returns null when no match', t => {
+test('matchProfileByProject returns null when no match', () => {
 	const config = createConfig({
 		hive: {
 			display_name: 'King Bee',
@@ -2286,10 +2295,10 @@ test('matchProfileByProject returns null when no match', t => {
 		},
 	});
 	const match = matchProfileByProject(config, 'Unknown Project');
-	t.is(match, null);
+	expect(match).toBe(null);
 });
 
-test('matchProfileByProject returns null for empty project name', t => {
+test('matchProfileByProject returns null for empty project name', () => {
 	const config = createConfig({
 		hive: {
 			display_name: 'King Bee',
@@ -2297,13 +2306,13 @@ test('matchProfileByProject returns null for empty project name', t => {
 			tracker_projects: ['The Hive'],
 		},
 	});
-	t.is(matchProfileByProject(config, ''), null);
+	expect(matchProfileByProject(config, '')).toBe(null);
 });
 
 // STA-1649: Jira issues carry a project key ("KAN") alongside the display
 // name ("Pappardelle Testing"); tracker_projects entries may be either.
 
-test('matchProfileByProject matches the Jira project key via the optional projectKey arg', t => {
+test('matchProfileByProject matches the Jira project key via the optional projectKey arg', () => {
 	const config = createConfig({
 		testing: {
 			display_name: 'Pappardelle Testing',
@@ -2312,11 +2321,11 @@ test('matchProfileByProject matches the Jira project key via the optional projec
 		},
 	});
 	const match = matchProfileByProject(config, 'Pappardelle Testing', 'KAN');
-	t.truthy(match);
-	t.is(match!.name, 'testing');
+	expect(match).toBeTruthy();
+	expect(match!.name).toBe('testing');
 });
 
-test('matchProfileByProject key matching is case-insensitive', t => {
+test('matchProfileByProject key matching is case-insensitive', () => {
 	const config = createConfig({
 		testing: {
 			display_name: 'Pappardelle Testing',
@@ -2325,11 +2334,11 @@ test('matchProfileByProject key matching is case-insensitive', t => {
 		},
 	});
 	const match = matchProfileByProject(config, 'Pappardelle Testing', 'KAN');
-	t.truthy(match);
-	t.is(match!.name, 'testing');
+	expect(match).toBeTruthy();
+	expect(match!.name).toBe('testing');
 });
 
-test('matchProfileByProject matches by key even when the project name is empty', t => {
+test('matchProfileByProject matches by key even when the project name is empty', () => {
 	const config = createConfig({
 		testing: {
 			display_name: 'Pappardelle Testing',
@@ -2338,11 +2347,11 @@ test('matchProfileByProject matches by key even when the project name is empty',
 		},
 	});
 	const match = matchProfileByProject(config, '', 'KAN');
-	t.truthy(match);
-	t.is(match!.name, 'testing');
+	expect(match).toBeTruthy();
+	expect(match!.name).toBe('testing');
 });
 
-test('matchProfileByProject without a projectKey never matches key-style entries (regression pin)', t => {
+test('matchProfileByProject without a projectKey never matches key-style entries (regression pin)', () => {
 	// A config listing only the Jira key must not match when callers pass just
 	// a name — the Linear path (name-only) behaves exactly as before STA-1649.
 	const config = createConfig({
@@ -2352,10 +2361,10 @@ test('matchProfileByProject without a projectKey never matches key-style entries
 			tracker_projects: ['KAN'],
 		},
 	});
-	t.is(matchProfileByProject(config, 'Pappardelle Testing'), null);
+	expect(matchProfileByProject(config, 'Pappardelle Testing')).toBe(null);
 });
 
-test('matchProfileByProject returns null when neither name nor key matches', t => {
+test('matchProfileByProject returns null when neither name nor key matches', () => {
 	const config = createConfig({
 		testing: {
 			display_name: 'Pappardelle Testing',
@@ -2363,10 +2372,12 @@ test('matchProfileByProject returns null when neither name nor key matches', t =
 			tracker_projects: ['Some Other Project'],
 		},
 	});
-	t.is(matchProfileByProject(config, 'Pappardelle Testing', 'KAN'), null);
+	expect(matchProfileByProject(config, 'Pappardelle Testing', 'KAN')).toBe(
+		null,
+	);
 });
 
-test('matchProfileByProject returns null when both name and key are empty', t => {
+test('matchProfileByProject returns null when both name and key are empty', () => {
 	const config = createConfig({
 		testing: {
 			display_name: 'Pappardelle Testing',
@@ -2374,11 +2385,11 @@ test('matchProfileByProject returns null when both name and key are empty', t =>
 			tracker_projects: ['KAN'],
 		},
 	});
-	t.is(matchProfileByProject(config, '', ''), null);
-	t.is(matchProfileByProject(config, ''), null);
+	expect(matchProfileByProject(config, '', '')).toBe(null);
+	expect(matchProfileByProject(config, '')).toBe(null);
 });
 
-test('matchProfileByProject returns null when no profiles have tracker_projects', t => {
+test('matchProfileByProject returns null when no profiles have tracker_projects', () => {
 	const config = createConfig({
 		hive: {
 			display_name: 'King Bee',
@@ -2386,10 +2397,10 @@ test('matchProfileByProject returns null when no profiles have tracker_projects'
 		},
 	});
 	const match = matchProfileByProject(config, 'The Hive');
-	t.is(match, null);
+	expect(match).toBe(null);
 });
 
-test('matchProfileByProject matches second tracker_projects entry', t => {
+test('matchProfileByProject matches second tracker_projects entry', () => {
 	const config = createConfig({
 		hive: {
 			display_name: 'King Bee',
@@ -2398,11 +2409,11 @@ test('matchProfileByProject matches second tracker_projects entry', t => {
 		},
 	});
 	const match = matchProfileByProject(config, 'The Hive Quality');
-	t.truthy(match);
-	t.is(match!.name, 'hive');
+	expect(match).toBeTruthy();
+	expect(match!.name).toBe('hive');
 });
 
-test('matchProfileByProject returns first matching profile when multiple match', t => {
+test('matchProfileByProject returns first matching profile when multiple match', () => {
 	const config = createConfig({
 		first: {
 			display_name: 'First',
@@ -2416,11 +2427,11 @@ test('matchProfileByProject returns first matching profile when multiple match',
 		},
 	});
 	const match = matchProfileByProject(config, 'Shared Project');
-	t.truthy(match);
-	t.is(match!.name, 'first');
+	expect(match).toBeTruthy();
+	expect(match!.name).toBe('first');
 });
 
-test('matchProfileByProject handles mixed case project name in config', t => {
+test('matchProfileByProject handles mixed case project name in config', () => {
 	const config = createConfig({
 		hive: {
 			display_name: 'King Bee',
@@ -2429,8 +2440,8 @@ test('matchProfileByProject handles mixed case project name in config', t => {
 		},
 	});
 	const match = matchProfileByProject(config, 'The Hive Quality');
-	t.truthy(match);
-	t.is(match!.name, 'hive');
+	expect(match).toBeTruthy();
+	expect(match!.name).toBe('hive');
 });
 
 // ============================================================================
@@ -2447,42 +2458,42 @@ test('matchProfileByProject handles mixed case project name in config', t => {
 // pre-STA-959 behavior of creating an unassigned issue.
 // ============================================================================
 
-test('getProfileDefaultProject returns first tracker_projects entry', t => {
+test('getProfileDefaultProject returns first tracker_projects entry', () => {
 	const profile: Profile = {
 		display_name: 'King Bee',
 		keywords: ['bee'],
 		tracker_projects: ['The Hive Quality', 'Wordle'],
 	};
-	t.is(getProfileDefaultProject(profile), 'The Hive Quality');
+	expect(getProfileDefaultProject(profile)).toBe('The Hive Quality');
 });
 
-test('getProfileDefaultProject returns sole tracker_projects entry', t => {
+test('getProfileDefaultProject returns sole tracker_projects entry', () => {
 	const profile: Profile = {
 		display_name: 'Pappardelle',
 		keywords: ['pappardelle'],
 		tracker_projects: ['Pappardelle Quality'],
 	};
-	t.is(getProfileDefaultProject(profile), 'Pappardelle Quality');
+	expect(getProfileDefaultProject(profile)).toBe('Pappardelle Quality');
 });
 
-test('getProfileDefaultProject returns undefined when tracker_projects omitted (off-by-default)', t => {
+test('getProfileDefaultProject returns undefined when tracker_projects omitted (off-by-default)', () => {
 	const profile: Profile = {
 		display_name: 'Personal',
 		keywords: ['personal'],
 	};
-	t.is(getProfileDefaultProject(profile), undefined);
+	expect(getProfileDefaultProject(profile)).toBe(undefined);
 });
 
-test('getProfileDefaultProject returns undefined for empty tracker_projects (off-by-default)', t => {
+test('getProfileDefaultProject returns undefined for empty tracker_projects (off-by-default)', () => {
 	const profile: Profile = {
 		display_name: 'Test',
 		keywords: ['t'],
 		tracker_projects: [],
 	};
-	t.is(getProfileDefaultProject(profile), undefined);
+	expect(getProfileDefaultProject(profile)).toBe(undefined);
 });
 
-test("getProfileDefaultProject preserves exact casing — UUID resolution is the bash side's responsibility", t => {
+test("getProfileDefaultProject preserves exact casing — UUID resolution is the bash side's responsibility", () => {
 	const profile: Profile = {
 		display_name: 'Mixed',
 		keywords: ['m'],
@@ -2490,7 +2501,7 @@ test("getProfileDefaultProject preserves exact casing — UUID resolution is the
 	};
 	// Whatever the user wrote is what we return — provider-helpers.sh's jq filter
 	// is what decides whether trimming/case-folding happens at resolution time.
-	t.is(getProfileDefaultProject(profile), '  Stardust Jams MVP  ');
+	expect(getProfileDefaultProject(profile)).toBe('  Stardust Jams MVP  ');
 });
 
 // ============================================================================
@@ -2502,7 +2513,7 @@ test("getProfileDefaultProject preserves exact casing — UUID resolution is the
 // global team_prefix.
 // ============================================================================
 
-test('matchProfilesByKeyPrefix matches a profile own team_prefix', t => {
+test('matchProfilesByKeyPrefix matches a profile own team_prefix', () => {
 	const config = createConfig(
 		{
 			personal: {
@@ -2517,13 +2528,12 @@ test('matchProfilesByKeyPrefix matches a profile own team_prefix', t => {
 		'personal',
 		'STA',
 	);
-	t.deepEqual(
+	expect(
 		matchProfilesByKeyPrefix(config, 'TRT').map(m => m.name),
-		['trotbooks'],
-	);
+	).toStrictEqual(['trotbooks']);
 });
 
-test('matchProfilesByKeyPrefix matches case-insensitively', t => {
+test('matchProfilesByKeyPrefix matches case-insensitively', () => {
 	const config = createConfig(
 		{
 			personal: {
@@ -2534,13 +2544,12 @@ test('matchProfilesByKeyPrefix matches case-insensitively', t => {
 		'personal',
 		'STA',
 	);
-	t.deepEqual(
+	expect(
 		matchProfilesByKeyPrefix(config, 'per').map(m => m.name),
-		['personal'],
-	);
+	).toStrictEqual(['personal']);
 });
 
-test('matchProfilesByKeyPrefix matches a tracker_projects entry as a project key', t => {
+test('matchProfilesByKeyPrefix matches a tracker_projects entry as a project key', () => {
 	const config = createConfig(
 		{
 			personal: {
@@ -2556,14 +2565,11 @@ test('matchProfilesByKeyPrefix matches a tracker_projects entry as a project key
 		'STA',
 	);
 	const matches = matchProfilesByKeyPrefix(config, 'KAN');
-	t.deepEqual(
-		matches.map(m => m.name),
-		['personal'],
-	);
-	t.true(matches[0]!.explicit);
+	expect(matches.map(m => m.name)).toStrictEqual(['personal']);
+	expect(matches[0]!.explicit).toBe(true);
 });
 
-test('matchProfilesByKeyPrefix matches an issue_watchlist key_prefixes entry', t => {
+test('matchProfilesByKeyPrefix matches an issue_watchlist key_prefixes entry', () => {
 	// The watchlist already spawns these issues under this profile
 	// (idow --profile), so a hand-typed key of the same prefix has to be able to
 	// reach it too.
@@ -2583,14 +2589,11 @@ test('matchProfilesByKeyPrefix matches an issue_watchlist key_prefixes entry', t
 		'STA',
 	);
 	const matches = matchProfilesByKeyPrefix(config, 'SDJ');
-	t.deepEqual(
-		matches.map(m => m.name),
-		['personal'],
-	);
-	t.true(matches[0]!.explicit);
+	expect(matches.map(m => m.name)).toStrictEqual(['personal']);
+	expect(matches[0]!.explicit).toBe(true);
 });
 
-test('matchProfilesByKeyPrefix treats prefix-less profiles as inheriting the global prefix', t => {
+test('matchProfilesByKeyPrefix treats prefix-less profiles as inheriting the global prefix', () => {
 	const config = createConfig(
 		{
 			personal: createProfile(['personal'], 'Personal'),
@@ -2603,14 +2606,11 @@ test('matchProfilesByKeyPrefix treats prefix-less profiles as inheriting the glo
 		'STA',
 	);
 	const matches = matchProfilesByKeyPrefix(config, 'STA');
-	t.deepEqual(
-		matches.map(m => m.name),
-		['personal'],
-	);
-	t.false(matches[0]!.explicit);
+	expect(matches.map(m => m.name)).toStrictEqual(['personal']);
+	expect(matches[0]!.explicit).toBe(false);
 });
 
-test('matchProfilesByKeyPrefix ranks explicit claims ahead of inherited ones', t => {
+test('matchProfilesByKeyPrefix ranks explicit claims ahead of inherited ones', () => {
 	const config = createConfig(
 		{
 			personal: createProfile(['personal'], 'Personal'),
@@ -2622,31 +2622,29 @@ test('matchProfilesByKeyPrefix ranks explicit claims ahead of inherited ones', t
 		'personal',
 		'STA',
 	);
-	t.deepEqual(
+	expect(
 		matchProfilesByKeyPrefix(config, 'STA').map(m => m.name),
-		['trotbooks', 'personal'],
-	);
+	).toStrictEqual(['trotbooks', 'personal']);
 });
 
-test('matchProfilesByKeyPrefix returns nothing for an unclaimed prefix', t => {
+test('matchProfilesByKeyPrefix returns nothing for an unclaimed prefix', () => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 		'STA',
 	);
-	t.deepEqual(matchProfilesByKeyPrefix(config, 'ZZZ'), []);
-	t.deepEqual(matchProfilesByKeyPrefix(config, '  '), []);
+	expect(matchProfilesByKeyPrefix(config, 'ZZZ')).toStrictEqual([]);
+	expect(matchProfilesByKeyPrefix(config, '  ')).toStrictEqual([]);
 });
 
-test('matchProfilesByKeyPrefix falls back to the STA default when no team_prefix is set', t => {
+test('matchProfilesByKeyPrefix falls back to the STA default when no team_prefix is set', () => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
-	t.deepEqual(
+	expect(
 		matchProfilesByKeyPrefix(config, 'STA').map(m => m.name),
-		['personal'],
-	);
+	).toStrictEqual(['personal']);
 });
 
 // ============================================================================
@@ -2663,16 +2661,16 @@ test('matchProfilesByKeyPrefix falls back to the STA default when no team_prefix
 // lets idow's existing project-matching block (scripts/idow ~L470) run.
 // ============================================================================
 
-test('determineProfileForInput returns null for empty / whitespace input', t => {
+test('determineProfileForInput returns null for empty / whitespace input', () => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
-	t.is(determineProfileForInput(config, ''), null);
-	t.is(determineProfileForInput(config, '   \t '), null);
+	expect(determineProfileForInput(config, '')).toBe(null);
+	expect(determineProfileForInput(config, '   \t ')).toBe(null);
 });
 
-test('determineProfileForInput defers profile selection for issue keys', t => {
+test('determineProfileForInput defers profile selection for issue keys', () => {
 	const config = createConfig(
 		{
 			personal: createProfile(['personal'], 'Personal'),
@@ -2681,14 +2679,14 @@ test('determineProfileForInput defers profile selection for issue keys', t => {
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'STA-123');
-	t.truthy(info);
-	t.is(info!.kind, 'deferred');
+	expect(info).toBeTruthy();
+	expect(info!.kind).toBe('deferred');
 	if (info!.kind === 'deferred') {
-		t.is(info.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
+		expect(info.displayName).toBe(DEFERRED_PROFILE_DISPLAY_NAME);
 	}
 });
 
-test('determineProfileForInput defers profile selection for beads IDs', t => {
+test('determineProfileForInput defers profile selection for beads IDs', () => {
 	// Beads IDs match none of the classic patterns, so without this they would
 	// keyword-match and get pinned via --profile before the issue is fetched —
 	// defeating the prefix-based tracker_projects routing idow performs.
@@ -2704,10 +2702,10 @@ test('determineProfileForInput defers profile selection for beads IDs', t => {
 		issue_tracker: {provider: 'beads' as const},
 	};
 	const info = determineProfileForInput(config, 'pap-a1b2');
-	t.is(info?.kind, 'deferred');
+	expect(info?.kind).toBe('deferred');
 });
 
-test('determineProfileForInput keyword-matches a beads-shaped phrase', t => {
+test('determineProfileForInput keyword-matches a beads-shaped phrase', () => {
 	// 'dark-mode' is prose, not an ID — no profile lists 'dark' as a prefix.
 	const config = {
 		...createConfig(
@@ -2721,10 +2719,10 @@ test('determineProfileForInput keyword-matches a beads-shaped phrase', t => {
 		issue_tracker: {provider: 'beads' as const},
 	};
 	const info = determineProfileForInput(config, 'dark-mode');
-	t.is(info?.kind, 'resolved');
+	expect(info?.kind).toBe('resolved');
 });
 
-test('determineProfileForInput marks a beads ID pickable even when nothing claims its prefix', t => {
+test('determineProfileForInput marks a beads ID pickable even when nothing claims its prefix', () => {
 	// A beads database is not a project: one prefix backs work belonging to
 	// several profiles, so the tracker-project lookup can only ever guess and
 	// the caller has to offer the choice. Every profile here names a prefix of
@@ -2746,13 +2744,13 @@ test('determineProfileForInput marks a beads ID pickable even when nothing claim
 		team_prefix: 'pap',
 		issue_tracker: {provider: 'beads' as const},
 	};
-	t.deepEqual(matchProfilesByInputKeyPrefix(config, 'pap-a1b2'), []);
+	expect(matchProfilesByInputKeyPrefix(config, 'pap-a1b2')).toStrictEqual([]);
 	const info = determineProfileForInput(config, 'pap-a1b2');
-	t.is(info!.kind, 'deferred');
-	if (info!.kind === 'deferred') t.true(info.canPick);
+	expect(info!.kind).toBe('deferred');
+	if (info!.kind === 'deferred') expect(info.canPick).toBe(true);
 });
 
-test('matchProfilesByInputKeyPrefix reads the prefix of a beads ID', t => {
+test('matchProfilesByInputKeyPrefix reads the prefix of a beads ID', () => {
 	// The prefix of 'vendor-sdk-a1b2' is everything ahead of the last hyphen,
 	// which is the name a profile spells in tracker_projects.
 	const config = {
@@ -2769,13 +2767,12 @@ test('matchProfilesByInputKeyPrefix reads the prefix of a beads ID', t => {
 		team_prefix: 'STA',
 		issue_tracker: {provider: 'beads' as const},
 	};
-	t.deepEqual(
+	expect(
 		matchProfilesByInputKeyPrefix(config, 'vendor-sdk-a1b2').map(m => m.name),
-		['vendor'],
-	);
+	).toStrictEqual(['vendor']);
 });
 
-test('determineProfileForInput does not defer beads IDs under other trackers', t => {
+test('determineProfileForInput does not defer beads IDs under other trackers', () => {
 	// Regression pin: the beads branch must be gated on the configured provider.
 	const config = {
 		...createConfig(
@@ -2784,40 +2781,37 @@ test('determineProfileForInput does not defer beads IDs under other trackers', t
 		),
 		team_prefix: 'pap',
 	};
-	t.is(determineProfileForInput(config, 'pap-a1b2')?.kind, 'resolved');
+	expect(determineProfileForInput(config, 'pap-a1b2')?.kind).toBe('resolved');
 });
 
 // ============================================================================
 // exampleIssueKeys
 // ============================================================================
 
-test('exampleIssueKeys uses the team prefix for numbered trackers', t => {
+test('exampleIssueKeys uses the team prefix for numbered trackers', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		team_prefix: 'qa',
 		profiles: {},
 	};
-	t.deepEqual(exampleIssueKeys(config), ['QA-123', '123']);
+	expect(exampleIssueKeys(config)).toStrictEqual(['QA-123', '123']);
 });
 
-test('exampleIssueKeys shows a beads id with the beads prefix', t => {
+test('exampleIssueKeys shows a beads id with the beads prefix', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		team_prefix: 'qa',
 		issue_tracker: {provider: 'beads'},
 		profiles: {},
 	};
-	t.deepEqual(
-		exampleIssueKeys(config, () => 'pap'),
-		['pap-a1b2'],
-	);
+	expect(exampleIssueKeys(config, () => 'pap')).toStrictEqual(['pap-a1b2']);
 });
 
 // ============================================================================
 // getBeadsPrefixes
 // ============================================================================
 
-test('getBeadsPrefixes collects the team prefix and tracker_projects', t => {
+test('getBeadsPrefixes collects the team prefix and tracker_projects', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		team_prefix: 'pap',
@@ -2829,7 +2823,7 @@ test('getBeadsPrefixes collects the team prefix and tracker_projects', t => {
 			other: {display_name: 'Other', team_prefix: 'alt'},
 		},
 	};
-	t.deepEqual(getBeadsPrefixes(config).sort(), [
+	expect(getBeadsPrefixes(config).sort()).toStrictEqual([
 		'alt',
 		'myproj',
 		'pap',
@@ -2837,135 +2831,132 @@ test('getBeadsPrefixes collects the team prefix and tracker_projects', t => {
 	]);
 });
 
-test('getBeadsPrefixes lowercases and dedupes', t => {
+test('getBeadsPrefixes lowercases and dedupes', () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		team_prefix: 'PAP',
 		profiles: {a: {display_name: 'A', tracker_projects: ['pap', ' Pap ']}},
 	};
-	t.deepEqual(getBeadsPrefixes(config), ['pap']);
+	expect(getBeadsPrefixes(config)).toStrictEqual(['pap']);
 });
 
-test('getBeadsPrefixes is empty when nothing is configured', t => {
-	t.deepEqual(getBeadsPrefixes({version: 1, profiles: {}}), []);
+test('getBeadsPrefixes is empty when nothing is configured', () => {
+	expect(getBeadsPrefixes({version: 1, profiles: {}})).toStrictEqual([]);
 });
 
-test('getBeadsPrefixes includes the database issue-prefix', t => {
+test('getBeadsPrefixes includes the database issue-prefix', () => {
 	// bd mints IDs under .beads/config.yaml's issue-prefix, which need not match
 	// team_prefix — a repo migrating off Linear keeps the old team prefix while
 	// beads names issues after the repo directory. Missing it made those IDs read
 	// as prose and file a duplicate issue.
-	t.deepEqual(
+	expect(
 		getBeadsPrefixes({version: 1, profiles: {}, team_prefix: 'STA'}, 'myrepo'),
-		['myrepo', 'sta'],
-	);
+	).toStrictEqual(['myrepo', 'sta']);
 });
 
-test('getBeadsPrefixes lowercases and dedupes the database issue-prefix', t => {
-	t.deepEqual(
+test('getBeadsPrefixes lowercases and dedupes the database issue-prefix', () => {
+	expect(
 		getBeadsPrefixes({version: 1, profiles: {}, team_prefix: 'pap'}, 'PAP'),
-		['pap'],
-	);
+	).toStrictEqual(['pap']);
 });
 
-test('readBeadsIssuePrefix reads issue-prefix from .beads/config.yaml', t => {
-	const dir = tempDir(t, 'beads-prefix-');
+test('readBeadsIssuePrefix reads issue-prefix from .beads/config.yaml', () => {
+	const dir = tempDir('beads-prefix-');
 	fs.mkdirSync(path.join(dir, '.beads'));
 	fs.writeFileSync(
 		path.join(dir, '.beads', 'config.yaml'),
 		'issue-prefix: vendor-sdk\n',
 	);
-	t.is(readBeadsIssuePrefix(dir), 'vendor-sdk');
+	expect(readBeadsIssuePrefix(dir)).toBe('vendor-sdk');
 });
 
-test('readBeadsIssuePrefix is undefined when the file or key is absent', t => {
+test('readBeadsIssuePrefix is undefined when the file or key is absent', () => {
 	const noDatabasePrefix = () => undefined;
-	const dir = tempDir(t, 'beads-prefix-');
-	t.is(readBeadsIssuePrefix(dir, noDatabasePrefix), undefined);
+	const dir = tempDir('beads-prefix-');
+	expect(readBeadsIssuePrefix(dir, noDatabasePrefix)).toBe(undefined);
 
 	fs.mkdirSync(path.join(dir, '.beads'));
 	fs.writeFileSync(path.join(dir, '.beads', 'config.yaml'), 'other: value\n');
 	clearBeadsIssuePrefixCache();
-	t.is(readBeadsIssuePrefix(dir, noDatabasePrefix), undefined);
+	expect(readBeadsIssuePrefix(dir, noDatabasePrefix)).toBe(undefined);
 });
 
-test('readBeadsIssuePrefix falls back to the bd database without a config.yaml prefix', t => {
-	const dir = tempDir(t, 'beads-prefix-');
+test('readBeadsIssuePrefix falls back to the bd database without a config.yaml prefix', () => {
+	const dir = tempDir('beads-prefix-');
 	fs.mkdirSync(path.join(dir, '.beads'));
 	fs.writeFileSync(
 		path.join(dir, '.beads', 'config.yaml'),
 		'# issue-prefix: ""\n',
 	);
-	t.is(
+	expect(
 		readBeadsIssuePrefix(dir, root => (root === dir ? 'qa' : undefined)),
-		'qa',
-	);
+	).toBe('qa');
 });
 
-test('parseBdIssuePrefix reads plain and enveloped bd config output', t => {
-	t.is(parseBdIssuePrefix('{"key":"issue_prefix","value":"QA"}\n'), 'QA');
-	t.is(
+test('parseBdIssuePrefix reads plain and enveloped bd config output', () => {
+	expect(parseBdIssuePrefix('{"key":"issue_prefix","value":"QA"}\n')).toBe(
+		'QA',
+	);
+	expect(
 		parseBdIssuePrefix(
 			'{"schema_version":1,"data":{"key":"issue_prefix","value":"QA"}}\n',
 		),
-		'QA',
-	);
-	t.is(parseBdIssuePrefix('{"key":"issue_prefix","value":"  "}'), undefined);
-});
-
-test('readBeadsIssuePrefix asks bd only in a beads repo', t => {
-	const dir = tempDir(t, 'beads-prefix-');
-	t.is(
-		readBeadsIssuePrefix(dir, () => 'qa'),
+	).toBe('QA');
+	expect(parseBdIssuePrefix('{"key":"issue_prefix","value":"  "}')).toBe(
 		undefined,
 	);
+});
+
+test('readBeadsIssuePrefix asks bd only in a beads repo', () => {
+	const dir = tempDir('beads-prefix-');
+	expect(readBeadsIssuePrefix(dir, () => 'qa')).toBe(undefined);
 });
 
 // determineProfileForInput runs on every keystroke in the new-session prompt,
 // so this has to stay a cache hit — an uncached read puts a blocking
 // readFileSync and a YAML parse on the TUI's render path per character.
-test('readBeadsIssuePrefix parses .beads/config.yaml at most once per root', t => {
-	const dir = tempDir(t, 'beads-prefix-');
+test('readBeadsIssuePrefix parses .beads/config.yaml at most once per root', () => {
+	const dir = tempDir('beads-prefix-');
 	fs.mkdirSync(path.join(dir, '.beads'));
 	const configPath = path.join(dir, '.beads', 'config.yaml');
 	fs.writeFileSync(configPath, 'issue-prefix: first\n');
 
 	clearBeadsIssuePrefixCache();
-	t.is(readBeadsIssuePrefix(dir), 'first');
+	expect(readBeadsIssuePrefix(dir)).toBe('first');
 
 	// Rewriting on disk must not be observable: a second call that re-reads
 	// would return 'second' and fail here.
 	fs.writeFileSync(configPath, 'issue-prefix: second\n');
-	t.is(readBeadsIssuePrefix(dir), 'first');
+	expect(readBeadsIssuePrefix(dir)).toBe('first');
 
 	// The cache is keyed per root, so a different repo still resolves on its own.
-	const other = tempDir(t, 'beads-prefix-');
+	const other = tempDir('beads-prefix-');
 	fs.mkdirSync(path.join(other, '.beads'));
 	fs.writeFileSync(
 		path.join(other, '.beads', 'config.yaml'),
 		'issue-prefix: elsewhere\n',
 	);
-	t.is(readBeadsIssuePrefix(other), 'elsewhere');
-	t.is(readBeadsIssuePrefix(dir), 'first');
+	expect(readBeadsIssuePrefix(other)).toBe('elsewhere');
+	expect(readBeadsIssuePrefix(dir)).toBe('first');
 });
 
 // A repo with no beads config is the case that would otherwise re-stat a
 // missing file on every keystroke, so the negative result has to cache too.
-test('readBeadsIssuePrefix caches a missing .beads/config.yaml', t => {
-	const dir = tempDir(t, 'beads-prefix-');
+test('readBeadsIssuePrefix caches a missing .beads/config.yaml', () => {
+	const dir = tempDir('beads-prefix-');
 
 	clearBeadsIssuePrefixCache();
-	t.is(readBeadsIssuePrefix(dir), undefined);
+	expect(readBeadsIssuePrefix(dir)).toBe(undefined);
 
 	fs.mkdirSync(path.join(dir, '.beads'));
 	fs.writeFileSync(
 		path.join(dir, '.beads', 'config.yaml'),
 		'issue-prefix: x\n',
 	);
-	t.is(readBeadsIssuePrefix(dir), undefined);
+	expect(readBeadsIssuePrefix(dir)).toBe(undefined);
 });
 
-test('determineProfileForInput defers a lowercase issue key like an uppercase one', t => {
+test('determineProfileForInput defers a lowercase issue key like an uppercase one', () => {
 	// A lowercase key reaches the tracker as the same issue, so it has to reach
 	// the same profile decision — otherwise the preview and the option list the
 	// picker renders disagree about what Enter is going to do.
@@ -2973,17 +2964,16 @@ test('determineProfileForInput defers a lowercase issue key like an uppercase on
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
-	t.is(determineProfileForInput(config, 'sta-123')!.kind, 'deferred');
-	t.is(
+	expect(determineProfileForInput(config, 'sta-123')!.kind).toBe('deferred');
+	expect(
 		determineProfileForInput(
 			config,
 			'https://linear.app/acme/issue/sta-123/slug',
 		)!.kind,
-		'deferred',
-	);
+	).toBe('deferred');
 });
 
-test('determineProfileForInput marks a claimed key prefix as pickable', t => {
+test('determineProfileForInput marks a claimed key prefix as pickable', () => {
 	// Neither profile names a prefix, so both inherit the global one and both
 	// could own STA-123 — the caller should offer the choice rather than an
 	// inert label.
@@ -2995,44 +2985,44 @@ test('determineProfileForInput marks a claimed key prefix as pickable', t => {
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'STA-123');
-	t.is(info!.kind, 'deferred');
-	if (info!.kind === 'deferred') t.true(info.canPick);
+	expect(info!.kind).toBe('deferred');
+	if (info!.kind === 'deferred') expect(info.canPick).toBe(true);
 });
 
-test('determineProfileForInput leaves an unclaimed key prefix unpickable', t => {
+test('determineProfileForInput leaves an unclaimed key prefix unpickable', () => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'ZZZ-123');
-	t.is(info!.kind, 'deferred');
-	if (info!.kind === 'deferred') t.false(info.canPick);
+	expect(info!.kind).toBe('deferred');
+	if (info!.kind === 'deferred') expect(info.canPick).toBe(false);
 });
 
-test('determineProfileForInput leaves a bare number unpickable', t => {
+test('determineProfileForInput leaves a bare number unpickable', () => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
 	const info = determineProfileForInput(config, '42');
-	t.is(info!.kind, 'deferred');
-	if (info!.kind === 'deferred') t.false(info.canPick);
+	expect(info!.kind).toBe('deferred');
+	if (info!.kind === 'deferred') expect(info.canPick).toBe(false);
 });
 
-test('determineProfileForInput defers profile selection for bare issue numbers', t => {
+test('determineProfileForInput defers profile selection for bare issue numbers', () => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
 	const info = determineProfileForInput(config, '42');
-	t.truthy(info);
-	t.is(info!.kind, 'deferred');
+	expect(info).toBeTruthy();
+	expect(info!.kind).toBe('deferred');
 	if (info!.kind === 'deferred') {
-		t.is(info.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
+		expect(info.displayName).toBe(DEFERRED_PROFILE_DISPLAY_NAME);
 	}
 });
 
-test('determineProfileForInput defers profile selection for Linear URLs', t => {
+test('determineProfileForInput defers profile selection for Linear URLs', () => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
@@ -3041,14 +3031,14 @@ test('determineProfileForInput defers profile selection for Linear URLs', t => {
 		config,
 		'https://linear.app/stardust-labs/issue/STA-123/something',
 	);
-	t.truthy(info);
-	t.is(info!.kind, 'deferred');
+	expect(info).toBeTruthy();
+	expect(info!.kind).toBe('deferred');
 	if (info!.kind === 'deferred') {
-		t.is(info.displayName, DEFERRED_PROFILE_DISPLAY_NAME);
+		expect(info.displayName).toBe(DEFERRED_PROFILE_DISPLAY_NAME);
 	}
 });
 
-test('determineProfileForInput returns default profile when no keyword matches', t => {
+test('determineProfileForInput returns default profile when no keyword matches', () => {
 	const config = createConfig(
 		{
 			personal: createProfile(['personal'], 'Personal'),
@@ -3057,16 +3047,16 @@ test('determineProfileForInput returns default profile when no keyword matches',
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'random description nothing');
-	t.truthy(info);
-	t.is(info!.kind, 'resolved');
+	expect(info).toBeTruthy();
+	expect(info!.kind).toBe('resolved');
 	if (info!.kind === 'resolved') {
-		t.is(info.name, 'personal');
-		t.true(info.isDefault);
-		t.deepEqual(info.matchedKeywords, []);
+		expect(info.name).toBe('personal');
+		expect(info.isDefault).toBe(true);
+		expect(info.matchedKeywords).toStrictEqual([]);
 	}
 });
 
-test('determineProfileForInput picks the single matching profile', t => {
+test('determineProfileForInput picks the single matching profile', () => {
 	const config = createConfig(
 		{
 			personal: createProfile(['personal'], 'Personal'),
@@ -3075,15 +3065,15 @@ test('determineProfileForInput picks the single matching profile', t => {
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'upload to trotbooks');
-	t.truthy(info);
-	t.is(info!.kind, 'resolved');
+	expect(info).toBeTruthy();
+	expect(info!.kind).toBe('resolved');
 	if (info!.kind === 'resolved') {
-		t.is(info.name, 'trotbooks');
-		t.false(info.isDefault);
+		expect(info.name).toBe('trotbooks');
+		expect(info.isDefault).toBe(false);
 	}
 });
 
-test('determineProfileForInput picks highest-scoring profile on multi-match (STA-856 regression)', t => {
+test('determineProfileForInput picks highest-scoring profile on multi-match (STA-856 regression)', () => {
 	// This is the exact shape of the bug: "personal" matches 1 keyword, "trotbooks"
 	// matches 2 keywords (trotbooks + trot via prefix). The TUI sorted by score and
 	// displayed trotbooks, but idow's bash matcher used config iteration order and
@@ -3100,17 +3090,17 @@ test('determineProfileForInput picks highest-scoring profile on multi-match (STA
 		config,
 		'make it so i can upload a personal image to trotbooks',
 	);
-	t.truthy(info);
-	t.is(info!.kind, 'resolved');
+	expect(info).toBeTruthy();
+	expect(info!.kind).toBe('resolved');
 	if (info!.kind === 'resolved') {
-		t.is(info.name, 'trotbooks');
-		t.false(info.isDefault);
+		expect(info.name).toBe('trotbooks');
+		expect(info.isDefault).toBe(false);
 		// Should surface the keywords that tipped the scoring so the caller can show them.
-		t.true(info.matchedKeywords.length >= 2);
+		expect(info.matchedKeywords.length >= 2).toBe(true);
 	}
 });
 
-test('determineProfileForInput honors enforced (!) keywords', t => {
+test('determineProfileForInput honors enforced (!) keywords', () => {
 	const config = createConfig(
 		{
 			personal: createProfile(['personal'], 'Personal'),
@@ -3123,11 +3113,11 @@ test('determineProfileForInput honors enforced (!) keywords', t => {
 		config,
 		'upload a personal! image to trotbooks',
 	);
-	t.truthy(info);
-	t.is(info!.kind, 'resolved');
+	expect(info).toBeTruthy();
+	expect(info!.kind).toBe('resolved');
 	if (info!.kind === 'resolved') {
-		t.is(info.name, 'personal');
-		t.true(info.enforced);
+		expect(info.name).toBe('personal');
+		expect(info.enforced).toBe(true);
 	}
 });
 
@@ -3139,7 +3129,7 @@ test('determineProfileForInput honors enforced (!) keywords', t => {
 // rather than be re-resolved by the component.
 // ============================================================================
 
-test('determineProfileForInput carries the matched profile emoji', t => {
+test('determineProfileForInput carries the matched profile emoji', () => {
 	const config = createConfig(
 		{
 			personal: createProfile(['personal'], 'Personal'),
@@ -3148,13 +3138,13 @@ test('determineProfileForInput carries the matched profile emoji', t => {
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'fix trotbooks invoices');
-	t.is(info!.kind, 'resolved');
+	expect(info!.kind).toBe('resolved');
 	if (info!.kind === 'resolved') {
-		t.is(info.emoji, '🐎');
+		expect(info.emoji).toBe('🐎');
 	}
 });
 
-test('determineProfileForInput reserves a blank emoji slot when siblings have one', t => {
+test('determineProfileForInput reserves a blank emoji slot when siblings have one', () => {
 	const config = createConfig(
 		{
 			personal: createProfile(['personal'], 'Personal'),
@@ -3164,22 +3154,22 @@ test('determineProfileForInput reserves a blank emoji slot when siblings have on
 	);
 	const info = determineProfileForInput(config, 'personal notes');
 	if (info!.kind === 'resolved') {
-		t.is(info.emoji, '');
+		expect(info.emoji).toBe('');
 	}
 });
 
-test('determineProfileForInput leaves emoji undefined when nothing configures one', t => {
+test('determineProfileForInput leaves emoji undefined when nothing configures one', () => {
 	const config = createConfig(
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'personal notes');
 	if (info!.kind === 'resolved') {
-		t.is(info.emoji, undefined);
+		expect(info.emoji).toBe(undefined);
 	}
 });
 
-test('determineProfileForInput emoji survives the default-profile fallback', t => {
+test('determineProfileForInput emoji survives the default-profile fallback', () => {
 	const config = createConfig(
 		{
 			personal: {...createProfile(['personal'], 'Personal'), emoji: '🎸'},
@@ -3189,8 +3179,8 @@ test('determineProfileForInput emoji survives the default-profile fallback', t =
 	);
 	const info = determineProfileForInput(config, 'something unmatched');
 	if (info!.kind === 'resolved') {
-		t.true(info.isDefault);
-		t.is(info.emoji, '🎸');
+		expect(info.isDefault).toBe(true);
+		expect(info.emoji).toBe('🎸');
 	}
 });
 
@@ -3198,25 +3188,25 @@ test('determineProfileForInput emoji survives the default-profile fallback', t =
 // getStateColors Tests
 // ============================================================================
 
-test('getStateColors returns undefined when not configured', t => {
+test('getStateColors returns undefined when not configured', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
-	t.is(getStateColors(config), undefined);
+	expect(getStateColors(config)).toBe(undefined);
 });
 
-test('getStateColors returns undefined for a null config', t => {
-	t.is(getStateColors(null), undefined);
+test('getStateColors returns undefined for a null config', () => {
+	expect(getStateColors(null)).toBe(undefined);
 });
 
-test('getStateColors returns the configured map', t => {
+test('getStateColors returns the configured map', () => {
 	const config = createConfig(
 		{'test-profile': createProfile(['test'], 'Test')},
 		'test-profile',
 	);
 	config.state_colors = {'In Review': 'cyan'};
-	t.deepEqual(getStateColors(config), {'In Review': 'cyan'});
+	expect(getStateColors(config)).toStrictEqual({'In Review': 'cyan'});
 });
 
 // getListLayout — the layout defaults per tracker (beads keys are wide enough
@@ -3232,35 +3222,39 @@ const listLayoutConfig = (
 	return config;
 };
 
-test('only beads defaults to two_line', t => {
-	t.is(getListLayout(listLayoutConfig('beads')), 'two_line');
-	t.is(getListLayout(listLayoutConfig('linear')), 'single_line');
-	t.is(getListLayout(listLayoutConfig('jira')), 'single_line');
-	t.is(getListLayout(listLayoutConfig()), 'single_line');
-	t.is(getListLayout(null), 'single_line');
+test('only beads defaults to two_line', () => {
+	expect(getListLayout(listLayoutConfig('beads'))).toBe('two_line');
+	expect(getListLayout(listLayoutConfig('linear'))).toBe('single_line');
+	expect(getListLayout(listLayoutConfig('jira'))).toBe('single_line');
+	expect(getListLayout(listLayoutConfig())).toBe('single_line');
+	expect(getListLayout(null)).toBe('single_line');
 });
 
-test('an explicit list_view.layout overrides the tracker default either way', t => {
-	t.is(getListLayout(listLayoutConfig('beads', 'single_line')), 'single_line');
-	t.is(getListLayout(listLayoutConfig('linear', 'two_line')), 'two_line');
+test('an explicit list_view.layout overrides the tracker default either way', () => {
+	expect(getListLayout(listLayoutConfig('beads', 'single_line'))).toBe(
+		'single_line',
+	);
+	expect(getListLayout(listLayoutConfig('linear', 'two_line'))).toBe(
+		'two_line',
+	);
 });
 
-test('an empty list_view block leaves the tracker default standing', t => {
+test('an empty list_view block leaves the tracker default standing', () => {
 	const config = createConfig({test: createProfile(['test'], 'Test')});
 	config.issue_tracker = {provider: 'beads'};
 	config.list_view = {};
-	t.is(getListLayout(config), 'two_line');
+	expect(getListLayout(config)).toBe('two_line');
 });
 
-test('getPaneWidths maps layout keys onto the three panes', t => {
+test('getPaneWidths maps layout keys onto the three panes', () => {
 	const config = createConfig({test: createProfile(['test'], 'Test')});
 	config.layout = {rail_width: '10%', claude_width: '45%', companion_width: 70};
-	t.deepEqual(getPaneWidths(config), {
+	expect(getPaneWidths(config)).toStrictEqual({
 		rail: '10%',
 		claude: '45%',
 		companion: 70,
 	});
-	t.deepEqual(getPaneWidths(null), {
+	expect(getPaneWidths(null)).toStrictEqual({
 		rail: undefined,
 		claude: undefined,
 		companion: undefined,
@@ -3271,31 +3265,31 @@ test('getPaneWidths maps layout keys onto the three panes', t => {
 // issue_watchlist max_workspaces Validation Tests (STE-25)
 // ============================================================================
 
-test('getResolvedWatchlists keeps max_workspaces on an auto-scoped profile watchlist', t => {
+test('getResolvedWatchlists keeps max_workspaces on an auto-scoped profile watchlist', () => {
 	const chaz: Profile = {
 		display_name: 'Charlie Personal',
 		team_prefix: 'CHAZ',
 		issue_watchlist: {statuses: ['For Pappardelle'], max_workspaces: 3},
 	};
 	const resolved = getResolvedWatchlists(createConfig({chaz}, 'chaz'));
-	t.deepEqual(resolved[0]!.watchlist.key_prefixes, ['CHAZ']);
-	t.is(resolved[0]!.watchlist.max_workspaces, 3);
+	expect(resolved[0]!.watchlist.key_prefixes).toStrictEqual(['CHAZ']);
+	expect(resolved[0]!.watchlist.max_workspaces).toBe(3);
 });
 
 // ============================================================================
 // initialization_command — rename + deprecated fallback
 // ============================================================================
 
-test('getInitializationCommand prefers the new top-level key', t => {
+test('getInitializationCommand prefers the new top-level key', () => {
 	const config = createConfig({test: createProfile(['test'], 'Test')});
 	config.initialization_command = '/new';
-	t.is(getInitializationCommand(config), '/new');
+	expect(getInitializationCommand(config)).toBe('/new');
 });
 
-test('getInitializationCommand falls back to the deprecated claude spelling', t => {
+test('getInitializationCommand falls back to the deprecated claude spelling', () => {
 	const config = createConfig({test: createProfile(['test'], 'Test')});
 	config.claude = {initialization_command: '/old'};
-	t.is(getInitializationCommand(config), '/old');
+	expect(getInitializationCommand(config)).toBe('/old');
 });
 
 // ============================================================================
@@ -3312,9 +3306,9 @@ function agentProfileTestConfig(
 	return {...config, ...overrides};
 }
 
-test('getAgentProfile defaults to the built-in claude agent profile', t => {
+test('getAgentProfile defaults to the built-in claude agent profile', () => {
 	const agentProfile = getAgentProfile(agentProfileTestConfig());
-	t.deepEqual(agentProfile, {
+	expect(agentProfile).toStrictEqual({
 		name: 'claude',
 		command: 'claude',
 		args: '',
@@ -3331,52 +3325,54 @@ test('getAgentProfile defaults to the built-in claude agent profile', t => {
 	});
 });
 
-test('getAgentProfile trims the trailing newline of a YAML block scalar', t => {
+test('getAgentProfile trims the trailing newline of a YAML block scalar', () => {
 	const config = agentProfileTestConfig({
 		agent_profile: 'codex',
 		agent_profiles: {
 			codex: {command: 'codex\n', args: '--yolo\n', model: 'gpt-5.5\n'},
 		},
 	});
-	t.like(getAgentProfile(config), {command: 'codex', args: '--yolo'});
-	t.is(getAgentProfile(config).model, 'gpt-5.5');
+	expect(getAgentProfile(config)).toMatchObject({
+		command: 'codex',
+		args: '--yolo',
+	});
+	expect(getAgentProfile(config).model).toBe('gpt-5.5');
 });
 
-test('listAgentProfiles labels each agent profile with its config files', t => {
-	t.deepEqual(
+test('listAgentProfiles labels each agent profile with its config files', () => {
+	expect(
 		listAgentProfiles(
 			agentProfileTestConfig({
 				agent_profiles: {codex: {command: 'codex'}, aider: {command: 'aider'}},
 			}),
 			{codex: ['.pappardelle.local.yml', '~/.pappardelle/.pappardelle.yml']},
 		),
-		[
-			{name: 'claude', source: 'built-in'},
-			{
-				name: 'codex',
-				source: '.pappardelle.local.yml + ~/.pappardelle/.pappardelle.yml',
-			},
-			{name: 'aider', source: 'built-in'},
-		],
-	);
+	).toStrictEqual([
+		{name: 'claude', source: 'built-in'},
+		{
+			name: 'codex',
+			source: '.pappardelle.local.yml + ~/.pappardelle/.pappardelle.yml',
+		},
+		{name: 'aider', source: 'built-in'},
+	]);
 });
 
-test('checkAgentProfile knows the built-in claude and every configured agent profile, and lists them all for any other name', t => {
+test('checkAgentProfile knows the built-in claude and every configured agent profile, and lists them all for any other name', () => {
 	const config = agentProfileTestConfig({
 		agent_profiles: {'antigravity-neon:high': {command: 'agy'}},
 	});
-	t.deepEqual(checkAgentProfile(config, 'claude'), {kind: 'known'});
-	t.deepEqual(checkAgentProfile(config, 'antigravity-neon:high'), {
+	expect(checkAgentProfile(config, 'claude')).toStrictEqual({kind: 'known'});
+	expect(checkAgentProfile(config, 'antigravity-neon:high')).toStrictEqual({
 		kind: 'known',
 	});
-	t.deepEqual(checkAgentProfile(config, 'antigravity-neon'), {
+	expect(checkAgentProfile(config, 'antigravity-neon')).toStrictEqual({
 		kind: 'unknown',
 		names: ['claude', 'antigravity-neon:high'],
 	});
 });
 
-test('listAgentProfiles keeps a shadowing claude where it was declared', t => {
-	t.deepEqual(
+test('listAgentProfiles keeps a shadowing claude where it was declared', () => {
+	expect(
 		listAgentProfiles(
 			agentProfileTestConfig({
 				agent_profiles: {
@@ -3386,14 +3382,13 @@ test('listAgentProfiles keeps a shadowing claude where it was declared', t => {
 			}),
 			{codex: ['.pappardelle.yml'], claude: ['.pappardelle.yml']},
 		),
-		[
-			{name: 'codex', source: '.pappardelle.yml'},
-			{name: 'claude', source: '.pappardelle.yml'},
-		],
-	);
+	).toStrictEqual([
+		{name: 'codex', source: '.pappardelle.yml'},
+		{name: 'claude', source: '.pappardelle.yml'},
+	]);
 });
 
-test('loadAgentProfileSources names every layer that defines an agent profile, the winning one first', t => {
+test('loadAgentProfileSources names every layer that defines an agent profile, the winning one first', () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-sources-'));
 	const write = (file: string, content: string) => {
 		fs.mkdirSync(path.dirname(path.join(dir, file)), {recursive: true});
@@ -3413,22 +3408,21 @@ test('loadAgentProfileSources names every layer that defines an agent profile, t
 		'agent_profiles:\n  codex:\n    model: gpt-5.5\n',
 	);
 	try {
-		t.deepEqual(
+		expect(
 			loadAgentProfileSources({
 				homeConfigDir: path.join(dir, 'home'),
 				projectDir: path.join(dir, 'project'),
 			}),
-			{
-				codex: ['.pappardelle.local.yml', '~/.pappardelle/.pappardelle.yml'],
-				opus: ['.pappardelle.yml'],
-			},
-		);
+		).toStrictEqual({
+			codex: ['.pappardelle.local.yml', '~/.pappardelle/.pappardelle.yml'],
+			opus: ['.pappardelle.yml'],
+		});
 	} finally {
 		fs.rmSync(dir, {recursive: true, force: true});
 	}
 });
 
-test('getAgentProfile resolves a top-level agent_profile reference', t => {
+test('getAgentProfile resolves a top-level agent_profile reference', () => {
 	const agentProfile = getAgentProfile(
 		agentProfileTestConfig({
 			agent_profiles: {
@@ -3437,76 +3431,76 @@ test('getAgentProfile resolves a top-level agent_profile reference', t => {
 			agent_profile: 'codex',
 		}),
 	);
-	t.is(agentProfile.command, 'codex');
-	t.is(agentProfile.args, '--yolo');
-	t.is(agentProfile.resumeArgs, 'resume --last');
-	t.false(agentProfile.isClaude);
+	expect(agentProfile.command).toBe('codex');
+	expect(agentProfile.args).toBe('--yolo');
+	expect(agentProfile.resumeArgs).toBe('resume --last');
+	expect(agentProfile.isClaude).toBe(false);
 });
 
-test('getAgentProfile resolves a per-profile reference via issue title', t => {
+test('getAgentProfile resolves a per-profile reference via issue title', () => {
 	const config = agentProfileTestConfig({
 		agent_profiles: {codex: {command: 'codex'}},
 	});
 	config.profiles['codexy']!.agent_profile = 'codex';
-	t.is(getAgentProfile(config, 'codexwork thing').command, 'codex');
-	t.is(getAgentProfile(config, 'plainwork thing').command, 'claude');
-	t.is(getAgentProfile(config).command, 'claude');
+	expect(getAgentProfile(config, 'codexwork thing').command).toBe('codex');
+	expect(getAgentProfile(config, 'plainwork thing').command).toBe('claude');
+	expect(getAgentProfile(config).command).toBe('claude');
 });
 
-test('getAgentProfile: profile agent_profile "" clears an inherited reference back to claude', t => {
+test('getAgentProfile: profile agent_profile "" clears an inherited reference back to claude', () => {
 	const config = agentProfileTestConfig({
 		agent_profiles: {codex: {command: 'codex'}},
 		agent_profile: 'codex',
 	});
 	config.profiles['plain']!.agent_profile = '';
-	t.is(getAgentProfile(config, 'plainwork thing').command, 'claude');
-	t.is(getAgentProfile(config, 'codexwork thing').command, 'codex');
+	expect(getAgentProfile(config, 'plainwork thing').command).toBe('claude');
+	expect(getAgentProfile(config, 'codexwork thing').command).toBe('codex');
 });
 
-test('getAgentProfile: shadowed agent_profiles.claude keeps claude gating', t => {
+test('getAgentProfile: shadowed agent_profiles.claude keeps claude gating', () => {
 	const agentProfile = getAgentProfile(
 		agentProfileTestConfig({
 			agent_profiles: {claude: {command: 'claude', args: '--verbose'}},
 		}),
 	);
-	t.is(agentProfile.args, '--verbose');
-	t.true(agentProfile.isClaude);
-	t.is(agentProfile.resumeArgs, '--resume {session_id}');
+	expect(agentProfile.args).toBe('--verbose');
+	expect(agentProfile.isClaude).toBe(true);
+	expect(agentProfile.resumeArgs).toBe('--resume {session_id}');
 });
 
-test('getAgentProfile: an agent without built-in defaults or resume_args gets no resume', t => {
+test('getAgentProfile: an agent without built-in defaults or resume_args gets no resume', () => {
 	const agentProfile = getAgentProfile(
 		agentProfileTestConfig({
 			agent_profiles: {aider: {command: 'aider'}},
 			agent_profile: 'aider',
 		}),
 	);
-	t.is(agentProfile.resumeArgs, undefined);
+	expect(agentProfile.resumeArgs).toBe(undefined);
 });
 
-test('getAgentProfile: is_claude true forces claude treatment for a wrapper', t => {
+test('getAgentProfile: is_claude true forces claude treatment for a wrapper', () => {
 	const agentProfile = getAgentProfile(
 		agentProfileTestConfig({
 			agent_profiles: {local: {command: 'claude-local', is_claude: true}},
 			agent_profile: 'local',
 		}),
 	);
-	t.true(agentProfile.isClaude);
-	t.is(agentProfile.resumeArgs, '--resume {session_id}');
+	expect(agentProfile.isClaude).toBe(true);
+	expect(agentProfile.resumeArgs).toBe('--resume {session_id}');
 });
 
-test('getAgentProfile: is_claude false suppresses claude treatment', t => {
+test('getAgentProfile: is_claude false suppresses claude treatment', () => {
 	const agentProfile = getAgentProfile(
 		agentProfileTestConfig({
 			agent_profiles: {sneaky: {command: 'claude', is_claude: false}},
 			agent_profile: 'sneaky',
 		}),
 	);
-	t.false(agentProfile.isClaude);
-	t.is(agentProfile.resumeArgs, undefined);
+	expect(agentProfile.isClaude).toBe(false);
+	expect(agentProfile.resumeArgs).toBe(undefined);
 });
 
-test('getAgentProfile: empty resume_args means no resume attempt', t => {
+test('getAgentProfile: empty resume_args means no resume attempt', () => {
 	// '' must behave like the bash resolvers' empty value (launch directly),
 	// not slip through into a malformed `base  || … || base` chain.
 	const codex = getAgentProfile(
@@ -3515,7 +3509,7 @@ test('getAgentProfile: empty resume_args means no resume attempt', t => {
 			agent_profile: 'codex',
 		}),
 	);
-	t.is(codex.resumeArgs, undefined);
+	expect(codex.resumeArgs).toBe(undefined);
 
 	// Even for claude: an explicit '' opts out of the resume default.
 	const claude = getAgentProfile(
@@ -3523,49 +3517,61 @@ test('getAgentProfile: empty resume_args means no resume attempt', t => {
 			agent_profiles: {claude: {command: 'claude', resume_args: ''}},
 		}),
 	);
-	t.is(claude.resumeArgs, undefined);
+	expect(claude.resumeArgs).toBe(undefined);
 });
 
-test('getAgentProfile: persisted profile name wins over title matching', t => {
+test('getAgentProfile: persisted profile name wins over title matching', () => {
 	const config = agentProfileTestConfig({
 		agent_profiles: {codex: {command: 'codex'}},
 	});
 	config.profiles['codexy']!.agent_profile = 'codex';
 	// Title has no profile keyword — the persisted profile still selects codex.
-	t.is(getAgentProfile(config, 'Fix parser bug', 'codexy').command, 'codex');
+	expect(getAgentProfile(config, 'Fix parser bug', 'codexy').command).toBe(
+		'codex',
+	);
 	// Persisted name beats a conflicting keyword match.
-	t.is(getAgentProfile(config, 'plainwork thing', 'codexy').command, 'codex');
+	expect(getAgentProfile(config, 'plainwork thing', 'codexy').command).toBe(
+		'codex',
+	);
 	// A stale name that no longer exists falls back to title matching.
-	t.is(getAgentProfile(config, 'codexwork thing', 'deleted').command, 'codex');
-	t.is(getAgentProfile(config, 'Fix parser bug', 'deleted').command, 'claude');
+	expect(getAgentProfile(config, 'codexwork thing', 'deleted').command).toBe(
+		'codex',
+	);
+	expect(getAgentProfile(config, 'Fix parser bug', 'deleted').command).toBe(
+		'claude',
+	);
 });
 
-test('launch fields and companion resolve via the persisted profile name', t => {
+test('launch fields and companion resolve via the persisted profile name', () => {
 	const config = agentProfileTestConfig();
 	config.profiles['codexy']!.claude = {model: 'sonnet'};
 	config.profiles['codexy']!.companion_command = 'lazygit';
-	t.is(getAgentProfile(config, 'Fix parser bug', 'codexy').model, 'sonnet');
-	t.is(getCompanionCommand(config, 'Fix parser bug', 'codexy'), 'lazygit');
+	expect(getAgentProfile(config, 'Fix parser bug', 'codexy').model).toBe(
+		'sonnet',
+	);
+	expect(getCompanionCommand(config, 'Fix parser bug', 'codexy')).toBe(
+		'lazygit',
+	);
 	// Stale persisted name → title match → top-level defaults.
-	t.is(getAgentProfile(config, 'Fix parser bug', 'deleted').model, '');
+	expect(getAgentProfile(config, 'Fix parser bug', 'deleted').model).toBe('');
 });
 
 // ============================================================================
 // Agent profiles — model and effort
 // ============================================================================
 
-test('getAgentProfile gives codex its built-in model and effort flags', t => {
+test('getAgentProfile gives codex its built-in model and effort flags', () => {
 	const agentProfile = getAgentProfile(
 		agentProfileTestConfig({
 			agent_profile: 'codex',
 			agent_profiles: {codex: {command: '/opt/bin/codex'}},
 		}),
 	);
-	t.is(agentProfile.modelArgs, '-m {model}');
-	t.is(agentProfile.effortArgs, '-c model_reasoning_effort={effort}');
+	expect(agentProfile.modelArgs).toBe('-m {model}');
+	expect(agentProfile.effortArgs).toBe('-c model_reasoning_effort={effort}');
 });
 
-test('codex runs skills with $ and other agents with /, unless the agent profile says otherwise', t => {
+test('codex runs skills with $ and other agents with /, unless the agent profile says otherwise', () => {
 	const skillPrefix = (agentProfile: string) =>
 		getAgentProfile(
 			agentProfileTestConfig({
@@ -3577,13 +3583,13 @@ test('codex runs skills with $ and other agents with /, unless the agent profile
 				},
 			}),
 		).skillPrefix;
-	t.is(skillPrefix('codex'), '$');
-	t.is(skillPrefix('claude'), '/');
-	t.is(skillPrefix('aider'), '/');
-	t.is(skillPrefix('wrapped'), '!');
+	expect(skillPrefix('codex')).toBe('$');
+	expect(skillPrefix('claude')).toBe('/');
+	expect(skillPrefix('aider')).toBe('/');
+	expect(skillPrefix('wrapped')).toBe('!');
 });
 
-test('getAgentProfile prefers configured flag templates over the built-in ones', t => {
+test('getAgentProfile prefers configured flag templates over the built-in ones', () => {
 	const agentProfile = getAgentProfile(
 		agentProfileTestConfig({
 			agent_profile: 'codex',
@@ -3592,32 +3598,32 @@ test('getAgentProfile prefers configured flag templates over the built-in ones',
 			},
 		}),
 	);
-	t.is(agentProfile.modelArgs, '--model={model}');
-	t.is(agentProfile.effortArgs, '-c model_reasoning_effort={effort}');
+	expect(agentProfile.modelArgs).toBe('--model={model}');
+	expect(agentProfile.effortArgs).toBe('-c model_reasoning_effort={effort}');
 });
 
-test('getAgentProfile gives other CLIs no model or effort flags', t => {
+test('getAgentProfile gives other CLIs no model or effort flags', () => {
 	const agentProfile = getAgentProfile(
 		agentProfileTestConfig({
 			agent_profile: 'aider',
 			agent_profiles: {aider: {command: 'aider'}},
 		}),
 	);
-	t.is(agentProfile.modelArgs, undefined);
-	t.is(agentProfile.effortArgs, undefined);
+	expect(agentProfile.modelArgs).toBe(undefined);
+	expect(agentProfile.effortArgs).toBe(undefined);
 });
 
-test("an agent profile's own model and effort beat the deprecated claude block", t => {
+test("an agent profile's own model and effort beat the deprecated claude block", () => {
 	const config = agentProfileTestConfig({
 		claude: {model: 'sonnet', effort: 'low'},
 		agent_profile: 'opus',
 		agent_profiles: {opus: {command: 'claude', model: 'opus', effort: 'max'}},
 	});
-	t.is(getAgentProfile(config).model, 'opus');
-	t.is(getAgentProfile(config).effort, 'max');
+	expect(getAgentProfile(config).model).toBe('opus');
+	expect(getAgentProfile(config).effort).toBe('max');
 });
 
-test('a claude agent profile without its own model falls back to the claude block', t => {
+test('a claude agent profile without its own model falls back to the claude block', () => {
 	const config = agentProfileTestConfig({
 		claude: {model: 'sonnet', effort: 'low'},
 		agent_profile: 'mine',
@@ -3629,43 +3635,45 @@ test('a claude agent profile without its own model falls back to the claude bloc
 			},
 		},
 	});
-	t.is(getAgentProfile(config).model, 'sonnet');
-	t.is(getAgentProfile(config, 'codexwork').model, 'haiku');
-	t.is(getAgentProfile(config).effort, 'high');
+	expect(getAgentProfile(config).model).toBe('sonnet');
+	expect(getAgentProfile(config, 'codexwork').model).toBe('haiku');
+	expect(getAgentProfile(config).effort).toBe('high');
 });
 
-test('a non-claude agent profile never reads the claude block', t => {
+test('a non-claude agent profile never reads the claude block', () => {
 	const config = agentProfileTestConfig({
 		claude: {model: 'sonnet', effort: 'low'},
 		agent_profile: 'codex',
 		agent_profiles: {codex: {command: 'codex'}},
 	});
-	t.is(getAgentProfile(config).model, '');
-	t.is(getAgentProfile(config).effort, '');
+	expect(getAgentProfile(config).model).toBe('');
+	expect(getAgentProfile(config).effort).toBe('');
 });
 
-test("an agent profile's empty model clears the claude block's", t => {
+test("an agent profile's empty model clears the claude block's", () => {
 	const config = agentProfileTestConfig({
 		claude: {model: 'sonnet'},
 		agent_profile: 'plain-claude',
 		agent_profiles: {'plain-claude': {command: 'claude', model: ''}},
 	});
-	t.is(getAgentProfile(config).model, '');
+	expect(getAgentProfile(config).model).toBe('');
 });
 
-test('a config file with broken YAML is reported with the file and line', t => {
-	const error = t.throws(
+test('a config file with broken YAML is reported with the file and line', () => {
+	const error = thrownBy(
 		() =>
 			parseConfigLayer(
 				'.pappardelle.yml',
 				'claude:\n  model: opus\n   extra: x\n',
 			),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.regex(error!.errors[0]!, /^\.pappardelle\.yml: .*at line \d+, column \d+/);
+	expect(error!.errors[0]!).toMatch(
+		/^\.pappardelle\.yml: .*at line \d+, column \d+/,
+	);
 });
 
-test('YAML merge keys resolve in a config file', t => {
+test('YAML merge keys resolve in a config file', () => {
 	const layer = parseConfigLayer(
 		'.pappardelle.yml',
 		[
@@ -3678,67 +3686,67 @@ test('YAML merge keys resolve in a config file', t => {
 			'    team_prefix: API',
 		].join('\n'),
 	);
-	t.deepEqual((layer!['profiles'] as Record<string, unknown>)['api'], {
+	expect((layer!['profiles'] as Record<string, unknown>)['api']).toStrictEqual({
 		vcs_label: 'Backend',
 		team_prefix: 'API',
 	});
 });
 
-test('an unknown YAML tag in a config file is reported with the file and line', t => {
-	const error = t.throws(
+test('an unknown YAML tag in a config file is reported with the file and line', () => {
+	const error = thrownBy(
 		() => parseConfigLayer('.pappardelle.local.yml', 'a: 1\nemoji: !foo bar\n'),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.is(error!.errors.length, 1);
-	t.regex(
-		error!.errors[0]!,
+	expect(error!.errors.length).toBe(1);
+	expect(error!.errors[0]!).toMatch(
 		/^\.pappardelle\.local\.yml: Unresolved tag: !foo at line 2, column \d+/,
 	);
 });
 
-test('an undefined YAML alias in a config file is reported with the file', t => {
-	const error = t.throws(
+test('an undefined YAML alias in a config file is reported with the file', () => {
+	const error = thrownBy(
 		() => parseConfigLayer('.pappardelle.yml', 'emoji: *nope\n'),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.regex(error!.errors[0]!, /^\.pappardelle\.yml: .*nope/);
+	expect(error!.errors[0]!).toMatch(/^\.pappardelle\.yml: .*nope/);
 });
 
 // ============================================================================
 // list_view.group_by / list_view.groups
 // ============================================================================
 
-test('grouping is off unless list_view.group_by is status', t => {
+test('grouping is off unless list_view.group_by is status', () => {
 	const config = {version: 1, profiles: {}} as unknown as PappardelleConfig;
-	t.false(isRailGroupedByStatus(config));
+	expect(isRailGroupedByStatus(config)).toBe(false);
 	config.list_view = {group_by: 'status'};
-	t.true(isRailGroupedByStatus(config));
-	t.true(
+	expect(isRailGroupedByStatus(config)).toBe(true);
+	expect(
 		validateListView({group_by: 'priority'}).includes(
 			'list_view.group_by: must be "status"',
 		),
-	);
+	).toBe(true);
 });
 
-test('getRailGroups falls back to the default groups', t => {
-	t.deepEqual(
-		getRailGroups(null).map(group => group.name),
-		['In Progress', 'In Review', 'Done'],
-	);
+test('getRailGroups falls back to the default groups', () => {
+	expect(getRailGroups(null).map(group => group.name)).toStrictEqual([
+		'In Progress',
+		'In Review',
+		'Done',
+	]);
 });
 
 // ============================================================================
 // sous_chef_key
 // ============================================================================
 
-test('getSousChefKey defaults to M-s, also when the config failed to load', t => {
+test('getSousChefKey defaults to M-s, also when the config failed to load', () => {
 	const config = {version: 1, profiles: {}} as unknown as PappardelleConfig;
-	t.is(getSousChefKey(config), 'M-s');
-	t.is(getSousChefKey(null), 'M-s');
+	expect(getSousChefKey(config)).toBe('M-s');
+	expect(getSousChefKey(null)).toBe('M-s');
 });
 
-test('getSousChefKey returns the configured key, and null when turned off', t => {
+test('getSousChefKey returns the configured key, and null when turned off', () => {
 	const base = {version: 1, profiles: {}} as unknown as PappardelleConfig;
-	t.is(getSousChefKey({...base, sous_chef_key: 'M-j'}), 'M-j');
-	t.is(getSousChefKey({...base, sous_chef_key: false}), null);
+	expect(getSousChefKey({...base, sous_chef_key: 'M-j'})).toBe('M-j');
+	expect(getSousChefKey({...base, sous_chef_key: false})).toBe(null);
 });

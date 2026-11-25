@@ -3,7 +3,7 @@
  * Local verification of createComment on Linear and Jira providers.
  * Posts a test comment, verifies success, then notes it for manual cleanup.
  *
- * NOT an ava test — run manually with `bun integration-tests/verify-comments.ts`
+ * NOT a unit test — run manually with `bun integration-tests/verify-comments.ts`
  *
  * Env vars:
  *   LINEAR_ISSUE    — Linear issue to comment on (default: STA-683)

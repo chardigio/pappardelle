@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import React from 'react';
 import {TextAttributes} from '@opentui/core';
 import {render} from '../../test/helpers/render.ts';
@@ -21,7 +21,7 @@ const space = (kind: 'permission' | 'question'): SpaceData => ({
 	},
 });
 
-test('a blocked row keeps its text distinguishable from the blink block', async t => {
+test('a blocked row keeps its text distinguishable from the blink block', async () => {
 	for (const kind of ['permission', 'question'] as const) {
 		for (const isSelected of [false, true]) {
 			const view = await render(
@@ -36,19 +36,21 @@ test('a blocked row keeps its text distinguishable from the blink block', async 
 			const row = view.captureSpans().lines[0]!.spans;
 			await view.unmount();
 			const text = row.map(span => span.text).join('');
-			t.true(text.includes('PAP-1'), `Rendered row: ${text}`);
+			expect(text.includes('PAP-1'), `Rendered row: ${text}`).toBe(true);
 			// Cells are encoded as stored: SGR 7 plus this fg and bg. The terminal
 			// swaps them into a palette-colored block with text in its own
 			// background color.
 			const slot = kind === 'question' ? 4 : 1;
 			for (const span of row) {
 				const label = `${kind}, selected=${isSelected}: "${span.text}"`;
-				t.false(span.fg.equals(span.bg), label);
+				expect(span.fg.equals(span.bg), label).toBe(false);
 				// eslint-disable-next-line no-bitwise
-				t.true((span.attributes & TextAttributes.INVERSE) !== 0, label);
-				t.is(span.fg.intent, 'indexed', label);
-				t.is(span.fg.slot, slot, label);
-				t.is(span.bg.intent, 'default', label);
+				expect((span.attributes & TextAttributes.INVERSE) !== 0, label).toBe(
+					true,
+				);
+				expect(span.fg.intent, label).toBe('indexed');
+				expect(span.fg.slot, label).toBe(slot);
+				expect(span.bg.intent, label).toBe('default');
 			}
 		}
 	}

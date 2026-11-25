@@ -1,8 +1,10 @@
 import {setImmediate as nextTurn} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {unreachable} from '../test/helpers/unreachable.ts';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
 
-test('manual, automatic, and bulk requests share one close, while other workspaces can close', async t => {
+test('manual, automatic, and bulk requests share one close, while other workspaces can close', async () => {
 	const tasks = new WorkspaceCloseTasks();
 	let finish = (_result: boolean) => {};
 	let calls = 0;
@@ -13,29 +15,29 @@ test('manual, automatic, and bulk requests share one close, while other workspac
 		});
 	});
 	const duplicate = tasks.run('A', async () => {
-		t.fail('duplicate deinit');
+		unreachable('duplicate deinit');
 		return false;
 	});
-	t.true(await tasks.run('B', async () => true));
+	expect(await tasks.run('B', async () => true)).toBe(true);
 	await nextTurn();
-	t.is(calls, 1);
+	expect(calls).toBe(1);
 	finish(false);
-	t.false(await first);
-	t.false(await duplicate);
-	t.true(await tasks.run('A', async () => true));
+	expect(await first).toBe(false);
+	expect(await duplicate).toBe(false);
+	expect(await tasks.run('A', async () => true)).toBe(true);
 });
 
-test('a rejected close can be retried', async t => {
+test('a rejected close can be retried', async () => {
 	const tasks = new WorkspaceCloseTasks();
-	await t.throwsAsync(
+	await rejectionOf(
 		tasks.run('A', async () => {
 			throw new Error('failed');
 		}),
 	);
-	t.true(await tasks.run('A', async () => true));
+	expect(await tasks.run('A', async () => true)).toBe(true);
 });
 
-test('a close is running from when it is asked for until it has returned or thrown', async t => {
+test('a close is running from when it is asked for until it has returned or thrown', async () => {
 	const tasks = new WorkspaceCloseTasks();
 	let finish = (_result: boolean) => {};
 	const close = tasks.run(
@@ -45,18 +47,18 @@ test('a close is running from when it is asked for until it has returned or thro
 				finish = resolve;
 			}),
 	);
-	t.true(tasks.has('A'));
-	t.false(tasks.has('B'));
+	expect(tasks.has('A')).toBe(true);
+	expect(tasks.has('B')).toBe(false);
 	await nextTurn();
-	t.true(tasks.has('A'));
+	expect(tasks.has('A')).toBe(true);
 	finish(true);
 	await close;
-	t.false(tasks.has('A'));
+	expect(tasks.has('A')).toBe(false);
 
 	const failing = tasks.run('A', async () => {
 		throw new Error('failed');
 	});
-	t.true(tasks.has('A'));
-	await t.throwsAsync(failing);
-	t.false(tasks.has('A'));
+	expect(tasks.has('A')).toBe(true);
+	await rejectionOf(failing);
+	expect(tasks.has('A')).toBe(false);
 });

@@ -1,8 +1,8 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import type {SpaceData} from './types.ts';
 import {applyStatusUpdates} from './workspace-status.ts';
 
-test('status batches preserve identity for unchanged rows and ignore other repositories', t => {
+test('status batches preserve identity for unchanged rows and ignore other repositories', () => {
 	const spaces: SpaceData[] = [
 		{
 			name: 'main',
@@ -12,7 +12,7 @@ test('status batches preserve identity for unchanged rows and ignore other repos
 		},
 		{name: 'STA-1', worktreePath: null, programStatus: {status: 'idle'}},
 	];
-	t.is(
+	expect(
 		applyStatusUpdates(
 			spaces,
 			new Map([
@@ -21,20 +21,19 @@ test('status batches preserve identity for unchanged rows and ignore other repos
 				['other-main', {status: 'error'}],
 			]),
 		),
-		spaces,
-	);
+	).toBe(spaces);
 	const updated = applyStatusUpdates(
 		spaces,
 		new Map([['repo-main', {status: 'blocked', tool: 'AskUserQuestion'}]]),
 	);
-	t.not(updated, spaces);
-	t.is(updated[1], spaces[1]);
-	t.is(updated[0]?.programStatus?.tool, 'AskUserQuestion');
-	t.is(spaces[0]?.programStatus?.status, 'working');
+	expect(updated).not.toBe(spaces);
+	expect(updated[1]).toBe(spaces[1]);
+	expect(updated[0]?.programStatus?.tool).toBe('AskUserQuestion');
+	expect(spaces[0]?.programStatus?.status).toBe('working');
 	const cleared = applyStatusUpdates(
 		updated,
 		new Map([['repo-main', {status: 'blocked'}]]),
 	);
-	t.is(cleared[0]?.programStatus?.tool, undefined);
-	t.not(cleared[0], updated[0]);
+	expect(cleared[0]?.programStatus?.tool).toBe(undefined);
+	expect(cleared[0]).not.toBe(updated[0]);
 });

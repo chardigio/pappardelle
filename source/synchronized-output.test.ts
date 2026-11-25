@@ -20,7 +20,8 @@ import {tmpdir} from 'node:os';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {
 	SYNC_TERMINAL_FEATURE,
 	enableInnerSynchronizedOutput,
@@ -31,97 +32,93 @@ const exec = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMUX_SOURCE = readFileSync(join(__dirname, 'tmux.ts'), 'utf-8');
 
-test('appends rather than assigns, so user-configured features survive', t => {
+test('appends rather than assigns, so user-configured features survive', () => {
 	// `set -g` would replace the whole option and silently drop whatever the
 	// user configured in ~/.tmux.conf. `-a` with a leading comma is tmux's
 	// documented way to add an array entry instead of concatenating onto the
 	// last one.
 	const [command, flag, , whenPresent, whenAbsent] = synchronizedOutputArgs();
-	t.deepEqual([command, flag], ['if-shell', '-F']);
-	t.is(whenPresent, '');
-	t.is(
-		whenAbsent,
+	expect([command, flag]).toStrictEqual(['if-shell', '-F']);
+	expect(whenPresent).toBe('');
+	expect(whenAbsent).toBe(
 		`set-option -ga terminal-features ',${SYNC_TERMINAL_FEATURE}'`,
 	);
 });
 
-test('the inner-socket call keeps the -L flag', async t => {
+test('the inner-socket call keeps the -L flag', async () => {
 	const calls: string[][] = [];
 	await enableInnerSynchronizedOutput(async args => {
 		calls.push(args);
 		return '';
 	});
 
-	t.deepEqual(calls, [
+	expect(calls).toStrictEqual([
 		['-L', 'pappardelle_inner', ...synchronizedOutputArgs()],
 	]);
 });
 
-test('a failing tmux never breaks layout setup', async t => {
+test('a failing tmux never breaks layout setup', async () => {
 	// This runs inside setupPappardellLayout. Synchronized output is a rendering
 	// nicety; an old tmux that rejects the option must not cost the user their
 	// panes.
-	await t.notThrowsAsync(
-		enableInnerSynchronizedOutput(async () => {
+	expect(
+		await enableInnerSynchronizedOutput(async () => {
 			throw new Error('tmux not found');
 		}),
-	);
+	).toBeUndefined();
 });
 
-test.serial(
-	'real tmux adds the feature once, and only a whole entry counts as present',
-	async t => {
-		// `terminal-features` is server-scope, so an unguarded append piles on
-		// another copy with every launch against a long-lived server: 19 `*:Sync`
-		// entries were observed on a live pappardelle_inner socket. `*:Sync` must
-		// match a whole array entry, because `foo*:Sync` is the same feature on a
-		// different terminal pattern.
-		try {
-			await exec('tmux', ['-V']);
-		} catch {
-			t.pass('tmux unavailable');
-			return;
-		}
+test('real tmux adds the feature once, and only a whole entry counts as present', async () => {
+	// `terminal-features` is server-scope, so an unguarded append piles on
+	// another copy with every launch against a long-lived server: 19 `*:Sync`
+	// entries were observed on a live pappardelle_inner socket. `*:Sync` must
+	// match a whole array entry, because `foo*:Sync` is the same feature on a
+	// different terminal pattern.
+	try {
+		await exec('tmux', ['-V']);
+	} catch {
+		expect().pass('tmux unavailable');
+		return;
+	}
 
-		const dir = mkdtempSync(join(tmpdir(), 'papp-sync-'));
-		const socket = join(dir, 'server');
-		const run = async (args: string[]) => {
-			const {stdout} = await exec('tmux', ['-S', socket, ...args], {
-				env: {...process.env, TMUX: ''},
-				timeout: 5000,
-			});
-			return stdout;
-		};
-		t.teardown(async () => {
-			try {
-				await exec('tmux', ['-S', socket, 'kill-server']);
-			} catch {}
-
-			rmSync(dir, {recursive: true, force: true});
+	const dir = mkdtempSync(join(tmpdir(), 'papp-sync-'));
+	const socket = join(dir, 'server');
+	const run = async (args: string[]) => {
+		const {stdout} = await exec('tmux', ['-S', socket, ...args], {
+			env: {...process.env, TMUX: ''},
+			timeout: 5000,
 		});
-		await run(['-f', '/dev/null', 'new-session', '-d', '-s', 'fixture']);
-		await run([
-			'set-option',
-			'-ga',
-			'terminal-features',
-			',xterm*:SyncSomething,foo*:Sync',
-		]);
-		const entries = async () => {
-			const features = await run(['show-options', '-gqv', 'terminal-features']);
-			return features
-				.split('\n')
-				.filter(line => line.trim() === SYNC_TERMINAL_FEATURE).length;
-		};
+		return stdout;
+	};
+	teardown(async () => {
+		try {
+			await exec('tmux', ['-S', socket, 'kill-server']);
+		} catch {}
 
-		t.is(await entries(), 0);
-		await run(synchronizedOutputArgs());
-		t.is(await entries(), 1);
-		await run(synchronizedOutputArgs());
-		t.is(await entries(), 1);
-	},
-);
+		rmSync(dir, {recursive: true, force: true});
+	});
+	await run(['-f', '/dev/null', 'new-session', '-d', '-s', 'fixture']);
+	await run([
+		'set-option',
+		'-ga',
+		'terminal-features',
+		',xterm*:SyncSomething,foo*:Sync',
+	]);
+	const entries = async () => {
+		const features = await run(['show-options', '-gqv', 'terminal-features']);
+		return features
+			.split('\n')
+			.filter(line => line.trim() === SYNC_TERMINAL_FEATURE).length;
+	};
 
-test('setupPappardellLayout enables synchronized output on both sockets', t => {
+	expect(await entries()).toBe(0);
+	await run(synchronizedOutputArgs());
+	expect(await entries()).toBe(1);
+	await run(synchronizedOutputArgs());
+	expect(await entries()).toBe(1);
+});
+
+test('setupPappardellLayout enables synchronized output on both sockets', () => {
 	// The option is server-scope and only needs setting once per run, so it
 	// piggybacks on layout setup alongside the other tmux set-options. Pinning
 	// the call sites keeps them from being dropped in a future refactor of that
@@ -133,5 +130,5 @@ test('setupPappardellLayout enables synchronized output on both sockets', t => {
 		'...synchronizedOutputArgs()',
 		'enableInnerSynchronizedOutput()',
 	])
-		t.not(layoutBody.indexOf(call), -1);
+		expect(layoutBody.indexOf(call)).not.toBe(-1);
 });

@@ -23,7 +23,7 @@ cd pappardelle
 # Install dependencies
 bun install --frozen-lockfile
 
-# Build the native executable and JavaScript fallback, then check types
+# Build the native executable, then check types
 bun run build
 bun run typecheck
 
@@ -34,15 +34,17 @@ bun run test
 `install.sh` runs `bun run typecheck` before `bun run build`, since `bun build` doesn't typecheck; run from a clone, it installs a copy of the build to `~/.pappardelle/local/`.
 
 `bun run build` embeds production React, OpenTUI, and Bun startup bytecode in
-`dist/pappardelle`. `bun run dev` keeps the source development workflow. Use
-`bun scripts/build.ts --bundle-only` for a JavaScript-only production build;
-compiled-runtime tests require the default build.
+`dist/pappardelle`, the only file it builds besides its source map. `bun run dev`
+keeps the source development workflow.
 
 ## Running tests
 
 ```bash
-# Unit tests (ava)
-bun --bun ava 'source/**/*.test.ts'
+# Unit tests (bun test, through scripts/unit-tests.ts)
+bun run test:unit
+
+# One file, or several
+bun run test:unit source/config.test.ts
 
 # Python hook tests
 pip install pytest
@@ -52,17 +54,19 @@ pytest plugins/pappardelle/hooks/ -v
 State can live in JSON files or, with `experimental.sqliteState`, in SQLite with the files kept beside it. With the flag on, hook status and program status are stored nowhere: they go through the status daemon, which keeps them in memory. CI runs every suite both ways. `PAPPARDELLE_SQLITE_STATE=1` selects the second for a run, and each test process then gets a database and a status socket of its own, never yours:
 
 ```bash
-PAPPARDELLE_SQLITE_STATE=1 bun --bun ava 'source/**/*.test.ts'
+PAPPARDELLE_SQLITE_STATE=1 bun run test:unit
 PAPPARDELLE_SQLITE_STATE=1 pytest plugins/pappardelle/hooks/ -v
 ```
 
 The hook tests need `bun` on `PATH` for that run: the CLI creates the database they write to.
 
-An ava run gets a **run tmpdir** of its own (`/tmp/ptr-*`, set up in `ava.config.js`) as `TMPDIR` for every test, removed when the run ends. Its **leak check** fails a run that otherwise passed when anything is still in the run tmpdir, and lists what is. Make temp dirs in tests with `tempDir(t, prefix)` from `test/helpers/temp-dir.ts`, which removes the dir when the test ends.
+`scripts/unit-tests.ts` runs `bun test --parallel`: test files spread across worker processes, each file in a fresh global with its own copy of every module, and the tests within a file one after another. Run the unit tests through it, not with a bare `bun test`: `test/helpers/test-guard.ts`, preloaded into every test file by `bunfig.toml`, stops any file that runs outside the environment it sets up.
 
-The run also gets a **throwaway HOME** (`/tmp/ph-*`), so nothing a test starts writes to your `~/.pappardelle` or `~/.claude.json`. Bun reads `HOME` once at startup, so it is set in `ava.config.js` before the workers start, and `test/helpers/test-home-guard.ts` fails any test process that still has another HOME. `scripts/test-start-agent-session.sh` runs under a throwaway HOME of its own, with a `claude` shim in place of the real one.
+A run gets a **run tmpdir** of its own (`/tmp/ptr-*`) as `TMPDIR` for every test, removed when the run ends. Its **leak check** fails a run that otherwise passed when anything is still in the run tmpdir, a tmux server still listens on a socket under it, or a process still names it, and lists what it found. Make temp dirs in tests with `tempDir(prefix)` from `test/helpers/temp-dir.ts`, which removes the dir when the test ends, and undo anything else with `teardown()` from `test/helpers/teardown.ts`, which runs last-registered first when the test ends, pass or fail.
 
-Every run also gets the test tmux guard: ava and the shell tests that start tmux run with a private `TMUX_TMPDIR`, no `TMUX`, and a `tmux` on PATH that refuses any socket in your live tmux directory, where the inner server holding every agent session lives. A refused call fails the run and is listed at the end, even when the test swallowed the error. Fix such a test by giving it the run's `TMUX_TMPDIR` or a `-S` socket of its own.
+The run also gets a **throwaway HOME** (`/tmp/ph-*`), so nothing a test starts writes to your `~/.pappardelle` or `~/.claude.json`. Bun reads `HOME` once at startup, so `scripts/unit-tests.ts` sets it before the workers start, along with `ZDOTDIR`, and drops the XDG config directories that would bring your zsh and tmux config back. `scripts/test-start-agent-session.sh` runs under a throwaway HOME of its own, with a `claude` shim in place of the real one.
+
+Every run also gets the test tmux guard: the unit tests and the shell tests that start tmux run with a private `TMUX_TMPDIR`, no `TMUX`, and a `tmux` on PATH that refuses any socket in your live tmux directory, where the inner server holding every agent session lives. A refused call fails the run and is listed at the end, even when the test swallowed the error. Fix such a test by giving it the run's `TMUX_TMPDIR` or a `-S` socket of its own.
 
 ## Code style
 

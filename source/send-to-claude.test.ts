@@ -1,9 +1,9 @@
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {LatestTask} from './latest-task.ts';
 import {sendToSelectedAgent} from './send-to-claude.ts';
 
-test('a send waits for the running attachment and reaches the new workspace', async t => {
+test('a send waits for the running attachment and reaches the new workspace', async () => {
 	const queue = new LatestTask();
 	let viewing = 'STA-1';
 	const sentWhileViewing: string[] = [];
@@ -22,11 +22,11 @@ test('a send waits for the running attachment and reaches the new workspace', as
 		},
 	});
 	await attach;
-	t.is(result, 'sent');
-	t.deepEqual(sentWhileViewing, ['STA-2']);
+	expect(result).toBe('sent');
+	expect(sentWhileViewing).toStrictEqual(['STA-2']);
 });
 
-test('a send is dropped when the viewer shows a different workspace', async t => {
+test('a send is dropped when the viewer shows a different workspace', async () => {
 	const queue = new LatestTask();
 	let sent = false;
 	const result = await sendToSelectedAgent({
@@ -39,11 +39,11 @@ test('a send is dropped when the viewer shows a different workspace', async t =>
 			return 'sent' as const;
 		},
 	});
-	t.is(result, 'wrong-space');
-	t.false(sent);
+	expect(result).toBe('wrong-space');
+	expect(sent).toBe(false);
 });
 
-test('a failed send is reported as failed', async t => {
+test('a failed send is reported as failed', async () => {
 	const result = await sendToSelectedAgent({
 		queue: new LatestTask(),
 		sends: new LatestTask(),
@@ -51,10 +51,10 @@ test('a failed send is reported as failed', async t => {
 		viewingSpace: () => 'STA-2',
 		send: async () => 'failed' as const,
 	});
-	t.is(result, 'failed');
+	expect(result).toBe('failed');
 });
 
-test('a send waiting on another sender does not hold up attachment', async t => {
+test('a send waiting on another sender does not hold up attachment', async () => {
 	const queue = new LatestTask();
 	let releaseSend!: () => void;
 	const sending = sendToSelectedAgent({
@@ -73,12 +73,12 @@ test('a send waiting on another sender does not hold up attachment', async t => 
 	await queue.run(async () => {
 		attached = true;
 	});
-	t.true(attached);
+	expect(attached).toBe(true);
 	releaseSend();
-	t.is(await sending, 'sent');
+	expect(await sending).toBe('sent');
 });
 
-test('sends reach the agent in the order the keys were pressed', async t => {
+test('sends reach the agent in the order the keys were pressed', async () => {
 	const queue = new LatestTask();
 	const sends = new LatestTask();
 	const received: string[] = [];
@@ -95,5 +95,5 @@ test('sends reach the agent in the order the keys were pressed', async t => {
 			},
 		});
 	await Promise.all([sendAfter('first', 30), sendAfter('second', 0)]);
-	t.deepEqual(received, ['first', 'second']);
+	expect(received).toStrictEqual(['first', 'second']);
 });

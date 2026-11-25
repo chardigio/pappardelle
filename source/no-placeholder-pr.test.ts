@@ -19,7 +19,7 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 
 const scriptsDir = path.resolve(import.meta.dirname, '../scripts');
 
@@ -27,14 +27,14 @@ function readScript(name: string): string {
 	return fs.readFileSync(path.join(scriptsDir, name), 'utf-8');
 }
 
-test('create-github-pr.sh is gone', t => {
-	t.false(
+test('create-github-pr.sh is gone', () => {
+	expect(
 		fs.existsSync(path.join(scriptsDir, 'create-github-pr.sh')),
 		'the placeholder-PR script must not be reintroduced',
-	);
+	).toBe(false);
 });
 
-test('no installer still ships create-github-pr.sh', t => {
+test('no installer still ships create-github-pr.sh', () => {
 	const installers = [
 		path.resolve(import.meta.dirname, '../install.sh'),
 		// The monorepo installer enumerates the dow helper scripts by name;
@@ -42,31 +42,32 @@ test('no installer still ships create-github-pr.sh', t => {
 		path.resolve(import.meta.dirname, '../../../install.sh'),
 	].filter(p => fs.existsSync(p));
 
-	t.true(installers.length > 0, 'expected at least one installer to check');
+	expect(
+		installers.length > 0,
+		'expected at least one installer to check',
+	).toBe(true);
 	for (const installer of installers) {
-		t.false(
+		expect(
 			fs.readFileSync(installer, 'utf-8').includes('create-github-pr.sh'),
 			`${installer} must not copy a script that no longer exists`,
-		);
+		).toBe(false);
 	}
 });
 
-test('provider-helpers.sh defines no create_pr helper', t => {
+test('provider-helpers.sh defines no create_pr helper', () => {
 	const helpers = readScript('provider-helpers.sh');
-	t.notRegex(
-		helpers,
+	expect(helpers, 'create_pr() must not be reintroduced').not.toMatch(
 		/^\s*create_pr\s*\(\)/m,
-		'create_pr() must not be reintroduced',
 	);
 });
 
-test('provider-helpers.sh keeps check_existing_pr for both providers', t => {
+test('provider-helpers.sh keeps check_existing_pr for both providers', () => {
 	const helpers = readScript('provider-helpers.sh');
 	// Reprovisioning an issue that already has a PR must still resolve
 	// ${PR_URL} for links/keybindings — only *creation* was removed.
-	t.regex(helpers, /^\s*check_existing_pr\s*\(\)/m);
-	t.true(helpers.includes('gh pr view'));
-	t.true(helpers.includes('glab mr view'));
+	expect(helpers).toMatch(/^\s*check_existing_pr\s*\(\)/m);
+	expect(helpers.includes('gh pr view')).toBe(true);
+	expect(helpers.includes('glab mr view')).toBe(true);
 });
 
 /**
@@ -100,23 +101,21 @@ function runCheckExistingPr(ghScript: string): string {
 	}
 }
 
-test('check_existing_pr returns a real PR URL', t => {
-	t.is(
-		runCheckExistingPr('echo https://github.com/o/r/pull/7'),
+test('check_existing_pr returns a real PR URL', () => {
+	expect(runCheckExistingPr('echo https://github.com/o/r/pull/7')).toBe(
 		'https://github.com/o/r/pull/7',
 	);
 });
 
-test('check_existing_pr returns empty when gh reports no PR', t => {
-	t.is(
+test('check_existing_pr returns empty when gh reports no PR', () => {
+	expect(
 		runCheckExistingPr(
 			'echo "no pull requests found for branch \\"STA-1\\"" >&2; exit 1',
 		),
-		'',
-	);
+	).toBe('');
 });
 
-test('check_existing_pr never leaks a gh error as a PR URL', t => {
+test('check_existing_pr never leaks a gh error as a PR URL', () => {
 	// This is now the *only* PR-resolution path (STA-1866), so anything that
 	// isn't a URL must come back empty rather than getting piped into
 	// `${PR_URL}` and opened in a browser. Reproduced live against a repo whose
@@ -127,43 +126,45 @@ test('check_existing_pr never leaks a gh error as a PR URL', t => {
 		'echo "error connecting to api.github.com" >&2; exit 1',
 		'exit 4', // auth failure, silent
 	]) {
-		t.is(runCheckExistingPr(failure), '', `leaked output for: ${failure}`);
+		expect(runCheckExistingPr(failure), `leaked output for: ${failure}`).toBe(
+			'',
+		);
 	}
 });
 
-test('provisioning never pushes or commits on the user behalf', t => {
+test('provisioning never pushes or commits on the user behalf', () => {
 	for (const name of ['idow', 'provider-helpers.sh', 'create-worktree.sh']) {
 		const script = readScript(name);
-		t.false(
+		expect(
 			script.includes('git push'),
 			`${name} must not push during provisioning`,
-		);
-		t.false(
+		).toBe(false);
+		expect(
 			script.includes('--allow-empty'),
 			`${name} must not create a placeholder commit`,
-		);
-		t.false(
+		).toBe(false);
+		expect(
 			script.includes('git reset HEAD~1'),
 			`${name} must not rewrite local history to hide a placeholder commit`,
-		);
+		).toBe(false);
 	}
 });
 
-test('idow does not call create_pr', t => {
+test('idow does not call create_pr', () => {
 	const idow = readScript('idow');
-	t.false(idow.includes('create_pr'));
+	expect(idow.includes('create_pr')).toBe(false);
 });
 
-test('idow still resolves PR_URL from an existing PR', t => {
+test('idow still resolves PR_URL from an existing PR', () => {
 	const idow = readScript('idow');
 	// ${PR_URL} template expansion and `if_set: PR_URL` link gating both
 	// depend on this lookup surviving the removal.
-	t.true(idow.includes('check_existing_pr'));
-	t.true(idow.includes(String.raw`\$\{PR_URL\}`));
-	t.true(idow.includes('PR_URL|MR_URL'));
+	expect(idow.includes('check_existing_pr')).toBe(true);
+	expect(idow.includes(String.raw`\$\{PR_URL\}`)).toBe(true);
+	expect(idow.includes('PR_URL|MR_URL')).toBe(true);
 });
 
-test('shipped PR-dependent keybindings guard against "no PR yet"', t => {
+test('shipped PR-dependent keybindings guard against "no PR yet"', () => {
 	const configs = [
 		path.resolve(import.meta.dirname, '../examples/monorepo-pappardelle.yml'),
 		path.resolve(import.meta.dirname, '../pappardelle.example.yml'),
@@ -180,52 +181,53 @@ test('shipped PR-dependent keybindings guard against "no PR yet"', t => {
 			// which sails straight into `gh workflow run -f pr_number=null`.
 			// Every PR-consuming binding must resolve to the empty string and
 			// branch on it instead.
-			t.true(
+			expect(
 				line.includes('// empty'),
 				`${path.basename(file)}:${i + 1} must fall back to empty, not "null"`,
-			);
+			).toBe(true);
 			// YAML double-quoted scalars escape the inner quotes as \"
-			t.regex(
+			expect(
 				line,
-				/if \[ -[nz] \\?"\$PR_(NUM|URL)\\?" \]/,
 				`${path.basename(file)}:${i + 1} must branch on the no-PR case`,
-			);
+			).toMatch(/if \[ -[nz] \\?"\$PR_(NUM|URL)\\?" \]/);
 		}
 	}
 
 	// Guards against the test silently passing with zero assertions if the
 	// bindings are ever renamed out from under the `gh pr list --search` probe.
-	t.true(checked > 0, 'expected at least one PR-resolving keybinding to check');
+	expect(
+		checked > 0,
+		'expected at least one PR-resolving keybinding to check',
+	).toBe(true);
 });
 
-test('CI no longer carries placeholder-PR detection', t => {
+test('CI no longer carries placeholder-PR detection', () => {
 	const workflowsDir = path.resolve(
 		import.meta.dirname,
 		'../../../../.github/workflows',
 	);
 	// Only meaningful inside the stardust-labs monorepo. The standalone
 	// pappardelle repo HAS a .github/workflows dir (test.yml) but none of
-	// these files — so probe for the files themselves, and keep the t.pass()
-	// fallback so ava doesn't fail the test for having zero assertions there.
+	// these files — so probe for the files themselves.
 	const workflows = ['claude-code-review.yml', 'standard_lint.yml']
 		.map(name => path.join(workflowsDir, name))
 		.filter(file => fs.existsSync(file));
 
 	if (workflows.length === 0) {
-		t.pass('not running in the monorepo');
+		expect().pass('not running in the monorepo');
 		return;
 	}
 
 	for (const file of workflows) {
 		const name = path.basename(file);
 		const workflow = fs.readFileSync(file, 'utf-8');
-		t.false(
+		expect(
 			workflow.includes('is_placeholder'),
 			`${name} must not gate on placeholder detection`,
-		);
-		t.false(
+		).toBe(false);
+		expect(
 			workflow.includes('changedFiles'),
 			`${name} must not probe changedFiles to detect placeholders`,
-		);
+		).toBe(false);
 	}
 });

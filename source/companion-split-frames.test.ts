@@ -1,12 +1,13 @@
 // Companion splits shown as framed outer panes, on isolated tmux servers.
 // Both servers run on sockets in a temp directory and are killed through
 // those sockets only.
+import {tmpdir} from 'node:os';
 import {execFile, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import {sessionNamesFor} from './space-identity.ts';
-import test from 'ava';
+import {test, expect, afterAll} from 'bun:test';
 import {LatestTask} from './latest-task.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {getRepoName} from './config.ts';
@@ -23,10 +24,9 @@ import {
 } from './tmux.ts';
 
 const exec = promisify(execFile);
-const tmuxTest =
-	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
+const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
-const dir = fs.realpathSync(fs.mkdtempSync('/tmp/pcs-'));
+const dir = fs.realpathSync(fs.mkdtempSync(`${tmpdir()}/pcs-`));
 const outer = `${dir}/o`;
 const inner = `${dir}/i`;
 const env = {...process.env, SHELL: '/bin/sh', PAPPARDELLE_TMUX_SOCKET: inner};
@@ -111,7 +111,7 @@ async function startSpace(
 const option = async (session: string, name: string) =>
 	innerTmux('show-options', '-qv', '-t', `=${session}:`, name);
 
-test.after.always(() => {
+afterAll(() => {
 	for (const socket of [outer, inner])
 		spawnSync('tmux', ['-S', socket, 'kill-server'], {env});
 	fs.rmSync(dir, {recursive: true, force: true});
@@ -119,9 +119,9 @@ test.after.always(() => {
 
 tmuxTest(
 	'splits show in framed panes of their own, move between spaces and keep a dragged size',
-	async t => {
+	async () => {
 		// Without the database a space's sessions get the names idow gives them.
-		testTmuxState(t, {repo: getRepoName(), sqlite: false});
+		testTmuxState({repo: getRepoName(), sqlite: false});
 		// The repo that holds this test can set companion_width in its own
 		// .pappardelle.yml (the monorepo sets 20). A pane that narrow cuts the
 		// split titles, so the test uses the built-in widths.
@@ -153,7 +153,7 @@ tmuxTest(
 		const built = await rebuildLayout(pane, '', '', run);
 		const layout = built?.layout;
 		if (!layout?.companionViewerPaneId) {
-			t.fail('no companion pane');
+			expect.unreachable('no companion pane');
 			return;
 		}
 
@@ -170,11 +170,11 @@ tmuxTest(
 		const session = (key: string, name: string) =>
 			`${sessionNamesFor(key, getRepoName()).companion}~${name}`;
 
-		t.is(await syncCompanionSplits(layout, a, {run}), 'applied');
+		expect(await syncCompanionSplits(layout, a, {run})).toBe('applied');
 		const splitPanes = companionSplitPaneIds();
-		t.is(splitPanes.length, 2);
-		t.is(await paneCount(), 5);
-		t.true(
+		expect(splitPanes.length).toBe(2);
+		expect(await paneCount()).toBe(5);
+		expect(
 			await waitFor(async () => {
 				const screens = await Promise.all(
 					splitPanes.map(async id => run(['capture-pane', '-p', '-t', id])),
@@ -186,35 +186,37 @@ tmuxTest(
 				);
 			}),
 			'each split pane draws its own titled frame',
-		);
-		t.deepEqual(await clientSessions(), [
+		).toBe(true);
+		expect(await clientSessions()).toStrictEqual([
 			session(a, 'logs'),
 			session(a, 'tests'),
 		]);
 		const column = await measureCompanionColumnWidth(layout, run);
-		t.truthy(column);
+		expect(column).toBeTruthy();
 		const tests = await paneSize(splitPanes[0]!);
-		t.is(tests.h, Math.floor((50 * 30) / 100), '30% of the column height');
+		expect(tests.h, '30% of the column height').toBe(
+			Math.floor((50 * 30) / 100),
+		);
 
 		// Same splits: the clients move, the panes stay.
-		t.is(await syncCompanionSplits(layout, b, {run}), 'applied');
-		t.deepEqual(companionSplitPaneIds(), splitPanes);
-		t.deepEqual(await clientSessions(), [
+		expect(await syncCompanionSplits(layout, b, {run})).toBe('applied');
+		expect(companionSplitPaneIds()).toStrictEqual(splitPanes);
+		expect(await clientSessions()).toStrictEqual([
 			session(b, 'logs'),
 			session(b, 'tests'),
 		]);
 
 		// A drag while B shows belongs to B's tests split.
 		await run(['resize-pane', '-t', splitPanes[0]!, '-y', '8']);
-		t.is(await syncCompanionSplits(layout, c, {run}), 'applied');
-		t.is(await option(session(b, 'tests'), '@pappa_size'), '8');
-		t.deepEqual(companionSplitPaneIds(), []);
-		t.is(await paneCount(), 3);
+		expect(await syncCompanionSplits(layout, c, {run})).toBe('applied');
+		expect(await option(session(b, 'tests'), '@pappa_size')).toBe('8');
+		expect(companionSplitPaneIds()).toStrictEqual([]);
+		expect(await paneCount()).toBe(3);
 
-		t.is(await syncCompanionSplits(layout, b, {run}), 'applied');
+		expect(await syncCompanionSplits(layout, b, {run})).toBe('applied');
 		const reopened = companionSplitPaneIds();
 		const dragged = await paneSize(reopened[0]!);
-		t.is(dragged.h, 8);
+		expect(dragged.h).toBe(8);
 
 		// A size set after a drag (companion resize) wins over the drag.
 		await run(['resize-pane', '-t', reopened[0]!, '-y', '10']);
@@ -225,10 +227,10 @@ tmuxTest(
 			'@pappa_size',
 			'12',
 		);
-		t.is(await syncCompanionSplits(layout, b, {run}), 'applied');
-		t.is(await option(session(b, 'tests'), '@pappa_size'), '12');
+		expect(await syncCompanionSplits(layout, b, {run})).toBe('applied');
+		expect(await option(session(b, 'tests'), '@pappa_size')).toBe('12');
 		const resized = await paneSize(companionSplitPaneIds()[0]!);
-		t.is(resized.h, 12);
+		expect(resized.h).toBe(12);
 		await innerTmux(
 			'set-option',
 			'-t',
@@ -236,7 +238,7 @@ tmuxTest(
 			'@pappa_size',
 			'8',
 		);
-		t.is(await syncCompanionSplits(layout, b, {run}), 'applied');
+		expect(await syncCompanionSplits(layout, b, {run})).toBe('applied');
 		const reopened2 = companionSplitPaneIds();
 
 		// The rail and the column keep their widths with a split beside main,
@@ -244,10 +246,10 @@ tmuxTest(
 		await run(['resize-pane', '-t', pane, '-x', '44']);
 		await reconcilePaneLayout(layout, false, run);
 		const rail = await paneSize(pane);
-		t.is(rail.w, 44);
-		t.is(await measureCompanionColumnWidth(layout, run), column);
-		t.is(await option(session(b, 'logs'), '@pappa_size'), '');
-		t.deepEqual(companionSplitPaneIds(), reopened2);
+		expect(rail.w).toBe(44);
+		expect(await measureCompanionColumnWidth(layout, run)).toBe(column);
+		expect(await option(session(b, 'logs'), '@pappa_size')).toBe('');
+		expect(companionSplitPaneIds()).toStrictEqual(reopened2);
 
 		// A size that a resize in place can reach keeps the panes and clients.
 		await innerTmux(
@@ -257,18 +259,18 @@ tmuxTest(
 			'@pappa_size',
 			'30%',
 		);
-		t.is(await syncCompanionSplits(layout, b, {run}), 'applied');
-		t.deepEqual(companionSplitPaneIds(), reopened2);
+		expect(await syncCompanionSplits(layout, b, {run})).toBe('applied');
+		expect(companionSplitPaneIds()).toStrictEqual(reopened2);
 		const grown = await paneSize(reopened2[0]!);
-		t.is(grown.h, 15);
+		expect(grown.h).toBe(15);
 		await run(['resize-window', '-t', pane, '-y', '40']);
 		await reconcilePaneLayout(layout, false, run);
-		t.deepEqual(companionSplitPaneIds(), reopened2);
+		expect(companionSplitPaneIds()).toStrictEqual(reopened2);
 		const shorter = await paneSize(reopened2[0]!);
-		t.is(shorter.h, 12);
+		expect(shorter.h).toBe(12);
 		await run(['resize-window', '-t', pane, '-y', '50']);
 		await reconcilePaneLayout(layout, false, run);
-		t.deepEqual(companionSplitPaneIds(), reopened2);
+		expect(companionSplitPaneIds()).toStrictEqual(reopened2);
 
 		// Dragging the agent pane's border resizes the whole column: the right
 		// split keeps no size of its own, and goes back to half of main.
@@ -281,11 +283,11 @@ tmuxTest(
 			String(agent.w - 12),
 		]);
 		await reconcilePaneLayout(layout, false, run);
-		t.is(await option(session(b, 'logs'), '@pappa_size'), '');
+		expect(await option(session(b, 'logs'), '@pappa_size')).toBe('');
 		const wider = (await measureCompanionColumnWidth(layout, run))!;
-		t.is(wider, column! + 12);
+		expect(wider).toBe(column! + 12);
 		const logs = await paneSize(companionSplitPaneIds()[1]!);
-		t.is(logs.w, Math.floor((wider - 1) / 2));
+		expect(logs.w).toBe(Math.floor((wider - 1) / 2));
 		await run([
 			'resize-pane',
 			'-t',
@@ -299,36 +301,36 @@ tmuxTest(
 		// A split client that left forces new split panes only.
 		const logsTty = await display(settled[1]!, '#{@pappardelle_client_tty}');
 		await innerTmux('detach-client', '-t', logsTty);
-		t.is(await syncCompanionSplits(layout, a, {run}), 'applied');
+		expect(await syncCompanionSplits(layout, a, {run})).toBe('applied');
 		const rebuilt = companionSplitPaneIds();
-		t.is(rebuilt.length, 2);
-		t.false(rebuilt.some(id => settled.includes(id)));
+		expect(rebuilt.length).toBe(2);
+		expect(rebuilt.some(id => settled.includes(id))).toBe(false);
 		const panes = await outerPanes();
-		t.true(panes.includes(layout.agentViewerPaneId));
-		t.true(panes.includes(layout.companionViewerPaneId));
+		expect(panes.includes(layout.agentViewerPaneId)).toBe(true);
+		expect(panes.includes(layout.companionViewerPaneId)).toBe(true);
 		// Each frame publishes its tty just before its client attaches.
 		const rebuiltClients = [session(a, 'logs'), session(a, 'tests')];
 		await waitFor(async () => {
 			const clients = await clientSessions();
 			return clients.join(' ') === rebuiltClients.join(' ');
 		});
-		t.deepEqual(await clientSessions(), rebuiltClients);
+		expect(await clientSessions()).toStrictEqual(rebuiltClients);
 
 		// An open dialog zooms the rail; splitting would unzoom it.
-		t.true(
+		expect(
 			createCompanionSplit(storedIdentity(a)!, {
 				name: 'dev',
 				split: 'down',
 				command: 'sleep 600',
 			}).ok,
-		);
+		).toBe(true);
 		await run(['resize-pane', '-Z', '-t', pane]);
-		t.is(await syncCompanionSplits(layout, a, {run}), 'deferred');
-		t.is(await display(pane, '#{window_zoomed_flag}'), '1');
-		t.deepEqual(companionSplitPaneIds(), rebuilt);
+		expect(await syncCompanionSplits(layout, a, {run})).toBe('deferred');
+		expect(await display(pane, '#{window_zoomed_flag}')).toBe('1');
+		expect(companionSplitPaneIds()).toStrictEqual(rebuilt);
 		await run(['resize-pane', '-Z', '-t', pane]);
-		t.true(takePendingSplitSync());
-		t.false(takePendingSplitSync());
+		expect(takePendingSplitSync()).toBe(true);
+		expect(takePendingSplitSync()).toBe(false);
 
 		// Two syncs queued together still end with one set of panes.
 		const queue = new LatestTask();
@@ -336,22 +338,22 @@ tmuxTest(
 			queue.exclusive(async () => syncCompanionSplits(layout, a, {run})),
 			queue.exclusive(async () => syncCompanionSplits(layout, a, {run})),
 		]);
-		t.is(companionSplitPaneIds().length, 3);
-		t.is(await paneCount(), 6);
+		expect(companionSplitPaneIds().length).toBe(3);
+		expect(await paneCount()).toBe(6);
 
 		// A split whose session ends takes its frame with it.
 		await innerTmux('kill-session', '-t', `=${session(a, 'dev')}:`);
-		t.true(await waitFor(async () => (await paneCount()) === 5));
+		expect(await waitFor(async () => (await paneCount()) === 5)).toBe(true);
 		// Its rows went to a neighbour, which is no drag of that neighbour.
-		t.is(await syncCompanionSplits(layout, a, {run}), 'applied');
-		t.is(await option(session(a, 'tests'), '@pappa_size'), '30%');
-		t.is(await option(session(a, 'logs'), '@pappa_size'), '');
+		expect(await syncCompanionSplits(layout, a, {run})).toBe('applied');
+		expect(await option(session(a, 'tests'), '@pappa_size')).toBe('30%');
+		expect(await option(session(a, 'logs'), '@pappa_size')).toBe('');
 
 		// The companion pane closes when the shell left in it exits, and its
 		// splits close with it.
 		await run(['kill-pane', '-t', layout.companionViewerPaneId]);
-		t.is(await syncCompanionSplits(layout, a, {run}), 'no-pane');
-		t.deepEqual(companionSplitPaneIds(), []);
-		t.is(await paneCount(), 2);
+		expect(await syncCompanionSplits(layout, a, {run})).toBe('no-pane');
+		expect(companionSplitPaneIds()).toStrictEqual([]);
+		expect(await paneCount()).toBe(2);
 	},
 );

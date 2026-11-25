@@ -1,6 +1,7 @@
 import {agentScreenFixture as fixture} from '../test/helpers/agent-screens.ts';
 import {idowIdentities} from '../test/helpers/state.ts';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {thrownBy} from '../test/helpers/thrown.ts';
 import {readAgentState, WAIT_TARGETS} from './agent-state.ts';
 import type {ClaudeStatusInfo} from './claude-status.ts';
 import {
@@ -46,51 +47,52 @@ const stateOf = async (
 	return report.state;
 };
 
-test('a prompt on screen wins over a hook that still says working', async t => {
+test('a prompt on screen wins over a hook that still says working', async () => {
 	const report = await state(fixture('claude-permission-bash'), {
 		status: 'processing',
 	});
-	t.is(report.state, 'permission');
-	t.is(report.permission?.command, 'cksum greet.js');
+	expect(report.state).toBe('permission');
+	expect(report.permission?.command).toBe('cksum greet.js');
 });
 
-test("a blocked hook is a prompt even when the screen doesn't parse one", async t => {
+test("a blocked hook is a prompt even when the screen doesn't parse one", async () => {
 	const blocked = (tool: string): Partial<ClaudeStatusInfo> => ({
 		status: 'waiting_for_approval',
 		tool,
 	});
-	t.is(await stateOf('❯ ', blocked('Write')), 'permission');
-	t.is(await stateOf('❯ ', blocked('AskUserQuestion')), 'question');
+	expect(await stateOf('❯ ', blocked('Write'))).toBe('permission');
+	expect(await stateOf('❯ ', blocked('AskUserQuestion'))).toBe('question');
 });
 
-test('the screen alone shows a Codex usage limit, a draft and a spinner', async t => {
-	t.is(await stateOf(fixture('codex-limit-narrow')), 'usage_limit');
-	t.is(await stateOf(fixture('codex-draft')), 'draft');
-	t.is(await stateOf(fixture('claude-working')), 'working');
-	t.is(await stateOf(fixture('claude-idle')), 'idle');
-	t.is(await stateOf(fixture('claude-suggestion-named')), 'idle');
-	t.is(await stateOf(fixture('claude-draft-named')), 'draft');
-	t.is(await stateOf(fixture('claude-shell-draft')), 'draft');
-	t.is(await stateOf(fixture('claude-shell-empty')), 'idle');
+test('the screen alone shows a Codex usage limit, a draft and a spinner', async () => {
+	expect(await stateOf(fixture('codex-limit-narrow'))).toBe('usage_limit');
+	expect(await stateOf(fixture('codex-draft'))).toBe('draft');
+	expect(await stateOf(fixture('claude-working'))).toBe('working');
+	expect(await stateOf(fixture('claude-idle'))).toBe('idle');
+	expect(await stateOf(fixture('claude-suggestion-named'))).toBe('idle');
+	expect(await stateOf(fixture('claude-draft-named'))).toBe('draft');
+	expect(await stateOf(fixture('claude-shell-draft'))).toBe('draft');
+	expect(await stateOf(fixture('claude-shell-empty'))).toBe('idle');
 });
 
-test('a space with no agent session says so', async t => {
-	t.is(await stateOf(null), 'no_session');
+test('a space with no agent session says so', async () => {
+	expect(await stateOf(null)).toBe('no_session');
 });
 
-test('every blocked state counts as ready, and working never does', t => {
+test('every blocked state counts as ready, and working never does', () => {
 	for (const blocked of WAIT_TARGETS.blocked) {
-		t.true(WAIT_TARGETS.ready.includes(blocked));
+		expect(WAIT_TARGETS.ready.includes(blocked)).toBe(true);
 	}
 
-	t.false(WAIT_TARGETS.ready.includes('working'));
+	expect(WAIT_TARGETS.ready.includes('working')).toBe(false);
 });
 
-test('the supervision runners refuse to end any tmux session', t => {
+test('the supervision runners refuse to end any tmux session', () => {
 	for (const verb of ['kill-server', 'kill-session', 'kill-pane']) {
-		t.throws(() => supervisedInnerTmuxRunner([verb]), {
-			message: `Supervision never runs tmux ${verb}`,
-		});
-		t.throws(() => supervisedServerTmuxRunner([verb, '-t', 'x']));
+		{
+			const error = thrownBy(() => supervisedInnerTmuxRunner([verb]));
+			expect(error.message).toBe(`Supervision never runs tmux ${verb}`);
+		}
+		expect(() => supervisedServerTmuxRunner([verb, '-t', 'x'])).toThrow();
 	}
 });

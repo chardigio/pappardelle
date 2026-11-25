@@ -1,5 +1,4 @@
 import {useKeyboard, usePaste} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {Fragment, useState, useMemo, useRef} from 'react';
 
@@ -100,13 +99,6 @@ export default function PromptDialog({
 		query: null,
 		index: 0,
 	});
-	// The keyboard hook hands every key of a burst (a paste, or arrows sent in one write) to
-	// the handler before React re-renders, so keys read the latest state here.
-	const pickerStateRef = useRef(pickerState);
-	const updatePickerState = (state: FilterablePickerState) => {
-		pickerStateRef.current = state;
-		setPickerState(state);
-	};
 	// Keyed by row so an override stays with its profile while the list
 	// re-ranks under further typing.
 	const [agentOverrides, setAgentOverrides] = useState<Record<string, string>>(
@@ -118,10 +110,6 @@ export default function PromptDialog({
 	// the next keystroke is a new query and deserves a fresh list.
 	const [dismissedFor, setDismissedFor] = useState<string | null>(null);
 	const [completionIndex, setCompletionIndex] = useState(0);
-	// Several keys can arrive before the next render; each acts on where the
-	// one before it left the selection.
-	const completionNow = useRef(completionIndex);
-	completionNow.current = completionIndex;
 	// Enter moves the focus into the Skills box, which freezes the text input
 	// and buys back `j`/`k` and Enter itself. Tab never needs this: it accepts
 	// from wherever you are.
@@ -262,8 +250,7 @@ export default function PromptDialog({
 
 	useKeyboard(event => {
 		if (!(isPromptStage && !isSkillFocused)) return;
-		const {input: _input, key} = shortcutKey(event);
-		if (!key.escape) return;
+		if (event.name !== 'escape') return;
 		// First Esc dismisses the completion list; a second one (now that the
 		// list is gone) cancels the dialog. Mirrors the profile picker's
 		// two-stage Esc so the key never means two things at once.
@@ -279,14 +266,12 @@ export default function PromptDialog({
 	// every printable key still has to reach it.
 	useKeyboard(event => {
 		if (!(isCompleting && !isSkillFocused)) return;
-		const {input: _input, key} = shortcutKey(event);
 		const result = handleSkillPickerKey(
-			key,
-			completionNow.current,
+			event,
+			completionIndex,
 			completions.length,
 		);
 		if (result.action === 'move') {
-			completionNow.current = result.index;
 			setCompletionIndex(result.index);
 		} else if (result.action === 'accept') {
 			acceptCompletion(result.index);
@@ -297,16 +282,13 @@ export default function PromptDialog({
 	// this map can afford `j`/`k` and Enter.
 	useKeyboard(event => {
 		if (!isSkillFocused) return;
-		const {input, key} = shortcutKey(event);
 		const result = handleSkillListKey(
-			input,
-			key,
-			completionNow.current,
+			event,
+			completionIndex,
 			completions.length,
 		);
 		switch (result.action) {
 			case 'move': {
-				completionNow.current = result.index;
 				setCompletionIndex(result.index);
 				break;
 			}
@@ -332,9 +314,9 @@ export default function PromptDialog({
 	usePaste(event => {
 		if (!(isPicking && ready.closeTarget === null)) return;
 		if (agentPopupOpen.current) return;
-		updatePickerState(
+		setPickerState(
 			pasteIntoFilterablePicker(
-				pickerStateRef.current,
+				pickerState,
 				new TextDecoder().decode(event.bytes),
 			),
 		);
@@ -342,14 +324,12 @@ export default function PromptDialog({
 
 	useKeyboard(event => {
 		if (!(isPicking && ready.closeTarget === null)) return;
-		const {input, key} = shortcutKey(event);
 		if (agentPopupOpen.current) return;
-		const {current} = pickerStateRef;
-		const shown = current.query
-			? filterProfileOptions(options, current.query)
+		const shown = pickerState.query
+			? filterProfileOptions(options, pickerState.query)
 			: options;
-		const result = handleFilterablePickerKey(current, input, key, shown.length);
-		updatePickerState(result.state);
+		const result = handleFilterablePickerKey(pickerState, event, shown.length);
+		setPickerState(result.state);
 		switch (result.action) {
 			case 'submit': {
 				const chosen = shown[result.state.index];
@@ -369,7 +349,7 @@ export default function PromptDialog({
 				// Back to the full list with the match highlighted, so starting the
 				// session (or `a`) is still its own keystroke.
 				const chosen = shown[result.state.index];
-				updatePickerState({
+				setPickerState({
 					query: null,
 					index: chosen ? Math.max(0, options.indexOf(chosen)) : 0,
 				});
@@ -388,7 +368,7 @@ export default function PromptDialog({
 				// First Esc hands focus back to the prompt; a second one (handled by
 				// the other useInput, now re-armed) cancels the dialog.
 				setIsPicking(false);
-				updatePickerState({query: null, index: 0});
+				setPickerState({query: null, index: 0});
 				break;
 			}
 
@@ -473,7 +453,7 @@ export default function PromptDialog({
 
 			case 'pick': {
 				setIsPicking(true);
-				updatePickerState({query: null, index: 0});
+				setPickerState({query: null, index: 0});
 				break;
 			}
 		}

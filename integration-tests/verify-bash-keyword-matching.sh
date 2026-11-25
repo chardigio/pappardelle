@@ -3,7 +3,7 @@
 # Local verification of the bash match_profiles() function in idow.
 # Tests: word-boundary matching, multi-word keyword preservation, false-positive prevention.
 #
-# NOT an ava test — run manually:
+# NOT a unit test — run manually:
 #   bash integration-tests/verify-bash-keyword-matching.sh
 #
 # Creates a temp .pappardelle.yml with known profiles and runs match_profiles()

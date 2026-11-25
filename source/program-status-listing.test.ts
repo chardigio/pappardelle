@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {parseStatusListing} from './program-status-monitor.ts';
 
 const row = (
@@ -10,7 +10,7 @@ const row = (
 	piped = '0',
 ) => [session, active, pinned, id, pid, '0', piped, ''].join('\t');
 
-test('an unpinned session’s pane is its current pane', t => {
+test('an unpinned session’s pane is its current pane', () => {
 	const panes = parseStatusListing(
 		[
 			row('agent', '0', '', '%1', '10'),
@@ -20,11 +20,11 @@ test('an unpinned session’s pane is its current pane', t => {
 		].join('\n'),
 		'socket',
 	);
-	t.is(panes.get('agent')?.pinned, '');
-	t.is(panes.get('agent')?.pane?.id, '%3');
+	expect(panes.get('agent')?.pinned).toBe('');
+	expect(panes.get('agent')?.pane?.id).toBe('%3');
 });
 
-test('a pinned session keeps its pinned pane wherever the focus moved', t => {
+test('a pinned session keeps its pinned pane wherever the focus moved', () => {
 	const panes = parseStatusListing(
 		[
 			row('agent', '0', '%1', '%1', '10', '1'),
@@ -32,18 +32,21 @@ test('a pinned session keeps its pinned pane wherever the focus moved', t => {
 		].join('\n'),
 		'socket',
 	);
-	t.like(panes.get('agent'), {pinned: '%1', pane: {id: '%1', piped: true}});
+	expect(panes.get('agent')).toMatchObject({
+		pinned: '%1',
+		pane: {id: '%1', piped: true},
+	});
 });
 
-test('a pinned pane that no longer exists locates nothing', t => {
+test('a pinned pane that no longer exists locates nothing', () => {
 	const panes = parseStatusListing(
 		row('agent', '1', '%9', '%2', '11'),
 		'socket',
 	);
-	t.is(panes.get('agent')?.pane, null);
+	expect(panes.get('agent')?.pane).toBe(null);
 });
 
-test('sessions are located independently and missing sessions are absent', t => {
+test('sessions are located independently and missing sessions are absent', () => {
 	const panes = parseStatusListing(
 		[
 			row('one', '1', '', '%1', '10'),
@@ -52,8 +55,8 @@ test('sessions are located independently and missing sessions are absent', t => 
 		].join('\n'),
 		'socket',
 	);
-	t.is(panes.get('one')?.pane?.id, '%1');
-	t.is(panes.get('two')?.pane?.id, '%2');
-	t.false(panes.has('three'));
-	t.is(panes.size, 2);
+	expect(panes.get('one')?.pane?.id).toBe('%1');
+	expect(panes.get('two')?.pane?.id).toBe('%2');
+	expect(panes.has('three')).toBe(false);
+	expect(panes.size).toBe(2);
 });

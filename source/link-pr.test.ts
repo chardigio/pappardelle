@@ -1,4 +1,6 @@
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,10 +10,10 @@ import {linkPr, type LinkExecutor} from './link-pr.ts';
 import {discoverWorkspaceRepositories} from './providers/workspace-repositories.ts';
 
 /** Stores for the repo named `workspace`, which every workspace here is in. */
-function stores(t: ExecutionContext, sqlite?: boolean) {
-	const {daos, stateDir} = testState(t, {repo: 'workspace', sqlite});
+function stores(sqlite?: boolean) {
+	const {daos, stateDir} = testState({repo: 'workspace', sqlite});
 	const spaceStateFor = (repoName: string) => {
-		t.is(repoName, 'workspace');
+		expect(repoName).toBe('workspace');
 		return daos.spaceState;
 	};
 
@@ -21,7 +23,7 @@ function stores(t: ExecutionContext, sqlite?: boolean) {
 		stateDir,
 		options: {
 			daosFor(repoName: string) {
-				t.is(repoName, 'workspace');
+				expect(repoName).toBe('workspace');
 				return daos;
 			},
 		},
@@ -33,11 +35,11 @@ function stores(t: ExecutionContext, sqlite?: boolean) {
 // With the database, link-pr is often the first write that finds a space's
 // file: idow or an earlier Pappardelle saved the profile there.
 for (const sqlite of [false, true]) {
-	test(`${sqlite ? 'sqlite' : 'json'}: links a fork PR, preserves state, replaces repeated links and follows the published branch`, async t => {
+	test(`${sqlite ? 'sqlite' : 'json'}: links a fork PR, preserves state, replaces repeated links and follows the published branch`, async () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), 'link-pr-'));
-		t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+		teardown(() => fs.rmSync(root, {recursive: true, force: true}));
 		const workspace = path.join(root, 'workspace');
-		const {spaceState, prLinkStamp, options, discover} = stores(t, sqlite);
+		const {spaceState, prLinkStamp, options, discover} = stores(sqlite);
 		fs.mkdirSync(workspace);
 		const git = (args: string[]) =>
 			execFileSync('git', args, {cwd: workspace, encoding: 'utf-8'}).trim();
@@ -46,8 +48,8 @@ for (const sqlite of [false, true]) {
 		let remoteBranch = 'published';
 		const run: LinkExecutor = async (command, args) => {
 			if (command === 'git') return git(args);
-			t.is(command, 'gh');
-			t.deepEqual(args, [
+			expect(command).toBe('gh');
+			expect(args).toStrictEqual([
 				'api',
 				'--hostname',
 				'github.com',
@@ -66,35 +68,35 @@ for (const sqlite of [false, true]) {
 			JSON.stringify({profile: 'codex', pipeline: 'passing'}),
 		);
 		const url = 'https://github.com/upstream/repo/pull/28';
-		t.is(prLinkStamp.read(), 0);
+		expect(prLinkStamp.read()).toBe(0);
 		const linked = await linkPr(url, workspace, workspace, {...options, run});
-		t.is(linked.file, file);
-		t.true(prLinkStamp.read() > 0);
+		expect(linked.file).toBe(file);
+		expect(prLinkStamp.read() > 0).toBe(true);
 		remoteBranch = 'published-again';
 		await linkPr(url, workspace, workspace, {...options, run});
 		for (const saved of [
 			spaceState.read('STE-24')!,
 			JSON.parse(fs.readFileSync(file, 'utf8')) as {prLinks?: unknown[]},
 		]) {
-			t.like(saved, {profile: 'codex', pipeline: 'passing'});
-			t.is(saved.prLinks?.length, 1);
+			expect(saved).toMatchObject({profile: 'codex', pipeline: 'passing'});
+			expect(saved.prLinks?.length).toBe(1);
 		}
 
-		t.deepEqual(await discover(workspace), [
+		expect(await discover(workspace)).toStrictEqual([
 			{project: 'user/fork', branch: 'published-again'},
 		]);
 		git(['symbolic-ref', 'HEAD', 'refs/heads/other']);
-		t.deepEqual(await discover(workspace), [
+		expect(await discover(workspace)).toStrictEqual([
 			{project: 'user/fork', branch: 'other'},
 		]);
 	});
 }
 
-test('links an upstream PR whose head is a fork added beside origin, and rejects a third repo', async t => {
+test('links an upstream PR whose head is a fork added beside origin, and rejects a third repo', async () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'link-pr-upstream-'));
-	t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+	teardown(() => fs.rmSync(root, {recursive: true, force: true}));
 	const workspace = path.join(root, 'workspace');
-	const {options, discover} = stores(t);
+	const {options, discover} = stores();
 	fs.mkdirSync(workspace);
 	const git = (args: string[]) =>
 		execFileSync('git', args, {cwd: workspace, encoding: 'utf-8'}).trim();
@@ -114,22 +116,26 @@ test('links an upstream PR whose head is a fork added beside origin, and rejects
 	};
 	const url = 'https://github.com/upstream/repo/pull/28';
 	await linkPr(url, workspace, workspace, {...options, run});
-	t.deepEqual(await discover(workspace), [
+	expect(await discover(workspace)).toStrictEqual([
 		{project: 'user/fork', branch: 'published'},
 	]);
 
 	head = 'other/repo';
-	await t.throwsAsync(linkPr(url, workspace, workspace, {...options, run}), {
-		message: 'Run link-pr from the source repository (github.com/other/repo)',
-	});
+	await rejectionOf(linkPr(url, workspace, workspace, {...options, run})).then(
+		error => {
+			expect(error.message).toBe(
+				'Run link-pr from the source repository (github.com/other/repo)',
+			);
+		},
+	);
 });
 
-test('GitLab nested repositories retain independent branch mappings', async t => {
-	const {spaceState, options} = stores(t);
+test('GitLab nested repositories retain independent branch mappings', async () => {
+	const {spaceState, options} = stores();
 	const calls: string[] = [];
 	const run: LinkExecutor = async (command, args, cwd) => {
 		if (command === 'glab') {
-			t.is(args[2], 'gitlab.example.com');
+			expect(args[2]).toBe('gitlab.example.com');
 			calls.push(args.at(-1)!);
 			return JSON.stringify(
 				args.at(-1)!.includes('merge_requests')
@@ -163,15 +169,15 @@ test('GitLab nested repositories retain independent branch mappings', async t =>
 		'/workspace',
 		{...options, run, gitlabHost: 'gitlab.example.com'},
 	);
-	t.deepEqual(calls, [
+	expect(calls).toStrictEqual([
 		'projects/group%2Fsub%2Frepo/merge_requests/7',
 		'projects/12',
 	]);
-	t.is(spaceState.read('ISSUE-1')?.prLinks?.length, 2);
+	expect(spaceState.read('ISSUE-1')?.prLinks?.length).toBe(2);
 });
 
-test('failed verification and unrelated source repositories do not write state', async t => {
-	const {stateDir, options} = stores(t);
+test('failed verification and unrelated source repositories do not write state', async () => {
+	const {stateDir, options} = stores();
 	const run: LinkExecutor = async command => {
 		if (command === 'gh')
 			return JSON.stringify({
@@ -181,24 +187,31 @@ test('failed verification and unrelated source repositories do not write state',
 			});
 		return 'git@github.com:user/repo.git';
 	};
-	await t.throwsAsync(
-		linkPr('https://github.com/user/repo/pull/1', '/workspace', '/workspace', {
-			...options,
-			run,
-		}),
-		{message: /source repository/},
-	);
-	await t.throwsAsync(
+	expect(
+		await rejectionOf(
+			linkPr(
+				'https://github.com/user/repo/pull/1',
+				'/workspace',
+				'/workspace',
+				{
+					...options,
+					run,
+				},
+			),
+		),
+	).toHaveProperty('message', expect.stringMatching(/source repository/));
+	await rejectionOf(
 		linkPr('https://github.com/user/repo/pull/1', '/workspace', '/workspace', {
 			...options,
 			async run() {
 				throw new Error('API unavailable');
 			},
 		}),
-		{message: 'API unavailable'},
-	);
-	t.false(
+	).then(error => {
+		expect(error.message).toBe('API unavailable');
+	});
+	expect(
 		fs.existsSync(path.join(stateDir, 'repos', 'workspace', 'space-state')),
-	);
-	t.false(fs.existsSync(path.join(stateDir, 'pr-link.stamp')));
+	).toBe(false);
+	expect(fs.existsSync(path.join(stateDir, 'pr-link.stamp'))).toBe(false);
 });

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {afterAll} from 'bun:test';
 import {stateDaosByRepo} from '../../source/state-daos.ts';
 import {closeStateDb, stateDbPath} from '../../source/state-db.ts';
 import type {OuterTmuxRunner} from '../../source/tmux.ts';
@@ -8,7 +9,7 @@ import type {TuiMarkerDao} from '../../source/tui-marker.ts';
 import {sqliteRun} from './state.ts';
 
 const stateDirs: string[] = [];
-process.once('exit', () => {
+afterAll(() => {
 	for (const stateDir of stateDirs) {
 		closeStateDb(stateDbPath(stateDir));
 		fs.rmSync(stateDir, {recursive: true, force: true});

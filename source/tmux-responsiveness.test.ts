@@ -3,11 +3,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 
-test('the subprocess runner keeps UI timers running while tmux is slow', async t => {
+test('the subprocess runner keeps UI timers running while tmux is slow', async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-slow-tmux-'));
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
 	fs.writeFileSync(
 		path.join(dir, 'tmux'),
 		`#!/bin/sh
@@ -44,9 +45,9 @@ console.log(JSON.stringify({success, ticks}));
 		},
 	);
 	const result = JSON.parse(stdout) as {success: boolean; ticks: number};
-	t.true(result.success);
-	t.true(
+	expect(result.success).toBe(true);
+	expect(
 		result.ticks >= 10,
 		`only ${result.ticks} UI ticks during slow tmux calls`,
-	);
+	).toBe(true);
 });

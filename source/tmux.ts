@@ -1,16 +1,14 @@
 // Tmux session attachment for pappardelle
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
-import {exec, execFile, spawn, spawnSync} from 'node:child_process';
+import {execFile, spawn, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {readFileSync, statSync, writeFileSync} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {setTimeout as delay} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 export type AsyncTmuxRunner = (args: string[]) => Promise<string>;
@@ -174,12 +172,13 @@ import {
 import {
 	CLIENT_TTY_OPTION,
 	FRAME_COMMAND_OPTION,
+	PANE_FRAME_SIZE,
 	PANE_TITLE_OPTION,
 	frameReadyChannel,
 	frameStartedChannel,
 } from './pane-frame-options.ts';
 import {type AgentScreen, parseAgentScreen} from './agent-screen.ts';
-import {bunIsolationArgs, isStandalone} from './runtime.ts';
+import {internalEntryCommand} from './runtime.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {PaneLayout} from './types.ts';
 import {
@@ -516,15 +515,6 @@ export function buildShellLaunchArgs(
 	];
 }
 
-function paneFrameEntry(): string[] {
-	if (isStandalone) return [process.execPath, '--internal-pane-frame'];
-	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
-	const entry = fileURLToPath(
-		new URL(`pane-frame-cli${extension}`, import.meta.url),
-	);
-	return [process.execPath, ...bunIsolationArgs, entry];
-}
-
 /**
  * The `respawn-pane` command for a viewer pane: the frame host running
  * `command`, then a login shell, inside the pane's frame. Starting it as the
@@ -563,7 +553,12 @@ const awaitingFrames = new Set<string>();
  * up, then overlaps everything between pane setup and the first attachment.
  */
 function awaitingFrameCommand(title: string): string {
-	return [...paneFrameEntry(), '--title', title, '--await']
+	return [
+		...internalEntryCommand('--internal-pane-frame', 'pane-frame-cli'),
+		'--title',
+		title,
+		'--await',
+	]
 		.map(value => shellQuote(value))
 		.join(' ');
 }
@@ -614,7 +609,7 @@ function frameHostCommand(
 	then: 'shell' | 'close' = 'shell',
 ): string {
 	return [
-		...paneFrameEntry(),
+		...internalEntryCommand('--internal-pane-frame', 'pane-frame-cli'),
 		...(title === undefined ? [] : ['--title', title]),
 		'--',
 		'/bin/sh',
@@ -1052,7 +1047,7 @@ export function killSession(sessionName: string): boolean {
 	]);
 	if (result.error || result.status !== 0) {
 		log.error(
-			`Failed to kill session ${sessionName}: ${result.stderr?.trim() ?? ''}`,
+			`Failed to kill session ${sessionName}: ${tmuxFailure(result)}`,
 			result.error,
 		);
 		return false;
@@ -1113,6 +1108,14 @@ export type OuterTmuxRunner = (
 	stdout: string;
 	stderr?: string;
 };
+
+export function tmuxFailure(result: ReturnType<OuterTmuxRunner>): string {
+	return (
+		result.stderr?.trim() ||
+		result.error?.message ||
+		`tmux exited ${result.status ?? 'without a status'}`
+	);
+}
 
 function spawnTmuxRunner(
 	toArgv: (args: readonly string[]) => string[],
@@ -1394,6 +1397,33 @@ export async function enableInnerSynchronizedOutput(
 	} catch {
 		// Purely a rendering nicety — never let it break layout setup.
 		log.debug('Could not enable synchronized output on inner socket');
+	}
+}
+
+// A session created while nobody views it, by the TUI or by idow, starts at
+// the inner server's default-size, tmux's 80x24 unless set, and Claude Code
+// hard-wraps its output to the width it started at. Setting it never resizes
+// windows that already exist.
+async function setInnerDefaultSize(
+	geometry: WindowGeometry,
+	agentViewerPaneId: string,
+	run: AsyncTmuxRunner,
+): Promise<void> {
+	try {
+		const {cols, rows} = paneGeometry(geometry, agentViewerPaneId);
+		await run(
+			innerTmuxArgs([
+				'set-option',
+				'-g',
+				'default-size',
+				`${cols - PANE_FRAME_SIZE}x${rows - PANE_FRAME_SIZE}`,
+			]),
+		);
+	} catch (error) {
+		log.warn(
+			'Could not set the default size on the inner socket',
+			error instanceof Error ? error : undefined,
+		);
 	}
 }
 
@@ -2375,11 +2405,13 @@ export async function setupPappardellLayout(): Promise<PaneLayout | null> {
 		);
 
 		try {
-			recordGeometry(parseWindowGeometry(geometry), {
+			const snapshot = parseWindowGeometry(geometry);
+			recordGeometry(snapshot, {
 				listPaneId,
 				agentViewerPaneId,
 				companionViewerPaneId,
 			});
+			await setInnerDefaultSize(snapshot, agentViewerPaneId, runTmux);
 		} catch {
 			lastWindowSize = null;
 			lastRailWidth = null;
@@ -2467,16 +2499,15 @@ async function closeOrphanedViewerPanes(
 
 // A command list that stops part-way has still printed what its earlier
 // commands had to say, which the caller needs.
+//
+// It goes over the control client: tmux 3.4 crashes when a command from
+// another client notifies a control client that is still being set up, and
+// the layout's splits are sent while the control client starts.
 async function runSetup(
 	args: string[],
 ): Promise<{ok: boolean; stdout: string; stderr: string}> {
 	try {
-		const {stdout, stderr} = await execFileAsync('tmux', args, {
-			cwd: TMUX_SERVER_CWD,
-			encoding: 'utf-8',
-			timeout: 10_000,
-		});
-		return {ok: true, stdout, stderr};
+		return {ok: true, stdout: await runTmux(args), stderr: ''};
 	} catch (error) {
 		const failed = error as {stdout?: string; stderr?: string};
 		return {
@@ -3850,6 +3881,8 @@ export async function reconcilePaneLayout(
 			if (!measured) throw new Error('Failed to resize pane layout');
 			geometry = measured;
 		}
+
+		await setInnerDefaultSize(geometry, layout.agentViewerPaneId, run);
 	}
 	const {cols, rows} = paneGeometry(geometry, layout.listPaneId);
 	return {layout, dimensions: {cols, rows}, stacked};
@@ -3906,10 +3939,14 @@ export async function getMainWorktreeInfo(): Promise<{
 		//   branch refs/heads/master
 		//
 		// The first block is always the main worktree.
-		const {stdout} = await execAsync('git worktree list --porcelain', {
-			encoding: 'utf-8',
-			timeout: 5000,
-		});
+		const {stdout} = await execFileAsync(
+			'git',
+			['worktree', 'list', '--porcelain'],
+			{
+				encoding: 'utf-8',
+				timeout: 5000,
+			},
+		);
 
 		const lines = stdout.split('\n');
 		let path: string | null = null;
@@ -4328,7 +4365,7 @@ export function createCompanionSplit(
 ): CreateSplitResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const failure = (args: string[], result: ReturnType<OuterTmuxRunner>) =>
-		`tmux ${args[0]} failed: ${result.stderr?.trim() || result.error?.message || `exit ${result.status}`}`;
+		`tmux ${args[0]} failed: ${tmuxFailure(result)}`;
 	const main = identity.tmux.companionSession;
 	const pathArgs = [
 		'display-message',

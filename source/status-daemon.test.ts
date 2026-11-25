@@ -2,7 +2,8 @@ import {spawn} from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import {setTimeout as delay} from 'node:timers/promises';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {snapshotOf} from '../test/helpers/program-status.ts';
 import {
 	connectRaw,
@@ -27,9 +28,13 @@ const isHook = (workspaceName: string) => (message: DaemonMessage) =>
 	message.type === 'hook' && message.state.workspaceName === workspaceName;
 
 /** The daemon held nothing when `rail` subscribed, and has sent no more. */
-function sentOnlyAnEmptyState(t: ExecutionContext, rail: RawConnection) {
-	t.is(rail.messages.length, 1);
-	t.like(rail.messages[0], {type: 'state', hooks: [], snapshots: []});
+function sentOnlyAnEmptyState(rail: RawConnection) {
+	expect(rail.messages.length).toBe(1);
+	expect(rail.messages[0]).toMatchObject({
+		type: 'state',
+		hooks: [],
+		snapshots: [],
+	});
 }
 
 async function refused(socketPath: string): Promise<boolean> {
@@ -45,10 +50,10 @@ async function refused(socketPath: string): Promise<boolean> {
 	});
 }
 
-test('a line from a socket that closes without reading reaches a subscriber as a push', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
+test('a line from a socket that closes without reading reaches a subscriber as a push', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	const rail = await subscribeRaw(socketPath, 'repo');
 
 	const hook = net.connect(socketPath);
 	hook.on('connect', () => {
@@ -61,17 +66,17 @@ test('a line from a socket that closes without reading reaches a subscriber as a
 	});
 
 	await rail.received(isHook('repo-A'), 'the hook record');
-	t.deepEqual(rail.messages.at(-1), {
+	expect(rail.messages.at(-1)).toStrictEqual({
 		type: 'hook',
 		state: hookState('repo-A'),
 	});
 });
 
-test('a connection that has not subscribed is written nothing', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
-	const sender = await connectRaw(t, socketPath);
+test('a connection that has not subscribed is written nothing', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	const rail = await subscribeRaw(socketPath, 'repo');
+	const sender = await connectRaw(socketPath);
 	let bytes = 0;
 	sender.socket.on('data', (text: string) => {
 		bytes += text.length;
@@ -87,15 +92,15 @@ test('a connection that has not subscribed is written nothing', async t => {
 		message => message.type === 'forgotten',
 		'the last of the sender’s lines',
 	);
-	const other = await connectRaw(t, socketPath);
+	const other = await connectRaw(socketPath);
 	other.send({type: 'hook', state: hookState('repo-B')});
 	await rail.received(isHook('repo-B'), 'another sender’s hook record');
 
-	t.is(bytes, 0);
+	expect(bytes).toBe(0);
 });
 
-test('a second daemon started while the first is about to listen waits, then leaves the socket to the first', async t => {
-	const socketPath = testSocketPath(t);
+test('a second daemon started while the first is about to listen waits, then leaves the socket to the first', async () => {
+	const socketPath = testSocketPath();
 	let reachedListen!: () => void;
 	const aboutToListen = new Promise<void>(resolve => {
 		reachedListen = resolve;
@@ -121,22 +126,22 @@ test('a second daemon started while the first is about to listen waits, then lea
 		return start;
 	});
 	await delay(50);
-	t.is(secondResult, undefined);
+	expect(secondResult).toBe(undefined);
 
 	letListen();
 	const started = await first;
-	t.teardown(async () => {
+	teardown(async () => {
 		if (started.kind === 'serving') await started.daemon.close();
 	});
-	t.is(started.kind, 'serving');
+	expect(started.kind).toBe('serving');
 	const later = await second;
-	t.is(later.kind, 'already-served');
-	const rail = await subscribeRaw(t, socketPath, 'repo');
-	sentOnlyAnEmptyState(t, rail);
+	expect(later.kind).toBe('already-served');
+	const rail = await subscribeRaw(socketPath, 'repo');
+	sentOnlyAnEmptyState(rail);
 });
 
-test('a socket file that a killed daemon left is replaced', async t => {
-	const socketPath = testSocketPath(t);
+test('a socket file that a killed daemon left is replaced', async () => {
+	const socketPath = testSocketPath();
 	const killed = spawn(
 		process.execPath,
 		[
@@ -153,34 +158,34 @@ test('a socket file that a killed daemon left is replaced', async t => {
 	await new Promise(resolve => {
 		killed.once('exit', resolve);
 	});
-	t.true(fs.existsSync(socketPath));
-	t.true(await refused(socketPath));
+	expect(fs.existsSync(socketPath)).toBe(true);
+	expect(await refused(socketPath)).toBe(true);
 
-	await serveTestDaemon(t, socketPath);
+	await serveTestDaemon(socketPath);
 
-	const rail = await subscribeRaw(t, socketPath, 'repo');
-	sentOnlyAnEmptyState(t, rail);
+	const rail = await subscribeRaw(socketPath, 'repo');
+	sentOnlyAnEmptyState(rail);
 });
 
-test('the socket is the user’s alone', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
+test('the socket is the user’s alone', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
 
 	// eslint-disable-next-line no-bitwise -- Permission bits.
-	t.is(fs.statSync(socketPath).mode & 0o777, 0o600);
+	expect(fs.statSync(socketPath).mode & 0o777).toBe(0o600);
 });
 
-test('the daemon stops once the idle wait after its last connection closed is over, and removes its socket', async t => {
-	const socketPath = testSocketPath(t);
+test('the daemon stops once the idle wait after its last connection closed is over, and removes its socket', async () => {
+	const socketPath = testSocketPath();
 	const clock = manualTimers();
-	const daemon = await serveTestDaemon(t, socketPath, {timers: clock.timers});
-	const first = await connectRaw(t, socketPath);
-	const second = await connectRaw(t, socketPath);
+	const daemon = await serveTestDaemon(socketPath, {timers: clock.timers});
+	const first = await connectRaw(socketPath);
+	const second = await connectRaw(socketPath);
 	await waitUntil(() => clock.delays().length === 0, 'the daemon to be in use');
 
 	first.socket.destroy();
-	const rail = await subscribeRaw(t, socketPath, 'repo');
-	t.deepEqual(clock.delays(), []);
+	const rail = await subscribeRaw(socketPath, 'repo');
+	expect(clock.delays()).toStrictEqual([]);
 
 	second.socket.destroy();
 	rail.socket.destroy();
@@ -188,29 +193,29 @@ test('the daemon stops once the idle wait after its last connection closed is ov
 		() => clock.delays().length === 1,
 		'the daemon to see that nothing is connected',
 	);
-	t.deepEqual(clock.delays(), [IDLE_EXIT_MS]);
+	expect(clock.delays()).toStrictEqual([IDLE_EXIT_MS]);
 
 	clock.fire();
 	await daemon.closed;
-	t.false(fs.existsSync(socketPath));
-	t.true(await refused(socketPath));
+	expect(fs.existsSync(socketPath)).toBe(false);
+	expect(await refused(socketPath)).toBe(true);
 });
 
-test('a daemon that nothing connects to stops once the idle wait from its start is over', async t => {
-	const socketPath = testSocketPath(t);
+test('a daemon that nothing connects to stops once the idle wait from its start is over', async () => {
+	const socketPath = testSocketPath();
 	const clock = manualTimers();
-	const daemon = await serveTestDaemon(t, socketPath, {timers: clock.timers});
-	t.deepEqual(clock.delays(), [IDLE_EXIT_MS]);
+	const daemon = await serveTestDaemon(socketPath, {timers: clock.timers});
+	expect(clock.delays()).toStrictEqual([IDLE_EXIT_MS]);
 
 	clock.fire();
 	await daemon.closed;
-	t.false(fs.existsSync(socketPath));
+	expect(fs.existsSync(socketPath)).toBe(false);
 });
 
-test('a daemon about to stop stays for a connection that arrives before it has the lock', async t => {
-	const socketPath = testSocketPath(t);
+test('a daemon about to stop stays for a connection that arrives before it has the lock', async () => {
+	const socketPath = testSocketPath();
 	const clock = manualTimers();
-	await serveTestDaemon(t, socketPath, {timers: clock.timers});
+	await serveTestDaemon(socketPath, {timers: clock.timers});
 	let release!: () => void;
 	const starting = new Promise<void>(resolve => {
 		release = resolve;
@@ -220,21 +225,21 @@ test('a daemon about to stop stays for a connection that arrives before it has t
 	// answers.
 	const candidate = withFileLock(socketPath, async () => starting);
 	clock.fire();
-	const rail = await subscribeRaw(t, socketPath, 'repo');
+	const rail = await subscribeRaw(socketPath, 'repo');
 	release();
 	await candidate;
 	await withFileLock(socketPath, () => {});
 
-	const sender = await connectRaw(t, socketPath);
+	const sender = await connectRaw(socketPath);
 	sender.send({type: 'hook', state: hookState('repo-A')});
 	await rail.received(isHook('repo-A'), 'a push from the daemon that stayed');
-	t.true(fs.existsSync(socketPath));
+	expect(fs.existsSync(socketPath)).toBe(true);
 });
 
-test('a daemon about to stop starts the idle wait again after a connection that came and went before it had the lock', async t => {
-	const socketPath = testSocketPath(t);
+test('a daemon about to stop starts the idle wait again after a connection that came and went before it had the lock', async () => {
+	const socketPath = testSocketPath();
 	const clock = manualTimers();
-	await serveTestDaemon(t, socketPath, {timers: clock.timers});
+	await serveTestDaemon(socketPath, {timers: clock.timers});
 	let release!: () => void;
 	const starting = new Promise<void>(resolve => {
 		release = resolve;
@@ -244,7 +249,7 @@ test('a daemon about to stop starts the idle wait again after a connection that 
 	// exits when it does. This one must then not stop under it.
 	const candidate = withFileLock(socketPath, async () => starting);
 	clock.fire();
-	t.false(await refused(socketPath));
+	expect(await refused(socketPath)).toBe(false);
 	await waitUntil(
 		() => clock.delays().length === 1,
 		'the daemon to see that connection close',
@@ -253,16 +258,16 @@ test('a daemon about to stop starts the idle wait again after a connection that 
 	await candidate;
 	await withFileLock(socketPath, () => {});
 
-	t.deepEqual(clock.delays(), [IDLE_EXIT_MS]);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
-	sentOnlyAnEmptyState(t, rail);
+	expect(clock.delays()).toStrictEqual([IDLE_EXIT_MS]);
+	const rail = await subscribeRaw(socketPath, 'repo');
+	sentOnlyAnEmptyState(rail);
 });
 
-test('an invalid line is ignored, and the lines after it on that connection still apply', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
-	const sender = await subscribeRaw(t, socketPath, 'other');
+test('an invalid line is ignored, and the lines after it on that connection still apply', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	const rail = await subscribeRaw(socketPath, 'repo');
+	const sender = await subscribeRaw(socketPath, 'other');
 
 	sender.socket.write('not a message\n{"type":"hook","state":{}}\n');
 	sender.send({type: 'subscribe', repo: 'other'});
@@ -273,23 +278,23 @@ test('an invalid line is ignored, and the lines after it on that connection stil
 	sender.send({type: 'hook', state: hookState('repo-A')});
 
 	await rail.received(isHook('repo-A'), 'the valid line');
-	t.deepEqual(rail.messages.slice(1), [
+	expect(rail.messages.slice(1)).toStrictEqual([
 		{type: 'hook', state: hookState('repo-A')},
 	]);
 });
 
-test('a subscriber that stops reading is disconnected at the backlog cap, and the others are not', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	const stopped = await subscribeRaw(t, socketPath, 'repo');
-	const reading = await subscribeRaw(t, socketPath, 'repo');
+test('a subscriber that stops reading is disconnected at the backlog cap, and the others are not', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	const stopped = await subscribeRaw(socketPath, 'repo');
+	const reading = await subscribeRaw(socketPath, 'repo');
 	let stoppedClosed = false;
 	stopped.socket.on('close', () => {
 		stoppedClosed = true;
 	});
 	stopped.socket.pause();
 
-	const monitor = await connectRaw(t, socketPath);
+	const monitor = await connectRaw(socketPath);
 	const padding = 'x'.repeat(256 * 1024);
 	const sent = Math.ceil((2 * MAX_SUBSCRIBER_BACKLOG_BYTES) / padding.length);
 	for (let index = 0; index < sent; index++) {
@@ -312,7 +317,7 @@ test('a subscriber that stops reading is disconnected at the backlog cap, and th
 	);
 	stopped.socket.resume();
 	await waitUntil(() => stoppedClosed, 'the stopped subscriber to be closed');
-	t.true(snapshots(stopped.messages) < sent);
+	expect(snapshots(stopped.messages) < sent).toBe(true);
 
 	monitor.send({type: 'hook', state: hookState('repo-A')});
 	await reading.received(isHook('repo-A'), 'a push after the disconnect');

@@ -1,0 +1,5 @@
+[test]
+root = "source"
+# The guard comes first: it stops a file before anything it imports can reach
+# the developer's HOME or tmux server.
+preload = ["./test/helpers/test-guard.ts", "./test/helpers/test-setup.ts"]

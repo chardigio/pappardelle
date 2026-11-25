@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {thrownBy} from '../test/helpers/thrown.ts';
 import {ConfigValidationError} from './config-errors.ts';
 import {
 	DEFAULT_KEYBINDING_KEYS,
@@ -16,7 +17,7 @@ import {
 // Profile emoji + default_emoji Tests
 // ============================================================================
 
-test('validateConfig accepts issue_tracker.provider beads without base_url', t => {
+test('validateConfig accepts issue_tracker.provider beads without base_url', () => {
 	// Beads is local — there is no host to configure.
 	const raw = {
 		version: 1,
@@ -24,36 +25,32 @@ test('validateConfig accepts issue_tracker.provider beads without base_url', t =
 		issue_tracker: {provider: 'beads'},
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig names every supported tracker when one is unknown', t => {
+test('validateConfig names every supported tracker when one is unknown', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
 		issue_tracker: {provider: 'bugzilla'},
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('"linear", "jira", or "beads"'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('"linear", "jira", or "beads"')).toBeTruthy();
 });
 
-test('validateConfig rejects non-string default_emoji', t => {
+test('validateConfig rejects non-string default_emoji', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
 		default_emoji: 123,
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('default_emoji'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('default_emoji')).toBeTruthy();
 });
 
-test('validateConfig accepts empty-string default_emoji (blank slot)', t => {
+test('validateConfig accepts empty-string default_emoji (blank slot)', () => {
 	// Empty string means "reserve the emoji slot but render nothing in it",
 	// keeping rows aligned when some profiles have an emoji and others don't.
 	const raw = {
@@ -62,20 +59,20 @@ test('validateConfig accepts empty-string default_emoji (blank slot)', t => {
 		default_emoji: '',
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts valid default_emoji', t => {
+test('validateConfig accepts valid default_emoji', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
 		default_emoji: '🍝',
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects non-string profile emoji', t => {
+test('validateConfig rejects non-string profile emoji', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -83,13 +80,11 @@ test('validateConfig rejects non-string profile emoji', t => {
 			test: {keywords: ['test'], display_name: 'Test', emoji: 42},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('profiles.test.emoji'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('profiles.test.emoji')).toBeTruthy();
 });
 
-test('validateConfig accepts empty-string profile emoji (blank slot)', t => {
+test('validateConfig accepts empty-string profile emoji (blank slot)', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -97,10 +92,10 @@ test('validateConfig accepts empty-string profile emoji (blank slot)', t => {
 			test: {keywords: ['test'], display_name: 'Test', emoji: ''},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts valid profile emoji', t => {
+test('validateConfig accepts valid profile emoji', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -108,14 +103,14 @@ test('validateConfig accepts valid profile emoji', t => {
 			test: {keywords: ['test'], display_name: 'Test', emoji: '🚀'},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
 // ============================================================================
 // Profile team_prefix Validation Tests
 // ============================================================================
 
-test('validateConfig rejects non-string profile team_prefix', t => {
+test('validateConfig rejects non-string profile team_prefix', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -127,15 +122,13 @@ test('validateConfig rejects non-string profile team_prefix', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes('profiles.test.team_prefix: must be a string'),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig accepts valid string profile team_prefix', t => {
+test('validateConfig accepts valid string profile team_prefix', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -147,14 +140,14 @@ test('validateConfig accepts valid string profile team_prefix', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
 // ============================================================================
 // Profile vars Validation Tests
 // ============================================================================
 
-test('validateConfig rejects non-string vars value', t => {
+test('validateConfig rejects non-string vars value', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -166,15 +159,13 @@ test('validateConfig rejects non-string vars value', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes('profiles.test.vars.IOS_APP_DIR: must be a string'),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig accepts valid string vars', t => {
+test('validateConfig accepts valid string vars', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -186,10 +177,10 @@ test('validateConfig accepts valid string vars', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts profile without vars', t => {
+test('validateConfig accepts profile without vars', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -200,10 +191,10 @@ test('validateConfig accepts profile without vars', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects non-object vars', t => {
+test('validateConfig rejects non-object vars', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -215,13 +206,13 @@ test('validateConfig rejects non-object vars', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('profiles.test.vars: must be an object'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('profiles.test.vars: must be an object'),
+	).toBeTruthy();
 });
 
-test('validateConfig rejects null vars', t => {
+test('validateConfig rejects null vars', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -233,13 +224,13 @@ test('validateConfig rejects null vars', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('profiles.test.vars: must be an object'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('profiles.test.vars: must be an object'),
+	).toBeTruthy();
 });
 
-test('validateConfig accepts empty vars object', t => {
+test('validateConfig accepts empty vars object', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -251,10 +242,10 @@ test('validateConfig accepts empty vars object', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig reports multiple invalid vars values', t => {
+test('validateConfig reports multiple invalid vars values', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -266,16 +257,14 @@ test('validateConfig reports multiple invalid vars values', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('vars.FOO: must be a string'));
-	t.truthy(error?.message.includes('vars.BAR: must be a string'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('vars.FOO: must be a string')).toBeTruthy();
+	expect(error?.message.includes('vars.BAR: must be a string')).toBeTruthy();
 	// VALID should not appear in error
-	t.falsy(error?.message.includes('vars.VALID'));
+	expect(error?.message.includes('vars.VALID')).toBeFalsy();
 });
 
-test('validateConfig rejects reserved var name PATH', t => {
+test('validateConfig rejects reserved var name PATH', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -287,13 +276,11 @@ test('validateConfig rejects reserved var name PATH', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('vars.PATH: reserved name'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('vars.PATH: reserved name')).toBeTruthy();
 });
 
-test('validateConfig rejects reserved var name HOME', t => {
+test('validateConfig rejects reserved var name HOME', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -305,13 +292,11 @@ test('validateConfig rejects reserved var name HOME', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('vars.HOME: reserved name'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('vars.HOME: reserved name')).toBeTruthy();
 });
 
-test('validateConfig rejects reserved built-in template var ISSUE_KEY', t => {
+test('validateConfig rejects reserved built-in template var ISSUE_KEY', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -323,13 +308,11 @@ test('validateConfig rejects reserved built-in template var ISSUE_KEY', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('vars.ISSUE_KEY: reserved name'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('vars.ISSUE_KEY: reserved name')).toBeTruthy();
 });
 
-test('validateConfig rejects reserved built-in template var WORKTREE_PATH', t => {
+test('validateConfig rejects reserved built-in template var WORKTREE_PATH', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -341,13 +324,13 @@ test('validateConfig rejects reserved built-in template var WORKTREE_PATH', t =>
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('vars.WORKTREE_PATH: reserved name'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('vars.WORKTREE_PATH: reserved name'),
+	).toBeTruthy();
 });
 
-test('validateConfig allows non-reserved var names', t => {
+test('validateConfig allows non-reserved var names', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -364,16 +347,18 @@ test('validateConfig allows non-reserved var names', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('RESERVED_VAR_NAMES includes critical shell variables', t => {
+test('RESERVED_VAR_NAMES includes critical shell variables', () => {
 	for (const name of ['PATH', 'HOME', 'IFS', 'SHELL', 'USER', 'PWD', 'TERM']) {
-		t.true(RESERVED_VAR_NAMES.has(name), `${name} should be reserved`);
+		expect(RESERVED_VAR_NAMES.has(name), `${name} should be reserved`).toBe(
+			true,
+		);
 	}
 });
 
-test('RESERVED_VAR_NAMES includes built-in template variables', t => {
+test('RESERVED_VAR_NAMES includes built-in template variables', () => {
 	for (const name of [
 		'ISSUE_KEY',
 		'WORKTREE_PATH',
@@ -383,7 +368,9 @@ test('RESERVED_VAR_NAMES includes built-in template variables', t => {
 		'PR_URL',
 		'VCS_LABEL',
 	]) {
-		t.true(RESERVED_VAR_NAMES.has(name), `${name} should be reserved`);
+		expect(RESERVED_VAR_NAMES.has(name), `${name} should be reserved`).toBe(
+			true,
+		);
 	}
 });
 
@@ -391,36 +378,37 @@ test('RESERVED_VAR_NAMES includes built-in template variables', t => {
 // getDangerouslySkipPermissions Tests
 // ============================================================================
 
-test('validateConfig rejects non-boolean dangerously_skip_permissions', t => {
+test('validateConfig rejects non-boolean dangerously_skip_permissions', () => {
 	const rawConfig = {
 		version: 1,
 		default_profile: 'test',
 		claude: {dangerously_skip_permissions: 'yes'},
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
-	const error = t.throws(() => validateConfig(rawConfig), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
-		error?.message.includes('dangerously_skip_permissions: must be a boolean'),
+	const error = thrownBy(
+		() => validateConfig(rawConfig),
+		ConfigValidationError,
 	);
+	expect(
+		error?.message.includes('dangerously_skip_permissions: must be a boolean'),
+	).toBeTruthy();
 });
 
-test('validateConfig accepts boolean dangerously_skip_permissions', t => {
+test('validateConfig accepts boolean dangerously_skip_permissions', () => {
 	const rawConfig = {
 		version: 1,
 		default_profile: 'test',
 		claude: {dangerously_skip_permissions: true},
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
-	t.notThrows(() => validateConfig(rawConfig));
+	expect(() => validateConfig(rawConfig)).not.toThrow();
 });
 
 // ============================================================================
 // Keybinding Tests
 // ============================================================================
 
-test('validateConfig accepts valid keybindings', t => {
+test('validateConfig accepts valid keybindings', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -435,10 +423,10 @@ test('validateConfig accepts valid keybindings', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects keybinding with multi-character key', t => {
+test('validateConfig rejects keybinding with multi-character key', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -450,13 +438,11 @@ test('validateConfig rejects keybinding with multi-character key', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('must be a single character'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('must be a single character')).toBeTruthy();
 });
 
-test('validateConfig rejects keybinding with non-overridable reserved key', t => {
+test('validateConfig rejects keybinding with non-overridable reserved key', () => {
 	for (const reservedKey of NON_OVERRIDABLE_KEYS) {
 		const raw = {
 			version: 1,
@@ -469,14 +455,14 @@ test('validateConfig rejects keybinding with non-overridable reserved key', t =>
 				},
 			},
 		};
-		const error = t.throws(() => validateConfig(raw), {
-			instanceOf: ConfigValidationError,
-		});
-		t.truthy(error?.message.includes('conflicts with built-in shortcut'));
+		const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+		expect(
+			error?.message.includes('conflicts with built-in shortcut'),
+		).toBeTruthy();
 	}
 });
 
-test('validateConfig accepts keybinding that overrides a default key', t => {
+test('validateConfig accepts keybinding that overrides a default key', () => {
 	for (const defaultKey of DEFAULT_KEYBINDING_KEYS) {
 		const raw = {
 			version: 1,
@@ -495,14 +481,14 @@ test('validateConfig accepts keybinding that overrides a default key', t => {
 				},
 			},
 		};
-		t.notThrows(
+		expect(
 			() => validateConfig(raw),
 			`"${defaultKey}" should be overridable`,
-		);
+		).not.toThrow();
 	}
 });
 
-test('validateConfig accepts disabled keybinding for a default key', t => {
+test('validateConfig accepts disabled keybinding for a default key', () => {
 	for (const defaultKey of DEFAULT_KEYBINDING_KEYS) {
 		const raw = {
 			version: 1,
@@ -511,33 +497,33 @@ test('validateConfig accepts disabled keybinding for a default key', t => {
 			},
 			keybindings: [{key: defaultKey, disabled: true}],
 		};
-		t.notThrows(
+		expect(
 			() => validateConfig(raw),
 			`"${defaultKey}" should be disableable`,
-		);
+		).not.toThrow();
 	}
 });
 
-test('K is an overridable default key, not a non-overridable one (STA-2111)', t => {
+test('K is an overridable default key, not a non-overridable one (STA-2111)', () => {
 	// The `K` shortcut closes every done/canceled space. It behaves like the
 	// other built-in defaults: a user `keybindings:` entry for `K` replaces it.
-	t.true(DEFAULT_KEYBINDING_KEYS.has('K'));
-	t.false(NON_OVERRIDABLE_KEYS.has('K'));
+	expect(DEFAULT_KEYBINDING_KEYS.has('K')).toBe(true);
+	expect(NON_OVERRIDABLE_KEYS.has('K')).toBe(false);
 });
 
-test('RESERVED_KEYS is the union of NON_OVERRIDABLE_KEYS and DEFAULT_KEYBINDING_KEYS', t => {
+test('RESERVED_KEYS is the union of NON_OVERRIDABLE_KEYS and DEFAULT_KEYBINDING_KEYS', () => {
 	const union = new Set([...NON_OVERRIDABLE_KEYS, ...DEFAULT_KEYBINDING_KEYS]);
-	t.deepEqual(RESERVED_KEYS, union);
+	expect(RESERVED_KEYS).toStrictEqual(union);
 	// No overlap between the two sets
 	for (const key of NON_OVERRIDABLE_KEYS) {
-		t.false(
+		expect(
 			DEFAULT_KEYBINDING_KEYS.has(key),
 			`"${key}" should not be in both sets`,
-		);
+		).toBe(false);
 	}
 });
 
-test('validateConfig rejects duplicate keybinding keys', t => {
+test('validateConfig rejects duplicate keybinding keys', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -552,13 +538,11 @@ test('validateConfig rejects duplicate keybinding keys', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('already bound'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('already bound')).toBeTruthy();
 });
 
-test('validateConfig rejects keybinding missing name', t => {
+test('validateConfig rejects keybinding missing name', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -570,13 +554,11 @@ test('validateConfig rejects keybinding missing name', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('name: required string field'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('name: required string field')).toBeTruthy();
 });
 
-test('validateConfig rejects keybinding with no action', t => {
+test('validateConfig rejects keybinding with no action', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -588,17 +570,15 @@ test('validateConfig rejects keybinding with no action', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			"must have exactly one of 'run', 'send_to_claude' or 'send_skill'",
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects a keybinding that both sends text and a skill', t => {
+test('validateConfig rejects a keybinding that both sends text and a skill', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -607,13 +587,11 @@ test('validateConfig rejects a keybinding that both sends text and a skill', t =
 		],
 		profiles: {test: {keywords: ['test'], display_name: 'Test'}},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('must have exactly one of'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('must have exactly one of')).toBeTruthy();
 });
 
-test('validateConfig accepts send_to_claude keybinding without run', t => {
+test('validateConfig accepts send_to_claude keybinding without run', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -631,10 +609,10 @@ test('validateConfig accepts send_to_claude keybinding without run', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts uppercase versions of non-overridable keys', t => {
+test('validateConfig accepts uppercase versions of non-overridable keys', () => {
 	// Uppercase letters like 'J', 'K', 'N' should be valid even though
 	// their lowercase counterparts are non-overridable built-in shortcuts
 	const uppercaseReserved = [...NON_OVERRIDABLE_KEYS]
@@ -653,11 +631,14 @@ test('validateConfig accepts uppercase versions of non-overridable keys', t => {
 				},
 			},
 		};
-		t.notThrows(() => validateConfig(raw), `"${key}" should be allowed`);
+		expect(
+			() => validateConfig(raw),
+			`"${key}" should be allowed`,
+		).not.toThrow();
 	}
 });
 
-test('validateConfig accepts uppercase versions of default keybinding keys', t => {
+test('validateConfig accepts uppercase versions of default keybinding keys', () => {
 	// Uppercase of overridable keys (G, I, D, O, E, P) should be valid custom bindings
 	const uppercaseDefaultKeys = [...DEFAULT_KEYBINDING_KEYS].map(k =>
 		k.toUpperCase(),
@@ -675,11 +656,14 @@ test('validateConfig accepts uppercase versions of default keybinding keys', t =
 				},
 			},
 		};
-		t.notThrows(() => validateConfig(raw), `"${key}" should be allowed`);
+		expect(
+			() => validateConfig(raw),
+			`"${key}" should be allowed`,
+		).not.toThrow();
 	}
 });
 
-test('validateConfig rejects disabled keybinding for a non-overridable key', t => {
+test('validateConfig rejects disabled keybinding for a non-overridable key', () => {
 	// disabled: true should not bypass the non-overridable key restriction
 	for (const key of NON_OVERRIDABLE_KEYS) {
 		const raw = {
@@ -693,15 +677,14 @@ test('validateConfig rejects disabled keybinding for a non-overridable key', t =
 				},
 			},
 		};
-		t.throws(
+		expect(
 			() => validateConfig(raw),
-			undefined,
 			`"${key}" should not be disableable`,
-		);
+		).toThrow();
 	}
 });
 
-test('validateConfig rejects non-array keybindings', t => {
+test('validateConfig rejects non-array keybindings', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -713,17 +696,15 @@ test('validateConfig rejects non-array keybindings', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('keybindings: must be an array'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('keybindings: must be an array')).toBeTruthy();
 });
 
 // ============================================================================
 // Optional default_profile Tests
 // ============================================================================
 
-test('validateConfig accepts config without default_profile (uses first profile)', t => {
+test('validateConfig accepts config without default_profile (uses first profile)', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -732,12 +713,12 @@ test('validateConfig accepts config without default_profile (uses first profile)
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 	// After validation, default_profile should be set to first profile key
-	t.is((raw as Record<string, unknown>)['default_profile'], 'my-app');
+	expect((raw as Record<string, unknown>)['default_profile']).toBe('my-app');
 });
 
-test('validateConfig rejects empty string default_profile', t => {
+test('validateConfig rejects empty string default_profile', () => {
 	const raw = {
 		version: 1,
 		default_profile: '',
@@ -748,17 +729,15 @@ test('validateConfig rejects empty string default_profile', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('default_profile'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('default_profile')).toBeTruthy();
 });
 
 // ============================================================================
 // Optional keywords Tests
 // ============================================================================
 
-test('validateConfig accepts profile without keywords', t => {
+test('validateConfig accepts profile without keywords', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -768,10 +747,10 @@ test('validateConfig accepts profile without keywords', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects non-array keywords', t => {
+test('validateConfig rejects non-array keywords', () => {
 	const raw = {
 		version: 1,
 		default_profile: 'test',
@@ -782,13 +761,11 @@ test('validateConfig rejects non-array keywords', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('keywords: must be an array'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('keywords: must be an array')).toBeTruthy();
 });
 
-test('minimal config with just team_prefix and one profile validates', t => {
+test('minimal config with just team_prefix and one profile validates', () => {
 	const raw = {
 		version: 1,
 		team_prefix: 'PROJ',
@@ -798,14 +775,14 @@ test('minimal config with just team_prefix and one profile validates', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
 // ============================================================================
 // Validation: disabled keybindings
 // ============================================================================
 
-test('validation accepts disabled keybinding without name/run/send_to_claude', t => {
+test('validation accepts disabled keybinding without name/run/send_to_claude', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -813,10 +790,10 @@ test('validation accepts disabled keybinding without name/run/send_to_claude', t
 		},
 		keybindings: [{key: 'r', disabled: true}],
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validation still rejects disabled keybinding with reserved key', t => {
+test('validation still rejects disabled keybinding with reserved key', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -824,13 +801,13 @@ test('validation still rejects disabled keybinding with reserved key', t => {
 		},
 		keybindings: [{key: 'j', disabled: true}],
 	};
-	const err = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(err!.errors.some(e => e.includes('"j" conflicts with built-in')));
+	const err = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(err!.errors.some(e => e.includes('"j" conflicts with built-in'))).toBe(
+		true,
+	);
 });
 
-test('validation still rejects disabled keybinding with invalid key', t => {
+test('validation still rejects disabled keybinding with invalid key', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -838,17 +815,17 @@ test('validation still rejects disabled keybinding with invalid key', t => {
 		},
 		keybindings: [{key: 'ab', disabled: true}],
 	};
-	const err = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(err!.errors.some(e => e.includes('must be a single character')));
+	const err = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(err!.errors.some(e => e.includes('must be a single character'))).toBe(
+		true,
+	);
 });
 
 // ============================================================================
 // Per-profile claude and post_worktree_init validation
 // ============================================================================
 
-test('validateConfig accepts profile with valid claude.initialization_command', t => {
+test('validateConfig accepts profile with valid claude.initialization_command', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -858,10 +835,10 @@ test('validateConfig accepts profile with valid claude.initialization_command', 
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects profile with non-string claude.initialization_command', t => {
+test('validateConfig rejects profile with non-string claude.initialization_command', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -871,17 +848,15 @@ test('validateConfig rejects profile with non-string claude.initialization_comma
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('claude.initialization_command: must be a string'),
 		),
-	);
+	).toBe(true);
 });
 
-test('validateConfig rejects profile with non-object claude section', t => {
+test('validateConfig rejects profile with non-object claude section', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -891,13 +866,13 @@ test('validateConfig rejects profile with non-object claude section', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(error!.errors.some(e => e.includes('claude: must be an object')));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error!.errors.some(e => e.includes('claude: must be an object'))).toBe(
+		true,
+	);
 });
 
-test('validateConfig accepts profile with valid post_worktree_init array', t => {
+test('validateConfig accepts profile with valid post_worktree_init array', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -910,10 +885,10 @@ test('validateConfig accepts profile with valid post_worktree_init array', t => 
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects profile with non-array post_worktree_init', t => {
+test('validateConfig rejects profile with non-array post_worktree_init', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -923,15 +898,13 @@ test('validateConfig rejects profile with non-array post_worktree_init', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e => e.includes('post_worktree_init: must be an array')),
-	);
+	).toBe(true);
 });
 
-test('validateConfig rejects profile post_worktree_init entry missing run', t => {
+test('validateConfig rejects profile post_worktree_init entry missing run', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -941,21 +914,19 @@ test('validateConfig rejects profile post_worktree_init entry missing run', t =>
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('post_worktree_init[0].run: required string field'),
 		),
-	);
+	).toBe(true);
 });
 
 // ============================================================================
 // post_workspace_init (rename of post_worktree_init) and backwards compat
 // ============================================================================
 
-test('validateConfig accepts global post_workspace_init as replacement for post_worktree_init', t => {
+test('validateConfig accepts global post_workspace_init as replacement for post_worktree_init', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -964,38 +935,36 @@ test('validateConfig accepts global post_workspace_init as replacement for post_
 			{name: 'Copy env', run: 'cp .env ${WORKTREE_PATH}/.env'},
 		],
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts post_worktree_init for backwards compat (global)', t => {
+test('validateConfig accepts post_worktree_init for backwards compat (global)', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		post_worktree_init: [{name: 'Copy env', run: 'cp .env .env.bak'}],
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects both post_workspace_init and post_worktree_init at global level', t => {
+test('validateConfig rejects both post_workspace_init and post_worktree_init at global level', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		post_workspace_init: [{name: 'A', run: 'echo a'}],
 		post_worktree_init: [{name: 'B', run: 'echo b'}],
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes(
 				'post_workspace_init and post_worktree_init cannot both be specified',
 			),
 		),
-	);
+	).toBe(true);
 });
 
-test('validateConfig accepts profile-level post_workspace_init', t => {
+test('validateConfig accepts profile-level post_workspace_init', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1005,10 +974,10 @@ test('validateConfig accepts profile-level post_workspace_init', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects both post_workspace_init and post_worktree_init at profile level', t => {
+test('validateConfig rejects both post_workspace_init and post_worktree_init at profile level', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1019,23 +988,21 @@ test('validateConfig rejects both post_workspace_init and post_worktree_init at 
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes(
 				'post_workspace_init and post_worktree_init cannot both be specified',
 			),
 		),
-	);
+	).toBe(true);
 });
 
 // ============================================================================
 // pre_workspace_deinit validation
 // ============================================================================
 
-test('validateConfig accepts global pre_workspace_deinit array', t => {
+test('validateConfig accepts global pre_workspace_deinit array', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1048,42 +1015,38 @@ test('validateConfig accepts global pre_workspace_deinit array', t => {
 			{run: 'echo cleanup'},
 		],
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects global non-array pre_workspace_deinit', t => {
+test('validateConfig rejects global non-array pre_workspace_deinit', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		pre_workspace_deinit: 'not-an-array',
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('pre_workspace_deinit: must be an array'),
 		),
-	);
+	).toBe(true);
 });
 
-test('validateConfig rejects global pre_workspace_deinit entry missing run', t => {
+test('validateConfig rejects global pre_workspace_deinit entry missing run', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		pre_workspace_deinit: [{name: 'No run'}],
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('pre_workspace_deinit[0].run: required string field'),
 		),
-	);
+	).toBe(true);
 });
 
-test('validateConfig accepts profile-level pre_workspace_deinit array', t => {
+test('validateConfig accepts profile-level pre_workspace_deinit array', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1093,10 +1056,10 @@ test('validateConfig accepts profile-level pre_workspace_deinit array', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects profile non-array pre_workspace_deinit', t => {
+test('validateConfig rejects profile non-array pre_workspace_deinit', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1106,17 +1069,15 @@ test('validateConfig rejects profile non-array pre_workspace_deinit', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('pre_workspace_deinit: must be an array'),
 		),
-	);
+	).toBe(true);
 });
 
-test('validateConfig rejects profile pre_workspace_deinit entry missing run', t => {
+test('validateConfig rejects profile pre_workspace_deinit entry missing run', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1126,21 +1087,19 @@ test('validateConfig rejects profile pre_workspace_deinit entry missing run', t 
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('pre_workspace_deinit[0].run: required string field'),
 		),
-	);
+	).toBe(true);
 });
 
 // ============================================================================
 // continue_on_error validation
 // ============================================================================
 
-test('validateConfig accepts continue_on_error in post_workspace_init', t => {
+test('validateConfig accepts continue_on_error in post_workspace_init', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1148,10 +1107,10 @@ test('validateConfig accepts continue_on_error in post_workspace_init', t => {
 			{name: 'Install', run: 'npm install', continue_on_error: true},
 		],
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts continue_on_error in pre_workspace_deinit', t => {
+test('validateConfig accepts continue_on_error in pre_workspace_deinit', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1159,10 +1118,10 @@ test('validateConfig accepts continue_on_error in pre_workspace_deinit', t => {
 			{name: 'Cleanup', run: 'rm -rf tmp/', continue_on_error: true},
 		],
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts continue_on_error: false in pre_workspace_deinit', t => {
+test('validateConfig accepts continue_on_error: false in pre_workspace_deinit', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1170,10 +1129,10 @@ test('validateConfig accepts continue_on_error: false in pre_workspace_deinit', 
 			{name: 'Cleanup', run: 'rm -rf tmp/', continue_on_error: false},
 		],
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects non-boolean continue_on_error in global post_workspace_init', t => {
+test('validateConfig rejects non-boolean continue_on_error in global post_workspace_init', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1181,17 +1140,15 @@ test('validateConfig rejects non-boolean continue_on_error in global post_worksp
 			{name: 'Install', run: 'npm install', continue_on_error: 'yes'},
 		],
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('post_workspace_init[0].continue_on_error: must be a boolean'),
 		),
-	);
+	).toBe(true);
 });
 
-test('validateConfig rejects non-boolean continue_on_error in global pre_workspace_deinit', t => {
+test('validateConfig rejects non-boolean continue_on_error in global pre_workspace_deinit', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1199,19 +1156,17 @@ test('validateConfig rejects non-boolean continue_on_error in global pre_workspa
 			{name: 'Cleanup', run: 'rm tmp/', continue_on_error: 1},
 		],
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes(
 				'pre_workspace_deinit[0].continue_on_error: must be a boolean',
 			),
 		),
-	);
+	).toBe(true);
 });
 
-test('validateConfig rejects non-boolean continue_on_error in profile commands', t => {
+test('validateConfig rejects non-boolean continue_on_error in profile commands', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1223,17 +1178,15 @@ test('validateConfig rejects non-boolean continue_on_error in profile commands',
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('commands[0].continue_on_error: must be a boolean'),
 		),
-	);
+	).toBe(true);
 });
 
-test('validation detects duplicate keys even if one is disabled', t => {
+test('validation detects duplicate keys even if one is disabled', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1244,17 +1197,15 @@ test('validation detects duplicate keys even if one is disabled', t => {
 			{key: 'b', disabled: true},
 		],
 	};
-	const err = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(err!.errors.some(e => e.includes('"b" is already bound')));
+	const err = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(err!.errors.some(e => e.includes('"b" is already bound'))).toBe(true);
 });
 
 // ============================================================================
 // issue_watchlist Validation Tests
 // ============================================================================
 
-test('validateConfig accepts valid issue_watchlist with assignee and statuses', t => {
+test('validateConfig accepts valid issue_watchlist with assignee and statuses', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1263,10 +1214,10 @@ test('validateConfig accepts valid issue_watchlist with assignee and statuses', 
 			statuses: ['To Do', 'In Progress'],
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts issue_watchlist with explicit assignee', t => {
+test('validateConfig accepts issue_watchlist with explicit assignee', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1275,22 +1226,22 @@ test('validateConfig accepts issue_watchlist with explicit assignee', t => {
 			statuses: ['In Review'],
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects issue_watchlist that is not an object', t => {
+test('validateConfig rejects issue_watchlist that is not an object', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		issue_watchlist: 'not-an-object',
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('issue_watchlist: must be an object'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('issue_watchlist: must be an object'),
+	).toBeTruthy();
 });
 
-test('validateConfig accepts issue_watchlist without assignee (optional)', t => {
+test('validateConfig accepts issue_watchlist without assignee (optional)', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1298,10 +1249,10 @@ test('validateConfig accepts issue_watchlist without assignee (optional)', t => 
 			statuses: ['To Do'],
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects issue_watchlist with non-string assignee', t => {
+test('validateConfig rejects issue_watchlist with non-string assignee', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1310,15 +1261,13 @@ test('validateConfig rejects issue_watchlist with non-string assignee', t => {
 			statuses: ['To Do'],
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes('issue_watchlist.assignee: must be a string'),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects issue_watchlist without statuses', t => {
+test('validateConfig rejects issue_watchlist without statuses', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1326,17 +1275,15 @@ test('validateConfig rejects issue_watchlist without statuses', t => {
 			assignee: 'me',
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'issue_watchlist.statuses: required non-empty array',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects issue_watchlist with non-array statuses', t => {
+test('validateConfig rejects issue_watchlist with non-array statuses', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1345,17 +1292,15 @@ test('validateConfig rejects issue_watchlist with non-array statuses', t => {
 			statuses: 'To Do',
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'issue_watchlist.statuses: required non-empty array',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects issue_watchlist with empty statuses array', t => {
+test('validateConfig rejects issue_watchlist with empty statuses array', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1364,17 +1309,15 @@ test('validateConfig rejects issue_watchlist with empty statuses array', t => {
 			statuses: [],
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'issue_watchlist.statuses: required non-empty array',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects issue_watchlist with non-string statuses entries', t => {
+test('validateConfig rejects issue_watchlist with non-string statuses entries', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1383,27 +1326,25 @@ test('validateConfig rejects issue_watchlist with non-string statuses entries', 
 			statuses: ['To Do', 123],
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes('issue_watchlist.statuses[1]: must be a string'),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig accepts config without issue_watchlist', t => {
+test('validateConfig accepts config without issue_watchlist', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
 // ============================================================================
 // Per-profile issue_watchlist Validation Tests
 // ============================================================================
 
-test('validateConfig accepts a profile-level issue_watchlist', t => {
+test('validateConfig accepts a profile-level issue_watchlist', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1414,38 +1355,34 @@ test('validateConfig accepts a profile-level issue_watchlist', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects a profile issue_watchlist that is not an object', t => {
+test('validateConfig rejects a profile issue_watchlist that is not an object', () => {
 	const raw = {
 		version: 1,
 		profiles: {chaz: {display_name: 'X', issue_watchlist: 'nope'}},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes('profiles.chaz.issue_watchlist: must be an object'),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects a profile issue_watchlist without statuses', t => {
+test('validateConfig rejects a profile issue_watchlist without statuses', () => {
 	const raw = {
 		version: 1,
 		profiles: {chaz: {display_name: 'X', issue_watchlist: {assignee: 'me'}}},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'profiles.chaz.issue_watchlist.statuses: required non-empty array',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects a profile issue_watchlist with non-string assignee', t => {
+test('validateConfig rejects a profile issue_watchlist with non-string assignee', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1455,17 +1392,15 @@ test('validateConfig rejects a profile issue_watchlist with non-string assignee'
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'profiles.chaz.issue_watchlist.assignee: must be a string',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects a profile issue_watchlist with an empty key_prefix', t => {
+test('validateConfig rejects a profile issue_watchlist with an empty key_prefix', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1475,21 +1410,19 @@ test('validateConfig rejects a profile issue_watchlist with an empty key_prefix'
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'profiles.chaz.issue_watchlist.key_prefixes[1]: must not be empty',
 		),
-	);
+	).toBeTruthy();
 });
 
 // ============================================================================
 // issue_watchlist labels Validation Tests
 // ============================================================================
 
-test('validateConfig accepts issue_watchlist with labels', t => {
+test('validateConfig accepts issue_watchlist with labels', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1499,10 +1432,10 @@ test('validateConfig accepts issue_watchlist with labels', t => {
 			labels: ['pappardelle', 'platform'],
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts issue_watchlist without labels (optional)', t => {
+test('validateConfig accepts issue_watchlist without labels (optional)', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1511,10 +1444,10 @@ test('validateConfig accepts issue_watchlist without labels (optional)', t => {
 			statuses: ['To Do'],
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects issue_watchlist with non-array labels', t => {
+test('validateConfig rejects issue_watchlist with non-array labels', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1524,13 +1457,13 @@ test('validateConfig rejects issue_watchlist with non-array labels', t => {
 			labels: 'not-an-array',
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('issue_watchlist.labels: must be an array'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('issue_watchlist.labels: must be an array'),
+	).toBeTruthy();
 });
 
-test('validateConfig rejects issue_watchlist with non-string label entries', t => {
+test('validateConfig rejects issue_watchlist with non-string label entries', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1540,15 +1473,13 @@ test('validateConfig rejects issue_watchlist with non-string label entries', t =
 			labels: ['valid', 123],
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes('issue_watchlist.labels[1]: must be a string'),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig accepts issue_watchlist with empty labels array', t => {
+test('validateConfig accepts issue_watchlist with empty labels array', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1558,14 +1489,14 @@ test('validateConfig accepts issue_watchlist with empty labels array', t => {
 			labels: [],
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
 // ============================================================================
 // issue_watchlist key_prefixes Validation Tests
 // ============================================================================
 
-test('validateConfig accepts issue_watchlist with key_prefixes', t => {
+test('validateConfig accepts issue_watchlist with key_prefixes', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1575,10 +1506,10 @@ test('validateConfig accepts issue_watchlist with key_prefixes', t => {
 			key_prefixes: ['STA', 'ENG'],
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts issue_watchlist without key_prefixes (optional)', t => {
+test('validateConfig accepts issue_watchlist without key_prefixes (optional)', () => {
 	// Off-by-default regression: the field is optional and absence is valid.
 	const raw = {
 		version: 1,
@@ -1588,10 +1519,10 @@ test('validateConfig accepts issue_watchlist without key_prefixes (optional)', t
 			statuses: ['To Do'],
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts issue_watchlist with empty key_prefixes array', t => {
+test('validateConfig accepts issue_watchlist with empty key_prefixes array', () => {
 	// Empty array means "watch every prefix" — same as omitting the field.
 	const raw = {
 		version: 1,
@@ -1602,10 +1533,10 @@ test('validateConfig accepts issue_watchlist with empty key_prefixes array', t =
 			key_prefixes: [],
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects issue_watchlist with non-array key_prefixes', t => {
+test('validateConfig rejects issue_watchlist with non-array key_prefixes', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1615,15 +1546,13 @@ test('validateConfig rejects issue_watchlist with non-array key_prefixes', t => 
 			key_prefixes: 'not-an-array',
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes('issue_watchlist.key_prefixes: must be an array'),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects issue_watchlist with non-string key_prefix entries', t => {
+test('validateConfig rejects issue_watchlist with non-string key_prefix entries', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1633,17 +1562,15 @@ test('validateConfig rejects issue_watchlist with non-string key_prefix entries'
 			key_prefixes: ['STA', 123],
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'issue_watchlist.key_prefixes[1]: must be a string',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects issue_watchlist with empty-string key_prefix', t => {
+test('validateConfig rejects issue_watchlist with empty-string key_prefix', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1653,17 +1580,15 @@ test('validateConfig rejects issue_watchlist with empty-string key_prefix', t =>
 			key_prefixes: ['STA', ''],
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'issue_watchlist.key_prefixes[1]: must not be empty',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects issue_watchlist with whitespace-only key_prefix', t => {
+test('validateConfig rejects issue_watchlist with whitespace-only key_prefix', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -1673,169 +1598,165 @@ test('validateConfig rejects issue_watchlist with whitespace-only key_prefix', t
 			key_prefixes: ['   '],
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'issue_watchlist.key_prefixes[0]: must not be empty',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects sous_chef without workspace_aware_agents', t => {
+test('validateConfig rejects sous_chef without workspace_aware_agents', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		sous_chef: true,
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('sous_chef: needs workspace_aware_agents'));
-	t.notThrows(() => validateConfig({...raw, workspace_aware_agents: true}));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('sous_chef: needs workspace_aware_agents'),
+	).toBeTruthy();
+	expect(() =>
+		validateConfig({...raw, workspace_aware_agents: true}),
+	).not.toThrow();
 });
 
-test('validateConfig rejects sous_chef with a non-boolean value', t => {
+test('validateConfig rejects sous_chef with a non-boolean value', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		sous_chef: 'on',
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('sous_chef: must be a boolean'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('sous_chef: must be a boolean')).toBeTruthy();
 });
 
 // ============================================================================
 // auto_remove_when_done Validation Tests
 // ============================================================================
 
-test('validateConfig accepts auto_remove_when_done set to true', t => {
+test('validateConfig accepts auto_remove_when_done set to true', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		auto_remove_when_done: true,
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts auto_remove_when_done set to false', t => {
+test('validateConfig accepts auto_remove_when_done set to false', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		auto_remove_when_done: false,
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts config without auto_remove_when_done (off by default)', t => {
+test('validateConfig accepts config without auto_remove_when_done (off by default)', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects auto_remove_when_done with a non-boolean value', t => {
+test('validateConfig rejects auto_remove_when_done with a non-boolean value', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		auto_remove_when_done: 'yes',
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('auto_remove_when_done: must be a boolean'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('auto_remove_when_done: must be a boolean'),
+	).toBeTruthy();
 });
 
-test('validateConfig rejects auto_remove_when_done with a numeric value', t => {
+test('validateConfig rejects auto_remove_when_done with a numeric value', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		auto_remove_when_done: 1,
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('auto_remove_when_done: must be a boolean'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('auto_remove_when_done: must be a boolean'),
+	).toBeTruthy();
 });
 
 // ============================================================================
 // companion_command Validation Tests
 // ============================================================================
 
-test('validateConfig accepts top-level companion_command string', t => {
+test('validateConfig accepts top-level companion_command string', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		companion_command: 'gitui',
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts an empty-string companion_command (plain shell)', t => {
+test('validateConfig accepts an empty-string companion_command (plain shell)', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		companion_command: '',
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts config without companion_command (default applies)', t => {
+test('validateConfig accepts config without companion_command (default applies)', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects non-string companion_command', t => {
+test('validateConfig rejects non-string companion_command', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		companion_command: 42,
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('companion_command: must be a string'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('companion_command: must be a string'),
+	).toBeTruthy();
 });
 
-test('validateConfig accepts a per-profile companion_command string', t => {
+test('validateConfig accepts a per-profile companion_command string', () => {
 	const raw = {
 		version: 1,
 		profiles: {
 			backend: {display_name: 'Backend', companion_command: 'make run'},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects a non-string per-profile companion_command', t => {
+test('validateConfig rejects a non-string per-profile companion_command', () => {
 	const raw = {
 		version: 1,
 		profiles: {
 			backend: {display_name: 'Backend', companion_command: ['make', 'run']},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'profiles.backend.companion_command: must be a string',
 		),
-	);
+	).toBeTruthy();
 });
 
 // ============================================================================
 // getCompanionCommand Tests
 // ============================================================================
 
-test('validateConfig checks each companion split', t => {
+test('validateConfig checks each companion split', () => {
 	const validate =
 		(splits: unknown, inProfile = false) =>
 		() => {
@@ -1851,12 +1772,12 @@ test('validateConfig checks each companion split', t => {
 			});
 		};
 
-	t.notThrows(
+	expect(
 		validate([
 			{name: 'tests', command: 'bun test', split: 'down', size: '30%'},
 			{name: 'logs-2', command: 'tail -f log', size: 12},
 		]),
-	);
+	).not.toThrow();
 	for (const [splits, message] of [
 		[{name: 'x'}, 'companion_splits: must be a list'],
 		[[{name: 'Tests', command: 'x'}], 'companion_splits[0].name'],
@@ -1873,32 +1794,33 @@ test('validateConfig checks each companion split', t => {
 		[[{name: 'a', command: 'x', split: 'left'}], 'right or down'],
 		[[{name: 'a', command: 'x', size: '30'}], 'companion_splits[0].size'],
 	] as const) {
-		const error = t.throws(validate(splits), {
-			instanceOf: ConfigValidationError,
-		});
-		t.true(String(error?.message).includes(message));
+		const error = thrownBy(validate(splits), ConfigValidationError);
+		expect(String(error?.message).includes(message)).toBe(true);
 	}
 
-	const error = t.throws(validate([{name: 'A', command: 'x'}], true), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(error?.message.includes('profiles.test.companion_splits[0].name'));
+	const error = thrownBy(
+		validate([{name: 'A', command: 'x'}], true),
+		ConfigValidationError,
+	);
+	expect(
+		error?.message.includes('profiles.test.companion_splits[0].name'),
+	).toBe(true);
 });
 
 // ============================================================================
 // ide_command Validation Tests
 // ============================================================================
 
-test('validateConfig accepts top-level ide_command string', t => {
+test('validateConfig accepts top-level ide_command string', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		ide_command: CODE_IDE_COMMAND,
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts an empty-string ide_command (d disabled)', t => {
+test('validateConfig accepts an empty-string ide_command (d disabled)', () => {
 	// Rejecting this would be a trap: an invalid key throws from loadConfig, and
 	// the TUI swallows that by running with no config at all.
 	const raw = {
@@ -1906,47 +1828,47 @@ test('validateConfig accepts an empty-string ide_command (d disabled)', t => {
 		profiles: {test: {display_name: 'Test'}},
 		ide_command: '',
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects non-string ide_command', t => {
+test('validateConfig rejects non-string ide_command', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		ide_command: 42,
 	};
-	const error = t.throws(() => validateConfig(raw));
-	t.truthy(error?.message.includes('ide_command: must be a string'));
+	const error = thrownBy(() => validateConfig(raw));
+	expect(error?.message.includes('ide_command: must be a string')).toBeTruthy();
 });
 
-test('validateConfig accepts a per-profile ide_command string', t => {
+test('validateConfig accepts a per-profile ide_command string', () => {
 	const raw = {
 		version: 1,
 		profiles: {
 			backend: {display_name: 'Backend', ide_command: 'nvim-qt'},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects a non-string per-profile ide_command', t => {
+test('validateConfig rejects a non-string per-profile ide_command', () => {
 	const raw = {
 		version: 1,
 		profiles: {
 			backend: {display_name: 'Backend', ide_command: ['code', '.']},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw));
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw));
+	expect(
 		error?.message.includes('profiles.backend.ide_command: must be a string'),
-	);
+	).toBeTruthy();
 });
 
 // ============================================================================
 // tracker_projects Validation Tests
 // ============================================================================
 
-test('validateConfig accepts profile with valid tracker_projects array', t => {
+test('validateConfig accepts profile with valid tracker_projects array', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1956,20 +1878,20 @@ test('validateConfig accepts profile with valid tracker_projects array', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts profile without tracker_projects (optional)', t => {
+test('validateConfig accepts profile without tracker_projects (optional)', () => {
 	const raw = {
 		version: 1,
 		profiles: {
 			test: {display_name: 'Test'},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects profile with non-array tracker_projects', t => {
+test('validateConfig rejects profile with non-array tracker_projects', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1979,17 +1901,15 @@ test('validateConfig rejects profile with non-array tracker_projects', t => {
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('tracker_projects: must be an array when specified'),
 		),
-	);
+	).toBe(true);
 });
 
-test('validateConfig rejects profile with non-string tracker_projects entries', t => {
+test('validateConfig rejects profile with non-string tracker_projects entries', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -1999,17 +1919,15 @@ test('validateConfig rejects profile with non-string tracker_projects entries', 
 			},
 		},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.true(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error!.errors.some(e =>
 			e.includes('tracker_projects[1]: must be a string'),
 		),
-	);
+	).toBe(true);
 });
 
-test('validateConfig accepts profile with empty tracker_projects array', t => {
+test('validateConfig accepts profile with empty tracker_projects array', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -2019,31 +1937,31 @@ test('validateConfig accepts profile with empty tracker_projects array', t => {
 			},
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
 // ============================================================================
 // state_colors Validation Tests
 // ============================================================================
 
-test('validateConfig accepts config without state_colors (off by default)', t => {
+test('validateConfig accepts config without state_colors (off by default)', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts an empty state_colors map', t => {
+test('validateConfig accepts an empty state_colors map', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		state_colors: {},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig accepts hex and ANSI color names in state_colors', t => {
+test('validateConfig accepts hex and ANSI color names in state_colors', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
@@ -2054,147 +1972,137 @@ test('validateConfig accepts hex and ANSI color names in state_colors', t => {
 			Blocked: 'redBright',
 		},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
-test('validateConfig rejects a non-object state_colors', t => {
+test('validateConfig rejects a non-object state_colors', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		state_colors: 'cyan',
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('state_colors: must be an object'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('state_colors: must be an object'),
+	).toBeTruthy();
 });
 
-test('validateConfig rejects an array state_colors', t => {
+test('validateConfig rejects an array state_colors', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		state_colors: ['cyan'],
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('state_colors: must be an object'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
+		error?.message.includes('state_colors: must be an object'),
+	).toBeTruthy();
 });
 
-test('validateConfig rejects an unknown color name', t => {
+test('validateConfig rejects an unknown color name', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		state_colors: {Done: 'chartreuse'},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'state_colors."Done": must be a hex color (#rgb or #rrggbb) or an ANSI color name',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects malformed hex', t => {
+test('validateConfig rejects malformed hex', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		state_colors: {Done: '#12345'},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('state_colors."Done"'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('state_colors."Done"')).toBeTruthy();
 });
 
-test('validateConfig rejects a non-string color value', t => {
+test('validateConfig rejects a non-string color value', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		state_colors: {Done: 123},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('state_colors."Done"'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('state_colors."Done"')).toBeTruthy();
 });
 
-test('validateConfig rejects an empty state name', t => {
+test('validateConfig rejects an empty state name', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		state_colors: {'   ': 'cyan'},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes('state_colors: state names must not be empty'),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects state names that differ only in case', t => {
+test('validateConfig rejects state names that differ only in case', () => {
 	const raw = {
 		version: 1,
 		profiles: {test: {display_name: 'Test'}},
 		state_colors: {'In Progress': 'cyan', 'in progress': 'red'},
 	};
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(
 		error?.message.includes(
 			'state_colors: duplicate state name "in progress" (names are matched case-insensitively)',
 		),
-	);
+	).toBeTruthy();
 });
 
 // ============================================================================
 // getStateColors Tests
 // ============================================================================
 
-test('validateConfig accepts both list_view layouts', t => {
+test('validateConfig accepts both list_view layouts', () => {
 	for (const layout of ['single_line', 'two_line']) {
-		t.notThrows(() =>
+		expect(() =>
 			validateConfig({
 				version: 1,
 				profiles: {test: {display_name: 'Test'}},
 				list_view: {layout},
 			}),
-		);
+		).not.toThrow();
 	}
 });
 
-test('validateConfig rejects an unknown list_view layout', t => {
-	const error = t.throws(
+test('validateConfig rejects an unknown list_view layout', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig({
 				version: 1,
 				profiles: {test: {display_name: 'Test'}},
 				list_view: {layout: 'three_line'},
 			}),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(
+	expect(
 		error?.message.includes(
 			'list_view.layout: must be "single_line" or "two_line"',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects a non-object list_view', t => {
-	const error = t.throws(
+test('validateConfig rejects a non-object list_view', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig({
 				version: 1,
 				profiles: {test: {display_name: 'Test'}},
 				list_view: 'two_line',
 			}),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(error?.message.includes('list_view: must be an object'));
+	expect(error?.message.includes('list_view: must be an object')).toBeTruthy();
 });
 
 // layout — starting pane widths for the 3-column layout.
@@ -2207,44 +2115,43 @@ const validateLayout = (layout: unknown) => () => {
 	});
 };
 
-test('validateConfig accepts column and percent pane widths', t => {
-	t.notThrows(
+test('validateConfig accepts column and percent pane widths', () => {
+	expect(
 		validateLayout({
 			rail_width: 30,
 			claude_width: '45%',
 			companion_width: '12.5%',
 		}),
-	);
-	t.notThrows(validateLayout({companion_width: '100%'}));
-	t.notThrows(validateLayout({}));
+	).not.toThrow();
+	expect(validateLayout({companion_width: '100%'})).not.toThrow();
+	expect(validateLayout({})).not.toThrow();
 });
 
-test('validateConfig rejects pane widths that are not columns or percentages', t => {
+test('validateConfig rejects pane widths that are not columns or percentages', () => {
 	for (const value of [0, -5, 12.5, '30', '0%', '101%', 'wide', true]) {
-		const error = t.throws(validateLayout({rail_width: value}), {
-			instanceOf: ConfigValidationError,
-		});
-		t.truthy(
+		const error = thrownBy(
+			validateLayout({rail_width: value}),
+			ConfigValidationError,
+		);
+		expect(
 			error?.message.includes(
 				'layout.rail_width: must be a positive whole number',
 			),
 			`value ${String(value)}`,
-		);
+		).toBeTruthy();
 	}
 });
 
-test('validateConfig rejects a non-object layout', t => {
-	const error = t.throws(validateLayout('10/45/45'), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('layout: must be an object'));
+test('validateConfig rejects a non-object layout', () => {
+	const error = thrownBy(validateLayout('10/45/45'), ConfigValidationError);
+	expect(error?.message.includes('layout: must be an object')).toBeTruthy();
 });
 
 // ============================================================================
 // issue_watchlist max_workspaces Validation Tests (STE-25)
 // ============================================================================
 
-test('validateConfig accepts max_workspaces on top-level and profile watchlists', t => {
+test('validateConfig accepts max_workspaces on top-level and profile watchlists', () => {
 	const raw = {
 		version: 1,
 		profiles: {
@@ -2255,11 +2162,11 @@ test('validateConfig accepts max_workspaces on top-level and profile watchlists'
 		},
 		issue_watchlist: {statuses: ['To Do'], max_workspaces: 5},
 	};
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
 for (const bad of [0, -1, 1.5, '5']) {
-	test(`validateConfig rejects max_workspaces: ${JSON.stringify(bad)}`, t => {
+	test(`validateConfig rejects max_workspaces: ${JSON.stringify(bad)}`, () => {
 		const raw = {
 			version: 1,
 			profiles: {
@@ -2270,19 +2177,17 @@ for (const bad of [0, -1, 1.5, '5']) {
 			},
 			issue_watchlist: {statuses: ['To Do'], max_workspaces: bad},
 		};
-		const error = t.throws(() => validateConfig(raw), {
-			instanceOf: ConfigValidationError,
-		});
-		t.truthy(
+		const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+		expect(
 			error?.message.includes(
 				'issue_watchlist.max_workspaces: must be an integer >= 1',
 			),
-		);
-		t.truthy(
+		).toBeTruthy();
+		expect(
 			error?.message.includes(
 				'profiles.chaz.issue_watchlist.max_workspaces: must be an integer >= 1',
 			),
-		);
+		).toBeTruthy();
 	});
 }
 
@@ -2301,40 +2206,40 @@ function agentProfilesConfig(
 	};
 }
 
-test('validateConfig rejects non-object agent_profiles', t => {
-	const error = t.throws(
+test('validateConfig rejects non-object agent_profiles', () => {
+	const error = thrownBy(
 		() => validateConfig(agentProfilesConfig({agent_profiles: ['x']})),
-		{
-			instanceOf: ConfigValidationError,
-		},
+		ConfigValidationError,
 	);
-	t.truthy(error?.message.includes('agent_profiles: must be an object'));
+	expect(
+		error?.message.includes('agent_profiles: must be an object'),
+	).toBeTruthy();
 });
 
-test('validateConfig rejects an agent_profiles entry without command', t => {
-	const error = t.throws(
+test('validateConfig rejects an agent_profiles entry without command', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig(
 				agentProfilesConfig({agent_profiles: {codex: {args: '--yolo'}}}),
 			),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(error?.message.includes('agent_profiles.codex.command'));
+	expect(error?.message.includes('agent_profiles.codex.command')).toBeTruthy();
 });
 
-test('validateConfig rejects an empty agent profile command', t => {
-	const error = t.throws(
+test('validateConfig rejects an empty agent profile command', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig(
 				agentProfilesConfig({agent_profiles: {codex: {command: '  '}}}),
 			),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(error?.message.includes('agent_profiles.codex.command'));
+	expect(error?.message.includes('agent_profiles.codex.command')).toBeTruthy();
 });
 
-test('validateConfig rejects non-string agent profile args and resume_args', t => {
-	const error = t.throws(
+test('validateConfig rejects non-string agent profile args and resume_args', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig(
 				agentProfilesConfig({
@@ -2343,14 +2248,16 @@ test('validateConfig rejects non-string agent profile args and resume_args', t =
 					},
 				}),
 			),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(error?.message.includes('agent_profiles.codex.args'));
-	t.truthy(error?.message.includes('agent_profiles.codex.resume_args'));
+	expect(error?.message.includes('agent_profiles.codex.args')).toBeTruthy();
+	expect(
+		error?.message.includes('agent_profiles.codex.resume_args'),
+	).toBeTruthy();
 });
 
-test('validateConfig rejects agent profile fields spanning lines', t => {
-	const error = t.throws(
+test('validateConfig rejects agent profile fields spanning lines', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig(
 				agentProfilesConfig({
@@ -2359,15 +2266,15 @@ test('validateConfig rejects agent profile fields spanning lines', t => {
 					},
 				}),
 			),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(
+	expect(
 		error?.message.includes('agent_profiles.codex.args: must be a single line'),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects agent profile env that is not a map of strings', t => {
-	const error = t.throws(
+test('validateConfig rejects agent profile env that is not a map of strings', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig(
 				agentProfilesConfig({
@@ -2385,30 +2292,32 @@ test('validateConfig rejects agent profile env that is not a map of strings', t 
 					},
 				}),
 			),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
 	const message = error?.message ?? '';
-	t.true(message.includes('agent_profiles.list.env: must be a map'));
-	t.true(
+	expect(message.includes('agent_profiles.list.env: must be a map')).toBe(true);
+	expect(
 		message.includes(
 			'agent_profiles.typed.env.1BAD: must be an environment variable name',
 		),
-	);
-	t.true(
+	).toBe(true);
+	expect(
 		message.includes(
 			'agent_profiles.typed.env.A-B: must be an environment variable name',
 		),
-	);
-	t.true(
+	).toBe(true);
+	expect(
 		message.includes(
 			'agent_profiles.typed.env.PAPPARDELLE_SPACE: PAPPARDELLE_ variables are set by pappardelle',
 		),
-	);
-	t.true(message.includes('agent_profiles.typed.env.NUMBER: must be a string'));
+	).toBe(true);
+	expect(
+		message.includes('agent_profiles.typed.env.NUMBER: must be a string'),
+	).toBe(true);
 });
 
-test('validateConfig accepts agent profile env of strings', t => {
-	t.notThrows(() =>
+test('validateConfig accepts agent profile env of strings', () => {
+	expect(() =>
 		validateConfig(
 			agentProfilesConfig({
 				agent_profiles: {
@@ -2416,49 +2325,49 @@ test('validateConfig accepts agent profile env of strings', t => {
 				},
 			}),
 		),
-	);
+	).not.toThrow();
 });
 
-test('validateConfig accepts the trailing newline of a YAML block scalar', t => {
-	t.notThrows(() =>
+test('validateConfig accepts the trailing newline of a YAML block scalar', () => {
+	expect(() =>
 		validateConfig(
 			agentProfilesConfig({
 				agent_profiles: {codex: {command: 'codex', args: '--yolo\n'}},
 			}),
 		),
-	);
+	).not.toThrow();
 });
 
-test('validateConfig rejects non-boolean is_claude', t => {
-	const error = t.throws(
+test('validateConfig rejects non-boolean is_claude', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig(
 				agentProfilesConfig({
 					agent_profiles: {w: {command: 'w', is_claude: 'yes'}},
 				}),
 			),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(error?.message.includes('agent_profiles.w.is_claude'));
+	expect(error?.message.includes('agent_profiles.w.is_claude')).toBeTruthy();
 });
 
-test('validateConfig rejects model or effort on a CLI with no flag template', t => {
-	const error = t.throws(
+test('validateConfig rejects model or effort on a CLI with no flag template', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig(
 				agentProfilesConfig({
 					agent_profiles: {aider: {command: 'aider', model: 'x', effort: 'y'}},
 				}),
 			),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(error?.message.includes('agent_profiles.aider.model'));
-	t.truthy(error?.message.includes('set model_args'));
-	t.truthy(error?.message.includes('agent_profiles.aider.effort'));
+	expect(error?.message.includes('agent_profiles.aider.model')).toBeTruthy();
+	expect(error?.message.includes('set model_args')).toBeTruthy();
+	expect(error?.message.includes('agent_profiles.aider.effort')).toBeTruthy();
 });
 
-test('validateConfig accepts model and effort on claude, codex, or with a template', t => {
-	t.notThrows(() =>
+test('validateConfig accepts model and effort on claude, codex, or with a template', () => {
+	expect(() =>
 		validateConfig(
 			agentProfilesConfig({
 				agent_profiles: {
@@ -2473,50 +2382,50 @@ test('validateConfig accepts model and effort on claude, codex, or with a templa
 				},
 			}),
 		),
-	);
+	).not.toThrow();
 });
 
 for (const promptArgs of ['-i', '', '-i {prompt} {prompt}']) {
-	test(`validateConfig rejects prompt_args ${JSON.stringify(promptArgs)}`, t => {
-		const error = t.throws(
+	test(`validateConfig rejects prompt_args ${JSON.stringify(promptArgs)}`, () => {
+		const error = thrownBy(
 			() =>
 				validateConfig(
 					agentProfilesConfig({
 						agent_profiles: {agy: {command: 'agy', prompt_args: promptArgs}},
 					}),
 				),
-			{instanceOf: ConfigValidationError},
+			ConfigValidationError,
 		);
-		t.truthy(
+		expect(
 			error?.message.includes(
 				'agent_profiles.agy.prompt_args: must contain {prompt} exactly once',
 			),
-		);
+		).toBeTruthy();
 	});
 }
 
-test('validateConfig accepts prompt_args with one {prompt}', t => {
-	t.notThrows(() =>
+test('validateConfig accepts prompt_args with one {prompt}', () => {
+	expect(() =>
 		validateConfig(
 			agentProfilesConfig({
 				agent_profiles: {agy: {command: 'agy', prompt_args: '-i {prompt}'}},
 			}),
 		),
-	);
+	).not.toThrow();
 });
 
-test('validateConfig accepts a minimal agy profile with a model', t => {
-	t.notThrows(() =>
+test('validateConfig accepts a minimal agy profile with a model', () => {
+	expect(() =>
 		validateConfig(
 			agentProfilesConfig({
 				agent_profiles: {agy: {command: 'agy', model: 'gemini-4-argon-medium'}},
 			}),
 		),
-	);
+	).not.toThrow();
 });
 
-test('validateConfig rejects a flag template without its placeholder', t => {
-	const error = t.throws(
+test('validateConfig rejects a flag template without its placeholder', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig(
 				agentProfilesConfig({
@@ -2529,84 +2438,84 @@ test('validateConfig rejects a flag template without its placeholder', t => {
 					},
 				}),
 			),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(
+	expect(
 		error?.message.includes(
 			'agent_profiles.codex.model_args: must contain {model}',
 		),
-	);
-	t.truthy(
+	).toBeTruthy();
+	expect(
 		error?.message.includes(
 			'agent_profiles.codex.effort_args: must contain {effort}',
 		),
-	);
+	).toBeTruthy();
 });
 
-test('validateConfig rejects a top-level agent_profile reference to an unknown name', t => {
-	const error = t.throws(
+test('validateConfig rejects a top-level agent_profile reference to an unknown name', () => {
+	const error = thrownBy(
 		() => validateConfig(agentProfilesConfig({agent_profile: 'codex'})),
-		{
-			instanceOf: ConfigValidationError,
-		},
+		ConfigValidationError,
 	);
-	t.truthy(error?.message.includes('agent profile "codex" not found'));
+	expect(
+		error?.message.includes('agent profile "codex" not found'),
+	).toBeTruthy();
 });
 
-test('validateConfig accepts agent_profile "claude" without an agent_profiles entry', t => {
-	t.notThrows(() =>
+test('validateConfig accepts agent_profile "claude" without an agent_profiles entry', () => {
+	expect(() =>
 		validateConfig(agentProfilesConfig({agent_profile: 'claude'})),
-	);
+	).not.toThrow();
 });
 
-test('validateConfig accepts a top-level agent_profile reference to a defined agent profile', t => {
-	t.notThrows(() =>
+test('validateConfig accepts a top-level agent_profile reference to a defined agent profile', () => {
+	expect(() =>
 		validateConfig(
 			agentProfilesConfig({
 				agent_profiles: {codex: {command: 'codex'}},
 				agent_profile: 'codex',
 			}),
 		),
-	);
+	).not.toThrow();
 });
 
-test('validateConfig rejects a profile agent_profile reference to an unknown name', t => {
+test('validateConfig rejects a profile agent_profile reference to an unknown name', () => {
 	const raw = agentProfilesConfig({});
 	(raw['profiles'] as Record<string, Record<string, unknown>>)['test']![
 		'agent_profile'
 	] = 'codex';
-	const error = t.throws(() => validateConfig(raw), {
-		instanceOf: ConfigValidationError,
-	});
-	t.truthy(error?.message.includes('profiles.test.agent_profile'));
+	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
+	expect(error?.message.includes('profiles.test.agent_profile')).toBeTruthy();
 });
 
-test('validateConfig accepts an empty-string profile agent_profile (clears inherited)', t => {
+test('validateConfig accepts an empty-string profile agent_profile (clears inherited)', () => {
 	const raw = agentProfilesConfig({});
 	(raw['profiles'] as Record<string, Record<string, unknown>>)['test']![
 		'agent_profile'
 	] = '';
-	t.notThrows(() => validateConfig(raw));
+	expect(() => validateConfig(raw)).not.toThrow();
 });
 
 // ============================================================================
 // initialization_command — rename + deprecated fallback
 // ============================================================================
 
-test('validateConfig rejects non-string initialization_command', t => {
-	const error = t.throws(
+test('validateConfig rejects non-string initialization_command', () => {
+	const error = thrownBy(
 		() => validateConfig(agentProfilesConfig({initialization_command: 5})),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.truthy(error?.message.includes('initialization_command: must be a string'));
+	expect(
+		error?.message.includes('initialization_command: must be a string'),
+	).toBeTruthy();
 });
 
 // ============================================================================
 // list_view.group_by / list_view.groups
 // ============================================================================
 
-test('validateConfig accepts custom groups by status and category', t => {
-	t.is(
+test('validateConfig accepts custom groups by status and category', () => {
+	expect(
 		validateListView({
 			group_by: 'status',
 			groups: [
@@ -2615,11 +2524,10 @@ test('validateConfig accepts custom groups by status and category', t => {
 				{name: 'Done', color: 'green', categories: ['done']},
 			],
 		}),
-		'',
-	);
+	).toBe('');
 });
 
-test('validateConfig rejects groups that the rail could not place', t => {
+test('validateConfig rejects groups that the rail could not place', () => {
 	const message = validateListView({
 		groups: [
 			{name: 'Doing', color: 'blue', categories: ['todo']},
@@ -2629,25 +2537,27 @@ test('validateConfig rejects groups that the rail could not place', t => {
 			{name: 'Odd', color: 'blue', categories: ['started']},
 		],
 	});
-	t.true(message.includes('list_view.groups[1].color:'));
-	t.true(
+	expect(message.includes('list_view.groups[1].color:')).toBe(true);
+	expect(
 		message.includes('list_view.groups[2].name: duplicate group "review"'),
-	);
-	t.true(
+	).toBe(true);
+	expect(
 		message.includes(
 			'list_view.groups[2].statuses: "in review" is already in list_view.groups[1]',
 		),
-	);
-	t.true(
+	).toBe(true);
+	expect(
 		message.includes('list_view.groups[3]: needs statuses, categories or both'),
-	);
-	t.true(message.includes('list_view.groups[4].categories:'));
-	t.true(validateListView({groups: []}).includes('must be a non-empty list'));
-	t.true(
+	).toBe(true);
+	expect(message.includes('list_view.groups[4].categories:')).toBe(true);
+	expect(
+		validateListView({groups: []}).includes('must be a non-empty list'),
+	).toBe(true);
+	expect(
 		validateListView({
 			groups: [{name: 'Nothing', color: 'blue', statuses: [], categories: []}],
 		}).includes('list_view.groups[0]: needs statuses, categories or both'),
-	);
+	).toBe(true);
 });
 
 // ============================================================================
@@ -2660,20 +2570,21 @@ const withSousChefKey = (value: unknown) => ({
 	sous_chef_key: value,
 });
 
-test('validateConfig accepts a sous_chef_key name or false', t => {
-	t.notThrows(() => validateConfig(withSousChefKey('M-j')));
-	t.notThrows(() => validateConfig(withSousChefKey(false)));
+test('validateConfig accepts a sous_chef_key name or false', () => {
+	expect(() => validateConfig(withSousChefKey('M-j'))).not.toThrow();
+	expect(() => validateConfig(withSousChefKey(false))).not.toThrow();
 });
 
 for (const value of ['', '  ', true, 3]) {
-	test(`validateConfig rejects sous_chef_key ${JSON.stringify(value)}`, t => {
-		const error = t.throws(() => validateConfig(withSousChefKey(value)), {
-			instanceOf: ConfigValidationError,
-		});
-		t.true(
+	test(`validateConfig rejects sous_chef_key ${JSON.stringify(value)}`, () => {
+		const error = thrownBy(
+			() => validateConfig(withSousChefKey(value)),
+			ConfigValidationError,
+		);
+		expect(
 			error?.message.includes(
 				'sous_chef_key: must be a tmux key name or false',
 			),
-		);
+		).toBe(true);
 	});
 }

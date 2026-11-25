@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // The popup child is a fresh Bun process. This runs one the same way, in a
@@ -39,7 +39,7 @@ function trackerInFreshProcess(bootstrap: boolean): string {
 	}
 }
 
-test('a fresh process picks up the repo configured tracker after bootstrap', t => {
-	t.is(trackerInFreshProcess(false), 'linear');
-	t.is(trackerInFreshProcess(true), 'beads');
+test('a fresh process picks up the repo configured tracker after bootstrap', () => {
+	expect(trackerInFreshProcess(false)).toBe('linear');
+	expect(trackerInFreshProcess(true)).toBe('beads');
 });

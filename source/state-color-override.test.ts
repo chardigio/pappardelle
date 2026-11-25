@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	ANSI_COLOR_NAMES,
 	getStateColorOverride,
@@ -13,158 +13,148 @@ import {
 // isValidStateColor
 // ============================================================================
 
-test('isValidStateColor accepts 6-digit hex', t => {
-	t.true(isValidStateColor('#74d09f'));
-	t.true(isValidStateColor('#FFFFFF'));
+test('isValidStateColor accepts 6-digit hex', () => {
+	expect(isValidStateColor('#74d09f')).toBe(true);
+	expect(isValidStateColor('#FFFFFF')).toBe(true);
 });
 
-test('isValidStateColor accepts 3-digit hex', t => {
-	t.true(isValidStateColor('#abc'));
+test('isValidStateColor accepts 3-digit hex', () => {
+	expect(isValidStateColor('#abc')).toBe(true);
 });
 
-test('isValidStateColor accepts ANSI color names', t => {
-	t.true(isValidStateColor('cyan'));
-	t.true(isValidStateColor('magenta'));
-	t.true(isValidStateColor('blueBright'));
-	t.true(isValidStateColor('gray'));
-	t.true(isValidStateColor('grey'));
+test('isValidStateColor accepts ANSI color names', () => {
+	expect(isValidStateColor('cyan')).toBe(true);
+	expect(isValidStateColor('magenta')).toBe(true);
+	expect(isValidStateColor('blueBright')).toBe(true);
+	expect(isValidStateColor('gray')).toBe(true);
+	expect(isValidStateColor('grey')).toBe(true);
 });
 
-test('isValidStateColor rejects unknown names and malformed hex', t => {
-	t.false(isValidStateColor('chartreuse'));
-	t.false(isValidStateColor('#12345'));
-	t.false(isValidStateColor('#zzzzzz'));
-	t.false(isValidStateColor('74d09f'));
-	t.false(isValidStateColor(''));
-	t.false(isValidStateColor('  '));
-	t.false(isValidStateColor(42));
-	t.false(isValidStateColor(undefined));
-	t.false(isValidStateColor(null));
+test('isValidStateColor rejects unknown names and malformed hex', () => {
+	expect(isValidStateColor('chartreuse')).toBe(false);
+	expect(isValidStateColor('#12345')).toBe(false);
+	expect(isValidStateColor('#zzzzzz')).toBe(false);
+	expect(isValidStateColor('74d09f')).toBe(false);
+	expect(isValidStateColor('')).toBe(false);
+	expect(isValidStateColor('  ')).toBe(false);
+	expect(isValidStateColor(42)).toBe(false);
+	expect(isValidStateColor(undefined)).toBe(false);
+	expect(isValidStateColor(null)).toBe(false);
 });
 
-test('ANSI color names are matched case-sensitively', t => {
+test('ANSI color names are matched case-sensitively', () => {
 	// terminalColor's palette keys are camelCase; "BlueBright" is not one.
-	t.false(isValidStateColor('BlueBright'));
-	t.true(ANSI_COLOR_NAMES.has('blueBright'));
+	expect(isValidStateColor('BlueBright')).toBe(false);
+	expect(ANSI_COLOR_NAMES.has('blueBright')).toBe(true);
 });
 
 // ============================================================================
 // lookupStateColorOverride — the pure lookup
 // ============================================================================
 
-test('lookupStateColorOverride returns null when there are no overrides', t => {
-	t.is(lookupStateColorOverride(undefined, 'In Progress'), null);
-	t.is(lookupStateColorOverride({}, 'In Progress'), null);
+test('lookupStateColorOverride returns null when there are no overrides', () => {
+	expect(lookupStateColorOverride(undefined, 'In Progress')).toBe(null);
+	expect(lookupStateColorOverride({}, 'In Progress')).toBe(null);
 });
 
-test('lookupStateColorOverride returns an exact-name match', t => {
-	t.is(
+test('lookupStateColorOverride returns an exact-name match', () => {
+	expect(
 		lookupStateColorOverride({'In Progress': '#f2c94c'}, 'In Progress'),
-		'#f2c94c',
-	);
+	).toBe('#f2c94c');
 });
 
-test('lookupStateColorOverride matches case-insensitively', t => {
+test('lookupStateColorOverride matches case-insensitively', () => {
 	const overrides = {'in progress': 'cyan'};
-	t.is(lookupStateColorOverride(overrides, 'In Progress'), 'cyan');
-	t.is(lookupStateColorOverride(overrides, 'IN PROGRESS'), 'cyan');
+	expect(lookupStateColorOverride(overrides, 'In Progress')).toBe('cyan');
+	expect(lookupStateColorOverride(overrides, 'IN PROGRESS')).toBe('cyan');
 });
 
-test('lookupStateColorOverride ignores surrounding whitespace', t => {
-	t.is(
-		lookupStateColorOverride({'  In Review  ': 'cyan'}, 'In Review'),
+test('lookupStateColorOverride ignores surrounding whitespace', () => {
+	expect(lookupStateColorOverride({'  In Review  ': 'cyan'}, 'In Review')).toBe(
 		'cyan',
 	);
-	t.is(lookupStateColorOverride({'In Review': 'cyan'}, ' In Review '), 'cyan');
+	expect(lookupStateColorOverride({'In Review': 'cyan'}, ' In Review ')).toBe(
+		'cyan',
+	);
 });
 
-test('lookupStateColorOverride returns null for an unlisted state', t => {
-	t.is(lookupStateColorOverride({'In Progress': 'cyan'}, 'Done'), null);
+test('lookupStateColorOverride returns null for an unlisted state', () => {
+	expect(lookupStateColorOverride({'In Progress': 'cyan'}, 'Done')).toBe(null);
 });
 
-test('lookupStateColorOverride returns null for a missing state name', t => {
-	t.is(lookupStateColorOverride({'In Progress': 'cyan'}, undefined), null);
-	t.is(lookupStateColorOverride({'In Progress': 'cyan'}, ''), null);
+test('lookupStateColorOverride returns null for a missing state name', () => {
+	expect(lookupStateColorOverride({'In Progress': 'cyan'}, undefined)).toBe(
+		null,
+	);
+	expect(lookupStateColorOverride({'In Progress': 'cyan'}, '')).toBe(null);
 });
 
-test('lookupStateColorOverride ignores invalid color values', t => {
+test('lookupStateColorOverride ignores invalid color values', () => {
 	// Validation rejects these at load time, but the lookup is defensive so a
 	// hand-edited cache or an unvalidated caller can never reach the renderer.
-	t.is(lookupStateColorOverride({Done: 'chartreuse'}, 'Done'), null);
-	t.is(lookupStateColorOverride({Done: ''}, 'Done'), null);
+	expect(lookupStateColorOverride({Done: 'chartreuse'}, 'Done')).toBe(null);
+	expect(lookupStateColorOverride({Done: ''}, 'Done')).toBe(null);
 });
 
 // ============================================================================
 // Module singleton
 // ============================================================================
 
-test.serial('getStateColorOverride returns null before initialization', t => {
+test('getStateColorOverride returns null before initialization', () => {
 	resetStateColorOverrides();
-	t.is(getStateColorOverride('In Progress'), null);
+	expect(getStateColorOverride('In Progress')).toBe(null);
 });
 
-test.serial('initStateColorOverrides installs the map', t => {
+test('initStateColorOverrides installs the map', () => {
 	initStateColorOverrides({'In Review': 'cyan'});
-	t.is(getStateColorOverride('in review'), 'cyan');
-	t.is(getStateColorOverride('Done'), null);
+	expect(getStateColorOverride('in review')).toBe('cyan');
+	expect(getStateColorOverride('Done')).toBe(null);
 	resetStateColorOverrides();
 });
 
-test.serial('initStateColorOverrides with undefined clears the map', t => {
+test('initStateColorOverrides with undefined clears the map', () => {
 	initStateColorOverrides({'In Review': 'cyan'});
 	initStateColorOverrides(undefined);
-	t.is(getStateColorOverride('In Review'), null);
+	expect(getStateColorOverride('In Review')).toBe(null);
 	resetStateColorOverrides();
 });
 
-test.serial('resetStateColorOverrides clears the map', t => {
+test('resetStateColorOverrides clears the map', () => {
 	initStateColorOverrides({Done: '#74d09f'});
 	resetStateColorOverrides();
-	t.is(getStateColorOverride('Done'), null);
+	expect(getStateColorOverride('Done')).toBe(null);
 });
 
 // ============================================================================
 // resolveStateColor — what the ticket rail calls
 // ============================================================================
 
-test.serial(
-	'resolveStateColor returns the tracker color when nothing is configured',
-	t => {
-		resetStateColorOverrides();
-		t.is(resolveStateColor('In Progress', '#f2c94c'), '#f2c94c');
-		t.is(resolveStateColor('Done', '#74d09f'), '#74d09f');
-	},
-);
+test('resolveStateColor returns the tracker color when nothing is configured', () => {
+	resetStateColorOverrides();
+	expect(resolveStateColor('In Progress', '#f2c94c')).toBe('#f2c94c');
+	expect(resolveStateColor('Done', '#74d09f')).toBe('#74d09f');
+});
 
-test.serial(
-	'resolveStateColor paints In Review purple on any tracker by default',
-	t => {
-		resetStateColorOverrides();
-		t.is(resolveStateColor('In Review', '#4b9fea'), '#a78bfa');
-		t.is(resolveStateColor(' in review ', '#f2c94c'), '#a78bfa');
-	},
-);
+test('resolveStateColor paints In Review purple on any tracker by default', () => {
+	resetStateColorOverrides();
+	expect(resolveStateColor('In Review', '#4b9fea')).toBe('#a78bfa');
+	expect(resolveStateColor(' in review ', '#f2c94c')).toBe('#a78bfa');
+});
 
-test.serial('resolveStateColor returns the override when one matches', t => {
+test('resolveStateColor returns the override when one matches', () => {
 	initStateColorOverrides({'In Review': 'cyan'});
-	t.is(resolveStateColor('In Review', '#f2c94c'), 'cyan');
+	expect(resolveStateColor('In Review', '#f2c94c')).toBe('cyan');
 	resetStateColorOverrides();
 });
 
-test.serial(
-	'resolveStateColor falls back to the tracker color for unlisted states',
-	t => {
-		initStateColorOverrides({'In Review': 'cyan'});
-		t.is(resolveStateColor('In Progress', '#f2c94c'), '#f2c94c');
-		resetStateColorOverrides();
-	},
-);
+test('resolveStateColor falls back to the tracker color for unlisted states', () => {
+	initStateColorOverrides({'In Review': 'cyan'});
+	expect(resolveStateColor('In Progress', '#f2c94c')).toBe('#f2c94c');
+	resetStateColorOverrides();
+});
 
-test.serial(
-	'resolveStateColor keeps the tracker color when the override is invalid',
-	t => {
-		initStateColorOverrides({Done: 'chartreuse'});
-		t.is(resolveStateColor('Done', '#74d09f'), '#74d09f');
-		resetStateColorOverrides();
-	},
-);
+test('resolveStateColor keeps the tracker color when the override is invalid', () => {
+	initStateColorOverrides({Done: 'chartreuse'});
+	expect(resolveStateColor('Done', '#74d09f')).toBe('#74d09f');
+	resetStateColorOverrides();
+});

@@ -3,7 +3,7 @@
 import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {testState} from '../test/helpers/state.ts';
 import {runAgentProfileCommand} from './agent-profile-command.ts';
 import {parseCli, parseSendArgs, subcommandGate} from './cli-args.ts';
@@ -26,8 +26,8 @@ const companion = (name: string, input: Record<string, unknown>) => {
 	return {verb: args[0], command: parseCompanionArgs(args.slice(1))};
 };
 
-test('companion_run passes a shell line through as one command', t => {
-	t.like(
+test('companion_run passes a shell line through as one command', () => {
+	expect(
 		companion('companion_run', {
 			command: 'npm run dev | less -R',
 			pane: 'app',
@@ -35,36 +35,37 @@ test('companion_run passes a shell line through as one command', t => {
 			size: '30%',
 			space: 'STA-1',
 		}),
+	).toMatchObject({
+		verb: 'companion',
+		command: {
+			verb: 'run',
+			command: 'npm run dev | less -R',
+			pane: 'app',
+			split: 'right',
+			size: '30%',
+			space: 'STA-1',
+		},
+	});
+});
+
+test('companion_run keeps a command that starts with a dash as the command', () => {
+	expect(companion('companion_run', {command: '--help'}).command).toMatchObject(
 		{
-			verb: 'companion',
-			command: {
-				verb: 'run',
-				command: 'npm run dev | less -R',
-				pane: 'app',
-				split: 'right',
-				size: '30%',
-				space: 'STA-1',
-			},
+			verb: 'run',
+			command: '--help',
+			pane: 'main',
 		},
 	);
 });
 
-test('companion_run keeps a command that starts with a dash as the command', t => {
-	t.like(companion('companion_run', {command: '--help'}).command, {
-		verb: 'run',
-		command: '--help',
-		pane: 'main',
-	});
-});
-
-test('companion_type sends its text on stdin, leaving no text in argv', t => {
+test('companion_type sends its text on stdin, leaving no text in argv', () => {
 	const {args, stdin} = call('companion_type', {
 		text: '-rf "quoted"',
 		enter: false,
 		pane: 'side',
 	});
-	t.is(stdin, '-rf "quoted"');
-	t.deepEqual(parseCompanionArgs(args.slice(1)), {
+	expect(stdin).toBe('-rf "quoted"');
+	expect(parseCompanionArgs(args.slice(1))).toStrictEqual({
 		verb: 'keys',
 		space: undefined,
 		pane: 'side',
@@ -74,35 +75,50 @@ test('companion_type sends its text on stdin, leaving no text in argv', t => {
 	});
 });
 
-test('companion_press_keys presses names in order', t => {
-	t.like(
+test('companion_press_keys presses names in order', () => {
+	expect(
 		companion('companion_press_keys', {keys: ['q', 'Escape'], space: 'STA-1'})
 			.command,
-		{verb: 'keys', keys: ['q', 'Escape'], space: 'STA-1', pane: 'main'},
-	);
+	).toMatchObject({
+		verb: 'keys',
+		keys: ['q', 'Escape'],
+		space: 'STA-1',
+		pane: 'main',
+	});
 });
 
-test('companion_read, resize, close, list and width reach their verbs', t => {
-	t.like(companion('companion_read', {lines: 5, pane: 'a'}).command, {
+test('companion_read, resize, close, list and width reach their verbs', () => {
+	expect(
+		companion('companion_read', {lines: 5, pane: 'a'}).command,
+	).toMatchObject({
 		verb: 'read',
 		lines: 5,
 		pane: 'a',
 	});
-	t.like(companion('companion_resize', {pane: 'a', size: '40%'}).command, {
+	expect(
+		companion('companion_resize', {pane: 'a', size: '40%'}).command,
+	).toMatchObject({
 		verb: 'resize',
 		pane: 'a',
 		size: '40%',
 	});
-	t.like(companion('companion_resize', {pane: 'a', size: '12'}).command, {
+	expect(
+		companion('companion_resize', {pane: 'a', size: '12'}).command,
+	).toMatchObject({
 		size: 12,
 	});
-	t.like(companion('companion_close', {pane: 'a', space: 'S'}).command, {
+	expect(
+		companion('companion_close', {pane: 'a', space: 'S'}).command,
+	).toMatchObject({
 		verb: 'close',
 		pane: 'a',
 		space: 'S',
 	});
-	t.like(companion('companion_list', {}).command, {verb: 'list', json: true});
-	t.like(companion('companion_width', {width: 'reset'}).command, {
+	expect(companion('companion_list', {}).command).toMatchObject({
+		verb: 'list',
+		json: true,
+	});
+	expect(companion('companion_width', {width: 'reset'}).command).toMatchObject({
 		verb: 'width',
 		width: 'reset',
 	});
@@ -116,21 +132,21 @@ const cli = (name: string, input: Record<string, unknown>) => {
 	return {positional, flags, stdin};
 };
 
-test('spaces_list and space_read ask for JSON', t => {
-	t.like(cli('spaces_list', {}), {
+test('spaces_list and space_read ask for JSON', () => {
+	expect(cli('spaces_list', {})).toMatchObject({
 		positional: ['spaces'],
 		flags: {json: true},
 	});
-	t.like(cli('space_read', {key: 'STA-1', turns: 3}), {
+	expect(cli('space_read', {key: 'STA-1', turns: 3})).toMatchObject({
 		positional: ['read', 'STA-1'],
 		flags: {json: true, turns: 3},
 	});
 });
 
-test('space_get maps onto space get, and all onto space list', async t => {
+test('space_get maps onto space get, and all onto space list', async () => {
 	const outputs: string[] = [];
 	const errors: string[] = [];
-	const state = testState(t);
+	const state = testState();
 	await state.daos.spaceIdentities.record(
 		newSpaceIdentity({
 			repo: state.repo,
@@ -159,37 +175,37 @@ test('space_get maps onto space get, and all onto space list', async t => {
 		});
 	};
 
-	t.is(await run({field: 'profile'}), 0);
-	t.is(await run({space: 'STA-1', field: 'tmux.agentTarget'}), 0);
-	t.is(await run({}), 0);
-	t.is(await run({all: true}), 0);
-	t.deepEqual(outputs.slice(0, 2), ['dev', '=agent-repo-STA-1:']);
-	t.like(JSON.parse(outputs[2]!), {key: 'STA-1', profile: 'dev'});
-	t.deepEqual(
+	expect(await run({field: 'profile'})).toBe(0);
+	expect(await run({space: 'STA-1', field: 'tmux.agentTarget'})).toBe(0);
+	expect(await run({})).toBe(0);
+	expect(await run({all: true})).toBe(0);
+	expect(outputs.slice(0, 2)).toStrictEqual(['dev', '=agent-repo-STA-1:']);
+	expect(JSON.parse(outputs[2]!)).toMatchObject({key: 'STA-1', profile: 'dev'});
+	expect(
 		(JSON.parse(outputs[3]!) as Array<{key: string}>).map(each => each.key),
-		['main', 'STA-1'],
-	);
-	t.deepEqual(errors, []);
+	).toStrictEqual(['main', 'STA-1']);
+	expect(errors).toStrictEqual([]);
 });
 
-test('space_open passes agent_profile to the CLI as --agent-profile', t => {
-	t.like(
+test('space_open passes agent_profile to the CLI as --agent-profile', () => {
+	expect(
 		cli('space_open', {
 			input: 'STA-1',
 			profile: 'dev',
 			agent_profile: 'antigravity-neon:high',
 		}),
-		{
-			positional: ['STA-1'],
-			flags: {profile: 'dev', agentProfile: 'antigravity-neon:high'},
-		},
+	).toMatchObject({
+		positional: ['STA-1'],
+		flags: {profile: 'dev', agentProfile: 'antigravity-neon:high'},
+	});
+	expect(cli('space_open', {input: 'STA-1'}).flags.agentProfile).toBe(
+		undefined,
 	);
-	t.is(cli('space_open', {input: 'STA-1'}).flags.agentProfile, undefined);
 });
 
-test('agent_profiles_list maps onto agent-profile list as JSON', t => {
+test('agent_profiles_list maps onto agent-profile list as JSON', () => {
 	const [verb, ...argv] = call('agent_profiles_list', {}).args;
-	t.is(verb, 'agent-profile');
+	expect(verb).toBe('agent-profile');
 	const out: string[] = [];
 	const errors: string[] = [];
 	const code = runAgentProfileCommand(argv, {
@@ -201,44 +217,44 @@ test('agent_profiles_list maps onto agent-profile list as JSON', t => {
 		out: text => out.push(text),
 		err: text => errors.push(text),
 	});
-	t.is(code, 0);
-	t.deepEqual(errors, []);
-	t.deepEqual(JSON.parse(out[0]!), [
+	expect(code).toBe(0);
+	expect(errors).toStrictEqual([]);
+	expect(JSON.parse(out[0]!)).toStrictEqual([
 		{name: 'claude', sources: []},
 		{name: 'codex', sources: ['.pappardelle.yml']},
 	]);
 });
 
-test('space_get refuses all together with a space or a field', t => {
-	t.throws(() => call('space_get', {all: true, space: 'STA-1'}));
-	t.throws(() => call('space_get', {all: true, field: 'profile'}));
+test('space_get refuses all together with a space or a field', () => {
+	expect(() => call('space_get', {all: true, space: 'STA-1'})).toThrow();
+	expect(() => call('space_get', {all: true, field: 'profile'})).toThrow();
 });
 
-test('space_highlight passes focus on only when asked', t => {
-	t.like(cli('space_highlight', {key: 'STA-1', focus: true}), {
+test('space_highlight passes focus on only when asked', () => {
+	expect(cli('space_highlight', {key: 'STA-1', focus: true})).toMatchObject({
 		positional: ['highlight', 'STA-1'],
 		flags: {focus: true},
 	});
-	t.falsy(cli('space_highlight', {key: 'STA-1'}).flags.focus);
+	expect(cli('space_highlight', {key: 'STA-1'}).flags.focus).toBeFalsy();
 });
 
-test('space_send sends its text on stdin', t => {
+test('space_send sends its text on stdin', () => {
 	const {args, stdin} = call('space_send', {key: 'STA-1', text: "don't -x"});
-	t.deepEqual(parseSendArgs(args), {
+	expect(parseSendArgs(args)).toStrictEqual({
 		key: 'STA-1',
 		text: '',
 		keys: [],
 		force: false,
 	});
-	t.is(stdin, "don't -x");
+	expect(stdin).toBe("don't -x");
 });
 
-test('space_press_keys sends repeated --keys', t => {
+test('space_press_keys sends repeated --keys', () => {
 	const {args} = call('space_press_keys', {
 		key: 'STA-1',
 		keys: ['Escape', 'S-Tab'],
 	});
-	t.deepEqual(parseSendArgs(args), {
+	expect(parseSendArgs(args)).toStrictEqual({
 		key: 'STA-1',
 		text: '',
 		keys: ['Escape', 'S-Tab'],
@@ -246,56 +262,58 @@ test('space_press_keys sends repeated --keys', t => {
 	});
 });
 
-test('space_open keeps a description that starts with a dash as the input', t => {
+test('space_open keeps a description that starts with a dash as the input', () => {
 	const {positional, flags} = cli('space_open', {
 		input: '-fix the login',
 		profile: 'mobile',
 	});
-	t.deepEqual(positional, ['-fix the login']);
-	t.is(flags.profile, 'mobile');
-	t.is(flags.resume, undefined);
-	t.is(flags.wait, undefined);
+	expect(positional).toStrictEqual(['-fix the login']);
+	expect(flags.profile).toBe('mobile');
+	expect(flags.resume).toBe(undefined);
+	expect(flags.wait).toBe(undefined);
 });
 
-test('space_open maps resume both ways and wait', t => {
-	t.like(cli('space_open', {input: 'STA-1', resume: true, wait: true}), {
+test('space_open maps resume both ways and wait', () => {
+	expect(
+		cli('space_open', {input: 'STA-1', resume: true, wait: true}),
+	).toMatchObject({
 		positional: ['STA-1'],
 		flags: {resume: true, wait: true},
 	});
-	t.like(cli('space_open', {input: 'STA-1', resume: false}), {
+	expect(cli('space_open', {input: 'STA-1', resume: false})).toMatchObject({
 		flags: {resume: false},
 	});
 });
 
-test('space_close confirms for the agent, which has no terminal', t => {
-	t.like(cli('space_close', {key: 'STA-1'}), {
+test('space_close confirms for the agent, which has no terminal', () => {
+	expect(cli('space_close', {key: 'STA-1'})).toMatchObject({
 		positional: ['close', 'STA-1'],
 		flags: {yes: true},
 	});
 });
 
-test('tui_restart is the soft restart', t => {
+test('tui_restart is the soft restart', () => {
 	const {positional, flags} = cli('tui_restart', {});
-	t.deepEqual(positional, ['restart']);
-	t.falsy(flags.hard);
+	expect(positional).toStrictEqual(['restart']);
+	expect(flags.hard).toBeFalsy();
 });
 
-test('no tool can end every session or update Pappardelle', t => {
+test('no tool can end every session or update Pappardelle', () => {
 	const names = MCP_TOOLS.map(tool => tool.name);
-	t.false(names.some(name => /update|hard/.test(name)));
+	expect(names.some(name => /update|hard/.test(name))).toBe(false);
 });
 
-test('link_pr runs from the source repository and passes the workspace on', t => {
+test('link_pr runs from the source repository and passes the workspace on', () => {
 	const {args, cwd} = call('link_pr', {
 		url: 'https://github.com/o/r/pull/7',
 		repository: '/work/child',
 		workspace: '/work',
 	});
-	t.is(cwd, '/work/child');
+	expect(cwd).toBe('/work/child');
 	const {input, flags} = parseCli(args);
-	t.deepEqual(input, ['link-pr', 'https://github.com/o/r/pull/7']);
-	t.is(flags.workspace, '/work');
-	t.is(call('link_pr', {url: 'https://x'}).cwd, undefined);
+	expect(input).toStrictEqual(['link-pr', 'https://github.com/o/r/pull/7']);
+	expect(flags.workspace).toBe('/work');
+	expect(call('link_pr', {url: 'https://x'}).cwd).toBe(undefined);
 });
 
 // Everything an agent changes in another space through these goes through
@@ -314,21 +332,20 @@ const ASKS_FIRST = new Set([
 	'space_hold_resolve',
 ]);
 
-test('every tool but the ones that ask first is auto-approved', t => {
-	t.deepEqual(
-		[...AUTO_APPROVED_TOOLS].sort(),
+test('every tool but the ones that ask first is auto-approved', () => {
+	expect([...AUTO_APPROVED_TOOLS].sort()).toStrictEqual(
 		MCP_TOOLS.map(tool => tool.name)
 			.filter(name => !ASKS_FIRST.has(name))
 			.sort(),
 	);
 });
 
-test('space_answer has no way past the approval policy', t => {
+test('space_answer has no way past the approval policy', () => {
 	const answer = MCP_TOOLS.find(tool => tool.name === 'space_answer')!;
-	t.false('force' in answer.inputSchema);
-	t.false(
+	expect('force' in answer.inputSchema).toBe(false);
+	expect(
 		call('space_answer', {key: 'STA-1', option: 1}).args.includes('--force'),
-	);
+	).toBe(false);
 });
 
 const pluginHooks = path.join(
@@ -339,7 +356,7 @@ const pluginHooks = path.join(
 	'hooks',
 );
 
-test("Claude Code's approval hook matches the auto-approved tools and no others", t => {
+test("Claude Code's approval hook matches the auto-approved tools and no others", () => {
 	const {hooks} = JSON.parse(
 		fs.readFileSync(path.join(pluginHooks, 'hooks.json'), 'utf8'),
 	) as {
@@ -352,21 +369,20 @@ test("Claude Code's approval hook matches the auto-approved tools and no others"
 	);
 	const matcher = new RegExp(`^(${entry!.matcher})$`);
 	const names = MCP_TOOLS.map(tool => tool.name);
-	t.deepEqual(
+	expect(
 		names.filter(name =>
 			matcher.test(`mcp__plugin_pappardelle_pappardelle__${name}`),
 		),
-		[...AUTO_APPROVED_TOOLS],
-	);
+	).toStrictEqual([...AUTO_APPROVED_TOOLS]);
 });
 
-test('the approval hook answers allow', t => {
+test('the approval hook answers allow', () => {
 	const {stdout, status} = spawnSync(
 		path.join(pluginHooks, 'approve-pappardelle-tool.sh'),
 		{encoding: 'utf8'},
 	);
-	t.is(status, 0);
-	t.like(JSON.parse(stdout), {
+	expect(status).toBe(0);
+	expect(JSON.parse(stdout)).toMatchObject({
 		hookSpecificOutput: {
 			hookEventName: 'PreToolUse',
 			permissionDecision: 'allow',
@@ -374,9 +390,9 @@ test('the approval hook answers allow', t => {
 	});
 });
 
-test('space_watch passes its spaces, states and cursor to watch', t => {
+test('space_watch passes its spaces, states and cursor to watch', () => {
 	const cursor = encodeCursor({'STA-1': 'idle'});
-	t.deepEqual(
+	expect(
 		parseSuperviseArgs(
 			call('space_watch', {
 				keys: ['STA-1', 'STA-2'],
@@ -385,33 +401,30 @@ test('space_watch passes its spaces, states and cursor to watch', t => {
 				timeout_seconds: 30,
 			}).args,
 		),
-		{
-			verb: 'watch',
-			keys: ['STA-1', 'STA-2'],
-			until: ['blocked', 'idle'],
-			since: {'STA-1': 'idle'},
-			timeoutSeconds: 30,
-			json: true,
-		},
-	);
-	t.like(parseSuperviseArgs(call('space_watch', {}).args), {
+	).toStrictEqual({
+		verb: 'watch',
+		keys: ['STA-1', 'STA-2'],
+		until: ['blocked', 'idle'],
+		since: {'STA-1': 'idle'},
+		timeoutSeconds: 30,
+		json: true,
+	});
+	expect(parseSuperviseArgs(call('space_watch', {}).args)).toMatchObject({
 		keys: [],
 		until: [],
 		timeoutSeconds: 50,
 	});
 });
 
-test('space_answer passes several options and typed text to answer', t => {
-	t.like(
+test('space_answer passes several options and typed text to answer', () => {
+	expect(
 		parseSuperviseArgs(
 			call('space_answer', {key: 'STA-1', options: [1, 3]}).args,
 		),
-		{verb: 'answer', options: [1, 3], keys: []},
-	);
-	t.like(
+	).toMatchObject({verb: 'answer', options: [1, 3], keys: []});
+	expect(
 		parseSuperviseArgs(
 			call('space_answer', {key: 'STA-1', text: '-- no, the other one'}).args,
 		),
-		{verb: 'answer', options: [], text: '-- no, the other one'},
-	);
+	).toMatchObject({verb: 'answer', options: [], text: '-- no, the other one'});
 });

@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,27 +42,27 @@ function issue(fields: Partial<TrackerIssue>): TrackerIssue {
 const names = (commands: Array<{name: string}>) =>
 	commands.map(command => command.name);
 
-test('a project match picks its profile over a title keyword match', t => {
+test('a project match picks its profile over a title keyword match', () => {
 	const commands = resolveDeinitCommands(
 		config,
 		issue({title: 'music player', project: {name: 'The Hive'}}),
 	);
-	t.deepEqual(names(commands), ['global', 'hive']);
+	expect(names(commands)).toStrictEqual(['global', 'hive']);
 });
 
-test('the title picks the profile when no project matches', t => {
+test('the title picks the profile when no project matches', () => {
 	const commands = resolveDeinitCommands(
 		config,
 		issue({title: 'music player', project: {name: 'Elsewhere'}}),
 	);
-	t.deepEqual(names(commands), ['global', 'jams']);
+	expect(names(commands)).toStrictEqual(['global', 'jams']);
 });
 
-test('without an issue only the global hooks run', t => {
-	t.deepEqual(names(resolveDeinitCommands(config, null)), ['global']);
+test('without an issue only the global hooks run', () => {
+	expect(names(resolveDeinitCommands(config, null))).toStrictEqual(['global']);
 });
 
-test('runCloseHooks passes the space key and repo context to the hooks', async t => {
+test('runCloseHooks passes the space key and repo context to the hooks', async () => {
 	const calls: unknown[] = [];
 	const result = await runCloseHooks(
 		{name: 'STA-1', worktreePath: '/wt/STA-1', trackerIssue: null},
@@ -78,8 +79,8 @@ test('runCloseHooks passes the space key and repo context to the hooks', async t
 			}),
 		},
 	);
-	t.deepEqual(result, {kind: 'failed', failedCommand: 'global'});
-	t.deepEqual(calls, [
+	expect(result).toStrictEqual({kind: 'failed', failedCommand: 'global'});
+	expect(calls).toStrictEqual([
 		{
 			commands: ['global'],
 			worktreePath: '/wt/STA-1',
@@ -93,9 +94,9 @@ test('runCloseHooks passes the space key and repo context to the hooks', async t
 	]);
 });
 
-test('an invalid config skips the deinit commands and says why', async t => {
+test('an invalid config skips the deinit commands and says why', async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-close-'));
-	t.teardown(() => {
+	teardown(() => {
 		fs.rmSync(dir, {recursive: true, force: true});
 	});
 	const marker = path.join(dir, 'deinit-ran');
@@ -120,21 +121,21 @@ agent_profiles:
 				readConfig({homeConfigDir: path.join(dir, 'home'), projectDir: dir}),
 		},
 	);
-	t.is(result.kind, 'config-invalid');
-	t.true(
+	expect(result.kind).toBe('config-invalid');
+	expect(
 		result.kind === 'config-invalid' &&
 			result.errors.some(error => error.includes('agent_profiles.opus.model')),
-	);
-	t.false(fs.existsSync(marker));
+	).toBe(true);
+	expect(fs.existsSync(marker)).toBe(false);
 });
 
-test('a row the registry no longer lists is not attached', t => {
-	t.false(shouldAttach({name: 'STA-1'}, ['STA-2']));
+test('a row the registry no longer lists is not attached', () => {
+	expect(shouldAttach({name: 'STA-1'}, ['STA-2'])).toBe(false);
 });
 
-test('registered, main, and pending rows attach, as does an unreadable registry', t => {
-	t.true(shouldAttach({name: 'STA-1'}, ['STA-1']));
-	t.true(shouldAttach({name: 'main', isMainWorktree: true}, []));
-	t.true(shouldAttach({name: 'STA-3', isPending: true}, []));
-	t.true(shouldAttach({name: 'STA-1'}, null));
+test('registered, main, and pending rows attach, as does an unreadable registry', () => {
+	expect(shouldAttach({name: 'STA-1'}, ['STA-1'])).toBe(true);
+	expect(shouldAttach({name: 'main', isMainWorktree: true}, [])).toBe(true);
+	expect(shouldAttach({name: 'STA-3', isPending: true}, [])).toBe(true);
+	expect(shouldAttach({name: 'STA-1'}, null)).toBe(true);
 });

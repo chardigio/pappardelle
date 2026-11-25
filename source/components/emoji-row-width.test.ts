@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import React from 'react';
 import {render} from '../../test/helpers/render.ts';
 import stringWidth from 'string-width';
@@ -74,17 +74,16 @@ async function renderPickerRow(
 	return frame.split('\n')[1] ?? '';
 }
 
-test('a picker row never renders wider than its frame', async t => {
+test('a picker row never renders wider than its frame', async () => {
 	for (const emoji of RAIL_EMOJI) {
-		t.is(
+		expect(
 			stringWidth(await renderPickerRow(emoji, 'Fanx AI')),
-			BOX_WIDTH,
 			`${emoji || '(blank slot)'} row overflowed its frame`,
-		);
+		).toBe(BOX_WIDTH);
 	}
 });
 
-test('the label lands in the same column for every emoji', async t => {
+test('the label lands in the same column for every emoji', async () => {
 	const columns = new Set(
 		await Promise.all(
 			RAIL_EMOJI.map(async emoji => {
@@ -93,13 +92,15 @@ test('the label lands in the same column for every emoji', async t => {
 			}),
 		),
 	);
-	t.is(columns.size, 1, `labels drifted across columns: ${[...columns]}`);
+	expect(columns.size, `labels drifted across columns: ${[...columns]}`).toBe(
+		1,
+	);
 });
 
-test('a row with no emoji configured at all is untouched', async t => {
+test('a row with no emoji configured at all is untouched', async () => {
 	// `undefined` means nobody in the config set an emoji — there is no slot, and
 	// the row must render exactly as it did before emoji existed.
 	const line = await renderPickerRow(undefined, 'Fanx AI');
-	t.is(stringWidth(line), BOX_WIDTH);
-	t.true(line.startsWith('│❯ Fanx AI'));
+	expect(stringWidth(line)).toBe(BOX_WIDTH);
+	expect(line.startsWith('│❯ Fanx AI')).toBe(true);
 });

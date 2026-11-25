@@ -7,23 +7,25 @@
  * exceeds its cell budget, for plain text and for the emoji classes that
  * tripped the old slice.
  */
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {TextBuffer, type WidthMethod} from '@opentui/core';
 import widestLine from 'widest-line';
 import {displayWidth} from './text-measure.ts';
 import {truncateRunsToWidth, truncateToWidth} from './truncate-to-width.ts';
 
-test('short text is returned unchanged', t => {
-	t.is(truncateToWidth('Migrate the VPC', 40, 'unicode'), 'Migrate the VPC');
+test('short text is returned unchanged', () => {
+	expect(truncateToWidth('Migrate the VPC', 40, 'unicode')).toBe(
+		'Migrate the VPC',
+	);
 });
 
-test('plain text longer than the budget is sliced and ellipsised to fit', t => {
+test('plain text longer than the budget is sliced and ellipsised to fit', () => {
 	const out = truncateToWidth('Migrate the VPC and RDS now', 12, 'unicode');
-	t.is(out, 'Migrate the…');
-	t.is(widestLine(out), 12);
+	expect(out).toBe('Migrate the…');
+	expect(widestLine(out)).toBe(12);
 });
 
-test('a ✨ in the title no longer overflows the budget (the regression)', t => {
+test('a ✨ in the title no longer overflows the budget (the regression)', () => {
 	const budget = 12;
 	const out = truncateToWidth(
 		'✨ Migrate the VPC and RDS now',
@@ -32,13 +34,13 @@ test('a ✨ in the title no longer overflows the budget (the regression)', t => 
 	);
 	// The old `title.slice(0, budget - 1) + '…'` produced "✨ Migrate t…",
 	// whose layout width is 13 — one cell over the 12-cell budget.
-	t.true(
+	expect(
 		widestLine(out) <= budget,
 		`"${out}" is ${widestLine(out)} cells, must be <= ${budget}`,
-	);
+	).toBe(true);
 });
 
-test('every kept ✨ counts as two cells, never overflowing', t => {
+test('every kept ✨ counts as two cells, never overflowing', () => {
 	for (const budget of [4, 7, 10, 15, 20]) {
 		for (const title of [
 			'✨ sparkle at the front',
@@ -46,103 +48,104 @@ test('every kept ✨ counts as two cells, never overflowing', t => {
 			'✨✨✨✨ all sparkles ✨✨✨✨',
 		]) {
 			const out = truncateToWidth(title, budget, 'unicode');
-			t.true(
+			expect(
 				widestLine(out) <= budget,
 				`budget ${budget}, title "${title}" -> "${out}" (${widestLine(
 					out,
 				)} cells)`,
-			);
+			).toBe(true);
 		}
 	}
 });
 
-test('astral and VS16 emoji are measured/cut as whole graphemes', t => {
+test('astral and VS16 emoji are measured/cut as whole graphemes', () => {
 	// 🍝 is a surrogate pair (2 code units); ⚙️ is base + VS16 (2 code points).
 	// Both must be counted as their full cell width and never split.
 	for (const title of ['🍝 pasta night out', '⚙️ settings and config']) {
 		const out = truncateToWidth(title, 8, 'unicode');
-		t.true(widestLine(out) <= 8, `"${out}" is ${widestLine(out)} cells`);
+		expect(widestLine(out) <= 8, `"${out}" is ${widestLine(out)} cells`).toBe(
+			true,
+		);
 		// No lone surrogate / dangling combining mark left at the cut.
-		t.notRegex(out.replace(/…$/, ''), /[\uD800-\uDBFF]$/, 'no split surrogate');
+		expect(out.replace(/…$/, ''), 'no split surrogate').not.toMatch(
+			/[\uD800-\uDBFF]$/,
+		);
 	}
 });
 
-test('a non-positive budget yields an empty string', t => {
-	t.is(truncateToWidth('anything', 0, 'unicode'), '');
-	t.is(truncateToWidth('anything', -5, 'unicode'), '');
+test('a non-positive budget yields an empty string', () => {
+	expect(truncateToWidth('anything', 0, 'unicode')).toBe('');
+	expect(truncateToWidth('anything', -5, 'unicode')).toBe('');
 });
 
-test('exact-fit text is not truncated', t => {
-	t.is(truncateToWidth('123456', 6, 'unicode'), '123456');
+test('exact-fit text is not truncated', () => {
+	expect(truncateToWidth('123456', 6, 'unicode')).toBe('123456');
 });
 
 const runsText = (runs: Array<{text: string}>) =>
 	runs.map(run => run.text).join('');
 
-test('styled runs that fit are kept whole', t => {
+test('styled runs that fit are kept whole', () => {
 	const runs = [
 		{text: 'g   ', fg: 'yellow'},
 		{text: 'Open PR', fg: undefined},
 	];
-	t.deepEqual(truncateRunsToWidth(runs, 11, 'unicode'), runs);
+	expect(truncateRunsToWidth(runs, 11, 'unicode')).toStrictEqual(runs);
 });
 
-test('the run crossing the budget is cut, carries the ellipsis, and later runs are dropped', t => {
+test('the run crossing the budget is cut, carries the ellipsis, and later runs are dropped', () => {
 	const runs = [
 		{text: 'g   ', fg: 'yellow'},
 		{text: 'Open PR / MR in browser', fg: 'white'},
 		{text: ' (custom)', fg: 'magenta'},
 	];
 	const out = truncateRunsToWidth(runs, 12, 'unicode');
-	t.is(runsText(out), 'g   Open PR…');
-	t.is(widestLine(runsText(out)), 12);
-	t.deepEqual(
-		out.map(run => run.fg),
-		['yellow', 'white'],
-	);
+	expect(runsText(out)).toBe('g   Open PR…');
+	expect(widestLine(runsText(out))).toBe(12);
+	expect(out.map(run => run.fg)).toStrictEqual(['yellow', 'white']);
 });
 
 // OpenTUI draws these wider or narrower than `widest-line` counts them: a soft
 // hyphen takes a cell under tmux's unicode method, a Devanagari spacing mark
 // does not, and the wcwidth method used outside tmux on terminals without mode
 // 2027 counts every emoji code point.
-test('a soft-hyphenated title stays within the cells OpenTUI draws', t => {
+test('a soft-hyphenated title stays within the cells OpenTUI draws', () => {
 	const out = truncateToWidth(
 		'Re­write the con­fig mi­gra­tion',
 		16,
 		'unicode',
 	);
-	t.true(displayWidth(out, 'unicode') <= 16, `"${out}" overflows`);
+	expect(displayWidth(out, 'unicode') <= 16, `"${out}" overflows`).toBe(true);
 });
 
-test('Devanagari that fits as OpenTUI draws it is not cut', t => {
-	t.is(truncateToWidth('किताब', 3, 'unicode'), 'किताब');
+test('Devanagari that fits as OpenTUI draws it is not cut', () => {
+	expect(truncateToWidth('किताब', 3, 'unicode')).toBe('किताब');
 });
 
-test('emoji are measured as wcwidth draws them outside tmux', t => {
+test('emoji are measured as wcwidth draws them outside tmux', () => {
 	const out = truncateToWidth('👍🏽👨‍👩‍👧 ship it', 8, 'wcwidth');
-	t.true(displayWidth(out, 'wcwidth') <= 8, `"${out}" overflows`);
+	expect(displayWidth(out, 'wcwidth') <= 8, `"${out}" overflows`).toBe(true);
 });
 
-test('styled runs stay within the cells OpenTUI draws', t => {
+test('styled runs stay within the cells OpenTUI draws', () => {
 	const out = truncateRunsToWidth(
 		[{text: 'g '}, {text: '👍🏽 ship it'}, {text: ' (custom)'}],
 		10,
 		'wcwidth',
 	);
-	t.true(
+	expect(
 		displayWidth(runsText(out), 'wcwidth') <= 10,
 		`"${runsText(out)}" overflows`,
-	);
+	).toBe(true);
 });
 
-test('a run that ends exactly at the budget still shows that more was cut', t => {
+test('a run that ends exactly at the budget still shows that more was cut', () => {
 	const out = truncateRunsToWidth(
 		[{text: 'abcd'}, {text: 'efgh'}],
 		4,
 		'unicode',
 	);
-	t.is(runsText(out), 'abc…');
+	expect(runsText(out)).toBe('abc…');
 });
 
 const pinnedCuts: Array<[WidthMethod, string, number, string]> = [
@@ -158,8 +161,8 @@ const pinnedCuts: Array<[WidthMethod, string, number, string]> = [
 ];
 
 for (const [widthMethod, title, budget, expected] of pinnedCuts) {
-	test(`${widthMethod} cuts ${JSON.stringify(title)} at ${budget} cells`, t => {
-		t.is(truncateToWidth(title, budget, widthMethod), expected);
+	test(`${widthMethod} cuts ${JSON.stringify(title)} at ${budget} cells`, () => {
+		expect(truncateToWidth(title, budget, widthMethod)).toBe(expected);
 	});
 }
 
@@ -180,7 +183,7 @@ function countSetText(run: () => void): number {
 	return calls;
 }
 
-test('native layouts per cut title do not grow with the title', t => {
+test('native layouts per cut title do not grow with the title', () => {
 	const short = countSetText(() =>
 		truncateToWidth('✨ Migrate the VPC now', 6, 'unicode'),
 	);
@@ -191,6 +194,6 @@ test('native layouts per cut title do not grow with the title', t => {
 			'unicode',
 		),
 	);
-	t.true(short > 0);
-	t.is(long, short);
+	expect(short > 0).toBe(true);
+	expect(long).toBe(short);
 });

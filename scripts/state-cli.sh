@@ -14,8 +14,6 @@ pappardelle_state() {
         "$PAPPARDELLE_EXECUTABLE" --internal-state "$@"
     elif [[ -x "$_STATE_CLI_DIR/../dist/pappardelle" ]]; then
         "$_STATE_CLI_DIR/../dist/pappardelle" --internal-state "$@"
-    elif [[ -x "$bun" && -f "$_STATE_CLI_DIR/../dist/state-cli.js" ]]; then
-        "$bun" --no-env-file --config=/dev/null "$_STATE_CLI_DIR/../dist/state-cli.js" "$@"
     elif [[ -x "$bun" && -f "$_STATE_CLI_DIR/../source/state-cli.ts" ]]; then
         "$bun" --no-env-file --config=/dev/null "$_STATE_CLI_DIR/../source/state-cli.ts" "$@"
     else

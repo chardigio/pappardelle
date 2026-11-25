@@ -8,7 +8,7 @@ import {
 	type CliRenderer,
 	type CliRendererConfig,
 } from '@opentui/core';
-import {createRoot} from '@opentui/react';
+import {createRoot, flushSync} from '@opentui/react';
 
 /**
  * tmux doesn't answer the ?2027 grapheme-width query, so OpenTUI would fall
@@ -40,15 +40,34 @@ function Mounted({
 const TYPED_AHEAD_WAIT_MS = 1000;
 
 /**
+ * OpenTUI dispatches every key of one input write before React renders, so a
+ * key would act on the state from before the keys ahead of it, and a dialog
+ * opened by one key would miss the rest. Each key and paste is committed, its
+ * effects included, before the next is dispatched. All listeners of one key
+ * still see the same state, so a key one of them hands on is not acted on twice.
+ */
+export function commitEachKey(renderer: CliRenderer): void {
+	const {keyInput} = renderer;
+	const dispatchKey = keyInput.processParsedKey.bind(keyInput);
+	const dispatchPaste = keyInput.processPaste.bind(keyInput);
+	keyInput.processParsedKey = key => flushSync(() => dispatchKey(key));
+	keyInput.processPaste = (bytes, metadata) => {
+		flushSync(() => {
+			dispatchPaste(bytes, metadata);
+		});
+	};
+}
+
+/**
  * Each terminal (rail or tmux popup) has its own renderer and input stream.
- * `ready` resolves when the view can act on keys, for a view that cannot as
- * soon as it has mounted.
+ * `ready` resolves when the view can act on keys; by default, as soon as it
+ * has mounted.
  */
 export async function renderTui(
 	node: ReactNode,
 	options: CliRendererConfig = {},
 	onFailedViewClose?: (renderer: CliRenderer) => void,
-	ready?: Promise<void>,
+	ready: Promise<void> = Promise.resolve(),
 ) {
 	// The renderer reads input as soon as it exists, before the tree has
 	// mounted anything that listens for keys. Keys typed in that time are kept
@@ -79,6 +98,7 @@ export async function renderTui(
 		...options,
 		prependInputHandlers: [keepKey, ...(options.prependInputHandlers ?? [])],
 	});
+	commitEachKey(renderer);
 	const deliverTypedAhead = () => {
 		isKeepingKeys = false;
 		renderer.removeInputHandler(keepKey);
@@ -86,15 +106,15 @@ export async function renderTui(
 			renderer.keyInput.processParsedKey(parseKeypress(sequence)!);
 	};
 
-	const onMounted = ready
-		? () => {
-				const timer = setTimeout(deliverTypedAhead, TYPED_AHEAD_WAIT_MS);
-				void ready.then(() => {
-					clearTimeout(timer);
-					deliverTypedAhead();
-				});
-			}
-		: deliverTypedAhead;
+	// Delivered from a promise rather than the mount effect itself: a key
+	// dispatched inside a React effect cannot commit before the next one.
+	const onMounted = () => {
+		const timer = setTimeout(deliverTypedAhead, TYPED_AHEAD_WAIT_MS);
+		void ready.then(() => {
+			clearTimeout(timer);
+			deliverTypedAhead();
+		});
+	};
 
 	// A key that skips the parser skips its input handlers too, and would
 	// arrive ahead of the keys still being kept.

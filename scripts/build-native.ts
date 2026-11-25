@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-export async function buildNative(destination: string, bytecode = true) {
+export async function buildNative(destination: string) {
 	const project = path.resolve(import.meta.dirname, '..');
 	const {platform} = process;
 	const result = await Bun.build({
@@ -8,7 +8,7 @@ export async function buildNative(destination: string, bytecode = true) {
 		target: 'bun',
 		format: 'esm',
 		compile: nativeCompileOptions(destination),
-		bytecode,
+		bytecode: true,
 		minify: {syntax: true, whitespace: true, identifiers: false},
 		sourcemap: 'linked',
 		define: {

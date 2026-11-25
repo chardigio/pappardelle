@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {agentRulesFlags} from './companion-rules.ts';
 import {execFileSync, execSync, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
@@ -106,20 +107,20 @@ const maybeMacro = yqAvailable ? test : test.skip;
 
 maybeMacro(
 	'malformed YAML fails instead of returning an empty successful result',
-	t => {
+	() => {
 		const fixture = setupConfigFiles('claude: [unterminated');
-		t.teardown(fixture.cleanup);
-		t.throws(() =>
+		teardown(fixture.cleanup);
+		expect(() =>
 			execFileSync('bash', [SCRIPT_PATH, '--config', fixture.configPath], {
 				stdio: 'pipe',
 			}),
-		);
+		).toThrow();
 	},
 );
 
 maybeMacro(
 	'values that JSON cannot hold in unrelated keys do not break resolution',
-	t => {
+	() => {
 		// idow runs with set -e, so a resolver failure here stops every
 		// workspace start. Only the keys the resolver reads may matter.
 		const fixture = setupConfigFiles(`version: 1
@@ -135,15 +136,15 @@ profiles:
   other:
     limit: 12345678901234567890
 `);
-		t.teardown(fixture.cleanup);
+		teardown(fixture.cleanup);
 		const output = execFileSync(
 			'bash',
 			[SCRIPT_PATH, '--config', fixture.configPath, '--profile', 'app'],
 			{encoding: 'utf-8', stdio: 'pipe'},
 		);
 		const result = JSON.parse(output) as {model: string; effort: string};
-		t.is(result.model, 'opus');
-		t.is(result.effort, 'high');
+		expect(result.model).toBe('opus');
+		expect(result.effort).toBe('high');
 	},
 );
 
@@ -153,7 +154,7 @@ profiles:
 
 maybeMacro(
 	'reads dangerously_skip_permissions from base config when no local config exists',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 claude:
@@ -166,8 +167,8 @@ profiles:
 		);
 		try {
 			const result = runResolver(configPath, localConfigPath);
-			t.is(result.skip_permissions, 'true');
-			t.is(result.init_cmd, '/idow');
+			expect(result.skip_permissions).toBe('true');
+			expect(result.init_cmd).toBe('/idow');
 		} finally {
 			cleanup();
 		}
@@ -176,7 +177,7 @@ profiles:
 
 maybeMacro(
 	'returns defaults when base config has no claude section and no local config',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 profiles:
@@ -186,8 +187,8 @@ profiles:
 		);
 		try {
 			const result = runResolver(configPath, localConfigPath);
-			t.is(result.skip_permissions, 'false');
-			t.is(result.init_cmd, '');
+			expect(result.skip_permissions).toBe('false');
+			expect(result.init_cmd).toBe('');
 		} finally {
 			cleanup();
 		}
@@ -200,7 +201,7 @@ profiles:
 
 maybeMacro(
 	'local config overrides dangerously_skip_permissions from false to true',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 claude:
@@ -216,9 +217,9 @@ profiles:
 		);
 		try {
 			const result = runResolver(configPath, localConfigPath);
-			t.is(result.skip_permissions, 'true');
+			expect(result.skip_permissions).toBe('true');
 			// initialization_command should be preserved from base
-			t.is(result.init_cmd, '/idow');
+			expect(result.init_cmd).toBe('/idow');
 		} finally {
 			cleanup();
 		}
@@ -227,7 +228,7 @@ profiles:
 
 maybeMacro(
 	'local config overrides dangerously_skip_permissions from true to false',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 claude:
@@ -242,7 +243,7 @@ profiles:
 		);
 		try {
 			const result = runResolver(configPath, localConfigPath);
-			t.is(result.skip_permissions, 'false');
+			expect(result.skip_permissions).toBe('false');
 		} finally {
 			cleanup();
 		}
@@ -251,7 +252,7 @@ profiles:
 
 maybeMacro(
 	'local config adds dangerously_skip_permissions when base has no claude section',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 profiles:
@@ -264,7 +265,7 @@ profiles:
 		);
 		try {
 			const result = runResolver(configPath, localConfigPath);
-			t.is(result.skip_permissions, 'true');
+			expect(result.skip_permissions).toBe('true');
 		} finally {
 			cleanup();
 		}
@@ -275,7 +276,7 @@ profiles:
 // Local override for initialization_command
 // ============================================================================
 
-maybeMacro('local config overrides initialization_command', t => {
+maybeMacro('local config overrides initialization_command', () => {
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1
 claude:
@@ -291,32 +292,35 @@ profiles:
 	);
 	try {
 		const result = runResolver(configPath, localConfigPath);
-		t.is(result.init_cmd, '/dow');
+		expect(result.init_cmd).toBe('/dow');
 		// dangerously_skip_permissions should be preserved from base
-		t.is(result.skip_permissions, 'true');
+		expect(result.skip_permissions).toBe('true');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('local config adds initialization_command when base has none', t => {
-	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
-		`version: 1
+maybeMacro(
+	'local config adds initialization_command when base has none',
+	() => {
+		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
+			`version: 1
 profiles:
   test:
     display_name: Test
 `,
-		`claude:
+			`claude:
   initialization_command: "/idow"
 `,
-	);
-	try {
-		const result = runResolver(configPath, localConfigPath);
-		t.is(result.init_cmd, '/idow');
-	} finally {
-		cleanup();
-	}
-});
+		);
+		try {
+			const result = runResolver(configPath, localConfigPath);
+			expect(result.init_cmd).toBe('/idow');
+		} finally {
+			cleanup();
+		}
+	},
+);
 
 // ============================================================================
 // Both overrides simultaneously
@@ -324,7 +328,7 @@ profiles:
 
 maybeMacro(
 	'local config overrides both initialization_command and dangerously_skip_permissions',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 claude:
@@ -341,8 +345,8 @@ profiles:
 		);
 		try {
 			const result = runResolver(configPath, localConfigPath);
-			t.is(result.init_cmd, '/dow');
-			t.is(result.skip_permissions, 'true');
+			expect(result.init_cmd).toBe('/dow');
+			expect(result.skip_permissions).toBe('true');
 		} finally {
 			cleanup();
 		}
@@ -355,7 +359,7 @@ profiles:
 
 maybeMacro(
 	'local config with only issue_watchlist does not affect claude config',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 claude:
@@ -372,8 +376,8 @@ profiles:
 		);
 		try {
 			const result = runResolver(configPath, localConfigPath);
-			t.is(result.skip_permissions, 'true');
-			t.is(result.init_cmd, '/idow');
+			expect(result.skip_permissions).toBe('true');
+			expect(result.init_cmd).toBe('/idow');
 		} finally {
 			cleanup();
 		}
@@ -386,7 +390,7 @@ profiles:
 
 maybeMacro(
 	'local config with non-boolean dangerously_skip_permissions is ignored',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 claude:
@@ -403,7 +407,7 @@ profiles:
 			const result = runResolver(configPath, localConfigPath);
 			// Invalid value falls back to safe default (false), not the base value.
 			// This is intentional: an invalid override shouldn't preserve a dangerous "true".
-			t.is(result.skip_permissions, 'false');
+			expect(result.skip_permissions).toBe('false');
 		} finally {
 			cleanup();
 		}
@@ -416,7 +420,7 @@ profiles:
 
 maybeMacro(
 	'home config provides defaults when project has no claude section',
-	t => {
+	() => {
 		const {configPath, localConfigPath, homeConfigPath, cleanup} =
 			setupConfigFiles(
 				`version: 1
@@ -432,15 +436,15 @@ profiles:
 			);
 		try {
 			const result = runResolver(configPath, localConfigPath, homeConfigPath);
-			t.is(result.skip_permissions, 'true');
-			t.is(result.init_cmd, '/dow');
+			expect(result.skip_permissions).toBe('true');
+			expect(result.init_cmd).toBe('/dow');
 		} finally {
 			cleanup();
 		}
 	},
 );
 
-maybeMacro('project config overrides home config', t => {
+maybeMacro('project config overrides home config', () => {
 	const {configPath, localConfigPath, homeConfigPath, cleanup} =
 		setupConfigFiles(
 			`version: 1
@@ -459,14 +463,14 @@ profiles:
 		);
 	try {
 		const result = runResolver(configPath, localConfigPath, homeConfigPath);
-		t.is(result.skip_permissions, 'false');
-		t.is(result.init_cmd, '/idow');
+		expect(result.skip_permissions).toBe('false');
+		expect(result.init_cmd).toBe('/idow');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('local config overrides both home and project config', t => {
+maybeMacro('local config overrides both home and project config', () => {
 	const {configPath, localConfigPath, homeConfigPath, cleanup} =
 		setupConfigFiles(
 			`version: 1
@@ -488,14 +492,14 @@ profiles:
 		);
 	try {
 		const result = runResolver(configPath, localConfigPath, homeConfigPath);
-		t.is(result.skip_permissions, 'true');
-		t.is(result.init_cmd, '/do-stardust');
+		expect(result.skip_permissions).toBe('true');
+		expect(result.init_cmd).toBe('/do-stardust');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('partial overrides at each layer merge correctly', t => {
+maybeMacro('partial overrides at each layer merge correctly', () => {
 	const {configPath, localConfigPath, homeConfigPath, cleanup} =
 		setupConfigFiles(
 			`version: 1
@@ -515,14 +519,14 @@ profiles:
 	try {
 		const result = runResolver(configPath, localConfigPath, homeConfigPath);
 		// init_cmd from project (/idow), skip_permissions from local (true)
-		t.is(result.init_cmd, '/idow');
-		t.is(result.skip_permissions, 'true');
+		expect(result.init_cmd).toBe('/idow');
+		expect(result.skip_permissions).toBe('true');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('missing home config file is gracefully ignored', t => {
+maybeMacro('missing home config file is gracefully ignored', () => {
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1
 claude:
@@ -539,7 +543,7 @@ profiles:
 			localConfigPath,
 			'/tmp/nonexistent-home-config.yml',
 		);
-		t.is(result.skip_permissions, 'true');
+		expect(result.skip_permissions).toBe('true');
 	} finally {
 		cleanup();
 	}
@@ -549,7 +553,7 @@ profiles:
 // Agent profile resolution
 // ============================================================================
 
-maybeMacro('defaults to the built-in claude agent profile', t => {
+maybeMacro('defaults to the built-in claude agent profile', () => {
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1
 profiles:
@@ -559,17 +563,17 @@ profiles:
 	);
 	try {
 		const result = runResolver(configPath, localConfigPath);
-		t.is(result.agent_profile, 'claude');
-		t.is(result.agent_command, 'claude');
-		t.is(result.agent_args, '');
-		t.is(result.agent_resume_args, '--resume {session_id}');
-		t.is(result.agent_is_claude, 'true');
+		expect(result.agent_profile).toBe('claude');
+		expect(result.agent_command).toBe('claude');
+		expect(result.agent_args).toBe('');
+		expect(result.agent_resume_args).toBe('--resume {session_id}');
+		expect(result.agent_is_claude).toBe('true');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('resolves an agent profile referenced at the top level', t => {
+maybeMacro('resolves an agent profile referenced at the top level', () => {
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1
 agent_profiles:
@@ -585,16 +589,16 @@ profiles:
 	);
 	try {
 		const result = runResolver(configPath, localConfigPath);
-		t.is(result.agent_command, 'codex');
-		t.is(result.agent_args, '--yolo');
-		t.is(result.agent_resume_args, 'resume --last');
-		t.is(result.agent_is_claude, 'false');
+		expect(result.agent_command).toBe('codex');
+		expect(result.agent_args).toBe('--yolo');
+		expect(result.agent_resume_args).toBe('resume --last');
+		expect(result.agent_is_claude).toBe('false');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('renders the same rule flags as the TUI launcher', t => {
+maybeMacro('renders the same rule flags as the TUI launcher', () => {
 	for (const command of ['codex', '/opt/bin/pi', 'claude', 'agy', 'opencode']) {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
@@ -612,8 +616,7 @@ profiles:
 			const agentProfile = getAgentProfile(
 				loadConfigFromPaths({projectDir: path.dirname(configPath)}),
 			);
-			t.is(
-				runResolver(configPath, localConfigPath).agent_rules_flags,
+			expect(runResolver(configPath, localConfigPath).agent_rules_flags).toBe(
 				agentRulesFlags(agentProfile.rulesArgs).trim(),
 			);
 		} finally {
@@ -622,7 +625,7 @@ profiles:
 	}
 });
 
-maybeMacro('renders no rule flags for a codex profile gated as claude', t => {
+maybeMacro('renders no rule flags for a codex profile gated as claude', () => {
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1
 workspace_aware_agents: true
@@ -637,13 +640,13 @@ profiles:
 `,
 	);
 	try {
-		t.is(runResolver(configPath, localConfigPath).agent_rules_flags, '');
+		expect(runResolver(configPath, localConfigPath).agent_rules_flags).toBe('');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('renders no rule flags without workspace_aware_agents', t => {
+maybeMacro('renders no rule flags without workspace_aware_agents', () => {
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1
 agent_profiles:
@@ -657,16 +660,18 @@ profiles:
 	);
 	try {
 		const result = runResolver(configPath, localConfigPath);
-		t.is(result.agent_rules_flags, '');
-		t.is(result.workspace_aware, 'false');
+		expect(result.agent_rules_flags).toBe('');
+		expect(result.workspace_aware).toBe('false');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('profile agent_profile reference wins over the top-level one', t => {
-	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
-		`version: 1
+maybeMacro(
+	'profile agent_profile reference wins over the top-level one',
+	() => {
+		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
+			`version: 1
 agent_profiles:
   codex:
     command: codex
@@ -677,35 +682,36 @@ profiles:
   plain:
     display_name: Plain
 `,
-	);
-	try {
-		const withProfile = runResolver(
-			configPath,
-			localConfigPath,
-			undefined,
-			'chaz',
 		);
-		t.is(withProfile.agent_command, 'codex');
-		// codex's resume comes from the built-in agent mapping.
-		t.is(withProfile.agent_resume_args, 'resume {session_id}');
-		t.is(withProfile.agent_is_claude, 'false');
+		try {
+			const withProfile = runResolver(
+				configPath,
+				localConfigPath,
+				undefined,
+				'chaz',
+			);
+			expect(withProfile.agent_command).toBe('codex');
+			// codex's resume comes from the built-in agent mapping.
+			expect(withProfile.agent_resume_args).toBe('resume {session_id}');
+			expect(withProfile.agent_is_claude).toBe('false');
 
-		const otherProfile = runResolver(
-			configPath,
-			localConfigPath,
-			undefined,
-			'plain',
-		);
-		t.is(otherProfile.agent_command, 'claude');
-		t.is(otherProfile.agent_is_claude, 'true');
-	} finally {
-		cleanup();
-	}
-});
+			const otherProfile = runResolver(
+				configPath,
+				localConfigPath,
+				undefined,
+				'plain',
+			);
+			expect(otherProfile.agent_command).toBe('claude');
+			expect(otherProfile.agent_is_claude).toBe('true');
+		} finally {
+			cleanup();
+		}
+	},
+);
 
 maybeMacro(
 	'empty-string profile agent_profile clears an inherited reference',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 agent_profiles:
@@ -725,15 +731,15 @@ profiles:
 				undefined,
 				'plain',
 			);
-			t.is(result.agent_command, 'claude');
-			t.is(result.agent_is_claude, 'true');
+			expect(result.agent_command).toBe('claude');
+			expect(result.agent_is_claude).toBe('true');
 		} finally {
 			cleanup();
 		}
 	},
 );
 
-maybeMacro('is_claude override forces claude treatment for a wrapper', t => {
+maybeMacro('is_claude override forces claude treatment for a wrapper', () => {
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1
 agent_profiles:
@@ -748,15 +754,15 @@ profiles:
 	);
 	try {
 		const result = runResolver(configPath, localConfigPath);
-		t.is(result.agent_command, 'claude-local');
-		t.is(result.agent_is_claude, 'true');
-		t.is(result.agent_resume_args, '--resume {session_id}');
+		expect(result.agent_command).toBe('claude-local');
+		expect(result.agent_is_claude).toBe('true');
+		expect(result.agent_resume_args).toBe('--resume {session_id}');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('explicit is_claude false opts a claude-named command out', t => {
+maybeMacro('explicit is_claude false opts a claude-named command out', () => {
 	// Regression: yq's `//` operator treats `false` as falsy, so a naive
 	// `.is_claude // ""` read silently discarded the opt-out and the basename
 	// predicate re-gated the agent profile as claude.
@@ -774,16 +780,16 @@ profiles:
 	);
 	try {
 		const result = runResolver(configPath, localConfigPath);
-		t.is(result.agent_command, 'claude');
-		t.is(result.agent_is_claude, 'false');
+		expect(result.agent_command).toBe('claude');
+		expect(result.agent_is_claude).toBe('false');
 		// Not claude ⇒ no claude resume default either.
-		t.is(result.agent_resume_args, '');
+		expect(result.agent_resume_args).toBe('');
 	} finally {
 		cleanup();
 	}
 });
 
-maybeMacro('claude predicate splits the first token on any whitespace', t => {
+maybeMacro('claude predicate splits the first token on any whitespace', () => {
 	// Matches isClaudeCommand()'s /\s+/ split in source/config-launch-flags.ts — a
 	// tab-separated command must gate identically on both paths.
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
@@ -799,7 +805,7 @@ profiles:
 	);
 	try {
 		const result = runResolver(configPath, localConfigPath);
-		t.is(result.agent_is_claude, 'true');
+		expect(result.agent_is_claude).toBe('true');
 	} finally {
 		cleanup();
 	}
@@ -823,7 +829,7 @@ function runResolverExpectingError(
 
 maybeMacro(
 	'an undefined agent profile reference is an error, not a claude launch',
-	t => {
+	() => {
 		const {configPath, cleanup} = setupConfigFiles(
 			`version: 1
 agent_profiles:
@@ -840,17 +846,17 @@ profiles:
 				'--profile',
 				'test',
 			]);
-			t.true(
+			expect(
 				stderr.includes('agent profile "codeex" not found in agent_profiles'),
 				stderr,
-			);
+			).toBe(true);
 		} finally {
 			cleanup();
 		}
 	},
 );
 
-maybeMacro('agent profiles merge across config layers', t => {
+maybeMacro('agent profiles merge across config layers', () => {
 	const {configPath, localConfigPath, homeConfigPath, cleanup} =
 		setupConfigFiles(
 			`version: 1
@@ -868,9 +874,9 @@ profiles:
 		);
 	try {
 		const result = runResolver(configPath, localConfigPath, homeConfigPath);
-		t.is(result.agent_command, 'codex');
-		t.is(result.agent_resume_args, 'resume --last');
-		t.is(result.agent_is_claude, 'false');
+		expect(result.agent_command).toBe('codex');
+		expect(result.agent_resume_args).toBe('resume --last');
+		expect(result.agent_is_claude).toBe('false');
 	} finally {
 		cleanup();
 	}
@@ -880,7 +886,7 @@ profiles:
 // initialization_command rename
 // ============================================================================
 
-maybeMacro('init_cmd prefers the new top-level initialization_command', t => {
+maybeMacro('init_cmd prefers the new top-level initialization_command', () => {
 	const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 		`version: 1
 initialization_command: /new
@@ -891,8 +897,8 @@ profiles:
 	);
 	try {
 		const result = runResolver(configPath, localConfigPath);
-		t.is(result.init_cmd, '/new');
-		t.is(result.deprecation_warnings, '');
+		expect(result.init_cmd).toBe('/new');
+		expect(result.deprecation_warnings).toBe('');
 	} finally {
 		cleanup();
 	}
@@ -900,7 +906,7 @@ profiles:
 
 maybeMacro(
 	'init_cmd: a project on the old spelling beats a migrated home config',
-	t => {
+	() => {
 		const {configPath, localConfigPath, homeConfigPath, cleanup} =
 			setupConfigFiles(
 				`version: 1
@@ -917,9 +923,8 @@ initialization_command: /home
 			);
 		try {
 			const result = runResolver(configPath, localConfigPath, homeConfigPath);
-			t.is(result.init_cmd, '/project');
-			t.is(
-				result.deprecation_warnings,
+			expect(result.init_cmd).toBe('/project');
+			expect(result.deprecation_warnings).toBe(
 				`${configPath}: claude.initialization_command is deprecated — rename it to the top-level initialization_command`,
 			);
 		} finally {
@@ -930,7 +935,7 @@ initialization_command: /home
 
 maybeMacro(
 	'init_cmd falls back to the deprecated claude spelling and flags it',
-	t => {
+	() => {
 		const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 			`version: 1
 claude:
@@ -942,9 +947,8 @@ profiles:
 		);
 		try {
 			const result = runResolver(configPath, localConfigPath);
-			t.is(result.init_cmd, '/old');
-			t.regex(
-				result.deprecation_warnings,
+			expect(result.init_cmd).toBe('/old');
+			expect(result.deprecation_warnings).toMatch(
 				/claude\.initialization_command is deprecated/,
 			);
 		} finally {
@@ -1022,9 +1026,9 @@ for (const [profile, expected] of [
 	],
 	['cleared', " --model 'claude-opus-5[1m]' --effort xhigh"],
 ] as const) {
-	maybeMacro(`launch flags for the ${profile} profile match the TUI`, t => {
+	maybeMacro(`launch flags for the ${profile} profile match the TUI`, () => {
 		const fixture = setupConfigFiles(LAUNCH_PARITY_CONFIG);
-		t.teardown(fixture.cleanup);
+		teardown(fixture.cleanup);
 		const config = loadConfigFromPaths({
 			projectDir: path.dirname(fixture.configPath),
 		});
@@ -1040,12 +1044,12 @@ for (const [profile, expected] of [
 		const bashFlags = result.agent_launch_flags
 			? ` ${result.agent_launch_flags}`
 			: '';
-		t.is(tsFlags, expected);
-		t.is(bashFlags, expected);
+		expect(tsFlags).toBe(expected);
+		expect(bashFlags).toBe(expected);
 	});
 }
 
-maybeMacro('the deprecated claude.model and claude.effort are flagged', t => {
+maybeMacro('the deprecated claude.model and claude.effort are flagged', () => {
 	const fixture = setupConfigFiles(
 		`version: 1
 claude:
@@ -1060,13 +1064,13 @@ claude:
   effort: high
 `,
 	);
-	t.teardown(fixture.cleanup);
+	teardown(fixture.cleanup);
 	const result = runResolver(
 		fixture.configPath,
 		fixture.localConfigPath,
 		fixture.homeConfigPath,
 	);
-	t.deepEqual(result.deprecation_warnings.split('\n'), [
+	expect(result.deprecation_warnings.split('\n')).toStrictEqual([
 		`${fixture.homeConfigPath}: claude.effort is deprecated — set effort on an agent profile (agent_profiles.<name>.effort) and select it with agent_profile`,
 		`${fixture.configPath}: claude.model is deprecated — set model on an agent profile (agent_profiles.<name>.model) and select it with agent_profile`,
 	]);
@@ -1075,11 +1079,10 @@ profiles:
   test:
     display_name: Test
 `);
-	t.teardown(clean.cleanup);
-	t.is(
+	teardown(clean.cleanup);
+	expect(
 		runResolver(clean.configPath, clean.localConfigPath).deprecation_warnings,
-		'',
-	);
+	).toBe('');
 });
 
 // ============================================================================
@@ -1156,7 +1159,7 @@ const AGENT_DEFAULTS_CASES: Record<string, AgentDefaultsCase> = {
 for (const [name, expected] of Object.entries(AGENT_DEFAULTS_CASES)) {
 	maybeMacro(
 		`built-in agent defaults: ${name} resolves the same in TS and bash`,
-		t => {
+		() => {
 			const fixture = setupConfigFiles(
 				stringify({
 					version: 1,
@@ -1165,26 +1168,28 @@ for (const [name, expected] of Object.entries(AGENT_DEFAULTS_CASES)) {
 					profiles: {},
 				}),
 			);
-			t.teardown(fixture.cleanup);
+			teardown(fixture.cleanup);
 			const agentProfile = getAgentProfile(
 				loadConfigFromPaths({projectDir: path.dirname(fixture.configPath)}),
 			);
 			const result = runResolver(fixture.configPath, fixture.localConfigPath);
 
-			t.is(renderAgentLaunchFlags(agentProfile).trim(), expected.launchFlags);
-			t.is(result.agent_launch_flags, expected.launchFlags);
-			t.is(agentProfile.resumeArgs ?? '', expected.resumeArgs);
-			t.is(result.agent_resume_args, expected.resumeArgs);
-			t.is(agentProfile.skillPrefix, expected.skillPrefix);
-			t.is(result.agent_skill_prefix, expected.skillPrefix);
-			t.is(result.agent_prompt_args, expected.promptArgs);
+			expect(renderAgentLaunchFlags(agentProfile).trim()).toBe(
+				expected.launchFlags,
+			);
+			expect(result.agent_launch_flags).toBe(expected.launchFlags);
+			expect(agentProfile.resumeArgs ?? '').toBe(expected.resumeArgs);
+			expect(result.agent_resume_args).toBe(expected.resumeArgs);
+			expect(agentProfile.skillPrefix).toBe(expected.skillPrefix);
+			expect(result.agent_skill_prefix).toBe(expected.skillPrefix);
+			expect(result.agent_prompt_args).toBe(expected.promptArgs);
 		},
 	);
 }
 
 maybeMacro(
 	'agent_env is the agent profile env, merged per variable across layers',
-	t => {
+	() => {
 		const {configPath, localConfigPath, homeConfigPath, cleanup} =
 			setupConfigFiles(
 				`version: 1
@@ -1207,7 +1212,7 @@ agent_profiles:
 			);
 		try {
 			const result = runResolver(configPath, localConfigPath, homeConfigPath);
-			t.deepEqual(JSON.parse(result.agent_env), {
+			expect(JSON.parse(result.agent_env)).toStrictEqual({
 				CODE_MODE: '1',
 				SHARED: 'repo',
 				EXTRA: 'a b',
@@ -1218,14 +1223,13 @@ agent_profiles:
 	},
 );
 
-maybeMacro('agent_env is an empty map for an agent profile without env', t => {
+maybeMacro('agent_env is an empty map for an agent profile without env', () => {
 	const {configPath, localConfigPath, cleanup} =
 		setupConfigFiles('version: 1\n');
 	try {
-		t.deepEqual(
+		expect(
 			JSON.parse(runResolver(configPath, localConfigPath).agent_env),
-			{},
-		);
+		).toStrictEqual({});
 	} finally {
 		cleanup();
 	}
@@ -1251,23 +1255,21 @@ for (const [label, local] of [
 ] as const) {
 	maybeMacro(
 		`a merge key after explicit keys resolves per the YAML spec in ${label}`,
-		t => {
+		() => {
 			const {configPath, localConfigPath, cleanup} = setupConfigFiles(
 				MERGE_KEY_AFTER_EXPLICIT,
 				local,
 			);
 			try {
 				const expected = {SHARED: 's', OVER: 'mine'};
-				t.deepEqual(
+				expect(
 					getAgentProfile(
 						loadConfigFromPaths({projectDir: path.dirname(configPath)}),
 					).env,
-					expected,
-				);
-				t.deepEqual(
+				).toStrictEqual(expected);
+				expect(
 					JSON.parse(runResolver(configPath, localConfigPath).agent_env),
-					expected,
-				);
+				).toStrictEqual(expected);
 			} finally {
 				cleanup();
 			}
@@ -1277,7 +1279,7 @@ for (const [label, local] of [
 
 maybeMacro(
 	'a merge key in the selected profile resolves without a yq warning',
-	t => {
+	() => {
 		const {configPath, cleanup} = setupConfigFiles(
 			`version: 1
 x: &pw {display_name: W, initialization_command: new, claude: {initialization_command: /old}}
@@ -1293,9 +1295,9 @@ profiles:
 				[SCRIPT_PATH, '--config', configPath, '--profile', 'v'],
 				{encoding: 'utf8'},
 			);
-			t.is(result.status, 0, result.stderr);
-			t.false(result.stderr.includes('WARN'), result.stderr);
-			t.is(JSON.parse(result.stdout).profile_init_cmd, 'new');
+			expect(result.status, result.stderr).toBe(0);
+			expect(result.stderr.includes('WARN'), result.stderr).toBe(false);
+			expect(JSON.parse(result.stdout).profile_init_cmd).toBe('new');
 		} finally {
 			cleanup();
 		}
@@ -1304,7 +1306,7 @@ profiles:
 
 maybeMacro(
 	'a config without merge keys resolves on a yq older than 4.47',
-	t => {
+	() => {
 		const {configPath, localConfigPath, homeConfigPath, cleanup} =
 			setupConfigFiles(
 				`version: 1
@@ -1345,8 +1347,10 @@ post_workspace_init:
 					env: {...process.env, PATH: `${stubs}:${process.env['PATH']!}`},
 				},
 			);
-			t.is(result.status, 0, result.stderr);
-			t.deepEqual(JSON.parse(JSON.parse(result.stdout).agent_env), {A: '1'});
+			expect(result.status, result.stderr).toBe(0);
+			expect(JSON.parse(JSON.parse(result.stdout).agent_env)).toStrictEqual({
+				A: '1',
+			});
 		} finally {
 			cleanup();
 			fs.rmSync(stubs, {recursive: true, force: true});
@@ -1356,7 +1360,7 @@ post_workspace_init:
 
 // YAML aliases are copies, so a claude map shared through an anchor is
 // deprecated wherever it is used.
-test('a claude map that is an alias resolves and warns', t => {
+test('a claude map that is an alias resolves and warns', () => {
 	const {configPath, cleanup} = setupConfigFiles(`version: 1
 team_prefix: BASE
 default_profile: main
@@ -1372,11 +1376,12 @@ profiles:
 			[SCRIPT_PATH, '--config', configPath, '--profile', 'main'],
 			{encoding: 'utf8'},
 		);
-		t.is(result.status, 0, `stderr: ${result.stderr}`);
+		expect(result.status, `stderr: ${result.stderr}`).toBe(0);
 		const resolved = JSON.parse(result.stdout) as Record<string, string>;
-		t.regex(resolved['deprecation_warnings']!, /: claude\.model is deprecated/);
-		t.regex(
-			resolved['profile_deprecation_warnings']!,
+		expect(resolved['deprecation_warnings']!).toMatch(
+			/: claude\.model is deprecated/,
+		);
+		expect(resolved['profile_deprecation_warnings']!).toMatch(
 			/: profiles\.main\.claude\.model is deprecated/,
 		);
 	} finally {
@@ -1387,7 +1392,7 @@ profiles:
 // macOS ships jq 1.7, which rejects a bare `if` as an object value
 // (`key: if ... end`). jq 1.8 accepts it, so a newer jq on the dev machine or in
 // CI hides the break, and every workspace fails to start on a stock Mac.
-test('jq object values in the scripts never start with a bare if', t => {
+test('jq object values in the scripts never start with a bare if', () => {
 	const scriptsDir = path.dirname(SCRIPT_PATH);
 	const offenders: string[] = [];
 	for (const name of fs.readdirSync(scriptsDir)) {
@@ -1400,5 +1405,5 @@ test('jq object values in the scripts never start with a bare if', t => {
 			}
 		}
 	}
-	t.deepEqual(offenders, []);
+	expect(offenders).toStrictEqual([]);
 });

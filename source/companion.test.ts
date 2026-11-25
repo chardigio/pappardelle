@@ -1,4 +1,6 @@
-import test from 'ava';
+import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
+import {thrownBy} from '../test/helpers/thrown.ts';
 import {
 	closeCompanionPane,
 	CompanionError,
@@ -18,16 +20,17 @@ import {
 
 // tmux.ts names a space's sessions from the stores. Without the database they
 // are the names idow gives a space, which is all this file needs.
-const stateTeardowns: Array<() => void> = [];
+const stateTeardowns: Array<() => unknown> = [];
 let derived: TestState;
-test.before(() => {
-	derived = testTmuxState(
-		{teardown: fn => stateTeardowns.push(fn)},
-		{repo: 'repo', sqlite: false},
-	);
+beforeAll(() => {
+	derived = testTmuxState({
+		cleanup: fn => stateTeardowns.push(fn),
+		repo: 'repo',
+		sqlite: false,
+	});
 });
-test.after.always(() => {
-	for (const teardown of stateTeardowns) teardown();
+afterAll(async () => {
+	for (const step of stateTeardowns.reverse()) await step();
 });
 
 type Pane = {
@@ -163,23 +166,27 @@ function fakeTmux(
 
 const deps = (runner: OuterTmuxRunner) => ({runner});
 
-test('an untagged session names its lowest pane main', t => {
+test('an untagged session names its lowest pane main', () => {
 	const tmux = fakeTmux([{id: '%7'}, {id: '%3'}]);
 	const panes = listCompanion('STA-1', deps(tmux.runner));
-	t.deepEqual(
-		tmux.calls.find(c => c[0] === 'set-option'),
-		['set-option', '-p', '-t', '%3', '@pappa_pane', 'main'],
-	);
-	t.is(panes.find(p => p.paneId === '%3')?.name, 'main');
+	expect(tmux.calls.find(c => c[0] === 'set-option')).toStrictEqual([
+		'set-option',
+		'-p',
+		'-t',
+		'%3',
+		'@pappa_pane',
+		'main',
+	]);
+	expect(panes.find(p => p.paneId === '%3')?.name).toBe('main');
 });
 
-test('a session that already has main is not retagged', t => {
+test('a session that already has main is not retagged', () => {
 	const tmux = fakeTmux([{id: '%3'}, {id: '%7', name: 'main'}]);
 	listCompanion('STA-1', deps(tmux.runner));
-	t.false(tmux.calls.some(c => c[0] === 'set-option'));
+	expect(tmux.calls.some(c => c[0] === 'set-option')).toBe(false);
 });
 
-test('run on a missing pane starts a split session in the companion directory', t => {
+test('run on a missing pane starts a split session in the companion directory', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}]);
 	const before = Date.now();
 	const result = runInCompanion(
@@ -187,9 +194,9 @@ test('run on a missing pane starts a split session in the companion directory', 
 		{pane: 'app', split: 'right', size: '30%', command: 'npm run dev'},
 		deps(tmux.runner),
 	);
-	t.deepEqual(result, {created: true});
+	expect(result).toStrictEqual({created: true});
 	const create = tmux.calls.find(c => c[0] === 'new-session')!;
-	t.deepEqual(create.slice(0, 6), [
+	expect(create.slice(0, 6)).toStrictEqual([
 		'new-session',
 		'-d',
 		'-s',
@@ -197,12 +204,16 @@ test('run on a missing pane starts a split session in the companion directory', 
 		'-c',
 		'/work/tree',
 	]);
-	t.true(create.includes('npm run dev'));
-	t.like(tmux.splits[0], {name: 'app', split: 'right', size: '30%'});
-	t.true(tmux.splits[0]!.order >= before);
+	expect(create.includes('npm run dev')).toBe(true);
+	expect(tmux.splits[0]).toMatchObject({
+		name: 'app',
+		split: 'right',
+		size: '30%',
+	});
+	expect(tmux.splits[0]!.order >= before).toBe(true);
 });
 
-test('run on an existing split respawns it and keeps the new size', t => {
+test('run on an existing split respawns it and keeps the new size', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}], {
 		splits: [{name: 'app', split: 'down', order: 1, paneId: '%4'}],
 	});
@@ -211,20 +222,15 @@ test('run on an existing split respawns it and keeps the new size', t => {
 		{pane: 'app', split: 'right', size: 12, command: 'make'},
 		deps(tmux.runner),
 	);
-	t.deepEqual(result, {created: false});
-	t.false(tmux.calls.some(c => c[0] === 'new-session'));
-	t.deepEqual(tmux.calls.find(c => c[0] === 'respawn-pane')!.slice(0, 6), [
-		'respawn-pane',
-		'-k',
-		'-t',
-		'%4',
-		'-c',
-		'#{session_path}',
-	]);
-	t.like(tmux.splits[0], {split: 'down', size: '12'});
+	expect(result).toStrictEqual({created: false});
+	expect(tmux.calls.some(c => c[0] === 'new-session')).toBe(false);
+	expect(
+		tmux.calls.find(c => c[0] === 'respawn-pane')!.slice(0, 6),
+	).toStrictEqual(['respawn-pane', '-k', '-t', '%4', '-c', '#{session_path}']);
+	expect(tmux.splits[0]).toMatchObject({split: 'down', size: '12'});
 });
 
-test('main has no size of its own: run --size and resize are refused before tmux', t => {
+test('main has no size of its own: run --size and resize are refused before tmux', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}]);
 	for (const call of [
 		() =>
@@ -236,55 +242,57 @@ test('main has no size of its own: run --size and resize are refused before tmux
 		() =>
 			resizeCompanionPane('STA-1', {pane: 'main', size: 10}, deps(tmux.runner)),
 	]) {
-		const error = t.throws(call, {instanceOf: CompanionError});
-		t.regex(error.message, /companion width/);
+		const error = thrownBy(call, CompanionError);
+		expect(error.message).toMatch(/companion width/);
 	}
 
-	t.is(tmux.calls.length, 0);
+	expect(tmux.calls.length).toBe(0);
 });
 
-test('resize keeps the size on the split for the TUI to apply', t => {
+test('resize keeps the size on the split for the TUI to apply', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}], {
 		splits: [{name: 'log', split: 'right', order: 1, paneId: '%2'}],
 	});
 	resizeCompanionPane('STA-1', {pane: 'log', size: '40%'}, deps(tmux.runner));
-	t.is(tmux.splits[0]!.size, '40%');
-	t.false(tmux.calls.some(c => c[0] === 'resize-pane'));
+	expect(tmux.splits[0]!.size).toBe('40%');
+	expect(tmux.calls.some(c => c[0] === 'resize-pane')).toBe(false);
 });
 
-test('close refuses main without touching tmux', t => {
+test('close refuses main without touching tmux', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}]);
-	t.throws(() => closeCompanionPane('STA-1', 'main', deps(tmux.runner)), {
-		instanceOf: CompanionError,
-	});
-	t.is(tmux.calls.length, 0);
+	expect(() => closeCompanionPane('STA-1', 'main', deps(tmux.runner))).toThrow(
+		CompanionError,
+	);
+	expect(tmux.calls.length).toBe(0);
 });
 
-test('close ends the split session', t => {
+test('close ends the split session', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}], {
 		splits: [{name: 'log', split: 'down', order: 1, paneId: '%2'}],
 	});
 	closeCompanionPane('STA-1', 'log', deps(tmux.runner));
-	t.deepEqual(tmux.calls.at(-1), [
+	expect(tmux.calls.at(-1)).toStrictEqual([
 		'kill-session',
 		'-t',
 		'=companion-repo-STA-1~log:',
 	]);
-	t.deepEqual(tmux.splits, []);
+	expect(tmux.splits).toStrictEqual([]);
 });
 
-test('a pane that is not there is named with the panes that are', t => {
+test('a pane that is not there is named with the panes that are', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}], {
 		splits: [{name: 'log', split: 'down', order: 1, paneId: '%2'}],
 	});
-	const error = t.throws(
+	const error = thrownBy(
 		() => closeCompanionPane('STA-1', 'tests', deps(tmux.runner)),
-		{instanceOf: CompanionError},
+		CompanionError,
 	);
-	t.is(error.message, 'No companion pane named tests (panes: main, log)');
+	expect(error.message).toBe(
+		'No companion pane named tests (panes: main, log)',
+	);
 });
 
-test('list shows main, then the splits in the order they were made', t => {
+test('list shows main, then the splits in the order they were made', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}], {
 		splits: [
 			{name: 'logs', split: 'right', order: 20, paneId: '%3'},
@@ -292,57 +300,49 @@ test('list shows main, then the splits in the order they were made', t => {
 		],
 	});
 	const panes = listCompanion('STA-1', deps(tmux.runner));
-	t.deepEqual(
-		panes.map(p => [p.name, p.split, p.size]),
-		[
-			['main', null, null],
-			['tests', 'down', '30%'],
-			['logs', 'right', null],
-		],
-	);
+	expect(panes.map(p => [p.name, p.split, p.size])).toStrictEqual([
+		['main', null, null],
+		['tests', 'down', '30%'],
+		['logs', 'right', null],
+	]);
 });
 
-test('keys types text literally then presses Enter, with no C-u', t => {
+test('keys types text literally then presses Enter, with no C-u', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}]);
 	sendCompanionKeys(
 		'STA-1',
 		{pane: 'main', text: '-x', keys: [], enter: true},
 		deps(tmux.runner),
 	);
-	t.deepEqual(
-		tmux.calls.filter(c => c[0] === 'send-keys'),
-		[
-			['send-keys', '-t', '%1', '-l', '--', '-x'],
-			['send-keys', '-t', '%1', 'Enter'],
-		],
-	);
+	expect(tmux.calls.filter(c => c[0] === 'send-keys')).toStrictEqual([
+		['send-keys', '-t', '%1', '-l', '--', '-x'],
+		['send-keys', '-t', '%1', 'Enter'],
+	]);
 });
 
-test('keys --keys presses key names in order, without -l or Enter', t => {
+test('keys --keys presses key names in order, without -l or Enter', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}]);
 	sendCompanionKeys(
 		'STA-1',
 		{pane: 'main', keys: ['q', 'Escape'], enter: true},
 		deps(tmux.runner),
 	);
-	t.deepEqual(
-		tmux.calls.filter(c => c[0] === 'send-keys'),
-		[
-			['send-keys', '-t', '%1', 'q'],
-			['send-keys', '-t', '%1', 'Escape'],
-		],
-	);
+	expect(tmux.calls.filter(c => c[0] === 'send-keys')).toStrictEqual([
+		['send-keys', '-t', '%1', 'q'],
+		['send-keys', '-t', '%1', 'Escape'],
+	]);
 });
 
-test('a space without a companion session errors and names the session', t => {
+test('a space without a companion session errors and names the session', () => {
 	const tmux = fakeTmux([], {sessions: ['agent-repo-STA-1']});
-	const error = t.throws(() => listCompanion('STA-1', deps(tmux.runner)), {
-		instanceOf: CompanionError,
-	});
-	t.regex(error.message, /companion-repo-STA-1 on pappardelle_inner/);
+	const error = thrownBy(
+		() => listCompanion('STA-1', deps(tmux.runner)),
+		CompanionError,
+	);
+	expect(error.message).toMatch(/companion-repo-STA-1 on pappardelle_inner/);
 });
 
-test('no verb targets the agent session', t => {
+test('no verb targets the agent session', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}], {
 		sessions: ['agent-repo-STA-1', MAIN],
 		splits: [{name: 'app', split: 'down', order: 1, paneId: '%2'}],
@@ -369,51 +369,46 @@ test('no verb targets the agent session', t => {
 				c[i - 1] === '-t' || (c[0] === 'new-session' && c[i - 1] === '-s'),
 		),
 	);
-	t.true(targets.length > 0);
-	t.false(targets.some(target => target.includes('agent-')));
-	t.true(
+	expect(targets.length > 0).toBe(true);
+	expect(targets.some(target => target.includes('agent-'))).toBe(false);
+	expect(
 		targets
 			.filter(target => !target.startsWith('%'))
 			.every(target => target.replace(/^=|:$/g, '').startsWith(MAIN)),
-	);
+	).toBe(true);
 });
 
-test('read returns only the last N lines of what tmux captured', t => {
+test('read returns only the last N lines of what tmux captured', () => {
 	const tmux = fakeTmux([{id: '%1', name: 'main'}]);
-	t.is(
+	expect(
 		readCompanionPane('STA-1', {pane: 'main', lines: 3}, deps(tmux.runner)),
-		'line 28\nline 29\nline 30',
-	);
+	).toBe('line 28\nline 29\nline 30');
 });
 
-test.serial(
-	'the companion verbs target the companion session stored for the space',
-	async t => {
-		const stored = testState(t, {repo: 'repo', sqlite: true});
-		await stored.daos.spaceIdentities.record({
-			repo: 'repo',
-			key: 'STA-1',
-			worktreePath: '/work/tree',
-			tmux: {
-				socket: 'pappardelle_inner',
-				agentSession: 'hand-named-agent',
-				companionSession: 'hand-named-companion',
-			},
-		});
-		initTmuxState(stored.daos);
-		t.teardown(() => {
-			initTmuxState(derived.daos);
-		});
-		const runner: OuterTmuxRunner = args => ({
-			status: 0,
-			stdout:
-				args[0] === 'list-sessions'
-					? 'companion-repo-STA-1\nhand-named-companion\n'
-					: '',
-		});
-		t.is(
-			companionSessionTarget('STA-1', {runner}).target,
-			'=hand-named-companion:',
-		);
-	},
-);
+test('the companion verbs target the companion session stored for the space', async () => {
+	const stored = testState({repo: 'repo', sqlite: true});
+	await stored.daos.spaceIdentities.record({
+		repo: 'repo',
+		key: 'STA-1',
+		worktreePath: '/work/tree',
+		tmux: {
+			socket: 'pappardelle_inner',
+			agentSession: 'hand-named-agent',
+			companionSession: 'hand-named-companion',
+		},
+	});
+	initTmuxState(stored.daos);
+	teardown(() => {
+		initTmuxState(derived.daos);
+	});
+	const runner: OuterTmuxRunner = args => ({
+		status: 0,
+		stdout:
+			args[0] === 'list-sessions'
+				? 'companion-repo-STA-1\nhand-named-companion\n'
+				: '',
+	});
+	expect(companionSessionTarget('STA-1', {runner}).target).toBe(
+		'=hand-named-companion:',
+	);
+});

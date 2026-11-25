@@ -12,41 +12,34 @@ import {StatusClient} from './status-client.ts';
 // agent pane, so it reads the flag the CLI recorded and does not load the
 // config.
 
-const [
-	command,
-	repo,
-	key,
-	sessionOrSocket,
-	socketOrPane,
-	dir,
-	traceDir,
-	statusSocket,
-] = process.argv.slice(2);
-if (!repo || !key || !sessionOrSocket) process.exitCode = 1;
-else if (command === 'attach') {
-	const socketPath = statusSocketPath();
-	await createProgramStatusDao({
-		repo,
-		stateDir: DEFAULT_STATE_DIR,
-		socketPath,
-		statusClient: readResolvedSqliteState()
-			? new StatusClient(socketPath)
-			: undefined,
-	}).attach(key, sessionOrSocket, socketOrPane);
-} else if (command === 'watch' && socketOrPane && dir && statusSocket)
-	monitorPane(
-		repo,
-		key,
-		sessionOrSocket,
-		JSON.parse(
-			Buffer.from(socketOrPane, 'base64').toString('utf8'),
-		) as StatusPane,
-		dir,
-		followedPublisher({
+const [command, ...args] = process.argv.slice(2);
+if (command === 'attach') {
+	const [repo, key, session, socket] = args;
+	if (repo && key && session) {
+		const socketPath = statusSocketPath();
+		await createProgramStatusDao({
+			repo,
+			stateDir: DEFAULT_STATE_DIR,
+			socketPath,
+			statusClient: readResolvedSqliteState()
+				? new StatusClient(socketPath)
+				: undefined,
+		}).attach(key, session, socket);
+	} else process.exitCode = 1;
+} else if (command === 'watch') {
+	const [repo, key, pane, dir, traceDir, statusSocket] = args;
+	if (repo && key && pane && dir && statusSocket)
+		monitorPane(
+			repo,
+			key,
+			JSON.parse(Buffer.from(pane, 'base64').toString('utf8')) as StatusPane,
 			dir,
-			socketPath: statusSocket,
-			daemonMode: () => readResolvedSqliteState(),
-		}),
-		traceDir || undefined,
-	);
-else process.exitCode = 1;
+			followedPublisher({
+				dir,
+				socketPath: statusSocket,
+				daemonMode: () => readResolvedSqliteState(),
+			}),
+			traceDir || undefined,
+		);
+	else process.exitCode = 1;
+} else process.exitCode = 1;

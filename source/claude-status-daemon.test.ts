@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {testSocketPath} from '../test/helpers/status-daemon.ts';
 import {waitUntil} from '../test/helpers/wait.ts';
 import type {StoredClaudeStatus} from './claude-status.ts';
@@ -20,20 +21,22 @@ const hook = fileURLToPath(
 
 // The whole path of a status change with the flag on, each part in its own
 // process as in production: the Python hook, the daemon, and a reader.
-test('a hook event sent to a running daemon reaches a watch in another process, and leaves no status file', async t => {
-	const stateDir = path.dirname(testSocketPath(t));
+test('a hook event sent to a running daemon reaches a watch in another process, and leaves no status file', async () => {
+	const stateDir = path.dirname(testSocketPath());
 	const socketPath = statusSocketPath(stateDir);
 	// Nothing of the session these tests run in: its variables name the
 	// developer's own space.
 	const env = {
 		PATH: process.env['PATH'],
+		// tmux falls back to the live tmux directory without it.
+		TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
 		HOME: stateDir,
 		PAPPARDELLE_SQLITE_STATE: '1',
 		PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
 		PAPPARDELLE_STATUS_DIR: path.join(stateDir, 'claude-status'),
 	};
 	const daemon = spawnStatusDaemon(socketPath, env)!;
-	t.teardown(() => {
+	teardown(() => {
 		if (isPidAlive(daemon)) process.kill(daemon, 'SIGKILL');
 	});
 	await waitUntil(
@@ -66,7 +69,7 @@ test('a hook event sent to a running daemon reaches a watch in another process, 
 		],
 		{env, stdio: ['ignore', 'pipe', 'inherit']},
 	);
-	t.teardown(() => watcher.kill('SIGKILL'));
+	teardown(() => watcher.kill('SIGKILL'));
 	let printed = '';
 	watcher.stdout.setEncoding('utf8').on('data', (text: string) => {
 		printed += text;
@@ -96,8 +99,8 @@ test('a hook event sent to a running daemon reaches a watch in another process, 
 		statusKey: string;
 		stored: StoredClaudeStatus;
 	};
-	t.is(seen.statusKey, 'repo-STA-1');
-	t.like(seen.stored, {
+	expect(seen.statusKey).toBe('repo-STA-1');
+	expect(seen.stored).toMatchObject({
 		kind: 'state',
 		state: {
 			sessionId: 'session-1',
@@ -108,5 +111,5 @@ test('a hook event sent to a running daemon reaches a watch in another process, 
 			cwd: '/work/STA-1',
 		},
 	});
-	t.false(fs.existsSync(path.join(stateDir, 'claude-status')));
+	expect(fs.existsSync(path.join(stateDir, 'claude-status'))).toBe(false);
 });

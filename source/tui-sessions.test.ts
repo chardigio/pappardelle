@@ -2,7 +2,8 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {
 	FAKE_CLI_PATH,
 	FAKE_SHA,
@@ -60,7 +61,7 @@ function setup(
 
 const app = {session: 'pappardelle-app', repo: 'app'};
 
-test('only pappardelle sessions with a repo state dir count as TUIs', t => {
+test('only pappardelle sessions with a repo state dir count as TUIs', () => {
 	const {repoStateRoot: root, tuiMarker} = tuiStateRoot(['app', 'web']);
 	const {tmux} = fakeTuiTmux({
 		tuiMarker,
@@ -72,26 +73,26 @@ test('only pappardelle sessions with a repo state dir count as TUIs', t => {
 		],
 	});
 
-	t.deepEqual(listRunningTuis(tmux, root), [
+	expect(listRunningTuis(tmux, root)).toStrictEqual([
 		{session: 'pappardelle-app', repo: 'app'},
 		{session: 'pappardelle-web', repo: 'web'},
 	]);
 });
 
-test('a dotted repo name matches with or without tmux rewriting the dot', t => {
+test('a dotted repo name matches with or without tmux rewriting the dot', () => {
 	const {repoStateRoot: root, tuiMarker} = tuiStateRoot(['my.repo', 'next.js']);
 	const {tmux} = fakeTuiTmux({
 		tuiMarker,
 		sessions: ['pappardelle-my_repo', 'pappardelle-next.js'],
 	});
 
-	t.deepEqual(listRunningTuis(tmux, root), [
+	expect(listRunningTuis(tmux, root)).toStrictEqual([
 		{session: 'pappardelle-my_repo', repo: 'my.repo'},
 		{session: 'pappardelle-next.js', repo: 'next.js'},
 	]);
 });
 
-test('when two repos could own a session, the one named exactly like it does', t => {
+test('when two repos could own a session, the one named exactly like it does', () => {
 	for (const repos of [
 		['my.app', 'my_app'],
 		['my_app', 'my.app'],
@@ -102,89 +103,92 @@ test('when two repos could own a session, the one named exactly like it does', t
 			sessions: ['pappardelle-my_app'],
 		});
 		// Readdir order is the filesystem's; neither order may change the answer.
-		t.deepEqual(listRunningTuis(tmux, root), [
+		expect(listRunningTuis(tmux, root)).toStrictEqual([
 			{session: 'pappardelle-my_app', repo: 'my_app'},
 		]);
 	}
 });
 
-test("a restart closes the viewers and reruns the command in the TUI's own pane", async t => {
+test("a restart closes the viewers and reruns the command in the TUI's own pane", async () => {
 	const h = setup(['pappardelle-web', 'pappardelle-app']);
 
-	t.true(await restartAndVerifyTui(app, COMMAND, FAKE_CLI_PATH, h.deps));
-
-	t.deepEqual(
-		h.calls.filter(args => args[0] !== 'display-message'),
-		[
-			['list-panes', '-t', '=pappardelle-app:^', '-F', '#{pane_id}'],
-			[
-				'kill-pane',
-				'-a',
-				'-t',
-				'%1',
-				';',
-				'respawn-pane',
-				'-k',
-				'-t',
-				'%1',
-				'-c',
-				'#{session_path}',
-				COMMAND,
-			],
-		],
+	expect(await restartAndVerifyTui(app, COMMAND, FAKE_CLI_PATH, h.deps)).toBe(
+		true,
 	);
-	t.is(
-		h.printed.at(-1),
+
+	expect(h.calls.filter(args => args[0] !== 'display-message')).toStrictEqual([
+		['list-panes', '-t', '=pappardelle-app:^', '-F', '#{pane_id}'],
+		[
+			'kill-pane',
+			'-a',
+			'-t',
+			'%1',
+			';',
+			'respawn-pane',
+			'-k',
+			'-t',
+			'%1',
+			'-c',
+			'#{session_path}',
+			COMMAND,
+		],
+	]);
+	expect(h.printed.at(-1)).toBe(
 		`pappardelle-app is running ${FAKE_CLI_PATH} (${FAKE_SHA})`,
 	);
-	t.false(fs.existsSync(restartLockPath(h.root, 'app')));
+	expect(fs.existsSync(restartLockPath(h.root, 'app'))).toBe(false);
 });
 
-test("a refused restart reports tmux's own error", async t => {
+test("a refused restart reports tmux's own error", async () => {
 	const h = setup(['pappardelle-app'], {'pappardelle-app': 'refused'});
 
-	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.is(h.printed.at(-1), `Couldn't restart pappardelle-app: ${REFUSAL}`);
-	t.false(fs.existsSync(restartLockPath(h.root, 'app')));
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
+	expect(h.printed.at(-1)).toBe(`Couldn't restart pappardelle-app: ${REFUSAL}`);
+	expect(fs.existsSync(restartLockPath(h.root, 'app'))).toBe(false);
 });
 
-test('a TUI that comes up on another cli.js fails, naming both', async t => {
+test('a TUI that comes up on another cli.js fails, naming both', async () => {
 	const h = setup(['pappardelle-app'], {
 		'pappardelle-app': {cliPath: '/old/dist/cli.js'},
 	});
 
-	t.false(await restartAndVerifyTui(app, COMMAND, FAKE_CLI_PATH, h.deps));
-	t.is(
-		h.printed.at(-1),
+	expect(await restartAndVerifyTui(app, COMMAND, FAKE_CLI_PATH, h.deps)).toBe(
+		false,
+	);
+	expect(h.printed.at(-1)).toBe(
 		`pappardelle-app is running /old/dist/cli.js, not ${FAKE_CLI_PATH}`,
 	);
 });
 
-test('with no expected cli.js, whichever build comes up is reported', async t => {
+test('with no expected cli.js, whichever build comes up is reported', async () => {
 	const h = setup(['pappardelle-app'], {
 		'pappardelle-app': {cliPath: '/old/dist/cli.js'},
 	});
 
-	t.true(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.true(h.printed.at(-1)!.includes('is running /old/dist/cli.js'));
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(true);
+	expect(h.printed.at(-1)!.includes('is running /old/dist/cli.js')).toBe(true);
 });
 
-test('a TUI that exits during startup fails without waiting out the timeout', async t => {
+test('a TUI that exits during startup fails without waiting out the timeout', async () => {
 	const h = setup(['pappardelle-app'], {'pappardelle-app': 'exits'});
 	h.deps.timing = {...FAST, readyTimeoutMs: 60_000};
 
-	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.true(h.printed.at(-1)!.startsWith('pappardelle-app exited during startup'));
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
+	expect(
+		h.printed.at(-1)!.startsWith('pappardelle-app exited during startup'),
+	).toBe(true);
 });
 
-test('a TUI that never reports ready times out', async t => {
+test('a TUI that never reports ready times out', async () => {
 	const h = setup(['pappardelle-app'], {'pappardelle-app': 'silent'});
 
-	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.true(h.printed.at(-1)!.startsWith('pappardelle-app did not report ready'));
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
+	expect(
+		h.printed.at(-1)!.startsWith('pappardelle-app did not report ready'),
+	).toBe(true);
 });
 
-test('a marker left by the previous TUI does not count as ready', async t => {
+test('a marker left by the previous TUI does not count as ready', async () => {
 	const h = setup(['pappardelle-app'], {'pappardelle-app': 'silent'});
 	fs.writeFileSync(
 		path.join(h.root, 'app', 'tui.json'),
@@ -197,10 +201,10 @@ test('a marker left by the previous TUI does not count as ready', async t => {
 		}),
 	);
 
-	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
 });
 
-test("a marker written from another pane does not count as this TUI's", async t => {
+test("a marker written from another pane does not count as this TUI's", async () => {
 	const h = setup(['pappardelle-app'], {'pappardelle-app': 'silent'});
 	setTimeout(() => {
 		fs.writeFileSync(
@@ -215,11 +219,13 @@ test("a marker written from another pane does not count as this TUI's", async t 
 		);
 	}, 30);
 
-	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.true(h.printed.at(-1)!.startsWith('pappardelle-app did not report ready'));
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
+	expect(
+		h.printed.at(-1)!.startsWith('pappardelle-app did not report ready'),
+	).toBe(true);
 });
 
-test('a TUI whose panes were rearranged is restarted in the pane its marker names', async t => {
+test('a TUI whose panes were rearranged is restarted in the pane its marker names', async () => {
 	const h = setup(['pappardelle-app'], {}, {'pappardelle-app': '%5'});
 	fs.writeFileSync(
 		path.join(h.root, 'app', 'tui.json'),
@@ -232,14 +238,13 @@ test('a TUI whose panes were rearranged is restarted in the pane its marker name
 		}),
 	);
 
-	t.true(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.deepEqual(
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(true);
+	expect(
 		h.calls.filter(args => args[0] === 'kill-pane').map(args => args[3]),
-		['%5'],
-	);
+	).toStrictEqual(['%5']);
 });
 
-test('a marker naming a pane that left the window falls back to the first pane', async t => {
+test('a marker naming a pane that left the window falls back to the first pane', async () => {
 	const h = setup(['pappardelle-app']);
 	fs.writeFileSync(
 		path.join(h.root, 'app', 'tui.json'),
@@ -252,59 +257,61 @@ test('a marker naming a pane that left the window falls back to the first pane',
 		}),
 	);
 
-	t.true(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.deepEqual(
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(true);
+	expect(
 		h.calls.filter(args => args[0] === 'kill-pane').map(args => args[3]),
-		['%0'],
-	);
+	).toStrictEqual(['%0']);
 });
 
-test('a state dir the lock cannot be created in fails at once with the reason', async t => {
+test('a state dir the lock cannot be created in fails at once with the reason', async () => {
 	const h = setup(['pappardelle-app']);
 	fs.rmSync(path.join(h.root, 'app'), {recursive: true});
 	fs.writeFileSync(path.join(h.root, 'app'), 'not a directory');
 	h.deps.timing = {...FAST, lockTimeoutMs: 60_000};
 
-	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.regex(
-		h.printed.at(-1)!,
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
+	expect(h.printed.at(-1)!).toMatch(
 		/^Couldn't restart pappardelle-app: E(EXIST|NOTDIR)/,
 	);
-	t.deepEqual(restarted(h.calls, ['pappardelle-app']), []);
+	expect(restarted(h.calls, ['pappardelle-app'])).toStrictEqual([]);
 });
 
-test('a second restart waits for the first instead of overlapping it', async t => {
+test('a second restart waits for the first instead of overlapping it', async () => {
 	const h = setup(['pappardelle-app']);
 	// The release below can run late when the suite is busy.
 	h.deps.timing = {...FAST, lockTimeoutMs: 60_000};
 	fs.writeFileSync(restartLockPath(h.root, 'app'), `${process.pid}\n`);
 	setTimeout(() => {
-		t.deepEqual(restarted(h.calls, ['pappardelle-app']), []);
+		expect(restarted(h.calls, ['pappardelle-app'])).toStrictEqual([]);
 		fs.unlinkSync(restartLockPath(h.root, 'app'));
 	}, 60);
 
-	t.true(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.deepEqual(restarted(h.calls, ['pappardelle-app']), ['pappardelle-app']);
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(true);
+	expect(restarted(h.calls, ['pappardelle-app'])).toStrictEqual([
+		'pappardelle-app',
+	]);
 });
 
-test('a restart that stays locked gives up and leaves the TUI alone', async t => {
+test('a restart that stays locked gives up and leaves the TUI alone', async () => {
 	const h = setup(['pappardelle-app']);
 	fs.writeFileSync(restartLockPath(h.root, 'app'), `${process.pid}\n`);
 
-	t.false(await restartAndVerifyTui(app, COMMAND, null, h.deps));
-	t.deepEqual(restarted(h.calls, ['pappardelle-app']), []);
-	t.true(h.printed.at(-1)!.includes(`another restart (pid ${process.pid})`));
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
+	expect(restarted(h.calls, ['pappardelle-app'])).toStrictEqual([]);
+	expect(
+		h.printed.at(-1)!.includes(`another restart (pid ${process.pid})`),
+	).toBe(true);
 });
 
-test('a lock left by a dead process is taken over', async t => {
+test('a lock left by a dead process is taken over', async () => {
 	const h = setup(['pappardelle-app']);
 	// Pids are capped far below this on every supported platform.
 	fs.writeFileSync(restartLockPath(h.root, 'app'), '2147483646\n');
 
-	t.true(await restartAndVerifyTui(app, COMMAND, null, h.deps));
+	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(true);
 });
 
-test('several TUIs restart one at a time, the current session last', async t => {
+test('several TUIs restart one at a time, the current session last', async () => {
 	const sessions = ['pappardelle-app', 'pappardelle-web', 'pappardelle-api'];
 	const h = setup(sessions, {'pappardelle-web': 'refused'});
 
@@ -317,8 +324,8 @@ test('several TUIs restart one at a time, the current session last', async t => 
 		{...h.deps, currentSession: () => 'pappardelle-app'},
 	);
 
-	t.deepEqual(failed, ['pappardelle-web']);
-	t.deepEqual(restarted(h.calls, sessions), [
+	expect(failed).toStrictEqual(['pappardelle-web']);
+	expect(restarted(h.calls, sessions)).toStrictEqual([
 		'pappardelle-web',
 		'pappardelle-api',
 		'pappardelle-app',
@@ -401,12 +408,12 @@ const own = {
 	paneLayout: layout,
 };
 
-test('U reruns its own pane and leaves the lock for the next restart to clear', t => {
+test('U reruns its own pane and leaves the lock for the next restart to clear', () => {
 	const h = ownHarness();
 
 	restartOwnTui(own, h.deps);
 
-	t.deepEqual(h.calls, [
+	expect(h.calls).toStrictEqual([
 		[
 			'kill-pane',
 			'-a',
@@ -422,90 +429,92 @@ test('U reruns its own pane and leaves the lock for the next restart to clear', 
 			COMMAND,
 		],
 	]);
-	t.deepEqual(h.events, []);
-	t.true(fs.existsSync(restartLockPath(h.root, 'app')));
+	expect(h.events).toStrictEqual([]);
+	expect(fs.existsSync(restartLockPath(h.root, 'app'))).toBe(true);
 });
 
-test('U shows why tmux refused, waits for a key, then closes the TUI-less session', t => {
+test('U shows why tmux refused, waits for a key, then closes the TUI-less session', () => {
 	const h = ownHarness({behavior: {'pappardelle-app': 'refused'}});
 
 	restartOwnTui(own, h.deps);
 
-	t.true(h.printed.at(-1)!.startsWith(`Couldn't restart: ${REFUSAL}.`));
-	t.deepEqual(h.events, ['wait for key', 'kill pappardelle-app']);
-	t.false(fs.existsSync(restartLockPath(h.root, 'app')));
+	expect(h.printed.at(-1)!.startsWith(`Couldn't restart: ${REFUSAL}.`)).toBe(
+		true,
+	);
+	expect(h.events).toStrictEqual(['wait for key', 'kill pappardelle-app']);
+	expect(fs.existsSync(restartLockPath(h.root, 'app'))).toBe(false);
 });
 
-test('U that cannot create its lock reports that and restarts nothing', t => {
+test('U that cannot create its lock reports that and restarts nothing', () => {
 	const h = ownHarness();
 	fs.rmSync(path.join(h.root, 'app'), {recursive: true});
 	fs.writeFileSync(path.join(h.root, 'app'), 'not a directory');
 
 	restartOwnTui(own, h.deps);
 
-	t.regex(h.printed.at(-1)!, /^Couldn't restart: E(EXIST|NOTDIR)/);
-	t.deepEqual(h.calls, []);
-	t.deepEqual(h.events, ['wait for key', 'kill pappardelle-app']);
+	expect(h.printed.at(-1)!).toMatch(/^Couldn't restart: E(EXIST|NOTDIR)/);
+	expect(h.calls).toStrictEqual([]);
+	expect(h.events).toStrictEqual(['wait for key', 'kill pappardelle-app']);
 });
 
-test("U inside the user's own tmux session closes only the viewer panes and restarts nothing", t => {
+test("U inside the user's own tmux session closes only the viewer panes and restarts nothing", () => {
 	const h = ownHarness({current: 'work'});
 
 	restartOwnTui(own, h.deps);
 
-	t.deepEqual(h.events, []);
-	t.deepEqual(h.calls, []);
-	t.deepEqual(h.layoutCalls, [
+	expect(h.events).toStrictEqual([]);
+	expect(h.calls).toStrictEqual([]);
+	expect(h.layoutCalls).toStrictEqual([
 		['kill-pane', '-t', '%4'],
 		['kill-pane', '-t', '%5'],
 		SOUS_CHEF_CLEARED,
 	]);
 });
 
-test('U without a pane layout leaves tmux alone', t => {
+test('U without a pane layout leaves tmux alone', () => {
 	const h = ownHarness({current: null});
 
 	restartOwnTui({...own, paneLayout: null}, h.deps);
 
-	t.deepEqual(h.events, []);
-	t.deepEqual(h.calls, []);
-	t.deepEqual(h.layoutCalls, []);
+	expect(h.events).toStrictEqual([]);
+	expect(h.calls).toStrictEqual([]);
+	expect(h.layoutCalls).toStrictEqual([]);
 });
 
 // ============================================================================
 // Quitting (q)
 // ============================================================================
 
-test('q in its own session closes the whole session', t => {
+test('q in its own session closes the whole session', () => {
 	const h = ownHarness();
 
 	closeTuiLayout('app', layout, h.deps);
 
-	t.deepEqual(h.events, ['kill pappardelle-app']);
-	t.deepEqual(h.layoutCalls, []);
+	expect(h.events).toStrictEqual(['kill pappardelle-app']);
+	expect(h.layoutCalls).toStrictEqual([]);
 });
 
 // Left behind, the viewers make the rail pane narrow enough that the next
 // pappardelle run in it splits the rail into a second layout.
-test("q inside the user's own tmux session closes only the viewer panes", t => {
+test("q inside the user's own tmux session closes only the viewer panes", () => {
 	const h = ownHarness({current: 'work'});
 
 	closeTuiLayout('app', layout, h.deps);
 
-	t.deepEqual(h.events, []);
-	t.deepEqual(h.layoutCalls, [
+	expect(h.events).toStrictEqual([]);
+	expect(h.layoutCalls).toStrictEqual([
 		['kill-pane', '-t', '%4'],
 		['kill-pane', '-t', '%5'],
 		SOUS_CHEF_CLEARED,
 	]);
 });
 
-test("q inside the user's own tmux session also closes the companion split panes", t => {
+test("q inside the user's own tmux session also closes the companion split panes", () => {
 	const h = ownHarness({current: 'work', splitPanes: ['%8', '%9']});
 
 	closeTuiLayout('app', layout, h.deps);
 
-	t.deepEqual(h.layoutCalls, [
+	expect(h.layoutCalls).toStrictEqual([
 		['kill-pane', '-t', '%4'],
 		['kill-pane', '-t', '%5'],
 		['kill-pane', '-t', '%8'],
@@ -514,85 +523,74 @@ test("q inside the user's own tmux session also closes the companion split panes
 	]);
 });
 
-test('q still closes the companion viewer when the agent viewer was closed by hand', t => {
+test('q still closes the companion viewer when the agent viewer was closed by hand', () => {
 	const h = ownHarness({current: 'work', gonePane: '%4'});
 
 	closeTuiLayout('app', layout, h.deps);
 
-	t.deepEqual(h.layoutCalls.at(-2), ['kill-pane', '-t', '%5']);
+	expect(h.layoutCalls.at(-2)).toStrictEqual(['kill-pane', '-t', '%5']);
 });
 
-test('q in a vertical layout closes its one viewer pane', t => {
+test('q in a vertical layout closes its one viewer pane', () => {
 	const h = ownHarness({current: 'work'});
 
 	closeTuiLayout('app', {...layout, companionViewerPaneId: ''}, h.deps);
 
-	t.deepEqual(h.layoutCalls, [['kill-pane', '-t', '%4'], SOUS_CHEF_CLEARED]);
+	expect(h.layoutCalls).toStrictEqual([
+		['kill-pane', '-t', '%4'],
+		SOUS_CHEF_CLEARED,
+	]);
 });
 
 // ============================================================================
 // Launch commands
 // ============================================================================
 
-test('after an install, restarts go through the shim when there is one', t => {
+test('after an install, restarts go through the shim when there is one', () => {
 	const options = {
-		execPath: '/node',
-		cliPath: '/work/pappardelle/dist/cli.js',
+		execPath: '/bun',
+		cliPath: '/work/pappardelle/source/cli.tsx',
 		home: '/home/me',
 	};
 
-	t.is(
-		installedLaunchCommand({...options, exists: () => true}),
+	expect(installedLaunchCommand({...options, exists: () => true})).toBe(
 		"'/home/me/.local/bin/pappardelle'",
 	);
-	t.is(
-		installedLaunchCommand({...options, exists: () => false}),
-		"'/node' '--no-env-file' '--config=/dev/null' '/work/pappardelle/dist/cli.js'",
+	expect(installedLaunchCommand({...options, exists: () => false})).toBe(
+		"'/bun' '--no-env-file' '--config=/dev/null' '/work/pappardelle/source/cli.tsx'",
 	);
 });
 
-test('a TUI started from the installed release launches through the shim', t => {
-	t.is(
+test('a source run keeps its own Bun and entry file', () => {
+	expect(
 		tuiLaunchCommand({
-			execPath: '/old/node',
-			cliPath: '/home/me/.pappardelle/repo/dist/cli.js',
-			args: [],
-			home: '/home/me',
-			exists: file => file === '/home/me/.local/bin/pappardelle',
-		}),
-		"'/home/me/.local/bin/pappardelle'",
-	);
-});
-
-test('a dev build keeps its own node and cli.js', t => {
-	t.is(
-		tuiLaunchCommand({
-			execPath: '/old/node',
-			cliPath: '/work/pappardelle/dist/cli.js',
+			execPath: '/old/bun',
+			cliPath: '/work/pappardelle/source/cli.tsx',
 			args: ['--foo'],
 			home: '/home/me',
 			exists: () => true,
 		}),
-		"'/old/node' '--no-env-file' '--config=/dev/null' '/work/pappardelle/dist/cli.js' --foo",
+	).toBe(
+		"'/old/bun' '--no-env-file' '--config=/dev/null' '/work/pappardelle/source/cli.tsx' --foo",
 	);
 });
 
-test('the release falls back to node and cli.js when the shim is missing', t => {
-	t.is(
+test('the release runs its executable itself when the shim is missing', () => {
+	const release = '/home/me/.pappardelle/repo/dist/pappardelle';
+	expect(
 		tuiLaunchCommand({
-			execPath: '/old/node',
-			cliPath: '/home/me/.pappardelle/repo/dist/cli.js',
+			execPath: release,
+			cliPath: release,
 			args: [],
 			home: '/home/me',
 			exists: () => false,
 		}),
-		"'/old/node' '--no-env-file' '--config=/dev/null' '/home/me/.pappardelle/repo/dist/cli.js'",
-	);
+	).toBe(`'${release}'`);
 });
 
-test('a standalone restart invokes the executable once and installed releases use the shim', t => {
+test('a standalone restart invokes the executable once and installed releases use the shim', () => {
 	const binary = '/work/pappardelle/dist/pappardelle';
-	t.is(
+	expect(
 		tuiLaunchCommand({
 			execPath: binary,
 			cliPath: binary,
@@ -600,10 +598,9 @@ test('a standalone restart invokes the executable once and installed releases us
 			home: '/home/me',
 			exists: () => false,
 		}),
-		"'/work/pappardelle/dist/pappardelle' --no-layout",
-	);
+	).toBe("'/work/pappardelle/dist/pappardelle' --no-layout");
 	const installed = '/home/me/.pappardelle/repo/dist/pappardelle';
-	t.is(
+	expect(
 		tuiLaunchCommand({
 			execPath: installed,
 			cliPath: installed,
@@ -611,17 +608,16 @@ test('a standalone restart invokes the executable once and installed releases us
 			home: '/home/me',
 			exists: () => true,
 		}),
-		"'/home/me/.local/bin/pappardelle'",
-	);
+	).toBe("'/home/me/.local/bin/pappardelle'");
 });
 
 // ============================================================================
 // A signal after the pane was respawned (pappardelle restart)
 // ============================================================================
 
-test('a pane counts as respawned only while another process runs in it', t => {
+test('a pane counts as respawned only while another process runs in it', () => {
 	if (spawnSync('tmux', ['-V']).status !== 0) {
-		t.pass('tmux is not installed');
+		expect().pass('tmux is not installed');
 		return;
 	}
 
@@ -639,7 +635,7 @@ test('a pane counts as respawned only while another process runs in it', t => {
 		};
 	};
 
-	t.teardown(() => {
+	teardown(() => {
 		tmux(['kill-server']);
 		fs.rmSync(dir, {recursive: true, force: true});
 	});
@@ -649,11 +645,11 @@ test('a pane counts as respawned only while another process runs in it', t => {
 	const paneId = read('#{pane_id}');
 	const startedPid = read('#{pane_pid}');
 
-	t.false(paneRespawned(paneId, startedPid, tmux));
+	expect(paneRespawned(paneId, startedPid, tmux)).toBe(false);
 
 	tmux(['respawn-pane', '-k', '-t', paneId, 'sleep 60']);
-	t.true(paneRespawned(paneId, startedPid, tmux));
+	expect(paneRespawned(paneId, startedPid, tmux)).toBe(true);
 
 	tmux(['kill-session', '-t', '=fixture']);
-	t.false(paneRespawned(paneId, startedPid, tmux));
+	expect(paneRespawned(paneId, startedPid, tmux)).toBe(false);
 });

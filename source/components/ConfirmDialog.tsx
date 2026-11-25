@@ -1,6 +1,5 @@
 import {CliRenderEvents} from '@opentui/core';
 import {useKeyboard, useRenderer} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {useEffect, useState, type ReactNode} from 'react';
 
@@ -90,12 +89,7 @@ export default function ConfirmDialog({
 	}, [confirm, renderer]);
 
 	useKeyboard(event => {
-		const {input, key} = shortcutKey(event);
-		const action = parseConfirmDialogInput(
-			input,
-			key,
-			processingFrame !== null,
-		);
+		const action = parseConfirmDialogInput(event, processingFrame !== null);
 		if (action === 'cancel') {
 			onCancel();
 		} else if (action === 'confirm') {
@@ -103,7 +97,7 @@ export default function ConfirmDialog({
 				// Caller has opted into the loading state: show the spinner and
 				// run onConfirm only once a frame with it has been presented.
 				// Async onConfirms (like workspace deletion) typically run a
-				// chunk of synchronous setup — execSync `git rev-parse`, reading
+				// chunk of synchronous setup — a synchronous `git rev-parse`, reading
 				// `.pappardelle.yml`, walking profiles — *before* their first
 				// await, and the dialog looks frozen if that runs before the
 				// spinner is on screen (STA-1373).
@@ -175,7 +169,9 @@ export default function ConfirmDialog({
 
 			{processingFrame ? (
 				<box flexDirection="row" flexShrink={0}>
-					<ClaudeAnimation />
+					<text flexShrink={1}>
+						<ClaudeAnimation />
+					</text>
 					<text fg={terminalColor()} flexShrink={1}>
 						{' '}
 						{processingFrame.status}

@@ -1,13 +1,15 @@
 import React, {useEffect} from 'react';
+import {flushSync, useKeyboard} from '@opentui/react';
 import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {useSpaceSelection} from './use-space-selection.ts';
 
 const spaces = (names: string[]) =>
 	names.map(name => ({name, worktreePath: `/worktrees/${name}`}));
 
-async function setup(t: ExecutionContext) {
+async function setup() {
 	let selection!: ReturnType<typeof useSpaceSelection>;
 	const attachments: Array<string | undefined> = [];
 	let committed: typeof selection | undefined;
@@ -39,14 +41,14 @@ async function setup(t: ExecutionContext) {
 	}
 
 	const view = await render(React.createElement(WorkspaceView));
-	t.teardown(async () => {
+	teardown(async () => {
 		await view.unmount();
 	});
 	await update(() => {
 		selection.setSpaces(spaces(['main', 'STA-4', 'STA-3', 'STA-2', 'STA-1']));
-		selection.setSelectedIndex(2);
+		selection.selectSpace('STA-3');
 	});
-	t.is(view.lastFrame(), 'STA-3');
+	expect(view.lastFrame()).toBe('STA-3');
 	attachments.length = 0;
 	return {
 		get selection() {
@@ -91,76 +93,116 @@ for (const [description, names, expected] of [
 	],
 	['all workspaces disappear', [], undefined],
 ] as const) {
-	test.serial(description, async t => {
-		const harness = await setup(t);
+	test(description, async () => {
+		const harness = await setup();
 		await harness.update(() => harness.selection.setSpaces(spaces([...names])));
-		t.is(harness.view.lastFrame(), expected ?? 'empty');
-		t.deepEqual(harness.attachments, expected === 'STA-3' ? [] : [expected]);
+		expect(harness.view.lastFrame()).toBe(expected ?? 'empty');
+		expect(harness.attachments).toStrictEqual(
+			expected === 'STA-3' ? [] : [expected],
+		);
 	});
 }
 
-test.serial(
-	'concurrent closes preserve navigation made while teardown was pending',
-	async t => {
-		const harness = await setup(t);
-		await harness.update(() => {
-			harness.selection.setSelectedIndex(3);
-			harness.selection.setSpaces(current =>
-				current.filter(space => space.name !== 'STA-4'),
-			);
-			harness.selection.setSpaces(current =>
-				current.filter(space => space.name !== 'STA-3'),
-			);
-		});
-		t.is(harness.view.lastFrame(), 'STA-2');
-		t.deepEqual(harness.attachments, ['STA-2']);
-	},
-);
-
-test.serial(
-	'highlight requests resolve against the updated list in the same batch',
-	async t => {
-		const harness = await setup(t);
-		await harness.update(() => {
-			harness.selection.setSpaces(current =>
-				current.filter(space => space.name !== 'STA-4'),
-			);
-			harness.selection.selectSpace('sta-1');
-		});
-		t.is(harness.view.lastFrame(), 'STA-1');
-		t.deepEqual(harness.attachments, ['STA-1']);
-	},
-);
-
-test.serial(
-	'reopening a closed workspace does not steal selection back',
-	async t => {
-		const harness = await setup(t);
-		await harness.update(() =>
-			harness.selection.setSpaces(current =>
-				current.filter(space => space.name !== 'STA-3'),
-			),
-		);
-		await harness.update(() =>
-			harness.selection.setSpaces(
-				spaces(['main', 'STA-4', 'STA-3', 'STA-2', 'STA-1']),
-			),
-		);
-		t.is(harness.view.lastFrame(), 'STA-2');
-		t.deepEqual(harness.attachments, ['STA-2']);
-	},
-);
-
-test.serial(
-	'keys in one input write see the selection the previous key made',
-	async t => {
-		const harness = await setup(t);
-		harness.selection.setSelectedIndex(3);
-		t.is(harness.selection.current().selectedIndex, 3);
+test('concurrent closes preserve navigation made while teardown was pending', async () => {
+	const harness = await setup();
+	await harness.update(() => {
+		harness.selection.moveSelection(1);
 		harness.selection.setSpaces(current =>
-			current.filter(space => space.name !== 'STA-2'),
+			current.filter(space => space.name !== 'STA-4'),
 		);
-		const {spaces, selectedIndex} = harness.selection.current();
-		t.is(spaces[selectedIndex]?.name, 'STA-1');
-	},
-);
+		harness.selection.setSpaces(current =>
+			current.filter(space => space.name !== 'STA-3'),
+		);
+	});
+	expect(harness.view.lastFrame()).toBe('STA-2');
+	expect(harness.attachments).toStrictEqual(['STA-2']);
+});
+
+test('highlight requests resolve against the updated list in the same batch', async () => {
+	const harness = await setup();
+	await harness.update(() => {
+		harness.selection.setSpaces(current =>
+			current.filter(space => space.name !== 'STA-4'),
+		);
+		harness.selection.selectSpace('sta-1');
+	});
+	expect(harness.view.lastFrame()).toBe('STA-1');
+	expect(harness.attachments).toStrictEqual(['STA-1']);
+});
+
+test('reopening a closed workspace does not steal selection back', async () => {
+	const harness = await setup();
+	await harness.update(() =>
+		harness.selection.setSpaces(current =>
+			current.filter(space => space.name !== 'STA-3'),
+		),
+	);
+	await harness.update(() =>
+		harness.selection.setSpaces(
+			spaces(['main', 'STA-4', 'STA-3', 'STA-2', 'STA-1']),
+		),
+	);
+	expect(harness.view.lastFrame()).toBe('STA-2');
+	expect(harness.attachments).toStrictEqual(['STA-2']);
+});
+
+test('keys in one input write see the selection the previous key made', async () => {
+	function Rail() {
+		const selection = useSpaceSelection();
+		const {spaces: rows, selectedIndex, setSpaces, selectSpace} = selection;
+		useEffect(() => {
+			setSpaces(spaces(['main', 'STA-4', 'STA-3', 'STA-2', 'STA-1']));
+			selectSpace('STA-4');
+		}, [setSpaces, selectSpace]);
+		useKeyboard(key => {
+			if (key.name === 'j') selection.moveSelection(1);
+		});
+		return React.createElement(
+			'text',
+			{},
+			rows[selectedIndex]?.name ?? 'empty',
+		);
+	}
+
+	const view = await render(React.createElement(Rail));
+	teardown(async () => {
+		await view.unmount();
+	});
+	await view.stdin.write('');
+	expect(view.lastFrame()).toBe('STA-4');
+	await view.stdin.write('jj');
+	expect(view.lastFrame()).toBe('STA-2');
+});
+
+test('a key acts on rows a refresh queued but has not drawn yet', async () => {
+	let selection!: ReturnType<typeof useSpaceSelection>;
+	function Rail() {
+		selection = useSpaceSelection();
+		useKeyboard(key => {
+			if (key.name === 'j') selection.moveSelection(1);
+		});
+		return React.createElement(
+			'text',
+			{},
+			selection.spaces[selection.selectedIndex]?.name ?? 'empty',
+		);
+	}
+
+	const view = await render(React.createElement(Rail));
+	teardown(async () => {
+		await view.unmount();
+	});
+	flushSync(() => {
+		selection.setSpaces(spaces(['main', 'STA-4', 'STA-3', 'STA-2', 'STA-1']));
+		selection.selectSpace('STA-2');
+	});
+	// A refresh lands outside any key, so React has not rendered it when the
+	// key in the same tick runs.
+	selection.setSpaces(current =>
+		current.filter(space => space.name !== 'STA-4'),
+	);
+	await view.stdin.write('j');
+	await delay(50);
+	await view.stdin.write('');
+	expect(view.lastFrame()).toBe('STA-1');
+});

@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,7 +27,7 @@ function setupTempDir(files: Record<string, string>): {
 // loadProviderConfigs — layered, validation-free provider lookup
 // ============================================================================
 
-test('loadProviderConfigs takes issue_tracker and vcs_host from the home layer', t => {
+test('loadProviderConfigs takes issue_tracker and vcs_host from the home layer', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 issue_tracker:
@@ -48,16 +48,16 @@ profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(cfg.issue_tracker?.provider, 'jira');
-		t.is(cfg.issue_tracker?.base_url, 'https://example.atlassian.net');
-		t.is(cfg.vcs_host?.provider, 'gitlab');
-		t.is(cfg.vcs_host?.host, 'gitlab.example.com');
+		expect(cfg.issue_tracker?.provider).toBe('jira');
+		expect(cfg.issue_tracker?.base_url).toBe('https://example.atlassian.net');
+		expect(cfg.vcs_host?.provider).toBe('gitlab');
+		expect(cfg.vcs_host?.host).toBe('gitlab.example.com');
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadProviderConfigs lets project and local layers override home key by key', t => {
+test('loadProviderConfigs lets project and local layers override home key by key', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 issue_tracker:
@@ -80,16 +80,16 @@ issue_tracker:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(cfg.issue_tracker?.provider, 'jira');
-		t.is(cfg.issue_tracker?.base_url, 'https://project.atlassian.net');
-		t.is(cfg.vcs_host?.provider, 'gitlab');
-		t.is(cfg.vcs_host?.host, 'gitlab.local.example');
+		expect(cfg.issue_tracker?.provider).toBe('jira');
+		expect(cfg.issue_tracker?.base_url).toBe('https://project.atlassian.net');
+		expect(cfg.vcs_host?.provider).toBe('gitlab');
+		expect(cfg.vcs_host?.host).toBe('gitlab.local.example');
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadProviderConfigs ignores validation errors elsewhere and skips an unparseable layer', t => {
+test('loadProviderConfigs ignores validation errors elsewhere and skips an unparseable layer', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 vcs_host:
@@ -111,25 +111,28 @@ profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(cfg.issue_tracker?.provider, 'beads');
-		t.is(cfg.vcs_host?.host, 'gitlab.example.com');
-		t.is(cfg.layerErrors.length, 1);
-		t.true(cfg.layerErrors[0]!.startsWith('.pappardelle.local.yml'));
+		expect(cfg.issue_tracker?.provider).toBe('beads');
+		expect(cfg.vcs_host?.host).toBe('gitlab.example.com');
+		expect(cfg.layerErrors.length).toBe(1);
+		expect(cfg.layerErrors[0]!.startsWith('.pappardelle.local.yml')).toBe(true);
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadProviderConfigs returns empty when no layer exists', t => {
+test('loadProviderConfigs returns empty when no layer exists', () => {
 	const {dir, cleanup} = setupTempDir({});
 	try {
-		t.deepEqual(
+		expect(
 			loadProviderConfigs({
 				homeConfigDir: path.join(dir, 'home'),
 				projectDir: path.join(dir, 'project'),
 			}),
-			{issue_tracker: undefined, vcs_host: undefined, layerErrors: []},
-		);
+		).toStrictEqual({
+			issue_tracker: undefined,
+			vcs_host: undefined,
+			layerErrors: [],
+		});
 	} finally {
 		cleanup();
 	}

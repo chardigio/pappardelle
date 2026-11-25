@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {Database} from 'bun:sqlite';
 import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
@@ -19,46 +19,50 @@ function pappardelleState(args: string[], home: string) {
 			encoding: 'utf8',
 			// No PAPPARDELLE_EXECUTABLE: the helper has to find the binary itself,
 			// as it does when idow is run by hand.
-			env: {PATH: process.env['PATH'], HOME: home},
+			env: {
+				PATH: process.env['PATH'],
+				TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
+				HOME: home,
+			},
 		},
 	);
 }
 
-test('a script can ask the binary to create the database', t => {
-	const home = tempDir(t, 'papp-state-cli-');
+test('a script can ask the binary to create the database', () => {
+	const home = tempDir('papp-state-cli-');
 	const dbPath = path.join(home, 'state.db');
 	const result = pappardelleState(['migrate', dbPath], home);
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
 	const db = new Database(dbPath, {readonly: true});
-	t.truthy(
+	expect(
 		db.query("SELECT name FROM sqlite_master WHERE name = 'json_sync'").get(),
-	);
+	).toBeTruthy();
 	db.close();
 });
 
-test('an unknown verb fails without starting anything else', t => {
-	const home = tempDir(t, 'papp-state-cli-');
+test('an unknown verb fails without starting anything else', () => {
+	const home = tempDir('papp-state-cli-');
 	const result = pappardelleState(['open-a-space', 'KEY-1'], home);
-	t.is(result.status, 2);
-	t.regex(result.stderr, /unknown verb open-a-space/);
-	t.deepEqual(fs.readdirSync(home), []);
+	expect(result.status).toBe(2);
+	expect(result.stderr).toMatch(/unknown verb open-a-space/);
+	expect(fs.readdirSync(home)).toStrictEqual([]);
 });
 
 // idow reads 1 from `space get` as "no such space" and goes on with defaults.
-test('a verb that fails exits 3, never the not-found 1', t => {
-	const home = tempDir(t, 'papp-state-cli-');
+test('a verb that fails exits 3, never the not-found 1', () => {
+	const home = tempDir('papp-state-cli-');
 	const notADir = path.join(home, 'file');
 	fs.writeFileSync(notADir, '');
 	const result = pappardelleState(
 		['migrate', path.join(notADir, 'state.db')],
 		home,
 	);
-	t.is(result.status, 3, `stderr: ${result.stderr}`);
+	expect(result.status, `stderr: ${result.stderr}`).toBe(3);
 });
 
 // idow reads 3 as a verb that ran and failed; a mistyped flag never ran it.
-test('a bad flag on a verb is a usage error naming the verb and the flag', t => {
-	const home = tempDir(t, 'papp-state-cli-');
+test('a bad flag on a verb is a usage error naming the verb and the flag', () => {
+	const home = tempDir('papp-state-cli-');
 	const cases: Array<[string[], RegExp]> = [
 		[
 			['check-config', '--project-root', home, '--main-root', home, '--bogus'],
@@ -75,13 +79,13 @@ test('a bad flag on a verb is a usage error naming the verb and the flag', t => 
 	];
 	for (const [args, stderr] of cases) {
 		const result = pappardelleState(args, home);
-		t.is(result.status, 2, `${args.join(' ')}: ${result.stderr}`);
-		t.regex(result.stderr, stderr);
+		expect(result.status, `${args.join(' ')}: ${result.stderr}`).toBe(2);
+		expect(result.stderr).toMatch(stderr);
 	}
 });
 
-test('check-agent-profile reads the layers idow reads, from the roots it is given', t => {
-	const home = tempDir(t, 'papp-state-cli-');
+test('check-agent-profile reads the layers idow reads, from the roots it is given', () => {
+	const home = tempDir('papp-state-cli-');
 	const project = path.join(home, 'linked');
 	const main = path.join(home, 'main');
 	fs.mkdirSync(project);
@@ -109,18 +113,17 @@ test('check-agent-profile reads the layers idow reads, from the roots it is give
 		);
 
 	const known = check('codex');
-	t.is(known.status, 0, `stderr: ${known.stderr}`);
-	t.is(check('claude').status, 0);
+	expect(known.status, `stderr: ${known.stderr}`).toBe(0);
+	expect(check('claude').status).toBe(0);
 	const unknown = check('codx');
-	t.is(unknown.status, 1);
-	t.is(
-		unknown.stderr.trim(),
+	expect(unknown.status).toBe(1);
+	expect(unknown.stderr.trim()).toBe(
 		'Unknown agent profile "codx". Agent profiles: claude, codex',
 	);
 });
 
-test('prepare-space stores an issue title that starts with a dash', t => {
-	const home = tempDir(t, 'papp-state-cli-');
+test('prepare-space stores an issue title that starts with a dash', () => {
+	const home = tempDir('papp-state-cli-');
 	const stateDir = path.join(home, '.pappardelle');
 	const result = spawnSync(
 		process.execPath,
@@ -145,13 +148,13 @@ test('prepare-space stores an issue title that starts with a dash', t => {
 			},
 		},
 	);
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	const {spaceState} = testState(t, {stateDir}).daos;
-	t.is(spaceState.read('STA-1')?.issueTitle, '-x');
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	const {spaceState} = testState({stateDir}).daos;
+	expect(spaceState.read('STA-1')?.issueTitle).toBe('-x');
 });
 
-test("launch-agent records the agent profile a space's agent session starts with", t => {
-	const home = tempDir(t, 'papp-state-cli-');
+test("launch-agent records the agent profile a space's agent session starts with", () => {
+	const home = tempDir('papp-state-cli-');
 	const stateDir = path.join(home, '.pappardelle');
 	const launch = (...args: string[]) =>
 		spawnSync(
@@ -173,22 +176,22 @@ test("launch-agent records the agent profile a space's agent session starts with
 				},
 			},
 		);
-	const {spaceState} = testState(t, {stateDir}).daos;
-	t.is(launch('--agent-profile', 'opus', '--claude').status, 0);
-	t.deepEqual(spaceState.read('STA-1')?.agentProfile, {
+	const {spaceState} = testState({stateDir}).daos;
+	expect(launch('--agent-profile', 'opus', '--claude').status).toBe(0);
+	expect(spaceState.read('STA-1')?.agentProfile).toStrictEqual({
 		name: 'opus',
 		isClaude: true,
 	});
-	t.is(launch('--agent-profile', 'codex').status, 0);
-	t.deepEqual(spaceState.read('STA-1')?.agentProfile, {
+	expect(launch('--agent-profile', 'codex').status).toBe(0);
+	expect(spaceState.read('STA-1')?.agentProfile).toStrictEqual({
 		name: 'codex',
 		isClaude: false,
 	});
-	t.is(launch().status, 2);
+	expect(launch().status).toBe(2);
 });
 
-test('check-config passes a valid or missing config and fails an invalid one with its errors', t => {
-	const home = tempDir(t, 'papp-state-cli-');
+test('check-config passes a valid or missing config and fails an invalid one with its errors', () => {
+	const home = tempDir('papp-state-cli-');
 	const project = path.join(home, 'project');
 	fs.mkdirSync(project);
 	const check = () =>
@@ -198,14 +201,14 @@ test('check-config passes a valid or missing config and fails an invalid one wit
 		);
 
 	const missing = check();
-	t.is(missing.status, 0, `stderr: ${missing.stderr}`);
+	expect(missing.status, `stderr: ${missing.stderr}`).toBe(0);
 
 	fs.writeFileSync(
 		path.join(project, '.pappardelle.yml'),
 		'version: 1\nprofiles: {}\n',
 	);
 	const valid = check();
-	t.is(valid.status, 0, `stderr: ${valid.stderr}`);
+	expect(valid.status, `stderr: ${valid.stderr}`).toBe(0);
 
 	// Broken in an agent profile no space uses: the TUI still rejects it.
 	fs.writeFileSync(
@@ -213,12 +216,14 @@ test('check-config passes a valid or missing config and fails an invalid one wit
 		'version: 1\nprofiles: {}\nagent_profiles:\n  opus:\n    command: claude\n    model: 7\n',
 	);
 	const invalid = check();
-	t.is(invalid.status, 1);
-	t.regex(invalid.stderr, /agent_profiles\.opus\.model: must be a string/);
+	expect(invalid.status).toBe(1);
+	expect(invalid.stderr).toMatch(
+		/agent_profiles\.opus\.model: must be a string/,
+	);
 });
 
-test('migrate takes one database path and nothing else', t => {
-	const dir = tempDir(t, 'papp-state-cli-');
+test('migrate takes one database path and nothing else', () => {
+	const dir = tempDir('papp-state-cli-');
 	const migrate = (...args: string[]) =>
 		spawnSync(
 			process.execPath,
@@ -231,18 +236,18 @@ test('migrate takes one database path and nothing else', t => {
 		);
 
 	const flag = migrate('--bogus');
-	t.is(flag.status, 2, `stderr: ${flag.stderr}`);
-	t.regex(flag.stderr, /migrate: Unknown option '--bogus'/);
+	expect(flag.status, `stderr: ${flag.stderr}`).toBe(2);
+	expect(flag.stderr).toMatch(/migrate: Unknown option '--bogus'/);
 	const extra = migrate('a.db', 'b.db');
-	t.is(extra.status, 2, `stderr: ${extra.stderr}`);
-	t.regex(extra.stderr, /migrate needs one database path/);
-	t.deepEqual(fs.readdirSync(dir), []);
+	expect(extra.status, `stderr: ${extra.stderr}`).toBe(2);
+	expect(extra.stderr).toMatch(/migrate needs one database path/);
+	expect(fs.readdirSync(dir)).toStrictEqual([]);
 });
 
 // idow takes a recorded identity as the space's: a registration that is
 // refused must not leave one behind.
-test('prepare-space --register without an owner records nothing', t => {
-	const home = tempDir(t, 'papp-state-cli-');
+test('prepare-space --register without an owner records nothing', () => {
+	const home = tempDir('papp-state-cli-');
 	const stateDir = path.join(home, '.pappardelle');
 	const result = spawnSync(
 		process.execPath,
@@ -267,15 +272,13 @@ test('prepare-space --register without an owner records nothing', t => {
 			},
 		},
 	);
-	t.is(result.status, 2, `stderr: ${result.stderr}`);
-	t.is(
-		result.stderr.trim(),
+	expect(result.status, `stderr: ${result.stderr}`).toBe(2);
+	expect(result.stderr.trim()).toBe(
 		'pappardelle --internal-state: prepare-space: --register needs --owner <pid>',
 	);
-	t.false(fs.existsSync(stateDir));
+	expect(fs.existsSync(stateDir)).toBe(false);
 	if (sqliteRun)
-		t.is(
-			testState(t, {stateDir}).daos.spaceIdentities.get('STA-1').kind,
+		expect(testState({stateDir}).daos.spaceIdentities.get('STA-1').kind).toBe(
 			'unknown',
 		);
 });

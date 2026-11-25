@@ -10,7 +10,8 @@ import {spawnSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import test from 'ava';
+import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {testTmuxState, type TestState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
@@ -32,13 +33,13 @@ import {
 
 // Reaping a space's sessions also removes its status snapshots, which the
 // stores place.
-const stateTeardowns: Array<() => void> = [];
+const stateTeardowns: Array<() => unknown> = [];
 let state: TestState;
-test.before(() => {
-	state = testTmuxState({teardown: fn => stateTeardowns.push(fn)});
+beforeAll(() => {
+	state = testTmuxState({cleanup: fn => stateTeardowns.push(fn)});
 });
-test.after.always(() => {
-	for (const teardown of stateTeardowns) teardown();
+afterAll(async () => {
+	for (const step of stateTeardowns.reverse()) await step();
 });
 
 /** These spaces and main, protected under the names idow gives them. */
@@ -60,12 +61,14 @@ const NOTHING: ProtectedSessions = {names: new Set(), keys: new Set()};
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TMUX_SOURCE = readFileSync(join(__dirname, 'tmux.ts'), 'utf-8');
 
-test('INNER_SOCKET is pappardelle_inner', t => {
-	t.is(INNER_SOCKET, 'pappardelle_inner');
+test('INNER_SOCKET is pappardelle_inner', () => {
+	expect(INNER_SOCKET).toBe('pappardelle_inner');
 });
 
-test('innerTmuxArgs prefixes -L INNER_SOCKET', t => {
-	t.deepEqual(innerTmuxArgs(['has-session', '-t', 'claude-repo-STA-1']), [
+test('innerTmuxArgs prefixes -L INNER_SOCKET', () => {
+	expect(
+		innerTmuxArgs(['has-session', '-t', 'claude-repo-STA-1']),
+	).toStrictEqual([
 		'-L',
 		'pappardelle_inner',
 		'has-session',
@@ -74,14 +77,14 @@ test('innerTmuxArgs prefixes -L INNER_SOCKET', t => {
 	]);
 });
 
-test('innerTmuxArgs with empty args still includes -L prefix', t => {
-	t.deepEqual(innerTmuxArgs([]), ['-L', 'pappardelle_inner']);
+test('innerTmuxArgs with empty args still includes -L prefix', () => {
+	expect(innerTmuxArgs([])).toStrictEqual(['-L', 'pappardelle_inner']);
 });
 
-test('innerTmuxArgs does not mutate the input array', t => {
+test('innerTmuxArgs does not mutate the input array', () => {
 	const input = ['list-sessions'];
 	innerTmuxArgs(input);
-	t.deepEqual(input, ['list-sessions']);
+	expect(input).toStrictEqual(['list-sessions']);
 });
 
 // ============================================================================
@@ -98,86 +101,81 @@ test('innerTmuxArgs does not mutate the input array', t => {
 const COMPANION_BUILDER =
 	/function companionSessionArgs\([^]*?\n}\n/.exec(TMUX_SOURCE)?.[0] ?? '';
 
-test('new-session for per-issue sessions routes through innerTmuxArgs', t => {
-	t.regex(TMUX_SOURCE, /innerTmuxArgs\(\[\s*['"]new-session['"]/);
-	t.regex(TMUX_SOURCE, /innerTmuxArgs\(\s*companionSessionArgs\(/);
-	t.regex(
-		TMUX_SOURCE,
+test('new-session for per-issue sessions routes through innerTmuxArgs', () => {
+	expect(TMUX_SOURCE).toMatch(/innerTmuxArgs\(\[\s*['"]new-session['"]/);
+	expect(TMUX_SOURCE).toMatch(/innerTmuxArgs\(\s*companionSessionArgs\(/);
+	expect(TMUX_SOURCE).toMatch(
 		/runner = options\.runner \?\? defaultInnerTmuxRunner;[^]*?companionSessionArgs\(/,
 	);
 });
 
-test('every per-issue new-session carries the space session environment', t => {
+test('every per-issue new-session carries the space session environment', () => {
 	// A Claude started by hand in the pane reports its status under
 	// PAPPARDELLE_SPACE, so a session the TUI makes must carry it just like one
 	// start-agent-session.sh makes. Without it, the fix from
 	// chardigio/pappardelle#22 holds only until the next reboot.
 	const agent =
 		TMUX_SOURCE.match(/innerTmuxArgs\(\[\s*['"]new-session['"][^\]]*\]/g) ?? [];
-	t.is(agent.length, 1);
-	t.true(agent[0]!.includes('...spaceSessionEnvArgs(issueKey)'));
-	t.true(
+	expect(agent.length).toBe(1);
+	expect(agent[0]!.includes('...spaceSessionEnvArgs(issueKey)')).toBe(true);
+	expect(
 		COMPANION_BUILDER.includes('...spaceSessionEnvArgs(issueKey, repoName)'),
-	);
+	).toBe(true);
 });
 
-test('companion session launches the configurable command, never a hardcoded git UI', t => {
+test('companion session launches the configurable command, never a hardcoded git UI', () => {
 	// STA-1464: the companion pane runs `companionCommand` (resolved from
 	// config, default gitui) — not a hardcoded tool. Guard against a regression
 	// that reintroduces a literal `lazygit`/`gitui` invocation here.
-	t.regex(
+	expect(
 		TMUX_SOURCE,
-		/companionSessionArgs\(\s*issueKey,\s*sessionName,\s*worktreePath,\s*companionCommand,?\s*\)/,
 		'ensureCompanionSession must launch the companionCommand variable',
+	).toMatch(
+		/companionSessionArgs\(\s*issueKey,\s*sessionName,\s*worktreePath,\s*companionCommand,?\s*\)/,
 	);
-	t.regex(COMPANION_BUILDER, /buildShellLaunchArgs\(command\)/);
-	t.notRegex(
+	expect(COMPANION_BUILDER).toMatch(/buildShellLaunchArgs\(command\)/);
+	expect(
 		TMUX_SOURCE,
-		/GIT_OPTIONAL_LOCKS=0 (lazygit|gitui)/,
 		'the companion command must come from config (DEFAULT_COMPANION_COMMAND lives in config.ts), not a tmux.ts literal',
-	);
+	).not.toMatch(/GIT_OPTIONAL_LOCKS=0 (lazygit|gitui)/);
 });
 
-test('companion session launches nothing when the command is empty (plain shell)', t => {
+test('companion session launches nothing when the command is empty (plain shell)', () => {
 	// An empty companion_command means "leave a plain shell", so the session
 	// must be created with tmux's default shell rather than a launch wrapper.
-	t.regex(
+	expect(
 		COMPANION_BUILDER,
-		/command\.trim\(\)\s*===\s*''\s*\?\s*\[\]/,
 		'the companion builder must skip the launch args for an empty command',
-	);
+	).toMatch(/command\.trim\(\)\s*===\s*''\s*\?\s*\[\]/);
 });
 
-test('no bare `tmux new-session -d` survives for per-issue sessions', t => {
+test('no bare `tmux new-session -d` survives for per-issue sessions', () => {
 	// The only new-session call that is allowed to skip the inner socket is the
 	// outer `pappardelle-{repo}` root session in cli.tsx. Inside tmux.ts, every
 	// new-session call must go through innerTmuxArgs.
 	const bareDetachedNewSession = TMUX_SOURCE.match(
 		/spawnSync\(\s*['"]tmux['"]\s*,\s*\[\s*['"]new-session['"]\s*,\s*['"]-d['"]/g,
 	);
-	t.is(
+	expect(
 		bareDetachedNewSession,
-		null,
 		'tmux.ts must not call `tmux new-session -d` directly; route via innerTmuxArgs',
-	);
+	).toBe(null);
 });
 
-test('switch-client and list-clients route through innerTmuxArgs', t => {
+test('switch-client and list-clients route through innerTmuxArgs', () => {
 	// Nested clients live on the inner socket, so both list-clients and
 	// switch-client need the -L prefix.
-	t.regex(
+	expect(
 		TMUX_SOURCE,
-		/innerTmuxArgs\(\[\s*['"]list-clients['"]/,
 		'list-clients must be routed through innerTmuxArgs',
-	);
-	t.regex(
+	).toMatch(/innerTmuxArgs\(\[\s*['"]list-clients['"]/);
+	expect(
 		TMUX_SOURCE,
-		/innerTmuxArgs\(\[\s*['"]switch-client['"]/,
 		'switch-client must be routed through innerTmuxArgs',
-	);
+	).toMatch(/innerTmuxArgs\(\[\s*['"]switch-client['"]/);
 });
 
-test('has-session via spawnSync routes through innerTmuxArgs', t => {
+test('has-session via spawnSync routes through innerTmuxArgs', () => {
 	// The outer pappardelle-{repo} session's `has-session` goes through
 	// defaultOuterTmuxRunner. Every spawnSync form must route through
 	// innerTmuxArgs — a bare `spawnSync('tmux', ['has-session', ...])` would
@@ -185,76 +183,70 @@ test('has-session via spawnSync routes through innerTmuxArgs', t => {
 	const bareHasSession = TMUX_SOURCE.match(
 		/spawnSync\(\s*['"]tmux['"]\s*,\s*\[\s*['"]has-session['"]/g,
 	);
-	t.is(
+	expect(
 		bareHasSession,
-		null,
 		'has-session spawnSync calls must go through innerTmuxArgs; the outer `pappardelle-{repo}` session uses defaultOuterTmuxRunner',
-	);
-	t.regex(
+	).toBe(null);
+	expect(
 		TMUX_SOURCE,
-		/innerTmuxArgs\(\[\s*['"]has-session['"]/,
 		'innerSessionExists must route has-session through innerTmuxArgs',
-	);
+	).toMatch(/innerTmuxArgs\(\[\s*['"]has-session['"]/);
 });
 
-test('session lookups and kills by name use exact targets', t => {
+test('session lookups and kills by name use exact targets', () => {
 	// A bare name falls back to tmux prefix matching when no session has it
 	// exactly, so checking or killing STA-1 would hit STA-12.
-	t.regex(
-		TMUX_SOURCE,
+	expect(TMUX_SOURCE).toMatch(
 		/innerTmuxArgs\(\[\s*'has-session',\s*'-t',\s*exactSessionTarget\(/,
 	);
-	t.regex(
-		TMUX_SOURCE,
+	expect(TMUX_SOURCE).toMatch(
 		/innerTmuxArgs\(\[\s*'kill-session',\s*'-t',\s*exactSessionTarget\(/,
 	);
-	t.regex(
-		TMUX_SOURCE,
+	expect(TMUX_SOURCE).toMatch(
 		/defaultOuterTmuxRunner\(\[\s*'has-session',\s*'-t',\s*exactSessionTarget\(/,
 	);
-	t.regex(
-		TMUX_SOURCE,
+	expect(TMUX_SOURCE).toMatch(
 		/defaultOuterTmuxRunner\(\[\s*'kill-session',\s*'-t',\s*exactSessionTarget\(/,
 	);
 });
 
-test('exactSessionTarget stops tmux prefix-matching another session', t => {
+test('exactSessionTarget stops tmux prefix-matching another session', () => {
 	// -S rather than -L: a named socket lands in /tmp/tmux-<uid>, outside TMPDIR.
-	const socket = join(tempDir(t, 'pappardelle-exact-'), 's');
+	const socket = join(tempDir('pappardelle-exact-'), 's');
 	const tmux = (...args: string[]) =>
 		spawnSync('tmux', ['-S', socket, ...args], {encoding: 'utf-8'});
 	if (tmux('-V').error) {
-		t.pass('tmux not installed');
+		expect().pass('tmux not installed');
 		return;
 	}
 
 	try {
-		t.is(tmux('new-session', '-d', '-s', 'agent-repo-STA-12').status, 0);
-		t.is(tmux('has-session', '-t', 'agent-repo-STA-1').status, 0);
-		t.not(
+		expect(tmux('new-session', '-d', '-s', 'agent-repo-STA-12').status).toBe(0);
+		expect(tmux('has-session', '-t', 'agent-repo-STA-1').status).toBe(0);
+		expect(
 			tmux('has-session', '-t', exactSessionTarget('agent-repo-STA-1')).status,
-			0,
-		);
+		).not.toBe(0);
 		// tmux 3.6 and older store a '.' as '_', so a name built with a dotted
 		// repo must already be in that spelling to be found again.
 		const dotted = `${sessionPrefix('agent', 'my.repo')}STA-1`;
-		t.is(tmux('new-session', '-d', '-s', dotted).status, 0);
-		t.is(tmux('has-session', '-t', exactSessionTarget(dotted)).status, 0);
+		expect(tmux('new-session', '-d', '-s', dotted).status).toBe(0);
+		expect(tmux('has-session', '-t', exactSessionTarget(dotted)).status).toBe(
+			0,
+		);
 	} finally {
 		tmux('kill-server');
 	}
 });
 
-test('kill-session for per-issue sessions routes through innerTmuxArgs', t => {
+test('kill-session for per-issue sessions routes through innerTmuxArgs', () => {
 	// `innerKillSession` must route kill-session through innerTmuxArgs.
 	// `cleanupOrphanedOuterSessions` intentionally bypasses this — it targets
 	// the default socket to drop pre-STA-860 leftovers — but it's the only
 	// permitted exception.
-	t.regex(
+	expect(
 		TMUX_SOURCE,
-		/innerTmuxArgs\(\[\s*['"]kill-session['"]/,
 		'innerKillSession must route kill-session through innerTmuxArgs',
-	);
+	).toMatch(/innerTmuxArgs\(\[\s*['"]kill-session['"]/);
 
 	// Count bare `'tmux', [ 'kill-session'` via spawnSync. Only
 	// `cleanupOrphanedOuterSessions` should contain that shape, and only
@@ -266,27 +258,23 @@ test('kill-session for per-issue sessions routes through innerTmuxArgs', t => {
 	const bareKillSession = TMUX_SOURCE.match(
 		/spawnSync\(\s*['"]tmux['"]\s*,\s*\[\s*['"]kill-session['"]/g,
 	);
-	t.is(
+	expect(
 		bareKillSession,
-		null,
 		'kill-session spawnSync calls must go through innerTmuxArgs or the injectable OuterTmuxRunner',
-	);
+	).toBe(null);
 });
 
-test('pappardelle send resolves and pastes on the inner socket by default', t => {
+test('pappardelle send resolves and pastes on the inner socket by default', () => {
 	// sendToSpaceAgent and resolveInnerSessionTarget accept a runner for tests;
 	// production must default to the inner-socket runner or relays land on the
 	// default socket, where no per-issue session exists.
-	t.regex(
-		TMUX_SOURCE,
+	expect(TMUX_SOURCE).toMatch(
 		/const defaultInnerSendRunner = spawnTmuxRunnerAsync\(innerTmuxArgs\)/,
 	);
-	t.regex(
-		TMUX_SOURCE,
+	expect(TMUX_SOURCE).toMatch(
 		/export async function resolveInnerSessionTarget\([^)]*runner: SendTmuxRunner = defaultInnerSendRunner/,
 	);
-	t.regex(
-		TMUX_SOURCE,
+	expect(TMUX_SOURCE).toMatch(
 		/export async function sendToSpaceAgent[\s\S]*?options\.runner \?\? defaultInnerSendRunner/,
 	);
 });
@@ -336,34 +324,34 @@ function makeFakeRunner(options: {
 	return {runner, calls};
 }
 
-test('cleanupOrphanedOuterSessions returns 0 when no sessions match', t => {
+test('cleanupOrphanedOuterSessions returns 0 when no sessions match', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: 'pappardelle-repo\nsome-other-session\n',
 	});
-	t.is(cleanupOrphanedOuterSessions('repo', runner), 0);
+	expect(cleanupOrphanedOuterSessions('repo', runner)).toBe(0);
 	// Should list but never kill.
-	t.is(calls.length, 1);
-	t.deepEqual(calls[0], ['list-sessions', '-F', '#{session_name}']);
+	expect(calls.length).toBe(1);
+	expect(calls[0]).toStrictEqual(['list-sessions', '-F', '#{session_name}']);
 });
 
-test('cleanupOrphanedOuterSessions returns 0 when list-sessions errors', t => {
+test('cleanupOrphanedOuterSessions returns 0 when list-sessions errors', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStatus: 1,
 		listSessionsStdout: '',
 	});
-	t.is(cleanupOrphanedOuterSessions('repo', runner), 0);
-	t.is(calls.length, 1); // no kill attempts
+	expect(cleanupOrphanedOuterSessions('repo', runner)).toBe(0);
+	expect(calls.length).toBe(1); // no kill attempts
 });
 
-test('cleanupOrphanedOuterSessions returns 0 when list-sessions throws', t => {
+test('cleanupOrphanedOuterSessions returns 0 when list-sessions throws', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsError: new Error('tmux not found'),
 	});
-	t.is(cleanupOrphanedOuterSessions('repo', runner), 0);
-	t.is(calls.length, 1);
+	expect(cleanupOrphanedOuterSessions('repo', runner)).toBe(0);
+	expect(calls.length).toBe(1);
 });
 
-test('cleanupOrphanedOuterSessions only kills claude-{repo}-* / companion-{repo}-*', t => {
+test('cleanupOrphanedOuterSessions only kills claude-{repo}-* / companion-{repo}-*', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'pappardelle-repo', // outer root — keep
@@ -374,20 +362,20 @@ test('cleanupOrphanedOuterSessions only kills claude-{repo}-* / companion-{repo}
 			'unrelated-session', // keep
 		].join('\n'),
 	});
-	t.is(cleanupOrphanedOuterSessions('repo', runner), 3);
+	expect(cleanupOrphanedOuterSessions('repo', runner)).toBe(3);
 
 	const killed = calls
 		.filter(c => c[0] === 'kill-session')
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-	t.deepEqual(killed, [
+	expect(killed).toStrictEqual([
 		'=claude-repo-STA-1:',
 		'=claude-repo-foo:',
 		'=companion-repo-STA-1:',
 	]);
 });
 
-test('cleanupOrphanedOuterSessions sweeps legacy lazygit-{repo}-* sessions (STA-1464 upgrade)', t => {
+test('cleanupOrphanedOuterSessions sweeps legacy lazygit-{repo}-* sessions (STA-1464 upgrade)', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'pappardelle-repo', // outer root — keep
@@ -397,16 +385,19 @@ test('cleanupOrphanedOuterSessions sweeps legacy lazygit-{repo}-* sessions (STA-
 			'unrelated-session', // keep
 		].join('\n'),
 	});
-	t.is(cleanupOrphanedOuterSessions('repo', runner), 2);
+	expect(cleanupOrphanedOuterSessions('repo', runner)).toBe(2);
 
 	const killed = calls
 		.filter(c => c[0] === 'kill-session')
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-	t.deepEqual(killed, ['=companion-repo-STA-1:', '=lazygit-repo-STA-1:']);
+	expect(killed).toStrictEqual([
+		'=companion-repo-STA-1:',
+		'=lazygit-repo-STA-1:',
+	]);
 });
 
-test('cleanupOrphanedOuterSessions counts only successful kills', t => {
+test('cleanupOrphanedOuterSessions counts only successful kills', () => {
 	const {runner} = makeFakeRunner({
 		listSessionsStdout: [
 			'claude-repo-STA-1',
@@ -416,7 +407,7 @@ test('cleanupOrphanedOuterSessions counts only successful kills', t => {
 		killStatus: name => (name === '=claude-repo-STA-2:' ? 1 : 0),
 	});
 	// 3 matched orphans, 1 kill fails → return 2.
-	t.is(cleanupOrphanedOuterSessions('repo', runner), 2);
+	expect(cleanupOrphanedOuterSessions('repo', runner)).toBe(2);
 });
 
 // ============================================================================
@@ -434,74 +425,73 @@ test('cleanupOrphanedOuterSessions counts only successful kills', t => {
 // sessions are legitimate and must never be reaped.
 // ============================================================================
 
-test.serial(
-	"reaping a space's sessions clears its program status unless one of them survived",
-	t => {
-		const removed: string[] = [];
-		initTmuxState({
-			...state.daos,
-			programStatus: {
-				...state.daos.programStatus,
-				async remove(key) {
-					removed.push(key);
-				},
+test("reaping a space's sessions clears its program status unless one of them survived", () => {
+	const removed: string[] = [];
+	initTmuxState({
+		...state.daos,
+		programStatus: {
+			...state.daos.programStatus,
+			async remove(key) {
+				removed.push(key);
 			},
-		});
-		t.teardown(() => {
-			initTmuxState(state.daos);
-		});
-		const {runner} = makeFakeRunner({
-			listSessionsStdout: [
-				'agent-repo-gone',
-				'companion-repo-gone~tests',
-				'agent-repo-stuck',
-				'companion-repo-stuck',
-				'agent-repo-unnamed',
-				'agent-repo-stray',
-			].join('\n'),
-			// No stored identity names these spaces: their own sessions do.
-			spaces: {
-				'agent-repo-gone': 'GONE-1',
-				'companion-repo-gone~tests': 'GONE-1',
-				'agent-repo-stuck': 'STUCK-1',
-				'companion-repo-stuck': 'STUCK-1',
-				// A session of STA-1, which is open, under a name not stored for it.
-				'agent-repo-stray': 'STA-1',
-			},
-			killStatus: name => (name === '=companion-repo-stuck:' ? 1 : 0),
-		});
-		t.is(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner), 5);
-		t.deepEqual(removed, ['GONE-1']);
-	},
-);
+		},
+	});
+	teardown(() => {
+		initTmuxState(state.daos);
+	});
+	const {runner} = makeFakeRunner({
+		listSessionsStdout: [
+			'agent-repo-gone',
+			'companion-repo-gone~tests',
+			'agent-repo-stuck',
+			'companion-repo-stuck',
+			'agent-repo-unnamed',
+			'agent-repo-stray',
+		].join('\n'),
+		// No stored identity names these spaces: their own sessions do.
+		spaces: {
+			'agent-repo-gone': 'GONE-1',
+			'companion-repo-gone~tests': 'GONE-1',
+			'agent-repo-stuck': 'STUCK-1',
+			'companion-repo-stuck': 'STUCK-1',
+			// A session of STA-1, which is open, under a name not stored for it.
+			'agent-repo-stray': 'STA-1',
+		},
+		killStatus: name => (name === '=companion-repo-stuck:' ? 1 : 0),
+	});
+	expect(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner)).toBe(
+		5,
+	);
+	expect(removed).toStrictEqual(['GONE-1']);
+});
 
-test('cleanupOrphanedInnerSessions returns 0 when no sessions match', t => {
+test('cleanupOrphanedInnerSessions returns 0 when no sessions match', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: 'pappardelle-repo\nsome-other-session\n',
 	});
-	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 0);
-	t.is(calls.length, 1);
-	t.deepEqual(calls[0], ['list-sessions', '-F', '#{session_name}']);
+	expect(cleanupOrphanedInnerSessions(stored(), 'repo', runner)).toBe(0);
+	expect(calls.length).toBe(1);
+	expect(calls[0]).toStrictEqual(['list-sessions', '-F', '#{session_name}']);
 });
 
-test('cleanupOrphanedInnerSessions returns 0 when list-sessions errors', t => {
+test('cleanupOrphanedInnerSessions returns 0 when list-sessions errors', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStatus: 1,
 		listSessionsStdout: '',
 	});
-	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 0);
-	t.is(calls.length, 1);
+	expect(cleanupOrphanedInnerSessions(stored(), 'repo', runner)).toBe(0);
+	expect(calls.length).toBe(1);
 });
 
-test('cleanupOrphanedInnerSessions returns 0 when list-sessions throws', t => {
+test('cleanupOrphanedInnerSessions returns 0 when list-sessions throws', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsError: new Error('tmux not found'),
 	});
-	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 0);
-	t.is(calls.length, 1);
+	expect(cleanupOrphanedInnerSessions(stored(), 'repo', runner)).toBe(0);
+	expect(calls.length).toBe(1);
 });
 
-test('cleanupOrphanedInnerSessions keeps the splits of a registered space and reaps a closed one', t => {
+test('cleanupOrphanedInnerSessions keeps the splits of a registered space and reaps a closed one', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'companion-repo-STA-1~tests',
@@ -509,14 +499,15 @@ test('cleanupOrphanedInnerSessions keeps the splits of a registered space and re
 			'companion-repo-main~logs',
 		].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner), 1);
-	t.deepEqual(
-		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
-		['=companion-repo-STA-999~tests:'],
+	expect(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner)).toBe(
+		1,
 	);
+	expect(
+		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
+	).toStrictEqual(['=companion-repo-STA-999~tests:']);
 });
 
-test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t => {
+test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'claude-repo-STA-1', // registered → keep
@@ -529,16 +520,21 @@ test('cleanupOrphanedInnerSessions kills orphans (not in registry, not main)', t
 			'pappardelle-repo', // outer root → keep
 		].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner), 2);
+	expect(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner)).toBe(
+		2,
+	);
 
 	const killed = calls
 		.filter(c => c[0] === 'kill-session')
 		.map(c => c[2] ?? '')
 		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-	t.deepEqual(killed, ['=claude-repo-STA-999:', '=companion-repo-STA-999:']);
+	expect(killed).toStrictEqual([
+		'=claude-repo-STA-999:',
+		'=companion-repo-STA-999:',
+	]);
 });
 
-test('cleanupOrphanedInnerSessions leaves a sibling repo named with this one as its prefix alone', t => {
+test('cleanupOrphanedInnerSessions leaves a sibling repo named with this one as its prefix alone', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'agent-proj-x-STA-1', // proj-x's live space → keep
@@ -546,40 +542,36 @@ test('cleanupOrphanedInnerSessions leaves a sibling repo named with this one as 
 			'agent-proj-STA-9', // proj's orphan → kill
 		].join('\n'),
 	});
-	t.is(
+	expect(
 		cleanupOrphanedInnerSessions(stored([], 'proj'), 'proj', runner, [
 			'proj',
 			'proj-x',
 		]),
-		1,
-	);
-	t.deepEqual(
+	).toBe(1);
+	expect(
 		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
-		['=agent-proj-STA-9:'],
-	);
+	).toStrictEqual(['=agent-proj-STA-9:']);
 });
 
-test('cleanupOrphanedInnerSessions knows a sibling repo by its tmux spelling', t => {
+test('cleanupOrphanedInnerSessions knows a sibling repo by its tmux spelling', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'agent-a_b-c-STA-1', // a_b-c's live space → keep
 			'agent-a_b-STA-9', // a.b's orphan → kill
 		].join('\n'),
 	});
-	t.is(
+	expect(
 		cleanupOrphanedInnerSessions(stored([], 'a.b'), 'a.b', runner, [
 			'a.b',
 			'a_b-c',
 		]),
-		1,
-	);
-	t.deepEqual(
+	).toBe(1);
+	expect(
 		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
-		['=agent-a_b-STA-9:'],
-	);
+	).toStrictEqual(['=agent-a_b-STA-9:']);
 });
 
-test('cleanupOrphanedInnerSessions keeps a stored session whatever its name, and what it owns', t => {
+test('cleanupOrphanedInnerSessions keeps a stored session whatever its name, and what it owns', () => {
 	// The names are stored when a space is created, so a kept session is found
 	// by its name, never by a key read back out of it.
 	const {runner, calls} = makeFakeRunner({
@@ -590,7 +582,7 @@ test('cleanupOrphanedInnerSessions keeps a stored session whatever its name, and
 			'agent-repo-bd-a3f8e9_1', // the encoding of a key no row names → kill
 		].join('\n'),
 	});
-	t.is(
+	expect(
 		cleanupOrphanedInnerSessions(
 			{
 				names: new Set(['agent-repo-hand.named', 'companion-repo-other']),
@@ -599,21 +591,20 @@ test('cleanupOrphanedInnerSessions keeps a stored session whatever its name, and
 			'repo',
 			runner,
 		),
-		1,
-	);
+	).toBe(1);
 
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['=agent-repo-bd-a3f8e9_1:']);
+	expect(killed).toStrictEqual(['=agent-repo-bd-a3f8e9_1:']);
 });
 
-test('cleanupOrphanedInnerSessions reaps main once main is not among the stored names', t => {
+test('cleanupOrphanedInnerSessions reaps main once main is not among the stored names', () => {
 	const {runner} = makeFakeRunner({
 		listSessionsStdout: ['agent-repo-main', 'companion-repo-main'].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(NOTHING, 'repo', runner), 2);
+	expect(cleanupOrphanedInnerSessions(NOTHING, 'repo', runner)).toBe(2);
 });
 
-test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1464 upgrade)', t => {
+test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1464 upgrade)', () => {
 	// A hard-quit straddling the STA-1464 upgrade can leave the old
 	// `lazygit-{repo}-*` companion sessions behind on the inner socket. They
 	// must be reaped on the same not-registered / not-main terms as the new
@@ -627,23 +618,25 @@ test('cleanupOrphanedInnerSessions sweeps legacy lazygit-{repo}-* orphans (STA-1
 			'pappardelle-repo', // outer root → keep
 		].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner), 1);
+	expect(cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', runner)).toBe(
+		1,
+	);
 
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['=lazygit-repo-STA-999:']);
+	expect(killed).toStrictEqual(['=lazygit-repo-STA-999:']);
 });
 
-test('cleanupOrphanedInnerSessions never touches main-worktree sessions', t => {
+test('cleanupOrphanedInnerSessions never touches main-worktree sessions', () => {
 	// Empty registry — only main sessions exist. None should be killed.
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: ['claude-repo-main', 'companion-repo-main'].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 0);
+	expect(cleanupOrphanedInnerSessions(stored(), 'repo', runner)).toBe(0);
 	const killAttempts = calls.filter(c => c[0] === 'kill-session');
-	t.is(killAttempts.length, 0);
+	expect(killAttempts.length).toBe(0);
 });
 
-test('cleanupOrphanedInnerSessions counts only successful kills', t => {
+test('cleanupOrphanedInnerSessions counts only successful kills', () => {
 	const {runner} = makeFakeRunner({
 		listSessionsStdout: [
 			'claude-repo-STA-1',
@@ -653,18 +646,18 @@ test('cleanupOrphanedInnerSessions counts only successful kills', t => {
 		killStatus: name => (name === '=claude-repo-STA-2:' ? 1 : 0),
 	});
 	// 3 orphans (empty registry), 1 kill fails → return 2.
-	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 2);
+	expect(cleanupOrphanedInnerSessions(stored(), 'repo', runner)).toBe(2);
 });
 
-test('cleanupOrphanedInnerSessions handles a partial pair (only claude or companion)', t => {
+test('cleanupOrphanedInnerSessions handles a partial pair (only claude or companion)', () => {
 	// Hard-quit can leave just one of the pair behind. Each session is reaped
 	// independently of whether its sibling is still alive.
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: ['claude-repo-STA-999'].join('\n'),
 	});
-	t.is(cleanupOrphanedInnerSessions(stored(), 'repo', runner), 1);
+	expect(cleanupOrphanedInnerSessions(stored(), 'repo', runner)).toBe(1);
 	const killed = calls.filter(c => c[0] === 'kill-session').map(c => c[2]);
-	t.deepEqual(killed, ['=claude-repo-STA-999:']);
+	expect(killed).toStrictEqual(['=claude-repo-STA-999:']);
 });
 
 // ============================================================================
@@ -676,7 +669,7 @@ test('cleanupOrphanedInnerSessions handles a partial pair (only claude or compan
 // conversation survives the upgrade instead of being orphaned or reaped.
 // ============================================================================
 
-test('migrateLegacyAgentSessions renames claude-{repo}-* to agent-{repo}-*', t => {
+test('migrateLegacyAgentSessions renames claude-{repo}-* to agent-{repo}-*', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'claude-repo-STA-1',
@@ -686,20 +679,20 @@ test('migrateLegacyAgentSessions renames claude-{repo}-* to agent-{repo}-*', t =
 			'agent-repo-STA-3', // already migrated → untouched
 		].join('\n'),
 	});
-	t.is(migrateLegacyAgentSessions('repo', runner), 2);
+	expect(migrateLegacyAgentSessions('repo', runner)).toBe(2);
 
 	const renames = calls
 		.filter(c => c[0] === 'rename-session')
 		.map(c => [c[2], c[3]]);
 	// `=` forces an exact target; a bare name would let tmux prefix-match
 	// another space's session (STA-1 → STA-12).
-	t.deepEqual(renames, [
+	expect(renames).toStrictEqual([
 		['=claude-repo-STA-1:', 'agent-repo-STA-1'],
 		['=claude-repo-main:', 'agent-repo-main'],
 	]);
 });
 
-test('migrateLegacyAgentSessions kills a legacy session whose agent name is taken', t => {
+test('migrateLegacyAgentSessions kills a legacy session whose agent name is taken', () => {
 	// The agent- session is the one pappardelle attaches; the legacy duplicate
 	// would otherwise survive every orphan reap because its key is registered.
 	const {runner, calls} = makeFakeRunner({
@@ -709,18 +702,16 @@ test('migrateLegacyAgentSessions kills a legacy session whose agent name is take
 			'claude-repo-STA-2',
 		].join('\n'),
 	});
-	t.is(migrateLegacyAgentSessions('repo', runner), 1);
-	t.deepEqual(
+	expect(migrateLegacyAgentSessions('repo', runner)).toBe(1);
+	expect(
 		calls.filter(c => c[0] === 'kill-session').map(c => c[2]),
-		['=claude-repo-STA-1:'],
-	);
-	t.deepEqual(
+	).toStrictEqual(['=claude-repo-STA-1:']);
+	expect(
 		calls.filter(c => c[0] === 'rename-session').map(c => [c[2], c[3]]),
-		[['=claude-repo-STA-2:', 'agent-repo-STA-2']],
-	);
+	).toStrictEqual([['=claude-repo-STA-2:', 'agent-repo-STA-2']]);
 });
 
-test("migrateLegacyAgentSessions leaves a sibling repo's sessions alone", t => {
+test("migrateLegacyAgentSessions leaves a sibling repo's sessions alone", () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStdout: [
 			'claude-repo-x-STA-1',
@@ -728,20 +719,19 @@ test("migrateLegacyAgentSessions leaves a sibling repo's sessions alone", t => {
 			'agent-repo-x-STA-2',
 		].join('\n'),
 	});
-	t.is(migrateLegacyAgentSessions('repo', runner, ['repo', 'repo-x']), 0);
-	t.deepEqual(
-		calls.filter(c => c[0] !== 'list-sessions'),
-		[],
+	expect(migrateLegacyAgentSessions('repo', runner, ['repo', 'repo-x'])).toBe(
+		0,
 	);
+	expect(calls.filter(c => c[0] !== 'list-sessions')).toStrictEqual([]);
 });
 
-test('migrateLegacyAgentSessions returns 0 when list-sessions errors', t => {
+test('migrateLegacyAgentSessions returns 0 when list-sessions errors', () => {
 	const {runner, calls} = makeFakeRunner({
 		listSessionsStatus: 1,
 		listSessionsStdout: '',
 	});
-	t.is(migrateLegacyAgentSessions('repo', runner), 0);
-	t.is(calls.length, 1);
+	expect(migrateLegacyAgentSessions('repo', runner)).toBe(0);
+	expect(calls.length).toBe(1);
 });
 
 // A fake inner server whose session list follows renames and kills.
@@ -766,33 +756,34 @@ function fakeInnerServer(initial: string[]) {
 const listings = (calls: string[][]) =>
 	calls.filter(args => args[0] === 'list-sessions').length;
 
-test('startup maintenance lists the inner sessions once when the migration changes nothing', t => {
+test('startup maintenance lists the inner sessions once when the migration changes nothing', () => {
 	const server = fakeInnerServer(['agent-repo-STA-1', 'agent-repo-STA-2']);
 	const shared = sharedSessionListingRunner(server.runner);
 
-	t.is(migrateLegacyAgentSessions('repo', shared, ['repo']), 0);
-	t.is(
+	expect(migrateLegacyAgentSessions('repo', shared, ['repo'])).toBe(0);
+	expect(
 		cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', shared, ['repo']),
-		1,
-	);
+	).toBe(1);
 
-	t.is(listings(server.calls), 1);
-	t.deepEqual(server.sessions(), ['agent-repo-STA-1']);
+	expect(listings(server.calls)).toBe(1);
+	expect(server.sessions()).toStrictEqual(['agent-repo-STA-1']);
 });
 
-test('the reaping pass sees a session the migration just renamed', t => {
+test('the reaping pass sees a session the migration just renamed', () => {
 	// A listing taken before the rename still names the legacy session, and the
 	// reap would then target a session that no longer exists.
 	const server = fakeInnerServer(['claude-repo-STA-9', 'agent-repo-STA-1']);
 	const shared = sharedSessionListingRunner(server.runner);
 
-	t.is(migrateLegacyAgentSessions('repo', shared, ['repo']), 1);
-	t.deepEqual(server.sessions(), ['agent-repo-STA-9', 'agent-repo-STA-1']);
-	t.is(
+	expect(migrateLegacyAgentSessions('repo', shared, ['repo'])).toBe(1);
+	expect(server.sessions()).toStrictEqual([
+		'agent-repo-STA-9',
+		'agent-repo-STA-1',
+	]);
+	expect(
 		cleanupOrphanedInnerSessions(stored(['STA-1']), 'repo', shared, ['repo']),
-		1,
-	);
+	).toBe(1);
 
-	t.is(listings(server.calls), 2);
-	t.deepEqual(server.sessions(), ['agent-repo-STA-1']);
+	expect(listings(server.calls)).toBe(2);
+	expect(server.sessions()).toStrictEqual(['agent-repo-STA-1']);
 });

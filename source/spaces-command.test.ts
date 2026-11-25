@@ -2,7 +2,8 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
 import {
 	formatSpaces,
@@ -25,17 +26,16 @@ const REPO = 'test-repo';
 const states = new Map<string, TestState>();
 
 function tempHome(
-	t: {teardown: (fn: () => void) => void},
 	options: {sqlite?: boolean; clock?: () => Date} = {},
 ): string {
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-spaces-'));
-	t.teardown(() => {
+	teardown(() => {
 		states.delete(home);
 		fs.rmSync(home, {recursive: true, force: true});
 	});
 	states.set(
 		home,
-		testState(t, {
+		testState({
 			repo: REPO,
 			stateDir: path.join(home, '.pappardelle'),
 			home,
@@ -95,9 +95,9 @@ async function gather(
 	return report.spaces;
 }
 
-test('a repo with no open-spaces file reports the error', async t => {
-	const home = tempHome(t);
-	t.deepEqual(
+test('a repo with no open-spaces file reports the error', async () => {
+	const home = tempHome();
+	expect(
 		await gatherSpaces({
 			repoName: REPO,
 			...stores(home),
@@ -105,12 +105,11 @@ test('a repo with no open-spaces file reports the error', async t => {
 			fetchTitles: async () => new Map(),
 			gitSummary: async () => null,
 		}),
-		{error: 'No open spaces file found', spaces: []},
-	);
+	).toStrictEqual({error: 'No open spaces file found', spaces: []});
 });
 
-test('a registry that cannot be read reports the failure and its cause, not that there are no spaces', async t => {
-	const home = tempHome(t);
+test('a registry that cannot be read reports the failure and its cause, not that there are no spaces', async () => {
+	const home = tempHome();
 	writeJson(repoState(home, 'open-spaces.json'), '{"not": "a list"}');
 	const report = await gatherSpaces({
 		repoName: REPO,
@@ -119,17 +118,16 @@ test('a registry that cannot be read reports the failure and its cause, not that
 		fetchTitles: async () => new Map(),
 		gitSummary: async () => null,
 	});
-	t.deepEqual(report.spaces, []);
-	t.regex(
-		(report as {error: string}).error,
+	expect(report.spaces).toStrictEqual([]);
+	expect((report as {error: string}).error).toMatch(
 		sqliteRun
 			? /^Could not read the open spaces: .*open-spaces\.json could not be imported \(malformed\)$/
 			: /^Could not read the open spaces: Invalid workspace registry$/,
 	);
 });
 
-test('status is what the hook last recorded, however old', async t => {
-	const home = tempHome(t);
+test('status is what the hook last recorded, however old', async () => {
+	const home = tempHome();
 	const now = Date.now();
 	openSpaces(home, ['STA-100', 'STA-200']);
 	await writeStatus(home, statusKey('STA-100'), {
@@ -141,45 +139,45 @@ test('status is what the hook last recorded, however old', async t => {
 	});
 	const spaces = await gather(home, {now});
 	const byName = new Map(spaces.map(space => [space.name, space]));
-	t.like(byName.get('STA-100'), {
+	expect(byName.get('STA-100')).toMatchObject({
 		status: 'processing',
 		currentTool: 'Bash',
 		sessionId: 'sess-abc',
 		minutesAgo: 180,
 	});
-	t.is(byName.get('STA-200')?.status, 'no_status');
+	expect(byName.get('STA-200')?.status).toBe('no_status');
 });
 
-test('a status file that cannot be read is unknown, not missing', async t => {
-	const home = tempHome(t, {sqlite: false});
+test('a status file that cannot be read is unknown, not missing', async () => {
+	const home = tempHome({sqlite: false});
 	openSpaces(home, ['STA-700']);
 	writeJson(
 		claudeStatusFile(states.get(home)!, statusKey('STA-700')),
 		'not json{{{',
 	);
 	const [space] = await gather(home);
-	t.is(space?.status, 'unknown');
+	expect(space?.status).toBe('unknown');
 });
 
-test('another repo with a space of the same key does not supply its status', async t => {
-	const home = tempHome(t);
+test('another repo with a space of the same key does not supply its status', async () => {
+	const home = tempHome();
 	openSpaces(home, ['STA-1']);
 	await writeStatus(home, statusKey('STA-1', 'other-repo'), {
 		status: 'waiting_for_approval',
 		lastUpdate: Date.now(),
 	});
 	const before = await gather(home);
-	t.is(before[0]?.status, 'no_status');
+	expect(before[0]?.status).toBe('no_status');
 	await writeStatus(home, statusKey('STA-1'), {
 		status: 'ended',
 		lastUpdate: Date.now(),
 	});
 	const after = await gather(home);
-	t.is(after[0]?.status, 'ended');
+	expect(after[0]?.status).toBe('ended');
 });
 
-test('metadata, rail state and the newest PR link are included', async t => {
-	const home = tempHome(t);
+test('metadata, rail state and the newest PR link are included', async () => {
+	const home = tempHome();
 	openSpaces(home, ['STA-350']);
 	const meta = {
 		created_by_pappardelle: true,
@@ -203,7 +201,7 @@ test('metadata, rail state and the newest PR link are included', async t => {
 		prLinks: [link(1), link(2)],
 	});
 	const [space] = await gather(home);
-	t.like(space, {
+	expect(space).toMatchObject({
 		meta,
 		pipeline: 'failing',
 		unresolvedCommentCount: 4,
@@ -214,24 +212,24 @@ test('metadata, rail state and the newest PR link are included', async t => {
 	});
 });
 
-test('rail fields are absent without a readable space-state file', async t => {
-	const home = tempHome(t);
+test('rail fields are absent without a readable space-state file', async () => {
+	const home = tempHome();
 	openSpaces(home, ['STA-360', 'STA-370']);
 	writeJson(repoState(home, 'space-state', 'STA-370.json'), 'not json{{{');
 	for (const space of await gather(home)) {
-		t.false('pipeline' in space);
-		t.false('recap' in space);
-		t.is(space.prUrl, null);
+		expect('pipeline' in space).toBe(false);
+		expect('recap' in space).toBe(false);
+		expect(space.prUrl).toBe(null);
 	}
 });
 
 // The board reads this report. With the database a space's state is only
 // rewritten when it changes, so `spaceStateUpdatedAt` is the one field that
 // may differ: the time of the last change, not of the last poll.
-test('the report is the same from files and from the database for the same history', async t => {
+test('the report is the same from files and from the database for the same history', async () => {
 	const report = async (sqlite: boolean) => {
 		let now = '2026-04-21T05:00:00.000Z';
-		const home = tempHome(t, {sqlite, clock: () => new Date(now)});
+		const home = tempHome({sqlite, clock: () => new Date(now)});
 		const daos = stores(home);
 		openSpaces(home, ['NEW-1', 'OLD-2', 'IDLE-3']);
 		await daos.issueMeta.markCreated('NEW-1');
@@ -281,34 +279,33 @@ test('the report is the same from files and from the database for the same histo
 
 	const files = await report(false);
 	const database = await report(true);
-	t.deepEqual(database.rest, files.rest);
-	t.like(
-		files.rest.find(space => space.name === 'NEW-1'),
-		{
-			meta: {created_by_pappardelle: true, created_at: '2026-04-21T05:00:00Z'},
-			pipeline: 'failing',
-			prNumber: 777,
-			prUrl: 'https://github.com/user/repo/pull/777',
-		},
-	);
+	expect(database.rest).toStrictEqual(files.rest);
+	expect(files.rest.find(space => space.name === 'NEW-1')).toMatchObject({
+		meta: {created_by_pappardelle: true, created_at: '2026-04-21T05:00:00Z'},
+		pipeline: 'failing',
+		prNumber: 777,
+		prUrl: 'https://github.com/user/repo/pull/777',
+	});
 	const polledWithoutPr = files.rest.find(space => space.name === 'OLD-2')!;
-	t.is(polledWithoutPr.pipeline, null);
-	t.false('prNumber' in polledWithoutPr);
-	t.false('pipeline' in files.rest.find(space => space.name === 'IDLE-3')!);
-	t.deepEqual(files.updatedAt, {
+	expect(polledWithoutPr.pipeline).toBe(null);
+	expect('prNumber' in polledWithoutPr).toBe(false);
+	expect('pipeline' in files.rest.find(space => space.name === 'IDLE-3')!).toBe(
+		false,
+	);
+	expect(files.updatedAt).toStrictEqual({
 		'NEW-1': '2026-04-21T06:00:00.000Z',
 		'OLD-2': '2026-04-21T06:00:00.000Z',
 		'IDLE-3': '2026-04-21T05:00:00.000Z',
 	});
-	t.deepEqual(database.updatedAt, {
+	expect(database.updatedAt).toStrictEqual({
 		'NEW-1': '2026-04-21T05:00:00.000Z',
 		'OLD-2': '2026-04-21T05:00:00.000Z',
 		'IDLE-3': '2026-04-21T05:00:00.000Z',
 	});
 });
 
-test('a session belongs to the space whose stored worktree holds it', async t => {
-	const home = tempHome(t, {sqlite: true});
+test('a session belongs to the space whose stored worktree holds it', async () => {
+	const home = tempHome({sqlite: true});
 	const worktree = path.join(home, 'checkouts', 'login');
 	await stores(home).spaceIdentities.record({
 		repo: REPO,
@@ -326,11 +323,11 @@ test('a session belongs to the space whose stored worktree holds it', async t =>
 		cwd: `${worktree}/src`,
 	});
 	const [space] = await gather(home);
-	t.is(space!.pid, 33_333);
+	expect(space!.pid).toBe(33_333);
 });
 
-test('sessions match on the full worktree prefix and the newest wins', async t => {
-	const home = tempHome(t);
+test('sessions match on the full worktree prefix and the newest wins', async () => {
+	const home = tempHome();
 	openSpaces(home, ['STA-400', 'STA-500']);
 	const sessions = path.join(home, '.claude', 'sessions');
 	writeJson(path.join(sessions, 'stale.json'), {
@@ -349,12 +346,12 @@ test('sessions match on the full worktree prefix and the newest wins', async t =
 	});
 	const spaces = await gather(home);
 	const byName = new Map(spaces.map(s => [s.name, s]));
-	t.is(byName.get('STA-400')?.pid, 22_222);
-	t.is(byName.get('STA-500')?.pid, undefined);
+	expect(byName.get('STA-400')?.pid).toBe(22_222);
+	expect(byName.get('STA-500')?.pid).toBe(undefined);
 });
 
-test('the newest top-level jsonl is the conversation log', async t => {
-	const home = tempHome(t);
+test('the newest top-level jsonl is the conversation log', async () => {
+	const home = tempHome();
 	openSpaces(home, ['STA-800']);
 	const encoded = `${home}/.worktrees/${REPO}/STA-800`
 		.replaceAll('/', '-')
@@ -365,12 +362,12 @@ test('the newest top-level jsonl is the conversation log', async t => {
 	const past = new Date(Date.now() - 60_000);
 	fs.utimesSync(path.join(dir, 'old.jsonl'), past, past);
 	const [space] = await gather(home);
-	t.is(space!.conversationLog, path.join(dir, 'new.jsonl'));
-	t.is(typeof space!.logMinutesAgo, 'number');
+	expect(space!.conversationLog).toBe(path.join(dir, 'new.jsonl'));
+	expect(typeof space!.logMinutesAgo).toBe('number');
 });
 
-test('spaces sort by last update and carry tmux session names', async t => {
-	const home = tempHome(t);
+test('spaces sort by last update and carry tmux session names', async () => {
+	const home = tempHome();
 	const now = Date.now();
 	openSpaces(home, ['STA-OLD', 'STA-NEW', 'a.b_c']);
 	const status = async (key: string, ago: number) =>
@@ -381,26 +378,27 @@ test('spaces sort by last update and carry tmux session names', async t => {
 	await status('STA-OLD', 60_000);
 	await status('STA-NEW', 0);
 	const spaces = await gather(home, {now});
-	t.deepEqual(
-		spaces.map(s => s.name),
-		['STA-NEW', 'STA-OLD', 'a.b_c'],
-	);
-	t.is(spaces[2]!.tmuxSession, `agent-${REPO}-a_b__c`);
+	expect(spaces.map(s => s.name)).toStrictEqual([
+		'STA-NEW',
+		'STA-OLD',
+		'a.b_c',
+	]);
+	expect(spaces[2]!.tmuxSession).toBe(`agent-${REPO}-a_b__c`);
 });
 
-test('titles come from the tracker, and null when it fails or is slow', async t => {
-	const home = tempHome(t);
+test('titles come from the tracker, and null when it fails or is slow', async () => {
+	const home = tempHome();
 	openSpaces(home, ['STA-1']);
 	const [found] = await gather(home, {
 		fetchTitles: async () => new Map([['STA-1', 'Fix auth']]),
 	});
-	t.is(found!.title, 'Fix auth');
+	expect(found!.title).toBe('Fix auth');
 	const [failed] = await gather(home, {
 		async fetchTitles() {
 			throw new Error('offline');
 		},
 	});
-	t.is(failed!.title, null);
+	expect(failed!.title).toBe(null);
 	const [slow] = await gather(home, {
 		titleTimeoutMs: 20,
 		fetchTitles: async () =>
@@ -410,7 +408,7 @@ test('titles come from the tracker, and null when it fails or is slow', async t 
 				}, 500);
 			}),
 	});
-	t.is(slow!.title, null);
+	expect(slow!.title).toBe(null);
 });
 
 function git(cwd: string, ...args: string[]): void {
@@ -427,8 +425,8 @@ function git(cwd: string, ...args: string[]): void {
 	});
 }
 
-test('the git summary counts commits ahead of main and the diff since the branch point', async t => {
-	const home = tempHome(t);
+test('the git summary counts commits ahead of main and the diff since the branch point', async () => {
+	const home = tempHome();
 	const repo = path.join(home, 'repo');
 	fs.mkdirSync(repo);
 	git(repo, 'init', '-q', '-b', 'main');
@@ -448,7 +446,7 @@ test('the git summary counts commits ahead of main and the diff since the branch
 	git(repo, 'commit', '-qm', 'upstream');
 	git(repo, 'checkout', '-q', 'work');
 	fs.writeFileSync(path.join(repo, 'new.txt'), 'not added\n');
-	t.deepEqual(await worktreeGitSummary(repo), {
+	expect(await worktreeGitSummary(repo)).toStrictEqual({
 		base: 'main',
 		ahead: 2,
 		filesChanged: 2,
@@ -458,24 +456,23 @@ test('the git summary counts commits ahead of main and the diff since the branch
 	});
 });
 
-test('parseShortstat reads each count, singular or plural, and missing ones as 0', t => {
-	t.deepEqual(
+test('parseShortstat reads each count, singular or plural, and missing ones as 0', () => {
+	expect(
 		parseShortstat(' 3 files changed, 120 insertions(+), 45 deletions(-)'),
-		{filesChanged: 3, insertions: 120, deletions: 45},
-	);
-	t.deepEqual(parseShortstat(' 1 file changed, 1 deletion(-)'), {
+	).toStrictEqual({filesChanged: 3, insertions: 120, deletions: 45});
+	expect(parseShortstat(' 1 file changed, 1 deletion(-)')).toStrictEqual({
 		filesChanged: 1,
 		insertions: 0,
 		deletions: 1,
 	});
-	t.deepEqual(parseShortstat(''), {
+	expect(parseShortstat('')).toStrictEqual({
 		filesChanged: 0,
 		insertions: 0,
 		deletions: 0,
 	});
 });
 
-test('text output puts one space per line with its flags', t => {
+test('text output puts one space per line with its flags', () => {
 	const text = formatSpaces({
 		totalSpaces: 1,
 		timestamp: 0,
@@ -500,25 +497,24 @@ test('text output puts one space per line with its flags', t => {
 			},
 		],
 	});
-	t.is(
-		text,
+	expect(text).toBe(
 		'STA-1  waiting_for_input  12m ago  Fix auth  +3 commits  +2 new files  [pipeline red]  [2 unresolved]',
 	);
 });
 
-test('an agent still reporting under the bare status name is read until it reports under the qualified one', async t => {
-	const home = tempHome(t);
+test('an agent still reporting under the bare status name is read until it reports under the qualified one', async () => {
+	const home = tempHome();
 	openSpaces(home, ['STA-1']);
 	await writeStatus(home, 'STA-1', {
 		status: 'processing',
 		lastUpdate: Date.now(),
 	});
 	const before = await gather(home);
-	t.is(before[0]?.status, 'processing');
+	expect(before[0]?.status).toBe('processing');
 	await writeStatus(home, statusKey('STA-1'), {
 		status: 'ended',
 		lastUpdate: Date.now(),
 	});
 	const after = await gather(home);
-	t.is(after[0]?.status, 'ended');
+	expect(after[0]?.status).toBe('ended');
 });

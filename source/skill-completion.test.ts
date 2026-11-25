@@ -1,7 +1,9 @@
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {press} from '../test/helpers/key-press.ts';
+import {keysFromStdin} from '../test/helpers/render.ts';
 import {
 	applySkillCompletion,
 	clampSelection,
@@ -16,9 +18,9 @@ import {
 	SKILL_PICKER_MAX_VISIBLE,
 	type SkillEntry,
 } from './skill-completion.ts';
-import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
-const skillTestDir = (t: Teardown) => tempDir(t, 'pappardelle-skill-test-');
+const skillTestDir = () => tempDir('pappardelle-skill-test-');
 
 // ============================================================================
 // Test helpers
@@ -64,35 +66,35 @@ function entry(name: string, overrides: Partial<SkillEntry> = {}): SkillEntry {
 // skillQuery: when is the completion list open at all?
 // ============================================================================
 
-test('skillQuery returns the token after a leading slash', t => {
-	t.is(skillQuery('/do-pap'), 'do-pap');
+test('skillQuery returns the token after a leading slash', () => {
+	expect(skillQuery('/do-pap')).toBe('do-pap');
 });
 
-test('skillQuery returns an empty query for a bare slash', t => {
-	t.is(skillQuery('/'), '');
+test('skillQuery returns an empty query for a bare slash', () => {
+	expect(skillQuery('/')).toBe('');
 });
 
-test('skillQuery returns null when the text does not start with a slash', t => {
-	t.is(skillQuery('fix the login bug'), null);
-	t.is(skillQuery('STA-123'), null);
-	t.is(skillQuery(''), null);
+test('skillQuery returns null when the text does not start with a slash', () => {
+	expect(skillQuery('fix the login bug')).toBe(null);
+	expect(skillQuery('STA-123')).toBe(null);
+	expect(skillQuery('')).toBe(null);
 });
 
-test('skillQuery returns null once the first token is finished', t => {
-	t.is(skillQuery('/do-pappardelle make the rail wider'), null);
-	t.is(skillQuery('/do-pappardelle '), null);
+test('skillQuery returns null once the first token is finished', () => {
+	expect(skillQuery('/do-pappardelle make the rail wider')).toBe(null);
+	expect(skillQuery('/do-pappardelle ')).toBe(null);
 });
 
-test('skillQuery ignores a slash that is not the first character', t => {
-	t.is(skillQuery(' /do-pap'), null);
-	t.is(skillQuery('fix /do-pap'), null);
+test('skillQuery ignores a slash that is not the first character', () => {
+	expect(skillQuery(' /do-pap')).toBe(null);
+	expect(skillQuery('fix /do-pap')).toBe(null);
 });
 
 // ============================================================================
 // Backwards compatibility: no slash means byte-identical behavior
 // ============================================================================
 
-test('regression: ordinary prompts never open the completion list', t => {
+test('regression: ordinary prompts never open the completion list', () => {
 	const prompts = [
 		'STA-123',
 		'123',
@@ -103,7 +105,7 @@ test('regression: ordinary prompts never open the completion list', t => {
 		'   ',
 	];
 	for (const prompt of prompts) {
-		t.is(skillQuery(prompt), null, `prompt: ${prompt}`);
+		expect(skillQuery(prompt), `prompt: ${prompt}`).toBe(null);
 	}
 });
 
@@ -111,71 +113,69 @@ test('regression: ordinary prompts never open the completion list', t => {
 // matchSkills: ranking
 // ============================================================================
 
-test('matchSkills returns every entry for an empty query', t => {
+test('matchSkills returns every entry for an empty query', () => {
 	const entries = [entry('do-stardust'), entry('do-pappardelle')];
-	t.deepEqual(
-		matchSkills(entries, '').map(m => m.name),
-		['do-stardust', 'do-pappardelle'],
-	);
+	expect(matchSkills(entries, '').map(m => m.name)).toStrictEqual([
+		'do-stardust',
+		'do-pappardelle',
+	]);
 });
 
-test('matchSkills ranks prefix matches above substring matches', t => {
+test('matchSkills ranks prefix matches above substring matches', () => {
 	const entries = [entry('run-pappardelle'), entry('pappardelle-init')];
-	t.deepEqual(
-		matchSkills(entries, 'pap').map(m => m.name),
-		['pappardelle-init', 'run-pappardelle'],
-	);
+	expect(matchSkills(entries, 'pap').map(m => m.name)).toStrictEqual([
+		'pappardelle-init',
+		'run-pappardelle',
+	]);
 });
 
-test('matchSkills is case-insensitive', t => {
+test('matchSkills is case-insensitive', () => {
 	const entries = [entry('do-pappardelle')];
-	t.deepEqual(
-		matchSkills(entries, 'DO-PAP').map(m => m.name),
-		['do-pappardelle'],
-	);
+	expect(matchSkills(entries, 'DO-PAP').map(m => m.name)).toStrictEqual([
+		'do-pappardelle',
+	]);
 });
 
-test('matchSkills drops entries that do not match', t => {
+test('matchSkills drops entries that do not match', () => {
 	const entries = [entry('do-pappardelle'), entry('publish-hive-beta')];
-	t.deepEqual(
-		matchSkills(entries, 'hive').map(m => m.name),
-		['publish-hive-beta'],
-	);
+	expect(matchSkills(entries, 'hive').map(m => m.name)).toStrictEqual([
+		'publish-hive-beta',
+	]);
 });
 
-test('matchSkills ranks repo entries above user entries within a tier', t => {
+test('matchSkills ranks repo entries above user entries within a tier', () => {
 	const entries = [
 		entry('papa-user', {source: 'user'}),
 		entry('papa-repo', {source: 'repo'}),
 	];
-	t.deepEqual(
-		matchSkills(entries, 'papa').map(m => m.name),
-		['papa-repo', 'papa-user'],
-	);
+	expect(matchSkills(entries, 'papa').map(m => m.name)).toStrictEqual([
+		'papa-repo',
+		'papa-user',
+	]);
 });
 
-test('matchSkills ranks plugin entries below user entries within a tier', t => {
+test('matchSkills ranks plugin entries below user entries within a tier', () => {
 	const entries = [
 		entry('papa:plugin', {source: 'plugin'}),
 		entry('papa-user', {source: 'user'}),
 	];
-	t.deepEqual(
-		matchSkills(entries, 'papa').map(m => m.name),
-		['papa-user', 'papa:plugin'],
-	);
+	expect(matchSkills(entries, 'papa').map(m => m.name)).toStrictEqual([
+		'papa-user',
+		'papa:plugin',
+	]);
 });
 
-test('matchSkills does not match against descriptions', t => {
+test('matchSkills does not match against descriptions', () => {
 	const entries = [entry('publish-hive-beta', {description: 'pappardelle'})];
-	t.deepEqual(matchSkills(entries, 'pappardelle'), []);
+	expect(matchSkills(entries, 'pappardelle')).toStrictEqual([]);
 });
 
 // ============================================================================
 // applySkillCompletion
 // ============================================================================
 
-test('applySkillCompletion replaces the token and adds a trailing space', t => {
-	t.is(applySkillCompletion('do-pappardelle'), '/do-pappardelle ');
+test('applySkillCompletion replaces the token and adds a trailing space', () => {
+	expect(applySkillCompletion('do-pappardelle')).toBe('/do-pappardelle ');
 });
 
 // ============================================================================
@@ -188,80 +188,97 @@ const PAINT_ENTRIES = [
 	entry('db:reset', {kind: 'command'}),
 ];
 
-test('skillTokenLength measures a completed name followed by a description', t => {
-	t.is(
+test('skillTokenLength measures a completed name followed by a description', () => {
+	expect(
 		skillTokenLength('/do-pappardelle fix the picker', PAINT_ENTRIES),
-		'/do-pappardelle'.length,
+	).toBe('/do-pappardelle'.length);
+});
+
+test('skillTokenLength measures a name that is the whole prompt', () => {
+	expect(skillTokenLength('/do-platform', PAINT_ENTRIES)).toBe(
+		'/do-platform'.length,
 	);
 });
 
-test('skillTokenLength measures a name that is the whole prompt', t => {
-	t.is(skillTokenLength('/do-platform', PAINT_ENTRIES), '/do-platform'.length);
+test('skillTokenLength leaves a half-typed name unpainted', () => {
+	expect(skillTokenLength('/do-pap', PAINT_ENTRIES)).toBe(0);
 });
 
-test('skillTokenLength leaves a half-typed name unpainted', t => {
-	t.is(skillTokenLength('/do-pap', PAINT_ENTRIES), 0);
+test('skillTokenLength leaves a name nobody has installed unpainted', () => {
+	expect(skillTokenLength('/not-a-real-skill run it', PAINT_ENTRIES)).toBe(0);
 });
 
-test('skillTokenLength leaves a name nobody has installed unpainted', t => {
-	t.is(skillTokenLength('/not-a-real-skill run it', PAINT_ENTRIES), 0);
+test('skillTokenLength paints a nested command in its colon form', () => {
+	expect(skillTokenLength('/db:reset now', PAINT_ENTRIES)).toBe(
+		'/db:reset'.length,
+	);
 });
 
-test('skillTokenLength paints a nested command in its colon form', t => {
-	t.is(skillTokenLength('/db:reset now', PAINT_ENTRIES), '/db:reset'.length);
+test('skillTokenLength ignores a prompt that does not begin with a slash', () => {
+	expect(skillTokenLength('do-pappardelle', PAINT_ENTRIES)).toBe(0);
+	expect(skillTokenLength('add a backend endpoint', PAINT_ENTRIES)).toBe(0);
+	expect(skillTokenLength('STA-123', PAINT_ENTRIES)).toBe(0);
+	expect(skillTokenLength('', PAINT_ENTRIES)).toBe(0);
 });
 
-test('skillTokenLength ignores a prompt that does not begin with a slash', t => {
-	t.is(skillTokenLength('do-pappardelle', PAINT_ENTRIES), 0);
-	t.is(skillTokenLength('add a backend endpoint', PAINT_ENTRIES), 0);
-	t.is(skillTokenLength('STA-123', PAINT_ENTRIES), 0);
-	t.is(skillTokenLength('', PAINT_ENTRIES), 0);
-});
-
-test('skillTokenLength matches the name exactly, not a prefix of it', t => {
+test('skillTokenLength matches the name exactly, not a prefix of it', () => {
 	// `/do-plat` is a prefix of an installed name but is not itself installed.
-	t.is(skillTokenLength('/do-plat form', PAINT_ENTRIES), 0);
+	expect(skillTokenLength('/do-plat form', PAINT_ENTRIES)).toBe(0);
 });
 
 // ============================================================================
 // handleSkillPickerKey
 // ============================================================================
 
-test('handleSkillPickerKey clamps movement at both ends', t => {
-	t.deepEqual(handleSkillPickerKey({upArrow: true}, 0, 3), {
+test('handleSkillPickerKey clamps movement at both ends', () => {
+	expect(handleSkillPickerKey(press('up'), 0, 3)).toStrictEqual({
 		action: 'move',
 		index: 0,
 	});
-	t.deepEqual(handleSkillPickerKey({downArrow: true}, 2, 3), {
+	expect(handleSkillPickerKey(press('down'), 2, 3)).toStrictEqual({
 		action: 'move',
 		index: 2,
 	});
-	t.deepEqual(handleSkillPickerKey({downArrow: true}, 0, 3), {
+	expect(handleSkillPickerKey(press('down'), 0, 3)).toStrictEqual({
 		action: 'move',
 		index: 1,
 	});
 });
 
-test('handleSkillPickerKey ignores plain j and k so they stay typable', t => {
-	t.deepEqual(handleSkillPickerKey({}, 1, 3), {action: 'ignore', index: 1});
+test('handleSkillPickerKey ignores plain j and k so they stay typable', () => {
+	expect(handleSkillPickerKey(press('j'), 1, 3)).toStrictEqual({
+		action: 'ignore',
+		index: 1,
+	});
+	expect(handleSkillPickerKey(press('k'), 1, 3)).toStrictEqual({
+		action: 'ignore',
+		index: 1,
+	});
 });
 
-test('handleSkillPickerKey reports escape as a close', t => {
-	t.deepEqual(handleSkillPickerKey({escape: true}, 1, 3), {
+test('handleSkillPickerKey reports escape as a close', () => {
+	expect(handleSkillPickerKey(press('escape'), 1, 3)).toStrictEqual({
 		action: 'close',
 		index: 1,
 	});
 });
 
-test('handleSkillPickerKey accepts on tab, so the prompt never has to leave', t => {
-	t.deepEqual(handleSkillPickerKey({tab: true}, 2, 3), {
+test('handleSkillPickerKey accepts on tab, so the prompt never has to leave', () => {
+	expect(handleSkillPickerKey(press('tab'), 2, 3)).toStrictEqual({
 		action: 'accept',
 		index: 2,
 	});
 });
 
-test('handleSkillPickerKey ignores tab when the list is empty', t => {
-	t.deepEqual(handleSkillPickerKey({tab: true}, 0, 0), {
+test('handleSkillPickerKey accepts on Shift+Tab as OpenTUI delivers it', async () => {
+	const keys = await keysFromStdin('\x1b[Z');
+	expect(keys.map(key => handleSkillPickerKey(key, 2, 3))).toStrictEqual([
+		{action: 'accept', index: 2},
+	]);
+});
+
+test('handleSkillPickerKey ignores tab when the list is empty', () => {
+	expect(handleSkillPickerKey(press('tab'), 0, 0)).toStrictEqual({
 		action: 'ignore',
 		index: 0,
 	});
@@ -271,67 +288,76 @@ test('handleSkillPickerKey ignores tab when the list is empty', t => {
 // handleSkillListKey: the same list, once Enter has handed it the focus
 // ============================================================================
 
-test('handleSkillListKey moves on arrows and clamps at both ends', t => {
-	t.deepEqual(handleSkillListKey('', {upArrow: true}, 0, 3), {
+test('handleSkillListKey moves on arrows and clamps at both ends', () => {
+	expect(handleSkillListKey(press('up'), 0, 3)).toStrictEqual({
 		action: 'move',
 		index: 0,
 	});
-	t.deepEqual(handleSkillListKey('', {downArrow: true}, 2, 3), {
+	expect(handleSkillListKey(press('down'), 2, 3)).toStrictEqual({
 		action: 'move',
 		index: 2,
 	});
-	t.deepEqual(handleSkillListKey('', {downArrow: true}, 0, 3), {
+	expect(handleSkillListKey(press('down'), 0, 3)).toStrictEqual({
 		action: 'move',
 		index: 1,
 	});
 });
 
-test('handleSkillListKey moves on j and k, which the frozen input no longer needs', t => {
-	t.deepEqual(handleSkillListKey('j', {}, 0, 3), {action: 'move', index: 1});
-	t.deepEqual(handleSkillListKey('k', {}, 2, 3), {action: 'move', index: 1});
-});
-
-test('handleSkillListKey accepts on both enter and tab', t => {
-	t.deepEqual(handleSkillListKey('', {return: true}, 1, 3), {
-		action: 'accept',
+test('handleSkillListKey moves on j and k, which the frozen input no longer needs', () => {
+	expect(handleSkillListKey(press('j'), 0, 3)).toStrictEqual({
+		action: 'move',
 		index: 1,
 	});
-	t.deepEqual(handleSkillListKey('', {tab: true}, 1, 3), {
-		action: 'accept',
+	expect(handleSkillListKey(press('k'), 2, 3)).toStrictEqual({
+		action: 'move',
 		index: 1,
 	});
 });
 
-test('handleSkillListKey ignores an accept for a row that is not there', t => {
-	t.deepEqual(handleSkillListKey('', {return: true}, 0, 0), {
+test('handleSkillListKey accepts on both enter and tab', () => {
+	expect(handleSkillListKey(press('return'), 1, 3)).toStrictEqual({
+		action: 'accept',
+		index: 1,
+	});
+	expect(handleSkillListKey(press('tab'), 1, 3)).toStrictEqual({
+		action: 'accept',
+		index: 1,
+	});
+});
+
+test('handleSkillListKey ignores an accept for a row that is not there', () => {
+	expect(handleSkillListKey(press('return'), 0, 0)).toStrictEqual({
 		action: 'ignore',
 		index: 0,
 	});
 });
 
-test('handleSkillListKey hands the focus back on escape', t => {
-	t.deepEqual(handleSkillListKey('', {escape: true}, 2, 3), {
+test('handleSkillListKey hands the focus back on escape', () => {
+	expect(handleSkillListKey(press('escape'), 2, 3)).toStrictEqual({
 		action: 'back',
 		index: 2,
 	});
 });
 
-test('handleSkillListKey ignores an ordinary letter', t => {
-	t.deepEqual(handleSkillListKey('q', {}, 1, 3), {action: 'ignore', index: 1});
+test('handleSkillListKey ignores an ordinary letter', () => {
+	expect(handleSkillListKey(press('q'), 1, 3)).toStrictEqual({
+		action: 'ignore',
+		index: 1,
+	});
 });
 
 // ============================================================================
 // discoverSkills
 // ============================================================================
 
-test('discoverSkills reads repo skills with their descriptions', async t => {
-	const repo = skillTestDir(t);
+test('discoverSkills reads repo skills with their descriptions', async () => {
+	const repo = skillTestDir();
 	writeSkill(repo, 'do-pappardelle', 'Work through a TODO checklist.');
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: skillTestDir(t),
+		homeDir: skillTestDir(),
 	});
-	t.deepEqual(found, [
+	expect(found).toStrictEqual([
 		{
 			name: 'do-pappardelle',
 			description: 'Work through a TODO checklist.',
@@ -341,94 +367,86 @@ test('discoverSkills reads repo skills with their descriptions', async t => {
 	]);
 });
 
-test('discoverSkills tolerates a skill with no description', async t => {
-	const repo = skillTestDir(t);
+test('discoverSkills tolerates a skill with no description', async () => {
+	const repo = skillTestDir();
 	writeSkill(repo, 'bare', null);
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: skillTestDir(t),
+		homeDir: skillTestDir(),
 	});
-	t.is(found[0]?.description, '');
+	expect(found[0]?.description).toBe('');
 });
 
-test('discoverSkills reads commands, including nested ones', async t => {
-	const repo = skillTestDir(t);
+test('discoverSkills reads commands, including nested ones', async () => {
+	const repo = skillTestDir();
 	writeCommand(repo, 'deploy', 'Ship it.');
 	writeCommand(repo, 'db/reset', 'Reset the database.');
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: skillTestDir(t),
+		homeDir: skillTestDir(),
 	});
-	t.deepEqual(found.map(f => f.name).sort(), ['db:reset', 'deploy']);
-	t.true(found.every(f => f.kind === 'command'));
+	expect(found.map(f => f.name).sort()).toStrictEqual(['db:reset', 'deploy']);
+	expect(found.every(f => f.kind === 'command')).toBe(true);
 });
 
-test('discoverSkills includes user skills and marks their source', async t => {
-	const repo = skillTestDir(t);
-	const home = skillTestDir(t);
+test('discoverSkills includes user skills and marks their source', async () => {
+	const repo = skillTestDir();
+	const home = skillTestDir();
 	writeSkill(repo, 'repo-skill', 'From the repo.');
 	writeSkill(home, 'user-skill', 'From home.');
 	const found = await discoverSkills({repoRoot: repo, homeDir: home});
-	t.deepEqual(
-		found.map(f => [f.name, f.source]),
-		[
-			['repo-skill', 'repo'],
-			['user-skill', 'user'],
-		],
-	);
+	expect(found.map(f => [f.name, f.source])).toStrictEqual([
+		['repo-skill', 'repo'],
+		['user-skill', 'user'],
+	]);
 });
 
-test('discoverSkills lets a repo entry hide a user entry of the same name', async t => {
-	const repo = skillTestDir(t);
-	const home = skillTestDir(t);
+test('discoverSkills lets a repo entry hide a user entry of the same name', async () => {
+	const repo = skillTestDir();
+	const home = skillTestDir();
 	writeSkill(repo, 'shared', 'Repo version.');
 	writeSkill(home, 'shared', 'User version.');
 	const found = await discoverSkills({repoRoot: repo, homeDir: home});
-	t.is(found.length, 1);
-	t.is(found[0]?.description, 'Repo version.');
-	t.is(found[0]?.source, 'repo');
+	expect(found.length).toBe(1);
+	expect(found[0]?.description).toBe('Repo version.');
+	expect(found[0]?.source).toBe('repo');
 });
 
-test('discoverSkills returns an empty list when nothing is installed', async t => {
-	t.deepEqual(
+test('discoverSkills returns an empty list when nothing is installed', async () => {
+	expect(
 		await discoverSkills({
-			repoRoot: skillTestDir(t),
-			homeDir: skillTestDir(t),
+			repoRoot: skillTestDir(),
+			homeDir: skillTestDir(),
 		}),
-		[],
-	);
+	).toStrictEqual([]);
 });
 
-test('discoverSkills skips a skill directory with no SKILL.md', async t => {
-	const repo = skillTestDir(t);
+test('discoverSkills skips a skill directory with no SKILL.md', async () => {
+	const repo = skillTestDir();
 	fs.mkdirSync(path.join(repo, '.claude', 'skills', 'empty'), {
 		recursive: true,
 	});
-	t.deepEqual(
+	expect(
 		await discoverSkills({
 			repoRoot: repo,
-			homeDir: skillTestDir(t),
+			homeDir: skillTestDir(),
 		}),
-		[],
-	);
+	).toStrictEqual([]);
 });
 
-test('discoverSkills sorts entries by name within each source', async t => {
-	const repo = skillTestDir(t);
+test('discoverSkills sorts entries by name within each source', async () => {
+	const repo = skillTestDir();
 	writeSkill(repo, 'zebra', 'Z.');
 	writeSkill(repo, 'alpha', 'A.');
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: skillTestDir(t),
+		homeDir: skillTestDir(),
 	});
-	t.deepEqual(
-		found.map(f => f.name),
-		['alpha', 'zebra'],
-	);
+	expect(found.map(f => f.name)).toStrictEqual(['alpha', 'zebra']);
 });
 
-test('discoverSkills reads a description from the top of a long SKILL.md', async t => {
-	const repo = skillTestDir(t);
+test('discoverSkills reads a description from the top of a long SKILL.md', async () => {
+	const repo = skillTestDir();
 	writeSkill(repo, 'long', 'Near the top.');
 	fs.appendFileSync(
 		path.join(repo, '.claude', 'skills', 'long', 'SKILL.md'),
@@ -436,13 +454,13 @@ test('discoverSkills reads a description from the top of a long SKILL.md', async
 	);
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: skillTestDir(t),
+		homeDir: skillTestDir(),
 	});
-	t.is(found[0]?.description, 'Near the top.');
+	expect(found[0]?.description).toBe('Near the top.');
 });
 
-test('discoverSkills reads frontmatter up to 4096 characters, not bytes', async t => {
-	const repo = skillTestDir(t);
+test('discoverSkills reads frontmatter up to 4096 characters, not bytes', async () => {
+	const repo = skillTestDir();
 	const dir = path.join(repo, '.claude', 'skills', 'cjk');
 	fs.mkdirSync(dir, {recursive: true});
 	// 1500 three-byte characters push the description past byte 4096 while
@@ -453,31 +471,28 @@ test('discoverSkills reads frontmatter up to 4096 characters, not bytes', async 
 	);
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: skillTestDir(t),
+		homeDir: skillTestDir(),
 	});
-	t.is(found[0]?.description, 'cjk desc');
+	expect(found[0]?.description).toBe('cjk desc');
 });
 
-test('discoverSkills keeps the other scope when one skills path is a file', async t => {
-	const repo = skillTestDir(t);
-	const home = skillTestDir(t);
+test('discoverSkills keeps the other scope when one skills path is a file', async () => {
+	const repo = skillTestDir();
+	const home = skillTestDir();
 	fs.mkdirSync(path.join(repo, '.claude'), {recursive: true});
 	fs.writeFileSync(path.join(repo, '.claude', 'skills'), 'not a directory');
 	writeCommand(repo, 'deploy', 'Ship it.');
 	writeSkill(home, 'user-skill', 'From home.');
 	const found = await discoverSkills({repoRoot: repo, homeDir: home});
-	t.deepEqual(
-		found.map(f => [f.name, f.source]),
-		[
-			['deploy', 'repo'],
-			['user-skill', 'user'],
-		],
-	);
+	expect(found.map(f => [f.name, f.source])).toStrictEqual([
+		['deploy', 'repo'],
+		['user-skill', 'user'],
+	]);
 });
 
-test('discoverSkills follows a symlinked command file and directory', async t => {
-	const repo = skillTestDir(t);
-	const shared = skillTestDir(t);
+test('discoverSkills follows a symlinked command file and directory', async () => {
+	const repo = skillTestDir();
+	const shared = skillTestDir();
 	fs.writeFileSync(
 		path.join(shared, 'linked.md'),
 		'---\ndescription: Linked.\n---\n',
@@ -498,35 +513,29 @@ test('discoverSkills follows a symlinked command file and directory', async t =>
 
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: skillTestDir(t),
+		homeDir: skillTestDir(),
 	});
-	t.deepEqual(
-		found.map(f => [f.name, f.description]),
-		[
-			['linked', 'Linked.'],
-			['ops:restart', ''],
-		],
-	);
+	expect(found.map(f => [f.name, f.description])).toStrictEqual([
+		['linked', 'Linked.'],
+		['ops:restart', ''],
+	]);
 });
 
-test('discoverSkills stops at a command symlink back to an ancestor', async t => {
-	const repo = skillTestDir(t);
+test('discoverSkills stops at a command symlink back to an ancestor', async () => {
+	const repo = skillTestDir();
 	writeCommand(repo, 'loop/inner', null);
 	const commands = path.join(repo, '.claude', 'commands');
 	fs.symlinkSync(commands, path.join(commands, 'loop', 'back'));
 
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: skillTestDir(t),
+		homeDir: skillTestDir(),
 	});
-	t.deepEqual(
-		found.map(f => f.name),
-		['loop:inner'],
-	);
+	expect(found.map(f => f.name)).toStrictEqual(['loop:inner']);
 });
 
-test('discoverSkills hides skills and commands marked user-invocable: false', async t => {
-	const repo = skillTestDir(t);
+test('discoverSkills hides skills and commands marked user-invocable: false', async () => {
+	const repo = skillTestDir();
 	writeSkill(repo, 'visible', 'Shown.');
 	const hidden = path.join(repo, '.claude', 'skills', 'internal');
 	fs.mkdirSync(hidden, {recursive: true});
@@ -540,12 +549,9 @@ test('discoverSkills hides skills and commands marked user-invocable: false', as
 
 	const found = await discoverSkills({
 		repoRoot: repo,
-		homeDir: skillTestDir(t),
+		homeDir: skillTestDir(),
 	});
-	t.deepEqual(
-		found.map(f => f.name),
-		['visible'],
-	);
+	expect(found.map(f => f.name)).toStrictEqual(['visible']);
 });
 
 type PluginSpec = {
@@ -554,8 +560,8 @@ type PluginSpec = {
 	projectPath?: string;
 };
 
-function installPlugin(t: Teardown, home: string, spec: PluginSpec): string {
-	const installPath = skillTestDir(t);
+function installPlugin(home: string, spec: PluginSpec): string {
+	const installPath = skillTestDir();
 	if (spec.manifest) {
 		fs.mkdirSync(path.join(installPath, '.claude-plugin'));
 		fs.writeFileSync(
@@ -599,10 +605,10 @@ function enablePlugins(
 	);
 }
 
-test('discoverSkills lists enabled plugin skills and commands under the plugin name', async t => {
-	const repo = skillTestDir(t);
-	const home = skillTestDir(t);
-	const plugin = installPlugin(t, home, {
+test('discoverSkills lists enabled plugin skills and commands under the plugin name', async () => {
+	const repo = skillTestDir();
+	const home = skillTestDir();
+	const plugin = installPlugin(home, {
 		key: 'tools@market',
 		manifest: {name: 'tools'},
 	});
@@ -616,19 +622,18 @@ test('discoverSkills lists enabled plugin skills and commands under the plugin n
 	enablePlugins(home, 'settings.json', {'tools@market': true});
 
 	const found = await discoverSkills({repoRoot: repo, homeDir: home});
-	t.deepEqual(
+	expect(
 		found.map(f => [f.name, f.source, f.kind, f.description]),
-		[
-			['tools:db:reset', 'plugin', 'command', ''],
-			['tools:lint', 'plugin', 'skill', 'Lint it.'],
-		],
-	);
+	).toStrictEqual([
+		['tools:db:reset', 'plugin', 'command', ''],
+		['tools:lint', 'plugin', 'skill', 'Lint it.'],
+	]);
 });
 
-test('discoverSkills follows the skill and command paths a plugin manifest names', async t => {
-	const repo = skillTestDir(t);
-	const home = skillTestDir(t);
-	const plugin = installPlugin(t, home, {
+test('discoverSkills follows the skill and command paths a plugin manifest names', async () => {
+	const repo = skillTestDir();
+	const home = skillTestDir();
+	const plugin = installPlugin(home, {
 		key: 'deep@market',
 		manifest: {
 			name: 'deep',
@@ -653,26 +658,27 @@ test('discoverSkills follows the skill and command paths a plugin manifest names
 	enablePlugins(home, 'settings.json', {'deep@market': true});
 
 	const found = await discoverSkills({repoRoot: repo, homeDir: home});
-	t.deepEqual(
-		found.map(f => f.name),
-		['deep:review', 'deep:run', 'deep:tdd'],
-	);
+	expect(found.map(f => f.name)).toStrictEqual([
+		'deep:review',
+		'deep:run',
+		'deep:tdd',
+	]);
 });
 
-test('discoverSkills skips plugins that are disabled, not enabled here, or installed for another project', async t => {
-	const repo = skillTestDir(t);
-	const home = skillTestDir(t);
+test('discoverSkills skips plugins that are disabled, not enabled here, or installed for another project', async () => {
+	const repo = skillTestDir();
+	const home = skillTestDir();
 	const keys = ['off@m', 'repo-off@m', 'other-project@m', 'repo-on@m'];
 	for (const key of keys) {
-		const plugin = installPlugin(t, home, {
+		const plugin = installPlugin(home, {
 			key,
-			projectPath: key === 'other-project@m' ? skillTestDir(t) : undefined,
+			projectPath: key === 'other-project@m' ? skillTestDir() : undefined,
 		});
 		fs.mkdirSync(path.join(plugin, 'commands'));
 		fs.writeFileSync(path.join(plugin, 'commands', 'go.md'), 'Go.\n');
 	}
 
-	installPlugin(t, home, {key: 'never-enabled@m'});
+	installPlugin(home, {key: 'never-enabled@m'});
 	enablePlugins(home, 'settings.json', {
 		'off@m': false,
 		'repo-off@m': true,
@@ -682,14 +688,11 @@ test('discoverSkills skips plugins that are disabled, not enabled here, or insta
 	enablePlugins(repo, 'settings.local.json', {'repo-off@m': false});
 
 	const found = await discoverSkills({repoRoot: repo, homeDir: home});
-	t.deepEqual(
-		found.map(f => f.name),
-		['repo-on:go'],
-	);
+	expect(found.map(f => f.name)).toStrictEqual(['repo-on:go']);
 });
 
-function gitRepoWithWorktrees(t: Teardown, worktreeCount: number) {
-	const main = skillTestDir(t);
+function gitRepoWithWorktrees(worktreeCount: number) {
+	const main = skillTestDir();
 	const git = (...args: string[]) =>
 		execFileSync('git', ['-C', main, ...args], {stdio: 'pipe'});
 	git('init', '-q');
@@ -707,7 +710,7 @@ function gitRepoWithWorktrees(t: Teardown, worktreeCount: number) {
 		'initial',
 	);
 	const worktrees = Array.from({length: worktreeCount}, (_, index) => {
-		const worktree = path.join(skillTestDir(t), 'worktree');
+		const worktree = path.join(skillTestDir(), 'worktree');
 		git('worktree', 'add', '-q', '-b', `linked-${index}`, worktree);
 		return worktree;
 	});
@@ -715,12 +718,11 @@ function gitRepoWithWorktrees(t: Teardown, worktreeCount: number) {
 }
 
 function installEnabledCommandPlugin(
-	t: Teardown,
 	home: string,
 	key: string,
 	projectPath: string,
 ) {
-	const plugin = installPlugin(t, home, {key, projectPath});
+	const plugin = installPlugin(home, {key, projectPath});
 	fs.mkdirSync(path.join(plugin, 'commands'));
 	fs.writeFileSync(path.join(plugin, 'commands', 'go.md'), 'Go.\n');
 	const settings = path.join(home, '.claude', 'settings.json');
@@ -734,41 +736,39 @@ function installEnabledCommandPlugin(
 	enablePlugins(home, 'settings.json', {...enabled, [key]: true});
 }
 
-test('discoverSkills offers a project plugin in every worktree of the repository it was installed in', async t => {
-	const {main, worktrees} = gitRepoWithWorktrees(t, 2);
+test('discoverSkills offers a project plugin in every worktree of the repository it was installed in', async () => {
+	const {main, worktrees} = gitRepoWithWorktrees(2);
 	const [here, sibling] = worktrees as [string, string];
 	const subdirectory = path.join(main, 'packages', 'app');
 	fs.mkdirSync(subdirectory, {recursive: true});
-	const otherRepo = gitRepoWithWorktrees(t, 0).main;
-	const home = skillTestDir(t);
-	installEnabledCommandPlugin(t, home, 'main@m', main);
-	installEnabledCommandPlugin(t, home, 'sibling@m', sibling);
-	installEnabledCommandPlugin(t, home, 'subdirectory@m', subdirectory);
-	installEnabledCommandPlugin(t, home, 'other-repo@m', otherRepo);
+	const otherRepo = gitRepoWithWorktrees(0).main;
+	const home = skillTestDir();
+	installEnabledCommandPlugin(home, 'main@m', main);
+	installEnabledCommandPlugin(home, 'sibling@m', sibling);
+	installEnabledCommandPlugin(home, 'subdirectory@m', subdirectory);
+	installEnabledCommandPlugin(home, 'other-repo@m', otherRepo);
 	installEnabledCommandPlugin(
-		t,
 		home,
 		'removed@m',
 		path.join(main, '.claude', 'worktrees', 'removed'),
 	);
 
 	const found = await discoverSkills({repoRoot: here, homeDir: home});
-	t.deepEqual(
-		found.map(f => f.name),
-		['main:go', 'removed:go', 'sibling:go', 'subdirectory:go'],
-	);
+	expect(found.map(f => f.name)).toStrictEqual([
+		'main:go',
+		'removed:go',
+		'sibling:go',
+		'subdirectory:go',
+	]);
 });
 
-test('discoverSkills offers a project plugin installed in a worktree from the main checkout', async t => {
-	const {main, worktrees} = gitRepoWithWorktrees(t, 1);
-	const home = skillTestDir(t);
-	installEnabledCommandPlugin(t, home, 'linked@m', worktrees[0]!);
+test('discoverSkills offers a project plugin installed in a worktree from the main checkout', async () => {
+	const {main, worktrees} = gitRepoWithWorktrees(1);
+	const home = skillTestDir();
+	installEnabledCommandPlugin(home, 'linked@m', worktrees[0]!);
 
 	const found = await discoverSkills({repoRoot: main, homeDir: home});
-	t.deepEqual(
-		found.map(f => f.name),
-		['linked:go'],
-	);
+	expect(found.map(f => f.name)).toStrictEqual(['linked:go']);
 });
 
 // ============================================================================
@@ -788,17 +788,17 @@ function deferred<T>() {
 const rootsA = {repoRoot: '/repo-a', homeDir: '/home'};
 const rootsB = {repoRoot: '/repo-b', homeDir: '/home'};
 
-test('createSkillSnapshot holds nothing until a scan completes', async t => {
+test('createSkillSnapshot holds nothing until a scan completes', async () => {
 	const scan = deferred<SkillEntry[]>();
 	const store = createSkillSnapshot(async () => scan.promise);
 	const refreshed = store.refresh(rootsA);
-	t.is(store.current(rootsA), undefined);
+	expect(store.current(rootsA)).toBe(undefined);
 	scan.resolve([entry('alpha')]);
-	t.deepEqual(await refreshed, [entry('alpha')]);
-	t.deepEqual(store.current(rootsA), [entry('alpha')]);
+	expect(await refreshed).toStrictEqual([entry('alpha')]);
+	expect(store.current(rootsA)).toStrictEqual([entry('alpha')]);
 });
 
-test('createSkillSnapshot joins a scan already running for the same roots', async t => {
+test('createSkillSnapshot joins a scan already running for the same roots', async () => {
 	const scan = deferred<SkillEntry[]>();
 	let calls = 0;
 	const store = createSkillSnapshot(async () => {
@@ -808,27 +808,27 @@ test('createSkillSnapshot joins a scan already running for the same roots', asyn
 	const first = store.refresh(rootsA);
 	const second = store.refresh(rootsA);
 	scan.resolve([entry('alpha')]);
-	t.deepEqual(await Promise.all([first, second]), [
+	expect(await Promise.all([first, second])).toStrictEqual([
 		[entry('alpha')],
 		[entry('alpha')],
 	]);
-	t.is(calls, 1);
+	expect(calls).toBe(1);
 	await store.refresh(rootsA);
-	t.is(calls, 2);
+	expect(calls).toBe(2);
 });
 
-test('createSkillSnapshot keeps the previous snapshot when a rescan fails', async t => {
+test('createSkillSnapshot keeps the previous snapshot when a rescan fails', async () => {
 	let next: () => Promise<SkillEntry[]> = async () => [entry('alpha')];
 	const store = createSkillSnapshot(async () => next());
 	await store.refresh(rootsA);
 	next = async () => {
 		throw new Error('EACCES');
 	};
-	t.deepEqual(await store.refresh(rootsA), [entry('alpha')]);
-	t.deepEqual(store.current(rootsA), [entry('alpha')]);
+	expect(await store.refresh(rootsA)).toStrictEqual([entry('alpha')]);
+	expect(store.current(rootsA)).toStrictEqual([entry('alpha')]);
 });
 
-test('createSkillSnapshot keeps the newer roots when an older scan lands last', async t => {
+test('createSkillSnapshot keeps the newer roots when an older scan lands last', async () => {
 	const scanA = deferred<SkillEntry[]>();
 	const scanB = deferred<SkillEntry[]>();
 	const store = createSkillSnapshot(async roots =>
@@ -840,68 +840,70 @@ test('createSkillSnapshot keeps the newer roots when an older scan lands last', 
 	await refreshB;
 	scanA.resolve([entry('from-a')]);
 	await refreshA;
-	t.deepEqual(store.current(rootsB), [entry('from-b')]);
-	t.is(store.current(rootsA), undefined);
+	expect(store.current(rootsB)).toStrictEqual([entry('from-b')]);
+	expect(store.current(rootsA)).toBe(undefined);
 });
 
-test('createSkillSnapshot does not serve a snapshot taken for other roots', async t => {
+test('createSkillSnapshot does not serve a snapshot taken for other roots', async () => {
 	const store = createSkillSnapshot(async roots => [entry(roots.repoRoot)]);
 	await store.refresh(rootsA);
-	t.is(store.current(rootsB), undefined);
-	t.deepEqual(await store.refresh(rootsB), [entry('/repo-b')]);
+	expect(store.current(rootsB)).toBe(undefined);
+	expect(await store.refresh(rootsB)).toStrictEqual([entry('/repo-b')]);
 });
 
-test('SKILL_PICKER_MAX_VISIBLE keeps the box a sane height', t => {
-	t.true(SKILL_PICKER_MAX_VISIBLE >= 3 && SKILL_PICKER_MAX_VISIBLE <= 8);
+test('SKILL_PICKER_MAX_VISIBLE keeps the box a sane height', () => {
+	expect(SKILL_PICKER_MAX_VISIBLE >= 3 && SKILL_PICKER_MAX_VISIBLE <= 8).toBe(
+		true,
+	);
 });
 
 // ============================================================================
 // clampSelection: the rendered highlight and the accepted entry must agree
 // ============================================================================
 
-test('clampSelection leaves an in-range index alone', t => {
-	t.is(clampSelection(2, 5), 2);
+test('clampSelection leaves an in-range index alone', () => {
+	expect(clampSelection(2, 5)).toBe(2);
 });
 
-test('clampSelection falls back to the first row when the list shrinks', t => {
-	t.is(clampSelection(4, 2), 0);
+test('clampSelection falls back to the first row when the list shrinks', () => {
+	expect(clampSelection(4, 2)).toBe(0);
 });
 
-test('clampSelection treats an index one past the end as out of range', t => {
-	t.is(clampSelection(2, 2), 0);
+test('clampSelection treats an index one past the end as out of range', () => {
+	expect(clampSelection(2, 2)).toBe(0);
 });
 
-test('clampSelection returns zero for an empty list', t => {
-	t.is(clampSelection(3, 0), 0);
+test('clampSelection returns zero for an empty list', () => {
+	expect(clampSelection(3, 0)).toBe(0);
 });
 
-test('clampSelection floors a negative index at zero', t => {
-	t.is(clampSelection(-1, 5), 0);
+test('clampSelection floors a negative index at zero', () => {
+	expect(clampSelection(-1, 5)).toBe(0);
 });
 
-test('regression: a narrowed list never strands Enter on a missing entry', t => {
+test('regression: a narrowed list never strands Enter on a missing entry', () => {
 	// Arrow down to row 3, then type until only two entries survive. The
 	// rendered highlight and the entry Enter accepts have to be the same row,
 	// or Enter silently does nothing.
 	const narrowed = [entry('do-pappardelle'), entry('do-personal')];
 	const index = clampSelection(3, narrowed.length);
-	t.is(index, 0);
-	t.truthy(narrowed[index]);
+	expect(index).toBe(0);
+	expect(narrowed[index]).toBeTruthy();
 });
 
 // ============================================================================
 // reanchorSelection
 // ============================================================================
 
-test('reanchorSelection follows the highlighted skill when a new one sorts ahead', t => {
+test('reanchorSelection follows the highlighted skill when a new one sorts ahead', () => {
 	const after = [entry('do-alpha'), entry('do-new'), entry('do-plan')];
-	t.is(reanchorSelection('do-plan', after), 2);
+	expect(reanchorSelection('do-plan', after)).toBe(2);
 });
 
-test('reanchorSelection falls back to the top when the highlighted skill is gone', t => {
-	t.is(reanchorSelection('removed', [entry('a'), entry('b')]), 0);
+test('reanchorSelection falls back to the top when the highlighted skill is gone', () => {
+	expect(reanchorSelection('removed', [entry('a'), entry('b')])).toBe(0);
 });
 
-test('reanchorSelection starts at the top when nothing was highlighted', t => {
-	t.is(reanchorSelection(undefined, [entry('a'), entry('b')]), 0);
+test('reanchorSelection starts at the top when nothing was highlighted', () => {
+	expect(reanchorSelection(undefined, [entry('a'), entry('b')])).toBe(0);
 });

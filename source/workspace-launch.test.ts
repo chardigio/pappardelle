@@ -2,7 +2,8 @@ import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 
 function writeScript(filename: string, script: string) {
 	execFileSync('shellcheck', ['-s', 'bash', '-'], {input: script});
@@ -22,9 +23,9 @@ for (const scenario of [
 		resume: false,
 	},
 ]) {
-	test(scenario.title, t => {
+	test(scenario.title, () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-launch-'));
-		t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+		teardown(() => fs.rmSync(root, {recursive: true, force: true}));
 		const bin = path.join(root, 'bin');
 		fs.mkdirSync(bin);
 		const log = path.join(root, 'claude-args');
@@ -104,6 +105,8 @@ fi
 			: scenario.resume
 				? [`${base} --continue /do TEST-123`]
 				: [`${base} --continue /do TEST-123`, `${base} /do TEST-123`];
-		t.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), expected);
+		expect(fs.readFileSync(log, 'utf8').trim().split('\n')).toStrictEqual(
+			expected,
+		);
 	});
 }

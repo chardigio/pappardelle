@@ -1,8 +1,13 @@
 import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {
+	TEST_TMUX_GUARD,
+	TEST_TMUX_REFUSALS,
+} from '../test/helpers/test-run-env.ts';
 
 const guardScript = path.resolve('test/helpers/tmux-guard.sh');
 const setupScript = path.resolve('test/helpers/tmux-guard-env.sh');
@@ -23,8 +28,8 @@ type Run = {
  * that records its argv. `live` is the live tmux directory the wrapper
  * names: by default an existing one in the test's temp dir.
  */
-function setup(t: ExecutionContext) {
-	const root = tempDir(t, 'tmux-guard-');
+function setup() {
+	const root = tempDir('tmux-guard-');
 	const live = path.join(root, 'live', `tmux-${uid}`);
 	const priv = path.join(root, 'private');
 	fs.mkdirSync(live, {recursive: true});
@@ -66,7 +71,7 @@ function setup(t: ExecutionContext) {
 			encoding: 'utf8',
 			env: {
 				PATH: process.env['PATH'],
-				PAPPARDELLE_TEST_TMUX_REFUSALS: refusalsFile,
+				[TEST_TMUX_REFUSALS]: refusalsFile,
 				...env,
 			},
 		});
@@ -85,41 +90,34 @@ function setup(t: ExecutionContext) {
 	return {root, live, priv, run};
 }
 
-function assertRefused(
-	t: ExecutionContext,
-	result: Run,
-	socket: string,
-	args: string[],
-) {
+function assertRefused(result: Run, socket: string, args: string[]) {
 	const message = `refusing to run tmux against the live tmux directory (${socket}): tmux ${args.join(' ')}\n`;
-	t.is(result.status, 1);
-	t.is(result.argv, undefined, 'the real tmux ran');
-	t.is(result.stderr, message);
-	t.is(result.refusals, message);
+	expect(result.status).toBe(1);
+	expect(result.argv, 'the real tmux ran').toBe(undefined);
+	expect(result.stderr).toBe(message);
+	expect(result.refusals).toBe(message);
 }
 
-function assertPassed(t: ExecutionContext, result: Run, args: string[]) {
-	t.is(result.status, 0, result.stderr);
-	t.deepEqual(result.argv, args);
-	t.is(result.refusals, '');
+function assertPassed(result: Run, args: string[]) {
+	expect(result.status, result.stderr).toBe(0);
+	expect(result.argv).toStrictEqual(args);
+	expect(result.refusals).toBe('');
 }
 
-test('refuses a named socket when TMUX_TMPDIR is unset', t => {
-	const {run} = setup(t);
+test('refuses a named socket when TMUX_TMPDIR is unset', () => {
+	const {run} = setup();
 	const args = ['-L', 'pappardelle_inner', 'kill-server'];
 	assertRefused(
-		t,
 		run(args, {liveDir: tmpLiveDir}),
 		`${tmpLiveDir}/pappardelle_inner`,
 		args,
 	);
 });
 
-test('refuses a named socket when TMUX_TMPDIR was removed, as tmux falls back to /tmp', t => {
-	const {root, run} = setup(t);
+test('refuses a named socket when TMUX_TMPDIR was removed, as tmux falls back to /tmp', () => {
+	const {root, run} = setup();
 	const args = ['-L', 'pappardelle_inner', 'kill-server'];
 	assertRefused(
-		t,
 		run(args, {
 			liveDir: tmpLiveDir,
 			env: {TMUX_TMPDIR: path.join(root, 'removed')},
@@ -129,29 +127,27 @@ test('refuses a named socket when TMUX_TMPDIR was removed, as tmux falls back to
 	);
 });
 
-test('refuses -L clustered with another flag', t => {
-	const {run} = setup(t);
+test('refuses -L clustered with another flag', () => {
+	const {run} = setup();
 	const args = ['-NLpappardelle_inner', 'kill-server'];
 	assertRefused(
-		t,
 		run(args, {liveDir: tmpLiveDir}),
 		`${tmpLiveDir}/pappardelle_inner`,
 		args,
 	);
 });
 
-test('refuses a bare call with neither TMUX nor TMUX_TMPDIR, which uses the default server', t => {
-	const {run} = setup(t);
+test('refuses a bare call with neither TMUX nor TMUX_TMPDIR, which uses the default server', () => {
+	const {run} = setup();
 	assertRefused(
-		t,
 		run(['kill-server'], {liveDir: tmpLiveDir}),
 		`${tmpLiveDir}/default`,
 		['kill-server'],
 	);
 });
 
-test('refuses -S paths into the live directory, however they are spelled', t => {
-	const {root, live, priv, run} = setup(t);
+test('refuses -S paths into the live directory, however they are spelled', () => {
+	const {root, live, priv, run} = setup();
 	fs.symlinkSync(live, path.join(root, 'link'));
 	const spellings = [
 		path.join(live, 'pappardelle_inner'),
@@ -161,66 +157,63 @@ test('refuses -S paths into the live directory, however they are spelled', t => 
 	];
 	for (const socket of spellings) {
 		const args = ['-S', socket, 'kill-server'];
-		assertRefused(t, run(args, {env: {TMUX_TMPDIR: priv}}), socket, args);
+		assertRefused(run(args, {env: {TMUX_TMPDIR: priv}}), socket, args);
 	}
 });
 
-test('refuses -L names and paths that climb into the live directory', t => {
-	const {root, live, priv, run} = setup(t);
+test('refuses -L names and paths that climb into the live directory', () => {
+	const {root, live, priv, run} = setup();
 	const climb = `../../live/tmux-${uid}/pappardelle_inner`;
 	const args = ['-L', climb, 'kill-server'];
 	assertRefused(
-		t,
 		run(args, {env: {TMUX_TMPDIR: priv}}),
 		`${priv}/tmux-${uid}/${climb}`,
 		args,
 	);
 	const doubled = `/${live}/pappardelle_inner`;
 	assertRefused(
-		t,
 		run(['-S', doubled, 'ls'], {env: {TMUX_TMPDIR: root}}),
 		doubled,
 		['-S', doubled, 'ls'],
 	);
 });
 
-test('the last -S wins, and -S beats -L', t => {
-	const {live, priv, run} = setup(t);
+test('the last -S wins, and -S beats -L', () => {
+	const {live, priv, run} = setup();
 	const socket = path.join(live, 's');
 	for (const args of [
 		['-S', path.join(priv, 's'), '-S', socket, 'kill-server'],
 		['-L', 'x', `-S${socket}`, 'kill-server'],
 	]) {
-		assertRefused(t, run(args, {env: {TMUX_TMPDIR: priv}}), socket, args);
+		assertRefused(run(args, {env: {TMUX_TMPDIR: priv}}), socket, args);
 	}
 });
 
-test('refuses a bare call whose TMUX names a live socket', t => {
-	const {live, priv, run} = setup(t);
+test('refuses a bare call whose TMUX names a live socket', () => {
+	const {live, priv, run} = setup();
 	const socket = path.join(live, 'pappardelle_inner');
 	assertRefused(
-		t,
 		run(['kill-server'], {env: {TMUX: `${socket},123,0`, TMUX_TMPDIR: priv}}),
 		socket,
 		['kill-server'],
 	);
 });
 
-test('fails closed when the wrapper names no live directory or real tmux', t => {
-	const {priv, run} = setup(t);
+test('fails closed when the wrapper names no live directory or real tmux', () => {
+	const {priv, run} = setup();
 	for (const missing of [{liveDir: ''}, {realTmux: ''}]) {
 		const result = run(['-L', 'x', 'ls'], {
 			...missing,
 			env: {TMUX_TMPDIR: priv},
 		});
-		t.is(result.status, 1);
-		t.is(result.argv, undefined);
-		t.regex(result.stderr, /^tmux guard: /);
+		expect(result.status).toBe(1);
+		expect(result.argv).toBe(undefined);
+		expect(result.stderr).toMatch(/^tmux guard: /);
 	}
 });
 
-test('runs the real tmux with argv intact for sockets outside the live directory', t => {
-	const {root, live, priv, run} = setup(t);
+test('runs the real tmux with argv intact for sockets outside the live directory', () => {
+	const {root, live, priv, run} = setup();
 	const cases: Array<[string[], Record<string, string>]> = [
 		[['-L', 'x', 'new-session', '-d'], {TMUX_TMPDIR: priv}],
 		[['-S', path.join(priv, 's'), 'ls'], {}],
@@ -241,48 +234,43 @@ test('runs the real tmux with argv intact for sockets outside the live directory
 			{TMUX_TMPDIR: priv},
 		],
 	];
-	for (const [args, env] of cases) assertPassed(t, run(args, {env}), args);
+	for (const [args, env] of cases) assertPassed(run(args, {env}), args);
 });
 
-const guarded = Boolean(process.env['PAPPARDELLE_TEST_TMUX_REFUSALS']);
+const guarded = Boolean(process.env[TEST_TMUX_REFUSALS]);
 
 (guarded ? test : test.skip)(
 	'a run started inside a test run keeps the outer wrapper',
-	t => {
-		const wrapper = path.join(
-			process.env['PAPPARDELLE_TEST_TMUX_GUARD']!,
-			'bin',
-			'tmux',
-		);
+	() => {
+		const wrapper = path.join(process.env[TEST_TMUX_GUARD]!, 'bin', 'tmux');
 		const before = fs.readFileSync(wrapper, 'utf8');
 		const result = spawnSync(setupScript, {encoding: 'utf8'});
-		t.is(result.status, 0, result.stderr);
+		expect(result.status, result.stderr).toBe(0);
 		const tmuxTmpdir = /^export TMUX_TMPDIR='(.*)'$/m.exec(result.stdout)?.[1];
-		t.teardown(() => {
+		teardown(() => {
 			if (tmuxTmpdir) fs.rmSync(tmuxTmpdir, {recursive: true, force: true});
 		});
-		t.regex(
-			result.stdout,
+		expect(result.stdout).toMatch(
 			new RegExp(`^export PATH='${path.dirname(wrapper)}:`, 'm'),
 		);
-		t.truthy(tmuxTmpdir);
-		t.not(tmuxTmpdir, process.env['TMUX_TMPDIR']);
-		t.is(fs.readFileSync(wrapper, 'utf8'), before);
+		expect(tmuxTmpdir).toBeTruthy();
+		expect(tmuxTmpdir).not.toBe(process.env['TMUX_TMPDIR']);
+		expect(fs.readFileSync(wrapper, 'utf8')).toBe(before);
 	},
 );
 
 (guarded ? test : test.skip)(
 	"the run's own wrapper refuses every live directory setup recorded",
-	t => {
-		const guardHome = process.env['PAPPARDELLE_TEST_TMUX_GUARD']!;
-		const refusals = path.join(tempDir(t, 'tmux-guard-run-'), 'refusals.log');
+	() => {
+		const guardHome = process.env[TEST_TMUX_GUARD]!;
+		const refusals = path.join(tempDir('tmux-guard-run-'), 'refusals.log');
 		const liveBases = fs
 			.readFileSync(path.join(guardHome, 'live-dirs'), 'utf8')
 			.split('\n')
 			.filter(Boolean)
 			.map(live => path.dirname(live))
 			.filter(base => fs.existsSync(base));
-		t.true(liveBases.length > 0);
+		expect(liveBases.length > 0).toBe(true);
 		for (const base of liveBases) {
 			// A named socket, since a live directory doesn't exist until its
 			// first server starts.
@@ -294,13 +282,12 @@ const guarded = Boolean(process.env['PAPPARDELLE_TEST_TMUX_REFUSALS']);
 					env: {
 						...process.env,
 						TMUX_TMPDIR: base,
-						PAPPARDELLE_TEST_TMUX_REFUSALS: refusals,
+						[TEST_TMUX_REFUSALS]: refusals,
 					},
 				},
 			);
-			t.is(result.status, 1, base);
-			t.regex(
-				result.stderr,
+			expect(result.status, base).toBe(1);
+			expect(result.stderr).toMatch(
 				/^refusing to run tmux against the live tmux directory/,
 			);
 		}

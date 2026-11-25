@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	GitLabProvider,
 	type GlabExecutor,
@@ -57,9 +57,9 @@ for (const [raw, expected] of [
 	['FUTURE_STATUS', 'progressing_clean'],
 	[null, null],
 ] as const) {
-	test(`pipeline ${raw} maps to ${expected}`, async t => {
+	test(`pipeline ${raw} maps to ${expected}`, async () => {
 		const {provider} = fixture([response({mr0: connection(mr(raw))})]);
-		t.deepEqual(await provider.getRailStatus('STE-24'), {
+		expect(await provider.getRailStatus('STE-24')).toStrictEqual({
 			pipeline: expected,
 			unresolvedCommentCount: 1,
 			prNumber: 42,
@@ -68,7 +68,7 @@ for (const [raw, expected] of [
 	});
 }
 
-test('one batch maps unique branches and missing MRs; exact newest-open query escapes input', async t => {
+test('one batch maps unique branches and missing MRs; exact newest-open query escapes input', async () => {
 	const branch = 'quote"\\branch';
 	const {provider, calls} = fixture([
 		response({
@@ -77,23 +77,23 @@ test('one batch maps unique branches and missing MRs; exact newest-open query es
 		}),
 	]);
 	const result = await provider.getBulkRailStatus([branch, 'missing', branch]);
-	t.is(result.size, 2);
-	t.is(result.get(branch)?.pipeline, 'failing');
-	t.deepEqual(result.get('missing'), {
+	expect(result.size).toBe(2);
+	expect(result.get(branch)?.pipeline).toBe('failing');
+	expect(result.get('missing')).toStrictEqual({
 		pipeline: null,
 		unresolvedCommentCount: 0,
 	});
-	t.is(calls.length, 2);
+	expect(calls.length).toBe(2);
 	const query = calls[1]!.find(arg => arg.startsWith('query='))!;
-	t.true(query.includes(JSON.stringify(branch)));
-	t.true(query.includes('group/sub/repo'));
-	t.true(query.includes('state: opened'));
-	t.true(query.includes('sort: UPDATED_DESC'));
-	t.true(query.includes('first: 1'));
-	t.false(query.includes('mr2:'));
+	expect(query.includes(JSON.stringify(branch))).toBe(true);
+	expect(query.includes('group/sub/repo')).toBe(true);
+	expect(query.includes('state: opened')).toBe(true);
+	expect(query.includes('sort: UPDATED_DESC')).toBe(true);
+	expect(query.includes('first: 1')).toBe(true);
+	expect(query.includes('mr2:')).toBe(false);
 });
 
-test('counts threads once and flags only explicit conflicts', async t => {
+test('counts threads once and flags only explicit conflicts', async () => {
 	const {provider} = fixture([
 		response({
 			mr0: connection(
@@ -111,12 +111,12 @@ test('counts threads once and flags only explicit conflicts', async t => {
 		}),
 	]);
 	const result = await provider.getBulkRailStatus(['conflict', 'blocked']);
-	t.is(result.get('conflict')?.unresolvedCommentCount, 2);
-	t.true(result.get('conflict')?.hasConflict);
-	t.false(result.get('blocked')?.hasConflict);
+	expect(result.get('conflict')?.unresolvedCommentCount).toBe(2);
+	expect(result.get('conflict')?.hasConflict).toBe(true);
+	expect(result.get('blocked')?.hasConflict).toBe(false);
 });
 
-test('shared cache expires at 60 seconds and batches only misses', async t => {
+test('shared cache expires at 60 seconds and batches only misses', async () => {
 	let now = 0;
 	const {provider, calls} = fixture(
 		[
@@ -129,25 +129,25 @@ test('shared cache expires at 60 seconds and batches only misses', async t => {
 	await provider.getRailStatus('a');
 	now = 59_999;
 	const mixed = await provider.getBulkRailStatus(['a', 'b']);
-	t.is(mixed.get('a')?.pipeline, 'passing');
-	t.is(calls.length, 3);
+	expect(mixed.get('a')?.pipeline).toBe('passing');
+	expect(calls.length).toBe(3);
 	const snapshot1 = await provider.getRailStatus('b');
-	t.is(snapshot1.pipeline, null);
-	t.is(calls.length, 3);
+	expect(snapshot1.pipeline).toBe(null);
+	expect(calls.length).toBe(3);
 	now = 120_000;
 	const refreshed = await provider.getBulkRailStatus(['a', 'b']);
-	t.is(refreshed.get('a')?.pipeline, 'failing');
-	t.is(calls.filter(args => args[0] === 'repo').length, 1);
+	expect(refreshed.get('a')?.pipeline).toBe('failing');
+	expect(calls.filter(args => args[0] === 'repo').length).toBe(1);
 });
 
-test('empty input does not discover project', async t => {
+test('empty input does not discover project', async () => {
 	const {provider, calls} = fixture([]);
 	const snapshot2 = await provider.getBulkRailStatus([]);
-	t.is(snapshot2.size, 0);
-	t.is(calls.length, 0);
+	expect(snapshot2.size).toBe(0);
+	expect(calls.length).toBe(0);
 });
 
-test('paginates discussions using MR identity and counts all pages', async t => {
+test('paginates discussions using MR identity and counts all pages', async () => {
 	const {provider, calls} = fixture([
 		response({
 			mr0: connection(
@@ -165,11 +165,11 @@ test('paginates discussions using MR identity and counts all pages', async t => 
 		}),
 	]);
 	const snapshot3 = await provider.getRailStatus('a');
-	t.is(snapshot3.unresolvedCommentCount, 101);
-	t.true(calls[2]!.join(' ').includes('mergeRequest(iid: "42")'));
-	t.true(calls[2]!.join(' ').includes('after: "cursor"'));
+	expect(snapshot3.unresolvedCommentCount).toBe(101);
+	expect(calls[2]!.join(' ').includes('mergeRequest(iid: "42")')).toBe(true);
+	expect(calls[2]!.join(' ').includes('after: "cursor"')).toBe(true);
 	await provider.getRailStatus('a');
-	t.is(calls.length, 3);
+	expect(calls.length).toBe(3);
 });
 
 for (const bad of [
@@ -178,16 +178,16 @@ for (const bad of [
 	'{"data":{"project":null}}',
 	'{"errors":[{"message":"denied"}]}',
 ]) {
-	test(`failed response is omitted and retried: ${bad}`, async t => {
+	test(`failed response is omitted and retried: ${bad}`, async () => {
 		const {provider} = fixture([bad, response({mr0: connection()})]);
 		const snapshot4 = await provider.getBulkRailStatus(['a']);
-		t.is(snapshot4.size, 0);
+		expect(snapshot4.size).toBe(0);
 		const snapshot5 = await provider.getRailStatus('a');
-		t.is(snapshot5.pipeline, 'passing');
+		expect(snapshot5.pipeline).toBe('passing');
 	});
 }
 
-test('partial GraphQL errors omit affected keys and cache successful keys', async t => {
+test('partial GraphQL errors omit affected keys and cache successful keys', async () => {
 	const {provider, calls} = fixture([
 		response({mr0: connection(), mr1: connection(null)}, [
 			{message: 'denied', path: ['project', 'mr1']},
@@ -195,15 +195,15 @@ test('partial GraphQL errors omit affected keys and cache successful keys', asyn
 		response({mr0: connection(mr('FAILED'))}),
 	]);
 	const first = await provider.getBulkRailStatus(['a', 'b']);
-	t.true(first.has('a'));
-	t.false(first.has('b'));
+	expect(first.has('a')).toBe(true);
+	expect(first.has('b')).toBe(false);
 	const retry = await provider.getBulkRailStatus(['a', 'b']);
-	t.is(retry.get('a')?.pipeline, 'passing');
-	t.is(retry.get('b')?.pipeline, 'failing');
-	t.is(calls.length, 3);
+	expect(retry.get('a')?.pipeline).toBe('passing');
+	expect(retry.get('b')?.pipeline).toBe('failing');
+	expect(calls.length).toBe(3);
 });
 
-test('failed continuation never caches an incomplete count', async t => {
+test('failed continuation never caches an incomplete count', async () => {
 	const {provider} = fixture([
 		response({
 			mr0: connection(mr('SUCCESS', {discussions: page([], true, 'cursor')})),
@@ -212,12 +212,12 @@ test('failed continuation never caches an incomplete count', async t => {
 		response({mr0: connection()}),
 	]);
 	const snapshot6 = await provider.getBulkRailStatus(['a']);
-	t.is(snapshot6.size, 0);
+	expect(snapshot6.size).toBe(0);
 	const snapshot7 = await provider.getRailStatus('a');
-	t.is(snapshot7.unresolvedCommentCount, 1);
+	expect(snapshot7.unresolvedCommentCount).toBe(1);
 });
 
-test('project discovery retries after rejection', async t => {
+test('project discovery retries after rejection', async () => {
 	let attempts = 0;
 	const executor: GlabExecutor = async args => {
 		if (args[0] !== 'repo') return response({mr0: connection()});
@@ -226,13 +226,13 @@ test('project discovery retries after rejection', async t => {
 	};
 	const provider = new GitLabProvider(undefined, executor);
 	const snapshot8 = await provider.getBulkRailStatus(['a']);
-	t.is(snapshot8.size, 0);
+	expect(snapshot8.size).toBe(0);
 	const snapshot9 = await provider.getRailStatus('a');
-	t.is(snapshot9.pipeline, 'passing');
-	t.is(attempts, 2);
+	expect(snapshot9.pipeline).toBe('passing');
+	expect(attempts).toBe(2);
 });
 
-test('cache expires exactly at the boundary without exposing mutable cached objects', async t => {
+test('cache expires exactly at the boundary without exposing mutable cached objects', async () => {
 	let now = 0;
 	const {provider, calls} = fixture(
 		[response({mr0: connection()}), response({mr0: connection(mr('FAILED'))})],
@@ -241,19 +241,19 @@ test('cache expires exactly at the boundary without exposing mutable cached obje
 	const first = await provider.getRailStatus('a');
 	first.pipeline = 'failing';
 	const cached = await provider.getRailStatus('a');
-	t.is(cached.pipeline, 'passing');
+	expect(cached.pipeline).toBe('passing');
 	cached.pipeline = 'failing';
 	now = 59_999;
 	const beforeExpiry = await provider.getRailStatus('a');
-	t.is(beforeExpiry.pipeline, 'passing');
-	t.is(calls.length, 2);
+	expect(beforeExpiry.pipeline).toBe('passing');
+	expect(calls.length).toBe(2);
 	now = 60_000;
 	const expired = await provider.getRailStatus('a');
-	t.is(expired.pipeline, 'failing');
-	t.is(calls.length, 3);
+	expect(expired.pipeline).toBe('failing');
+	expect(calls.length).toBe(3);
 });
 
-test('expired failure stays absent and retries immediately', async t => {
+test('expired failure stays absent and retries immediately', async () => {
 	let now = 0;
 	const {provider} = fixture(
 		[
@@ -266,12 +266,12 @@ test('expired failure stays absent and retries immediately', async t => {
 	await provider.getRailStatus('a');
 	now = 60_000;
 	const failed = await provider.getBulkRailStatus(['a']);
-	t.false(failed.has('a'));
+	expect(failed.has('a')).toBe(false);
 	const retry = await provider.getRailStatus('a');
-	t.is(retry.pipeline, 'failing');
+	expect(retry.pipeline).toBe('failing');
 });
 
-test.serial('configured host is explicit on API requests', async t => {
+test('configured host is explicit on API requests', async () => {
 	const previous = process.env['GITLAB_HOST'];
 	try {
 		const calls: string[][] = [];
@@ -282,27 +282,30 @@ test.serial('configured host is explicit on API requests', async t => {
 				: response({mr0: connection()});
 		});
 		await provider.getRailStatus('a');
-		t.deepEqual(calls[1]!.slice(-2), ['--hostname', 'gitlab.example.com']);
+		expect(calls[1]!.slice(-2)).toStrictEqual([
+			'--hostname',
+			'gitlab.example.com',
+		]);
 	} finally {
 		if (previous === undefined) delete process.env['GITLAB_HOST'];
 		else process.env['GITLAB_HOST'] = previous;
 	}
 });
 
-test('API subprocess failure returns empty bulk and empty single status', async t => {
+test('API subprocess failure returns empty bulk and empty single status', async () => {
 	const provider = new GitLabProvider(undefined, async args => {
 		if (args[0] === 'repo') return '{"path_with_namespace":"group/repo"}';
 		throw new Error('request timed out');
 	});
 	const bulk = await provider.getBulkRailStatus(['a']);
-	t.is(bulk.size, 0);
-	t.deepEqual(await provider.getRailStatus('a'), {
+	expect(bulk.size).toBe(0);
+	expect(await provider.getRailStatus('a')).toStrictEqual({
 		pipeline: null,
 		unresolvedCommentCount: 0,
 	});
 });
 
-test('multiple continuation requests are batched and completed MRs survive page failure', async t => {
+test('multiple continuation requests are batched and completed MRs survive page failure', async () => {
 	const {provider, calls} = fixture([
 		response({
 			mr0: connection(
@@ -320,14 +323,14 @@ test('multiple continuation requests are batched and completed MRs survive page 
 		response({mr0: {discussions: page([], true, 'next')}}),
 	]);
 	const result = await provider.getBulkRailStatus(['a', 'b', 'c']);
-	t.false(result.has('a'));
-	t.is(result.get('b')?.unresolvedCommentCount, 1);
-	t.is(result.get('c')?.pipeline, 'passing');
-	t.true(calls[2]!.join(' ').includes('mr0:'));
-	t.true(calls[2]!.join(' ').includes('mr1:'));
+	expect(result.has('a')).toBe(false);
+	expect(result.get('b')?.unresolvedCommentCount).toBe(1);
+	expect(result.get('c')?.pipeline).toBe('passing');
+	expect(calls[2]!.join(' ').includes('mr0:')).toBe(true);
+	expect(calls[2]!.join(' ').includes('mr1:')).toBe(true);
 });
 
-test('malformed MR does not clear the branch or prevent valid siblings', async t => {
+test('malformed MR does not clear the branch or prevent valid siblings', async () => {
 	const {provider} = fixture([
 		response({
 			mr0: connection({iid: 'not-a-number'}),
@@ -340,7 +343,7 @@ test('malformed MR does not clear the branch or prevent valid siblings', async t
 		}),
 	]);
 	const result = await provider.getBulkRailStatus(['a', 'b', 'c']);
-	t.deepEqual([...result.keys()], ['c']);
+	expect([...result.keys()]).toStrictEqual(['c']);
 });
 
 const SELECTION =
@@ -397,28 +400,32 @@ const queriedBranches = (query: string) =>
 		.filter(match => match[3])
 		.map(match => JSON.parse(match[3]!) as string);
 
-test('many spaces split across requests under the complexity budget', async t => {
+test('many spaces split across requests under the complexity budget', async () => {
 	const {poll, queries} = aliasFixture();
 	const result = await poll(branches(30));
-	t.is(queries.length, 3);
-	t.true(queries.every(query => count(query, 'mergeRequests(') <= 13));
-	t.deepEqual([...result.keys()].sort(), branches(30).sort());
+	expect(queries.length).toBe(3);
+	expect(queries.every(query => count(query, 'mergeRequests(') <= 13)).toBe(
+		true,
+	);
+	expect([...result.keys()].sort()).toStrictEqual(branches(30).sort());
 });
 
-test('a failed request drops only its spaces and they retry next poll', async t => {
+test('a failed request drops only its spaces and they retry next poll', async () => {
 	const {poll, queries} = aliasFixture({failOn: 2});
 	const all = branches(30);
 	const result = await poll(all);
-	t.deepEqual([...result.keys()], [...all.slice(0, 13), ...all.slice(26)]);
+	expect([...result.keys()]).toStrictEqual([
+		...all.slice(0, 13),
+		...all.slice(26),
+	]);
 	const retried = await poll(all);
-	t.is(retried.size, 30);
-	t.deepEqual(
+	expect(retried.size).toBe(30);
+	expect(
 		queries.slice(3).flatMap(query => queriedBranches(query)),
-		all.slice(13, 26),
-	);
+	).toStrictEqual(all.slice(13, 26));
 });
 
-test('discussion continuations split across requests and count every page', async t => {
+test('discussion continuations split across requests and count every page', async () => {
 	const iids = new Map(
 		branches(30).map((branch, i) => [branch, String(i + 1)]),
 	);
@@ -435,25 +442,29 @@ test('discussion continuations split across requests and count every page', asyn
 	const continuations = queries.filter(query =>
 		query.includes('mergeRequest(iid:'),
 	);
-	t.is(continuations.length, 2);
-	t.true(continuations.every(query => count(query, 'mergeRequest(iid:') <= 24));
-	t.is(result.size, 30);
-	t.true(
+	expect(continuations.length).toBe(2);
+	expect(
+		continuations.every(query => count(query, 'mergeRequest(iid:') <= 24),
+	).toBe(true);
+	expect(result.size).toBe(30);
+	expect(
 		[...result.values()].every(status => status.unresolvedCommentCount === 2),
-	);
+	).toBe(true);
 });
 
-test('request budget counts each project alias', async t => {
+test('request budget counts each project alias', async () => {
 	const {poll, queries} = aliasFixture({
 		projectOf: branch => `group/${branch}`,
 	});
 	const result = await poll(branches(13));
-	t.is(queries.length, 2);
-	t.true(queries.every(query => count(query, 'mergeRequests(') <= 12));
-	t.is(result.size, 13);
+	expect(queries.length).toBe(2);
+	expect(queries.every(query => count(query, 'mergeRequests(') <= 12)).toBe(
+		true,
+	);
+	expect(result.size).toBe(13);
 });
 
-test('a failed continuation request drops only its MRs uncached', async t => {
+test('a failed continuation request drops only its MRs uncached', async () => {
 	const iids = new Map(
 		branches(30).map((branch, i) => [branch, String(i + 1)]),
 	);
@@ -474,20 +485,18 @@ test('a failed continuation request drops only its MRs uncached', async t => {
 			match => match[1]!,
 		),
 	);
-	t.is(failed.size, 24);
-	t.deepEqual(
-		[...result.keys()].sort(),
+	expect(failed.size).toBe(24);
+	expect([...result.keys()].sort()).toStrictEqual(
 		all.filter(branch => !failed.has(iids.get(branch)!)).sort(),
 	);
-	t.true(
+	expect(
 		[...result.values()].every(status => status.unresolvedCommentCount === 2),
-	);
+	).toBe(true);
 	await poll(all);
-	t.deepEqual(
+	expect(
 		queries
 			.slice(5)
 			.flatMap(query => queriedBranches(query))
 			.sort(),
-		all.filter(branch => failed.has(iids.get(branch)!)).sort(),
-	);
+	).toStrictEqual(all.filter(branch => failed.has(iids.get(branch)!)).sort());
 });

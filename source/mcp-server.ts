@@ -154,21 +154,20 @@ export function createMcpServer(options: {
 
 /**
  * Runs the same build as this server, with the space this server worked out.
- * The compiled executable runs its CLI itself; a source or JavaScript build
- * names its entry file, which sits beside this module.
+ * The compiled executable runs its CLI itself; a source run names its entry
+ * file, which sits beside this module.
  */
 const spawnCli =
 	(space: string | undefined): RunCli =>
 	async ({args, stdin, cwd}, signal) =>
 		new Promise(resolve => {
-			const entry = import.meta.filename.endsWith('.ts') ? 'cli.tsx' : 'cli.js';
 			const child = spawn(
 				process.execPath,
 				isStandalone
 					? args
 					: [
 							...bunIsolationArgs,
-							path.join(import.meta.dirname, entry),
+							path.join(import.meta.dirname, 'cli.tsx'),
 							...args,
 						],
 				{

@@ -64,14 +64,14 @@ export function controlCommandLine(
 }
 
 /** The failure a `tmux` process would have reported for the same command. */
-function commandError(command: string, stderr: string): Error {
+function commandError(command: string, stdout: string, stderr: string): Error {
 	return Object.assign(
 		new Error(`Command failed: tmux ${command}\n${stderr}`),
 		{
 			code: 1,
 			killed: false,
 			signal: null,
-			stdout: '',
+			stdout,
 			stderr: `${stderr}\n`,
 		},
 	);
@@ -206,10 +206,10 @@ export class TmuxControlClient {
 
 		this.pending.shift();
 		if (this.pending.length === 0) this.hold(false);
-		if (failed) reply.reject(commandError(reply.command, output.join('\n')));
-		else
-			reply.resolve(
-				reply.output.length > 0 ? `${reply.output.join('\n')}\n` : '',
-			);
+		const stdout =
+			reply.output.length > 0 ? `${reply.output.join('\n')}\n` : '';
+		if (failed)
+			reply.reject(commandError(reply.command, stdout, output.join('\n')));
+		else reply.resolve(stdout);
 	}
 }

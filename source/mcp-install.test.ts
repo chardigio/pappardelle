@@ -1,5 +1,5 @@
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {installMcpServer, type McpInstallDeps} from './mcp-install.ts';
 import {AUTO_APPROVED_TOOLS} from './mcp-tools.ts';
 
@@ -43,11 +43,11 @@ function fixture(
 	return {deps, calls, files, printed};
 }
 
-test('each agent gets the server through its own mcp add', t => {
+test('each agent gets the server through its own mcp add', () => {
 	const f = fixture();
-	t.is(installMcpServer(f.deps), 0);
+	expect(installMcpServer(f.deps)).toBe(0);
 	const server = ['/shim/pappardelle', 'mcp'];
-	t.deepEqual(f.calls, [
+	expect(f.calls).toStrictEqual([
 		['codex', ['mcp', 'add', 'pappardelle', '--', ...server]],
 		['opencode', ['mcp', 'add', '--global', 'pappardelle', '--', ...server]],
 		['agy', ['mcp', 'add', 'pappardelle', ...server]],
@@ -58,76 +58,82 @@ test('each agent gets the server through its own mcp add', t => {
 	]);
 });
 
-test('an agent that is not installed is skipped and touches nothing', t => {
+test('an agent that is not installed is skipped and touches nothing', () => {
 	const f = fixture({missing: ['codex', 'agy']});
-	t.is(installMcpServer(f.deps), 0);
-	t.false(f.files.has(CODEX));
-	t.false(f.files.has(AGY));
-	t.false(f.printed.some(line => /codex|agy/.test(line)));
+	expect(installMcpServer(f.deps)).toBe(0);
+	expect(f.files.has(CODEX)).toBe(false);
+	expect(f.files.has(AGY)).toBe(false);
+	expect(f.printed.some(line => /codex|agy/.test(line))).toBe(false);
 });
 
-test('a failed mcp add is reported, nothing is approved, and the rest still run', t => {
+test('a failed mcp add is reported, nothing is approved, and the rest still run', () => {
 	const f = fixture({failing: ['codex']});
-	t.is(installMcpServer(f.deps), 1);
-	t.false(f.files.has(CODEX));
-	t.true(
+	expect(installMcpServer(f.deps)).toBe(1);
+	expect(f.files.has(CODEX)).toBe(false);
+	expect(
 		f.printed.some(
 			line => line.startsWith('Could not add') && line.includes('codex'),
 		),
-	);
-	t.is(f.calls.length, 4);
+	).toBe(true);
+	expect(f.calls.length).toBe(4);
 });
 
-test('Codex approves each auto-approved tool and keeps the rest of its config', t => {
+test('Codex approves each auto-approved tool and keeps the rest of its config', () => {
 	const f = fixture({files: {[CODEX]: '# mine\nmodel = "x"\n'}});
 	installMcpServer(f.deps);
 	const config = f.files.get(CODEX)!;
-	t.true(config.startsWith('# mine\nmodel = "x"\n'));
+	expect(config.startsWith('# mine\nmodel = "x"\n')).toBe(true);
 	for (const tool of AUTO_APPROVED_TOOLS) {
-		t.true(
+		expect(
 			config.includes(
 				`[mcp_servers.pappardelle.tools.${tool}]\napproval_mode = "approve"\n`,
 			),
-		);
+		).toBe(true);
 	}
 
-	t.false(config.includes('tools.space_close'));
+	expect(config.includes('tools.space_close')).toBe(false);
 });
 
-test('running it again adds no duplicate Codex tables or agy rules', t => {
+test('running it again adds no duplicate Codex tables or agy rules', () => {
 	const f = fixture();
 	installMcpServer(f.deps);
 	const codex = f.files.get(CODEX);
 	const agy = f.files.get(AGY);
 	installMcpServer(f.deps);
-	t.is(f.files.get(CODEX), codex);
-	t.is(f.files.get(AGY), agy);
+	expect(f.files.get(CODEX)).toBe(codex);
+	expect(f.files.get(AGY)).toBe(agy);
 });
 
-test('a Codex table the user spelled another way is not added again', t => {
+test('a Codex table the user spelled another way is not added again', () => {
 	const mine =
 		'[ mcp_servers.pappardelle.tools.companion_run ]\napproval_mode = "prompt"\n' +
 		'[mcp_servers."pappardelle".tools."space_send"]\napproval_mode = "prompt"\n';
 	const f = fixture({files: {[CODEX]: mine}});
 	installMcpServer(f.deps);
 	const config = f.files.get(CODEX)!;
-	t.false(config.includes('[mcp_servers.pappardelle.tools.companion_run]'));
-	t.false(config.includes('[mcp_servers.pappardelle.tools.space_send]'));
-	t.true(config.includes('[mcp_servers.pappardelle.tools.space_screen]'));
-});
-
-test('Codex config that does not parse is left alone', t => {
-	const f = fixture({files: {[CODEX]: '[nope'}});
-	installMcpServer(f.deps);
-	t.is(f.files.get(CODEX), '[nope');
-	t.true(
-		f.printed.some(
-			line => line.includes('Could not parse') && line.includes(CODEX),
-		),
+	expect(config.includes('[mcp_servers.pappardelle.tools.companion_run]')).toBe(
+		false,
+	);
+	expect(config.includes('[mcp_servers.pappardelle.tools.space_send]')).toBe(
+		false,
+	);
+	expect(config.includes('[mcp_servers.pappardelle.tools.space_screen]')).toBe(
+		true,
 	);
 });
 
-test('agy allows each auto-approved tool and keeps existing settings and rules', t => {
+test('Codex config that does not parse is left alone', () => {
+	const f = fixture({files: {[CODEX]: '[nope'}});
+	installMcpServer(f.deps);
+	expect(f.files.get(CODEX)).toBe('[nope');
+	expect(
+		f.printed.some(
+			line => line.includes('Could not parse') && line.includes(CODEX),
+		),
+	).toBe(true);
+});
+
+test('agy allows each auto-approved tool and keeps existing settings and rules', () => {
 	const f = fixture({
 		files: {
 			[AGY]: JSON.stringify({
@@ -141,17 +147,17 @@ test('agy allows each auto-approved tool and keeps existing settings and rules',
 		toolPermission: string;
 		permissions: {allow: string[]; deny: string[]};
 	};
-	t.is(settings.toolPermission, 'ask');
-	t.deepEqual(settings.permissions.deny, ['mcp(x/*)']);
-	t.deepEqual(settings.permissions.allow, [
+	expect(settings.toolPermission).toBe('ask');
+	expect(settings.permissions.deny).toStrictEqual(['mcp(x/*)']);
+	expect(settings.permissions.allow).toStrictEqual([
 		'shell(ls)',
 		...AUTO_APPROVED_TOOLS.map(tool => `mcp(pappardelle/${tool})`),
 	]);
 });
 
-test('agy settings that do not parse are left alone', t => {
+test('agy settings that do not parse are left alone', () => {
 	const f = fixture({files: {[AGY]: '{ nope'}});
 	installMcpServer(f.deps);
-	t.is(f.files.get(AGY), '{ nope');
-	t.true(f.printed.some(line => line.includes('Could not parse')));
+	expect(f.files.get(AGY)).toBe('{ nope');
+	expect(f.printed.some(line => line.includes('Could not parse'))).toBe(true);
 });

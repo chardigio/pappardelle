@@ -372,7 +372,6 @@ export async function monitorStatusPane(
 			'watch',
 			repo,
 			key,
-			socket,
 			Buffer.from(JSON.stringify(pane)).toString('base64'),
 			dir,
 			process.env['PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR'] ?? '',
@@ -574,7 +573,7 @@ export interface SnapshotPublisher {
 }
 
 const PUBLISH_WINDOW_MS = 50;
-const LIVENESS_CHECK_MS = 5000;
+export const LIVENESS_CHECK_MS = 5000;
 
 type WindowTimers = {
 	now(): number;
@@ -628,7 +627,6 @@ export class PublishWindow {
 export function monitorPane(
 	repo: string,
 	key: string,
-	socket: string,
 	pane: StatusPane,
 	dir: string,
 	publisher: SnapshotPublisher,
@@ -684,26 +682,16 @@ export function monitorPane(
 			process.stdin.destroy();
 		});
 	};
-	// A closed socket may not deliver EOF on every tmux version.
+	// respawn-pane -k, and on tmux 3.4 a process exit under remain-on-exit,
+	// leave the pipe open, so no EOF arrives. Usually the pane's process is
+	// gone by then.
 	const liveness = setInterval(() => {
 		publisher.followFlag();
-		void runStatusTmux(
-			statusTmuxArgs(
-				['display-message', '-p', '-t', pane.id, '#{pane_pid} #{pane_dead}'],
-				socket,
-			),
-		)
-			.then(value => {
-				if (value.trim() !== `${pane.pid} 0`) stop();
-			})
-			.catch((error: unknown) => {
-				log.debug(`Cannot check pane ${pane.id}: ${String(error)}`);
-				try {
-					process.kill(Number(pane.pid), 0);
-				} catch (error) {
-					if ((error as NodeJS.ErrnoException).code === 'ESRCH') stop();
-				}
-			});
+		try {
+			process.kill(Number(pane.pid), 0);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ESRCH') stop();
+		}
 	}, LIVENESS_CHECK_MS);
 	process.stdin.on('data', (bytes: Buffer) => {
 		parser.feed(bytes);

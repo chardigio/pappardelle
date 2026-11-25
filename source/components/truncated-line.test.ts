@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../../test/helpers/teardown.ts';
 import React from 'react';
 import stringWidth from 'string-width';
 import {render, until} from '../../test/helpers/render.ts';
@@ -14,9 +15,9 @@ const header = (width: number) =>
 		React.createElement(TruncatedLine, {runs: [{text: MESSAGE}]}),
 	);
 
-test('a line that does not fit ends in an ellipsis, and widening restores it', async t => {
+test('a line that does not fit ends in an ellipsis, and widening restores it', async () => {
 	const view = await render(header(30), {width: 60, height: 1});
-	t.teardown(async () => {
+	teardown(async () => {
 		await view.unmount();
 	});
 	await until(
@@ -26,10 +27,10 @@ test('a line that does not fit ends in an ellipsis, and widening restores it', a
 
 	await view.rerender(header(60));
 	await until(() => view.lastFrame() === MESSAGE, view.lastFrame);
-	t.pass();
+	expect().pass();
 });
 
-test('the help legend is cut with an ellipsis inside a narrow overlay', async t => {
+test('the help legend is cut with an ellipsis inside a narrow overlay', async () => {
 	const width = 40;
 	const view = await render(
 		React.createElement(
@@ -43,7 +44,7 @@ test('the help legend is cut with an ellipsis inside a narrow overlay', async t 
 		),
 		{width, height: 40},
 	);
-	t.teardown(async () => {
+	teardown(async () => {
 		await view.unmount();
 	});
 	const legend = () =>
@@ -52,5 +53,5 @@ test('the help legend is cut with an ellipsis inside a narrow overlay', async t 
 			.split('\n')
 			.find(line => line.includes('Program status:'));
 	await until(() => /… +│$/.test(legend() ?? ''), view.lastFrame);
-	t.is(stringWidth(legend()!), width);
+	expect(stringWidth(legend()!)).toBe(width);
 });

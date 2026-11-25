@@ -1,10 +1,10 @@
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {getAgentProfile, loadConfigFromPaths} from './config.ts';
 import {getRecentErrors} from './logger.ts';
 import {setupTempDir} from '../test/helpers/config-fixtures.ts';
 
-test('loadConfigFromPaths warns about a deprecated home spelling shadowed by the project', t => {
+test('loadConfigFromPaths warns about a deprecated home spelling shadowed by the project', () => {
 	// The merge shares nested objects with the raw layers, so the home layer
 	// must be checked before anything rewrites the merged config.
 	const {dir, cleanup} = setupTempDir({
@@ -32,13 +32,13 @@ profiles:
 				entry.message.includes('shadowedhomewarn') &&
 				entry.message.includes('~/.pappardelle/.pappardelle.yml'),
 		);
-		t.is(warnings.length, 1);
+		expect(warnings.length).toBe(1);
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths warns about a deprecated init spelling only once per process', t => {
+test('loadConfigFromPaths warns about a deprecated init spelling only once per process', () => {
 	// The TUI reloads config on every space selection; re-warning on each
 	// reload would fill the logger's 10-entry recent-error buffer and evict
 	// real errors from the overlay.
@@ -59,13 +59,13 @@ profiles:
 		const warnings = getRecentErrors().filter(entry =>
 			entry.message.includes('warnonceprofile'),
 		);
-		t.is(warnings.length, 1);
+		expect(warnings.length).toBe(1);
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths warns about claude.model and claude.effort, top-level and per profile', t => {
+test('loadConfigFromPaths warns about claude.model and claude.effort, top-level and per profile', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 claude:
@@ -81,22 +81,22 @@ profiles:
 		const config = loadConfigFromPaths({
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getAgentProfile(config).model, 'claudemodelwarn');
+		expect(getAgentProfile(config).model).toBe('claudemodelwarn');
 		const messages = getRecentErrors().map(entry => entry.message);
-		t.true(
+		expect(
 			messages.some(
 				message =>
 					message.includes('.pappardelle.yml: claude.model is deprecated') &&
 					message.includes('agent_profiles.<name>.model'),
 			),
-		);
-		t.true(
+		).toBe(true);
+		expect(
 			messages.some(message =>
 				message.includes(
 					'.pappardelle.yml: profiles.claudeeffortwarn.claude.effort is deprecated',
 				),
 			),
-		);
+		).toBe(true);
 	} finally {
 		cleanup();
 	}
@@ -104,7 +104,7 @@ profiles:
 
 // An alias is a copy in YAML, so renaming the old spelling where the anchor
 // sits must leave every alias of it with the old spelling to rename.
-test('a deprecated claude map shared through an alias renames for every profile', t => {
+test('a deprecated claude map shared through an alias renames for every profile', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 team_prefix: BASE
@@ -121,8 +121,8 @@ profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(config.profiles['a']?.initialization_command, 'legacy');
-		t.is(config.profiles['b']?.initialization_command, 'legacy');
+		expect(config.profiles['a']?.initialization_command).toBe('legacy');
+		expect(config.profiles['b']?.initialization_command).toBe('legacy');
 	} finally {
 		cleanup();
 	}

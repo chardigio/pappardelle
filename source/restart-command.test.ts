@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	hardRestart,
 	restartRepo,
@@ -119,37 +119,33 @@ function mutations(h: Harness): string[] {
 // restart
 // ============================================================================
 
-test("restart reruns only this repo's TUI, on the build that ran the command", async t => {
+test("restart reruns only this repo's TUI, on the build that ran the command", async () => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web'],
 		repos: ['app', 'web'],
 	});
 
-	t.is(await restartRepo('app', h.deps), 0);
-	t.deepEqual(mutations(h), [restartOf('%0')]);
-	t.deepEqual(h.attached, []);
-	t.is(
-		h.printed.at(-1),
+	expect(await restartRepo('app', h.deps)).toBe(0);
+	expect(mutations(h)).toStrictEqual([restartOf('%0')]);
+	expect(h.attached).toStrictEqual([]);
+	expect(h.printed.at(-1)).toBe(
 		`pappardelle-app is running ${FAKE_CLI_PATH} (${FAKE_SHA})`,
 	);
 });
 
-test('restart never talks to the inner server', async t => {
+test('restart never talks to the inner server', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
 		onInnerServer: true,
 	});
 
-	t.is(await restartRepo('app', h.deps), 0);
-	t.deepEqual(
-		h.calls.filter(call => call.startsWith('inner')),
-		[],
-	);
-	t.deepEqual(h.detached, []);
+	expect(await restartRepo('app', h.deps)).toBe(0);
+	expect(h.calls.filter(call => call.startsWith('inner'))).toStrictEqual([]);
+	expect(h.detached).toStrictEqual([]);
 });
 
-test('restart from a plain terminal attaches to the restarted TUI', async t => {
+test('restart from a plain terminal attaches to the restarted TUI', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
@@ -159,10 +155,10 @@ test('restart from a plain terminal attaches to the restarted TUI', async t => {
 
 	await restartRepo('app', h.deps);
 
-	t.deepEqual(h.attached, ['pappardelle-app']);
+	expect(h.attached).toStrictEqual(['pappardelle-app']);
 });
 
-test('restart without a terminal confirms the TUI and skips attaching', async t => {
+test('restart without a terminal confirms the TUI and skips attaching', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
@@ -170,21 +166,23 @@ test('restart without a terminal confirms the TUI and skips attaching', async t 
 		isTTY: false,
 	});
 
-	t.is(await restartRepo('app', h.deps), 0);
-	t.deepEqual(h.attached, []);
+	expect(await restartRepo('app', h.deps)).toBe(0);
+	expect(h.attached).toStrictEqual([]);
 });
 
-test('restart with no TUI running launches nothing', async t => {
+test('restart with no TUI running launches nothing', async () => {
 	const h = harness({
 		sessions: ['pappardelle-web'],
 		repos: ['app', 'web'],
 		inTmux: false,
 	});
 
-	t.is(await restartRepo('app', h.deps), 0);
-	t.deepEqual(mutations(h), []);
-	t.deepEqual(h.attached, []);
-	t.true(h.printed.at(-1)!.startsWith('No running Pappardelle TUI for app'));
+	expect(await restartRepo('app', h.deps)).toBe(0);
+	expect(mutations(h)).toStrictEqual([]);
+	expect(h.attached).toStrictEqual([]);
+	expect(
+		h.printed.at(-1)!.startsWith('No running Pappardelle TUI for app'),
+	).toBe(true);
 });
 
 for (const [name, behavior, message] of [
@@ -205,7 +203,7 @@ for (const [name, behavior, message] of [
 		'pappardelle-app did not report ready within 0s',
 	],
 ] as const) {
-	test(`restart fails and says why when ${name}`, async t => {
+	test(`restart fails and says why when ${name}`, async () => {
 		const h = harness({
 			sessions: ['pappardelle-app'],
 			repos: ['app'],
@@ -213,9 +211,9 @@ for (const [name, behavior, message] of [
 			inTmux: false,
 		});
 
-		t.is(await restartRepo('app', h.deps), 1);
-		t.is(h.printed.at(-1), message);
-		t.deepEqual(h.attached, []);
+		expect(await restartRepo('app', h.deps)).toBe(1);
+		expect(h.printed.at(-1)).toBe(message);
+		expect(h.attached).toStrictEqual([]);
 	});
 }
 
@@ -223,7 +221,7 @@ for (const [name, behavior, message] of [
 // restart --hard
 // ============================================================================
 
-test('--hard --yes kills the inner server before restarting every TUI', async t => {
+test('--hard --yes kills the inner server before restarting every TUI', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web'],
 		repos: ['app', 'web'],
@@ -231,26 +229,28 @@ test('--hard --yes kills the inner server before restarting every TUI', async t 
 		currentSession: 'pappardelle-app',
 	});
 
-	t.is(await hardRestart(true, h.deps), 0);
-	t.deepEqual(mutations(h), [
+	expect(await hardRestart(true, h.deps)).toBe(0);
+	expect(mutations(h)).toStrictEqual([
 		'inner kill-server',
 		restartOf('%1'),
 		restartOf('%0'),
 	]);
 });
 
-test('--hard fails when a TUI is not confirmed running afterwards', async t => {
+test('--hard fails when a TUI is not confirmed running afterwards', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web'],
 		repos: ['app', 'web'],
 		behavior: {'pappardelle-web': 'silent'},
 	});
 
-	t.is(await hardRestart(true, h.deps), 1);
-	t.true(h.printed.some(line => line.startsWith('pappardelle-app is running')));
+	expect(await hardRestart(true, h.deps)).toBe(1);
+	expect(
+		h.printed.some(line => line.startsWith('pappardelle-app is running')),
+	).toBe(true);
 });
 
-test('--hard asks on a TTY and does nothing when declined', async t => {
+test('--hard asks on a TTY and does nothing when declined', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
@@ -259,40 +259,41 @@ test('--hard asks on a TTY and does nothing when declined', async t => {
 		confirmAnswer: false,
 	});
 
-	t.is(await hardRestart(false, h.deps), 0);
-	t.true(h.confirmCalls[0]!.startsWith('End 2 agent/companion sessions'));
-	t.true(h.confirmCalls[0]!.includes('pappardelle-app'));
-	t.deepEqual(mutations(h), []);
+	expect(await hardRestart(false, h.deps)).toBe(0);
+	expect(h.confirmCalls[0]!.startsWith('End 2 agent/companion sessions')).toBe(
+		true,
+	);
+	expect(h.confirmCalls[0]!.includes('pappardelle-app')).toBe(true);
+	expect(mutations(h)).toStrictEqual([]);
 });
 
-test('--hard with no TUIs running only mentions the agent sessions', async t => {
+test('--hard with no TUIs running only mentions the agent sessions', async () => {
 	const h = harness({innerSessions: ['claude-app-STA-1'], isTTY: true});
 
 	await hardRestart(false, h.deps);
 
-	t.is(
-		h.confirmCalls[0],
+	expect(h.confirmCalls[0]).toBe(
 		'End 1 agent/companion session (agents resume their conversations)? [y/N] ',
 	);
 });
 
-test('--hard without a TTY or --yes refuses', async t => {
+test('--hard without a TTY or --yes refuses', async () => {
 	const h = harness({sessions: ['pappardelle-app'], repos: ['app']});
 
-	t.is(await hardRestart(false, h.deps), 1);
-	t.deepEqual(h.confirmCalls, []);
-	t.deepEqual(mutations(h), []);
+	expect(await hardRestart(false, h.deps)).toBe(1);
+	expect(h.confirmCalls).toStrictEqual([]);
+	expect(mutations(h)).toStrictEqual([]);
 });
 
-test('--hard from a claude pane hands the kill and restarts to a detached child, kill first', async t => {
+test('--hard from a claude pane hands the kill and restarts to a detached child, kill first', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web'],
 		repos: ['app', 'web'],
 		onInnerServer: true,
 	});
 
-	t.is(await hardRestart(true, h.deps), 0);
-	t.deepEqual(mutations(h), []);
+	expect(await hardRestart(true, h.deps)).toBe(0);
+	expect(mutations(h)).toStrictEqual([]);
 	const restart = (pane: string) => [
 		'kill-pane',
 		'-a',
@@ -307,18 +308,18 @@ test('--hard from a claude pane hands the kill and restarts to a detached child,
 		'#{session_path}',
 		COMMAND,
 	];
-	t.deepEqual(h.detached, [
+	expect(h.detached).toStrictEqual([
 		[['-L', 'pappardelle_inner', 'kill-server'], restart('%0'), restart('%1')],
 	]);
 });
 
-test('--hard with no inner server still restarts the TUIs', async t => {
+test('--hard with no inner server still restarts the TUIs', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
 		innerSessions: null,
 	});
 
-	t.is(await hardRestart(true, h.deps), 0);
-	t.true(mutations(h).includes(restartOf('%0')));
+	expect(await hardRestart(true, h.deps)).toBe(0);
+	expect(mutations(h).includes(restartOf('%0'))).toBe(true);
 });

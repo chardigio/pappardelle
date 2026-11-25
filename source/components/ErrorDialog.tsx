@@ -1,6 +1,6 @@
 import {useKeyboard} from '@opentui/react';
 import {Fragment} from 'react';
-import {shortcutKey} from '../tui-key.ts';
+import {typedText} from '../key-press.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 
 import type {LogEntry} from '../logger.ts';
@@ -21,10 +21,9 @@ export default function ErrorDialog({
 	isFullHeight,
 }: Props) {
 	useKeyboard(event => {
-		const {input, key} = shortcutKey(event);
-		if (key.escape) {
+		if (event.name === 'escape') {
 			onClose();
-		} else if (input === 'c') {
+		} else if (typedText(event) === 'c') {
 			onClear();
 		}
 	});

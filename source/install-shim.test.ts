@@ -1,308 +1,98 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import test from 'ava';
-import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
+import {test, expect} from 'bun:test';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
-// The installer pins Bun across non-interactive tmux environments.
 const root = path.join(import.meta.dirname, '..');
-const templatePath = path.join(root, 'scripts', 'pappardelle-shim-template.sh');
-const installShPath = path.join(root, 'install.sh');
+const installSh = path.join(root, 'install.sh');
 
-const placeholders = ['__BUN_BIN__', '__CLI_JS__', '__MIN_BUN_VERSION__'];
+// An install whose executable prints each argument it was given.
+function install(options: {executable: boolean; directory?: string}) {
+	const home = tempDir('install-shim-test-');
+	const installDir = path.join(
+		home,
+		options.directory ?? 'install with spaces',
+	);
+	fs.mkdirSync(path.join(installDir, 'scripts'), {recursive: true});
+	fs.copyFileSync(
+		path.join(root, 'scripts', 'pappardelle-shim-template.sh'),
+		path.join(installDir, 'scripts', 'pappardelle-shim-template.sh'),
+	);
+	const executable = path.join(installDir, 'dist', 'pappardelle');
+	if (options.executable) {
+		fs.mkdirSync(path.dirname(executable));
+		fs.writeFileSync(
+			executable,
+			'#!/bin/bash\nfor arg in "$@"; do echo "ARG:$arg"; done\n',
+			{mode: 0o755},
+		);
+	}
 
-// Mirrors the `${SHIM_CONTENT//__PLACEHOLDER__/$value}` substitutions in
-// install.sh — both are global replaces.
-function renderShim(options: {
-	bunBin: string;
-	cliJs: string;
-	minBunVersion: string;
-}): string {
-	const template = fs.readFileSync(templatePath, 'utf8');
-	fs.mkdirSync(path.dirname(options.cliJs), {recursive: true});
-	fs.writeFileSync(options.cliJs, '');
-	return template
-		.replaceAll('__BUN_BIN__', options.bunBin)
-		.replaceAll('__CLI_JS__', options.cliJs)
-		.replaceAll('__MIN_BUN_VERSION__', String(options.minBunVersion));
+	const written = spawnSync(
+		'/bin/bash',
+		[
+			'-c',
+			'source "$1" && INSTALL_DIR="$2" install_shim',
+			'bash',
+			installSh,
+			installDir,
+		],
+		{
+			encoding: 'utf8',
+			env: {
+				HOME: home,
+				PATH: process.env['PATH'],
+				// tmux falls back to the live tmux directory without it.
+				TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
+				PAPPARDELLE_INSTALL_SOURCE_ONLY: '1',
+			},
+		},
+	);
+	if (written.status !== 0)
+		throw new Error(`install_shim failed: ${written.stderr}`);
+	return {shim: path.join(home, '.local', 'bin', 'pappardelle'), executable};
 }
 
-// A stand-in bun binary. Emulates the three ways the shim invokes bun:
-// `-p 'parseInt(process.versions.bun, 10)'` (major only, parseInt
-// semantics), `--version` (v-prefixed), and running the CLI (prints a marker
-// plus each argument so tests can assert exactly what was exec'd).
-function writeFakeBun(dir: string, version: string, name = 'bun'): string {
-	const fakePath = path.join(dir, name);
-	const script = `#!/bin/bash
-FAKE_VERSION="${version}"
-case "$1" in
-	-p)
-		echo "\${FAKE_VERSION%%.*}"
-		;;
-	--version)
-		echo "\${FAKE_VERSION}"
-		;;
-	*)
-		echo "FAKE_BUN \${FAKE_VERSION}"
-		for arg in "$@"; do
-			echo "ARG:\${arg}"
-		done
-		;;
-esac
-`;
-	fs.writeFileSync(fakePath, script, {mode: 0o755});
-	return fakePath;
-}
-
-function writeShim(t: Teardown, shim: string): string {
-	const dir = tempDir(t, 'install-shim-test-');
-	const shimPath = path.join(dir, 'pappardelle');
-	fs.writeFileSync(shimPath, shim, {mode: 0o755});
-	return shimPath;
-}
-
-function runShim(
-	shimPath: string,
-	options: {pathDirs?: string[]; args?: string[]} = {},
-) {
-	// PATH is restricted to the test-provided directories: this both simulates
-	// the non-interactive runtime environment and proves the shim needs no
-	// external binaries (pure bash builtins), so it can't misbehave on
-	// minimal PATHs.
-	return spawnSync('/bin/bash', [shimPath, ...(options.args ?? [])], {
-		env: {...process.env, PATH: (options.pathDirs ?? []).join(':')},
+// PATH is empty: the shim needs no Bun, nor anything else, to start the executable.
+function runShim(shim: string, args: string[] = []) {
+	return spawnSync('/bin/bash', [shim, ...args], {
+		env: {PATH: ''},
 		encoding: 'utf8',
 	});
 }
 
-// ============================================================================
-// Template / installer drift guards
-// ============================================================================
+test("the installed shim runs the install's executable with its arguments untouched", () => {
+	const {shim} = install({executable: true});
 
-test('shim template exists and declares every placeholder', t => {
-	t.true(
-		fs.existsSync(templatePath),
-		'scripts/pappardelle-shim-template.sh must exist — install.sh renders it',
-	);
-	const template = fs.readFileSync(templatePath, 'utf8');
-	for (const placeholder of placeholders) {
-		t.true(
-			template.includes(placeholder),
-			`template must contain ${placeholder}`,
-		);
-	}
+	const result = runShim(shim, ['highlight', 'STA-1682', 'two words']);
+
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	expect(result.stdout).toBe('ARG:highlight\nARG:STA-1682\nARG:two words\n');
 });
 
-test('install.sh substitutes every placeholder the template declares', t => {
-	const installSh = fs.readFileSync(installShPath, 'utf8');
-	t.true(
-		installSh.includes('pappardelle-shim-template.sh'),
-		'install.sh must render the template, not an inline heredoc',
-	);
-	for (const placeholder of placeholders) {
-		t.true(
-			installSh.includes(placeholder),
-			`install.sh must substitute ${placeholder}`,
-		);
-	}
+// Bash 5.2 replaces an unquoted & in a pattern substitution with the match.
+test('the installed shim runs an executable whose path has an ampersand', () => {
+	const {shim} = install({executable: true, directory: 'tools & more'});
+
+	const result = runShim(shim, ['--version']);
+
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	expect(result.stdout).toBe('ARG:--version\n');
 });
 
-test('install.sh no longer writes an unpinned `exec bun` shim', t => {
-	const installSh = fs.readFileSync(installShPath, 'utf8');
-	t.false(
-		installSh.includes('exec bun '),
-		'a bare `exec bun` resolves from runtime PATH — the exact STA-1682 bug',
+test('the installed shim names a missing executable and how to reinstall', () => {
+	const {shim, executable} = install({executable: false});
+
+	const result = runShim(shim, ['--version']);
+
+	expect(result.status).toBe(1);
+	expect(result.stdout).toBe('');
+	expect(
+		result.stderr.includes(`${executable} is missing or not executable`),
+		`stderr: ${result.stderr}`,
+	).toBe(true);
+	expect(result.stderr.includes('install.sh'), `stderr: ${result.stderr}`).toBe(
+		true,
 	);
-});
-
-// ============================================================================
-// Pinned-bun behavior (fix 1: determinism)
-// ============================================================================
-
-test('shim execs the pinned bun even when PATH resolves to a stale bun', t => {
-	const pinnedDir = tempDir(t, 'install-shim-test-');
-	const staleDir = tempDir(t, 'install-shim-test-');
-	const pinnedBun = writeFakeBun(pinnedDir, '1.4.4');
-	writeFakeBun(staleDir, '1.3.0'); // The trap that bit on master.
-	const cliJs = path.join(pinnedDir, 'cli.js');
-	const shimPath = writeShim(
-		t,
-		renderShim({bunBin: pinnedBun, cliJs, minBunVersion: '1.4.0'}),
-	);
-
-	const result = runShim(shimPath, {pathDirs: [staleDir]});
-
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.true(
-		result.stdout.includes('FAKE_BUN 1.4.4'),
-		`expected the pinned v22, got: ${result.stdout}`,
-	);
-	t.true(result.stdout.includes(`ARG:${cliJs}`));
-});
-
-test('shim accepts a pinned bun exactly at the floor', t => {
-	const dir = tempDir(t, 'install-shim-test-');
-	const pinnedBun = writeFakeBun(dir, '1.4.0');
-	const shimPath = writeShim(
-		t,
-		renderShim({
-			bunBin: pinnedBun,
-			cliJs: path.join(dir, 'cli.js'),
-			minBunVersion: '1.4.0',
-		}),
-	);
-
-	const result = runShim(shimPath);
-
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.true(result.stdout.includes('FAKE_BUN 1.4.0'));
-});
-
-test('shim rejects a pinned bun below the floor with an actionable message', t => {
-	const dir = tempDir(t, 'install-shim-test-');
-	const pinnedBun = writeFakeBun(dir, '1.3.0');
-	const shimPath = writeShim(
-		t,
-		renderShim({
-			bunBin: pinnedBun,
-			cliJs: path.join(dir, 'cli.js'),
-			minBunVersion: '1.4.0',
-		}),
-	);
-
-	const result = runShim(shimPath);
-
-	t.not(result.status, 0);
-	t.false(
-		result.stdout.includes('FAKE_BUN'),
-		'the CLI must not run under a too-old bun',
-	);
-	t.true(result.stderr.includes('1.3.0'));
-	t.true(result.stderr.includes('1.4.0'));
-	t.true(result.stderr.includes('install.sh'));
-});
-
-test('shim rejects a bun reporting a garbage version instead of half-running', t => {
-	const dir = tempDir(t, 'install-shim-test-');
-	const pinnedBun = writeFakeBun(dir, 'garbage');
-	const shimPath = writeShim(
-		t,
-		renderShim({
-			bunBin: pinnedBun,
-			cliJs: path.join(dir, 'cli.js'),
-			minBunVersion: '1.4.0',
-		}),
-	);
-
-	const result = runShim(shimPath);
-
-	t.not(result.status, 0);
-	t.false(result.stdout.includes('FAKE_BUN'));
-});
-
-test('shim handles install paths containing spaces', t => {
-	const dir = tempDir(t, 'install-shim-test with spaces-');
-	const pinnedBun = writeFakeBun(dir, '1.4.4');
-	const cliJs = path.join(dir, 'cli.js');
-	const shimPath = writeShim(
-		t,
-		renderShim({bunBin: pinnedBun, cliJs, minBunVersion: '1.4.0'}),
-	);
-
-	const result = runShim(shimPath);
-
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.true(result.stdout.includes(`ARG:${cliJs}`));
-});
-
-test('shim passes arguments through untouched, including spaces', t => {
-	const dir = tempDir(t, 'install-shim-test-');
-	const pinnedBun = writeFakeBun(dir, '1.4.4');
-	const shimPath = writeShim(
-		t,
-		renderShim({
-			bunBin: pinnedBun,
-			cliJs: path.join(dir, 'cli.js'),
-			minBunVersion: '1.4.0',
-		}),
-	);
-
-	const result = runShim(shimPath, {
-		args: ['highlight', 'STA-1682', 'two words'],
-	});
-
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.true(result.stdout.includes('ARG:highlight'));
-	t.true(result.stdout.includes('ARG:STA-1682'));
-	t.true(result.stdout.includes('ARG:two words'));
-});
-
-// ============================================================================
-// Fallback behavior (fix 2: loud runtime guard when the pin vanishes)
-// ============================================================================
-
-test('shim falls back to a good PATH bun when the pinned binary is gone', t => {
-	const dir = tempDir(t, 'install-shim-test-');
-	const pathDir = tempDir(t, 'install-shim-test-');
-	writeFakeBun(pathDir, '1.4.4');
-	const shimPath = writeShim(
-		t,
-		renderShim({
-			bunBin: path.join(dir, 'gone', 'bun'),
-			cliJs: path.join(dir, 'cli.js'),
-			minBunVersion: '1.4.0',
-		}),
-	);
-
-	const result = runShim(shimPath, {pathDirs: [pathDir]});
-
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.true(result.stdout.includes('FAKE_BUN 1.4.4'));
-});
-
-test('shim fails loud when the pin is gone and the PATH bun is stale', t => {
-	const dir = tempDir(t, 'install-shim-test-');
-	const staleDir = tempDir(t, 'install-shim-test-');
-	writeFakeBun(staleDir, '1.3.0');
-	const shimPath = writeShim(
-		t,
-		renderShim({
-			bunBin: path.join(dir, 'gone', 'bun'),
-			cliJs: path.join(dir, 'cli.js'),
-			minBunVersion: '1.4.0',
-		}),
-	);
-
-	const result = runShim(shimPath, {pathDirs: [staleDir]});
-
-	t.not(result.status, 0);
-	t.false(
-		result.stdout.includes('FAKE_BUN'),
-		'silent degradation under a stale bun is the exact bug being fixed',
-	);
-	t.true(result.stderr.includes('1.3.0'));
-	t.true(result.stderr.includes('install.sh'));
-});
-
-test('shim fails loud when the pin is gone and no bun is on PATH', t => {
-	const dir = tempDir(t, 'install-shim-test-');
-	const emptyDir = tempDir(t, 'install-shim-test-');
-	const goneBun = path.join(dir, 'gone', 'bun');
-	const shimPath = writeShim(
-		t,
-		renderShim({
-			bunBin: goneBun,
-			cliJs: path.join(dir, 'cli.js'),
-			minBunVersion: '1.4.0',
-		}),
-	);
-
-	const result = runShim(shimPath, {pathDirs: [emptyDir]});
-
-	t.not(result.status, 0);
-	t.true(
-		result.stderr.includes(goneBun),
-		'the message must name the pinned path that vanished',
-	);
-	t.true(result.stderr.includes('install.sh'));
 });

@@ -3,7 +3,8 @@ import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
 import {restartRepo, type RestartCommandDeps} from './restart-command.ts';
 import {stateDaosByRepo} from './state-daos.ts';
@@ -11,8 +12,7 @@ import {closeStateDb, stateDbPath} from './state-db.ts';
 import {defaultServerTmuxEnv, defaultServerTmuxRunner} from './tmux.ts';
 import {shellQuote} from './shell-quote.ts';
 
-const tmuxTest =
-	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
+const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 const SESSION = 'pappardelle-itest';
 
@@ -56,11 +56,11 @@ async function waitForAttachedClient(): Promise<void> {
 // server, which detaches the terminal.
 tmuxTest(
 	'restart from a claude pane keeps the server up and the terminal attached',
-	async t => {
+	async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'pappardelle-restart-'));
 		const savedTmpdir = process.env['TMUX_TMPDIR'];
 		process.env['TMUX_TMPDIR'] = dir;
-		t.teardown(() => {
+		teardown(() => {
 			delete process.env['TMUX'];
 			spawnSync('tmux', ['-L', 'host', 'kill-server'], {stdio: 'ignore'});
 			spawnSync('tmux', ['kill-server'], {stdio: 'ignore'});
@@ -142,12 +142,11 @@ setInterval(() => {}, 1000);`,
 		};
 
 		const assertRestarted = async () => {
-			t.is(
+			expect(
 				panes(),
-				listPane,
 				'only the TUI pane is left, and it is the same pane',
-			);
-			t.true(
+			).toBe(listPane);
+			expect(
 				tmux(
 					'display-message',
 					'-p',
@@ -155,30 +154,28 @@ setInterval(() => {}, 1000);`,
 					listPane,
 					'#{pane_start_command}',
 				).includes(stub),
-			);
+			).toBe(true);
 			await waitForAttachedClient();
 		};
 
-		t.is(await restartRepo('itest', deps), 0, printed.join('\n'));
+		expect(await restartRepo('itest', deps), printed.join('\n')).toBe(0);
 		await assertRestarted();
 
 		addViewers();
-		t.deepEqual(
+		expect(
 			await Promise.all([
 				restartRepo('itest', deps),
 				restartRepo('itest', deps),
 			]),
-			[0, 0],
 			printed.join('\n'),
-		);
+		).toStrictEqual([0, 0]);
 		await assertRestarted();
 
-		t.is(
+		expect(
 			printed.filter(line =>
 				/^pappardelle-itest is running .*stub-tui\.cjs \(stub\)$/.test(line),
 			).length,
-			3,
-		);
-		t.deepEqual(innerCalls, []);
+		).toBe(3);
+		expect(innerCalls).toStrictEqual([]);
 	},
 );

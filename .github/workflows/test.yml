@@ -63,7 +63,7 @@ jobs:
 
       # Formatting and lint are checked here, not just in the monorepo, because
       # sync-back pushes a merged PR's diff *directly to monorepo master* — no
-      # PR, no gate. When this workflow only ran ava, a chardigio-side PR could
+      # PR, no gate. When this workflow only ran the unit tests, a chardigio-side PR could
       # (and did, in #5) land a prettier violation straight onto a red master
       # with every check green here. These steps have to mirror the monorepo's
       # .github/workflows/pappardelle.yml or that hole reopens.
@@ -74,12 +74,12 @@ jobs:
         run: bun --bun xo
 
       - name: Run tests
-        run: bun --bun ava 'source/**/*.test.ts'
+        run: bun run test:unit
 
       - name: Test the compiled CLI after relocation
         env:
           PAPPARDELLE_TEST_STANDALONE: '1'
-        run: bun --bun ava --serial source/open-space-command.test.ts
+        run: bun run test:unit source/open-space-command.test.ts
 
       - name: Verify program status transport, lifecycle, cleanup and app
         run: |
@@ -93,6 +93,63 @@ jobs:
 
       - name: Verify tmux popups close and release their pty
         run: bun integration-tests/verify-popup-close.ts
+
+      - name: Verify the rail's boxes and row layout
+        run: bun integration-tests/verify-rail-boxes.ts
+
+  tmux-floor:
+    name: Program status on tmux 3.4 (sqliteState ${{ matrix.sqlite_state }})
+    strategy:
+      fail-fast: false
+      matrix:
+        sqlite_state: ['0', '1']
+    runs-on: ubuntu-latest
+    env:
+      PAPPARDELLE_SQLITE_STATE: ${{ matrix.sqlite_state }}
+      # The oldest tmux Pappardelle supports: MIN_TMUX_VERSION in
+      # source/tmux-version.ts. Move both together.
+      TMUX_FLOOR_VERSION: '3.4'
+      TMUX_FLOOR_SHA256: 551ab8dea0bf505c0ad6b7bb35ef567cdde0ccb84357df142c254f35a23e19aa
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Install build and test tools
+        run: sudo apt-get update && sudo apt-get install -y libevent-dev libncurses-dev bison shellcheck
+
+      - name: Build tmux ${{ env.TMUX_FLOOR_VERSION }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL -o tmux.tar.gz "https://github.com/tmux/tmux/releases/download/$TMUX_FLOOR_VERSION/tmux-$TMUX_FLOOR_VERSION.tar.gz"
+          echo "$TMUX_FLOOR_SHA256  tmux.tar.gz" | sha256sum -c -
+          tar xzf tmux.tar.gz
+          cd "tmux-$TMUX_FLOOR_VERSION"
+          ./configure --prefix="$RUNNER_TEMP/tmux-floor"
+          make -j"$(nproc)"
+          make install
+          echo "$RUNNER_TEMP/tmux-floor/bin" >> "$GITHUB_PATH"
+
+      - name: Check the tests run tmux ${{ env.TMUX_FLOOR_VERSION }}
+        run: test "$(tmux -V)" = "tmux $TMUX_FLOOR_VERSION"
+
+      - name: Verify program status transport, lifecycle, cleanup and app
+        run: |
+          bun integration-tests/verify-program-status.ts
+          bun integration-tests/verify-program-status-lifecycle.ts
+          bun integration-tests/verify-program-status-cleanup.ts
+          bun integration-tests/verify-program-status-app.ts
 
   shell-tests:
     name: Shell Tests

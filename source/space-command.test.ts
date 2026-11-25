@@ -3,7 +3,8 @@ import {once} from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {
 	testState,
@@ -79,11 +80,8 @@ function fakeTmux(panes: Pane[] = []) {
 }
 
 /** Stores whose spaces live where idow puts them under HOME. */
-function stateOf(
-	t: ExecutionContext,
-	options: Parameters<typeof testState>[1] = {},
-): TestState {
-	return testState(t, {home: HOME, mainRoot: () => MAIN_ROOT, ...options});
+function stateOf(options: Parameters<typeof testState>[1] = {}): TestState {
+	return testState({home: HOME, mainRoot: () => MAIN_ROOT, ...options});
 }
 
 /**
@@ -195,10 +193,10 @@ async function history(state: TestState): Promise<void> {
 	recordSessions(state, 'STA-2', {claude: 'c-1', codex: 'x-1'});
 }
 
-test('both stores answer get and list the same for one history', async t => {
+test('both stores answer get and list the same for one history', async () => {
 	const outputs = [];
 	for (const sqlite of [false, true]) {
-		const state = stateOf(t, {sqlite, clock: CLOCK});
+		const state = stateOf({sqlite, clock: CLOCK});
 		await history(state);
 		const tmux = fakeTmux([
 			{session: 'agent-repo-STA-2', id: '%3', current: true},
@@ -212,9 +210,9 @@ test('both stores answer get and list the same for one history', async t => {
 	}
 
 	const [json, sqlite] = outputs;
-	t.deepEqual(sqlite, json);
+	expect(sqlite).toStrictEqual(json);
 	const record = JSON.parse(json!.get.stdout) as Record<string, unknown>;
-	t.like(record, {
+	expect(record).toMatchObject({
 		repo: 'repo',
 		key: 'STA-2',
 		phase: 'open',
@@ -235,22 +233,21 @@ test('both stores answer get and list the same for one history', async t => {
 		pipeline: 'passing',
 		unresolvedCommentCount: 2,
 	});
-	t.deepEqual(
+	expect(
 		(JSON.parse(json!.list.stdout) as Array<{key: string}>).map(
 			record => record.key,
 		),
-		['main', 'STA-10', 'STA-2', 'STA-1'],
-	);
+	).toStrictEqual(['main', 'STA-10', 'STA-2', 'STA-1']);
 });
 
-test('session names and targets encode dots and underscores, and name main', async t => {
-	const state = stateOf(t);
+test('session names and targets encode dots and underscores, and name main', async () => {
+	const state = stateOf();
 	for (const key of ['a.b_c', 'bd-a3f8e9.1']) await openSpace(state, key);
 	const tmuxOf = async (key: string) => {
 		const {stdout} = await run(['get', key, '--field', 'tmux'], deps(state));
 		return JSON.parse(stdout) as unknown;
 	};
-	t.deepEqual(await tmuxOf('a.b_c'), {
+	expect(await tmuxOf('a.b_c')).toStrictEqual({
 		socket: 'pappardelle_inner',
 		socketFlag: '-L',
 		agentSession: 'agent-repo-a_b__c',
@@ -259,21 +256,23 @@ test('session names and targets encode dots and underscores, and name main', asy
 		agentTarget: '=agent-repo-a_b__c:',
 		companionTarget: '=companion-repo-a_b__c:',
 	});
-	t.like(await tmuxOf('bd-a3f8e9.1'), {
+	expect(await tmuxOf('bd-a3f8e9.1')).toMatchObject({
 		agentTarget: '=agent-repo-bd-a3f8e9_1:',
 	});
 	await openSpace(state, 'main');
-	t.like(await tmuxOf('main'), {agentTarget: '=agent-repo-main:'});
+	expect(await tmuxOf('main')).toMatchObject({
+		agentTarget: '=agent-repo-main:',
+	});
 });
 
-test('a socket path is passed with -S', async t => {
-	const state = stateOf(t, {env: {PAPPARDELLE_TMUX_SOCKET: '/tmp/inner.sock'}});
+test('a socket path is passed with -S', async () => {
+	const state = stateOf({env: {PAPPARDELLE_TMUX_SOCKET: '/tmp/inner.sock'}});
 	await openSpace(state, 'STA-1', {socket: '/tmp/inner.sock'});
 	const result = await run(
 		['get', 'STA-1', '--field', 'tmux.socketFlag', '--field', 'tmux.socket'],
 		deps(state),
 	);
-	t.deepEqual(JSON.parse(result.stdout), {
+	expect(JSON.parse(result.stdout)).toStrictEqual({
 		'tmux.socketFlag': '-S',
 		'tmux.socket': '/tmp/inner.sock',
 	});
@@ -281,7 +280,7 @@ test('a socket path is passed with -S', async t => {
 
 contractTest(
 	'an unregistered key with a live agent session is starting',
-	async (t, state) => {
+	async state => {
 		// idow records the space's names before it starts its sessions.
 		await openSpace(state, 'STA-5', {register: false});
 		const tmux = fakeTmux([{session: 'agent-repo-STA-5', id: '%1'}]).runner;
@@ -289,46 +288,48 @@ contractTest(
 			['get', 'STA-5', '--field', 'phase'],
 			deps(state, {runner: tmux}),
 		);
-		t.deepEqual(result, {code: 0, stdout: 'starting', stderr: ''});
+		expect(result).toStrictEqual({code: 0, stdout: 'starting', stderr: ''});
 	},
 );
 
-test('a key that is not open but has stored state is closed, and one with neither is unknown', async t => {
-	const state = stateOf(t);
+test('a key that is not open but has stored state is closed, and one with neither is unknown', async () => {
+	const state = stateOf();
 	await state.daos.spaceState.write('STA-7', {profile: 'dev'});
-	t.like(await run(['get', 'STA-7', '--field', 'phase'], deps(state)), {
+	expect(
+		await run(['get', 'STA-7', '--field', 'phase'], deps(state)),
+	).toMatchObject({
 		code: 0,
 		stdout: 'closed',
 	});
-	t.deepEqual(await run(['get', 'STA-8'], deps(state)), {
+	expect(await run(['get', 'STA-8'], deps(state))).toStrictEqual({
 		code: 1,
 		stdout: '',
 		stderr: 'No space STA-8',
 	});
 });
 
-test('a typed key the stores lack is looked up again as Pappardelle resolves it', async t => {
-	const state = stateOf(t);
+test('a typed key the stores lack is looked up again as Pappardelle resolves it', async () => {
+	const state = stateOf();
 	await openSpace(state, 'STA-8');
 	const result = await run(
 		['get', '8', '--field', 'key'],
 		deps(state, {resolveKey: raw => `STA-${raw}`}),
 	);
-	t.deepEqual(result, {code: 0, stdout: 'STA-8', stderr: ''});
+	expect(result).toStrictEqual({code: 0, stdout: 'STA-8', stderr: ''});
 });
 
-test('a registry or state store that cannot be read exits 3, never 1', async t => {
-	const unreadableRegistry = stateOf(t, {sqlite: false});
+test('a registry or state store that cannot be read exits 3, never 1', async () => {
+	const unreadableRegistry = stateOf({sqlite: false});
 	fs.writeFileSync(unreadableRegistry.registryFile, 'not json{');
 	const get = await run(
 		['get', 'STA-1', '--field', 'profile'],
 		deps(unreadableRegistry),
 	);
-	t.is(get.code, 3);
+	expect(get.code).toBe(3);
 	const list = await run(['list'], deps(unreadableRegistry));
-	t.is(list.code, 3);
+	expect(list.code).toBe(3);
 
-	const unreadableState = stateOf(t, {sqlite: false});
+	const unreadableState = stateOf({sqlite: false});
 	await openSpace(unreadableState, 'STA-1');
 	fs.mkdirSync(unreadableState.daos.spaceState.file('STA-1'), {
 		recursive: true,
@@ -337,60 +338,57 @@ test('a registry or state store that cannot be read exits 3, never 1', async t =
 		['get', 'STA-1', '--field', 'profile'],
 		deps(unreadableState),
 	);
-	t.is(result.code, 3);
-	t.regex(result.stderr, /Could not read the state of STA-1/);
+	expect(result.code).toBe(3);
+	expect(result.stderr).toMatch(/Could not read the state of STA-1/);
 });
 
 contractTest(
 	'an agent-sessions store that cannot be read fails only the lookups that read it',
-	async (t, state) => {
+	async state => {
 		await openSpace(state, 'STA-1');
 		await state.daos.spaceState.write('STA-1', {profile: 'dev'});
 		fs.mkdirSync(state.daos.agentSessions.file('STA-1'), {recursive: true});
-		t.deepEqual(
+		expect(
 			await run(['get', 'STA-1', '--field', 'profile'], deps(state)),
-			{code: 0, stdout: 'dev', stderr: ''},
-		);
+		).toStrictEqual({code: 0, stdout: 'dev', stderr: ''});
 		const sessions = await run(
 			['get', 'STA-1', '--field', 'agentSessions.claude'],
 			deps(state),
 		);
-		t.is(sessions.code, 3);
-		t.regex(sessions.stderr, /Could not read the state of STA-1/);
+		expect(sessions.code).toBe(3);
+		expect(sessions.stderr).toMatch(/Could not read the state of STA-1/);
 	},
 );
 
 contractTest(
 	'space list prints the spaces it could read and names the one it could not',
-	async (t, state) => {
+	async state => {
 		await openSpace(state, 'STA-1');
 		await openSpace(state, 'STA-2');
 		await state.daos.spaceState.write('STA-1', {profile: 'dev'});
 		fs.mkdirSync(state.daos.spaceState.file('STA-2'), {recursive: true});
 
 		const json = await run(['list', '--json'], deps(state));
-		t.is(json.code, 3);
-		t.deepEqual(
+		expect(json.code).toBe(3);
+		expect(
 			(JSON.parse(json.stdout) as Array<{key: string}>).map(
 				record => record.key,
 			),
-			['main', 'STA-1'],
-		);
-		t.regex(json.stderr, /^Could not read the state of STA-2: [^\n]+$/);
+		).toStrictEqual(['main', 'STA-1']);
+		expect(json.stderr).toMatch(/^Could not read the state of STA-2: [^\n]+$/);
 
 		const plain = await run(['list'], deps(state));
-		t.is(plain.code, 3);
-		t.deepEqual(
+		expect(plain.code).toBe(3);
+		expect(
 			plain.stdout.split('\n').map(line => line.split(' ')[0]),
-			['KEY', 'main', 'STA-1'],
-		);
-		t.is(plain.stderr, json.stderr);
+		).toStrictEqual(['KEY', 'main', 'STA-1']);
+		expect(plain.stderr).toBe(json.stderr);
 	},
 );
 
-test('a space named by PAPPARDELLE_SPACE belongs to PAPPARDELLE_REPO, not the nested checkout', async t => {
-	const outer = stateOf(t, {repo: 'repo'});
-	const nested = stateOf(t, {repo: 'nested'});
+test('a space named by PAPPARDELLE_SPACE belongs to PAPPARDELLE_REPO, not the nested checkout', async () => {
+	const outer = stateOf({repo: 'repo'});
+	const nested = stateOf({repo: 'nested'});
 	await openSpace(outer, 'STA-1');
 	await outer.daos.spaceState.write('STA-1', {profile: 'dev'});
 	const result = await run(
@@ -404,35 +402,37 @@ test('a space named by PAPPARDELLE_SPACE belongs to PAPPARDELLE_REPO, not the ne
 			env: {PAPPARDELLE_SPACE: 'STA-1', PAPPARDELLE_REPO: 'repo'},
 		}),
 	);
-	t.deepEqual(JSON.parse(result.stdout), {
+	expect(JSON.parse(result.stdout)).toStrictEqual({
 		repo: 'repo',
 		profile: 'dev',
 		worktreePath: '/home/u/.worktrees/repo/STA-1',
 	});
 });
 
-test('with no key and no PAPPARDELLE_SPACE, the space is the worktree the caller is in', async t => {
+test('with no key and no PAPPARDELLE_SPACE, the space is the worktree the caller is in', async () => {
 	const home = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'space-home-')),
 	);
-	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
-	const state = stateOf(t, {home});
+	teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const state = stateOf({home});
 	const inside = path.join(home, '.worktrees', 'repo', 'STA-1', 'src');
 	fs.mkdirSync(inside, {recursive: true});
 	await openSpace(state, 'STA-1', {home});
-	t.like(await run(['get', '--field', 'key'], deps(state, {cwd: inside})), {
+	expect(
+		await run(['get', '--field', 'key'], deps(state, {cwd: inside})),
+	).toMatchObject({
 		code: 0,
 		stdout: 'STA-1',
 	});
-	t.deepEqual(await run(['get'], deps(state, {cwd: home})), {
+	expect(await run(['get'], deps(state, {cwd: home}))).toStrictEqual({
 		code: 1,
 		stdout: '',
 		stderr: 'Not in a Pappardelle space; pass a KEY',
 	});
 });
 
-test('a space is reported under the names stored for it', async t => {
-	const state = stateOf(t, {sqlite: true});
+test('a space is reported under the names stored for it', async () => {
+	const state = stateOf({sqlite: true});
 	await state.daos.spaceIdentities.record({
 		repo: 'repo',
 		key: 'STA-1',
@@ -445,7 +445,7 @@ test('a space is reported under the names stored for it', async t => {
 	});
 	await state.daos.registry.add('STA-1');
 	const result = await run(['get', 'STA-1', '--json'], deps(state));
-	t.like(JSON.parse(result.stdout), {
+	expect(JSON.parse(result.stdout)).toMatchObject({
 		worktreePath: '/elsewhere/STA-1',
 		branch: 'STA-1',
 		tmux: {
@@ -459,14 +459,14 @@ test('a space is reported under the names stored for it', async t => {
 	});
 });
 
-test('with no key, a worktree outside ~/.worktrees is found by its stored path', async t => {
+test('with no key, a worktree outside ~/.worktrees is found by its stored path', async () => {
 	const root = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'space-custom-')),
 	);
-	t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+	teardown(() => fs.rmSync(root, {recursive: true, force: true}));
 	const worktree = path.join(root, 'checkouts', 'login');
 	fs.mkdirSync(path.join(worktree, 'src'), {recursive: true});
-	const state = stateOf(t, {sqlite: true});
+	const state = stateOf({sqlite: true});
 	await state.daos.spaceIdentities.record(
 		newSpaceIdentity({
 			repo: 'repo',
@@ -476,20 +476,19 @@ test('with no key, a worktree outside ~/.worktrees is found by its stored path',
 		}),
 	);
 	await state.daos.registry.add('STA-1');
-	t.like(
+	expect(
 		await run(
 			['get', '--field', 'key'],
 			deps(state, {cwd: path.join(worktree, 'src')}),
 		),
-		{code: 0, stdout: 'STA-1'},
-	);
+	).toMatchObject({code: 0, stdout: 'STA-1'});
 });
 
-test('a space closed before identities were stored has no names', async t => {
-	const state = stateOf(t, {sqlite: true});
+test('a space closed before identities were stored has no names', async () => {
+	const state = stateOf({sqlite: true});
 	await state.daos.spaceState.write('STA-7', {profile: 'dev'});
 	const result = await run(['get', 'STA-7', '--json'], deps(state));
-	t.like(JSON.parse(result.stdout), {
+	expect(JSON.parse(result.stdout)).toMatchObject({
 		phase: 'closed',
 		worktreePath: null,
 		tmux: null,
@@ -497,8 +496,8 @@ test('a space closed before identities were stored has no names', async t => {
 	});
 });
 
-test('outside a git checkout, get with a key or PAPPARDELLE_SPACE and list exit 1 with one line', async t => {
-	const state = stateOf(t);
+test('outside a git checkout, get with a key or PAPPARDELLE_SPACE and list exit 1 with one line', async () => {
+	const state = stateOf();
 	await openSpace(state, 'STA-1');
 	const outside = {checkout: () => ({kind: 'not-in-a-repo'}) as const};
 	const expected = {
@@ -507,19 +506,20 @@ test('outside a git checkout, get with a key or PAPPARDELLE_SPACE and list exit 
 		stderr:
 			"Not in a git repository; run it from a checkout of the space's repo",
 	};
-	t.deepEqual(await run(['get', 'STA-1'], deps(state, outside)), expected);
-	t.deepEqual(
+	expect(await run(['get', 'STA-1'], deps(state, outside))).toStrictEqual(
+		expected,
+	);
+	expect(
 		await run(
 			['get'],
 			deps(state, {...outside, env: {PAPPARDELLE_SPACE: 'STA-1'}}),
 		),
-		expected,
-	);
-	t.deepEqual(await run(['list'], deps(state, outside)), expected);
+	).toStrictEqual(expected);
+	expect(await run(['list'], deps(state, outside))).toStrictEqual(expected);
 });
 
-test('--field prints strings bare, objects as JSON and null as an empty line', async t => {
-	const state = stateOf(t);
+test('--field prints strings bare, objects as JSON and null as an empty line', async () => {
+	const state = stateOf();
 	await openSpace(state, 'STA-1');
 	await state.daos.spaceState.write('STA-1', {profile: 'dev'});
 	recordSessions(state, 'STA-1', {claude: 'c-1'});
@@ -528,20 +528,27 @@ test('--field prints strings bare, objects as JSON and null as an empty line', a
 			['get', 'STA-1', ...fields.flatMap(each => ['--field', each])],
 			deps(state),
 		);
-	t.like(await field('agentSessions.claude'), {code: 0, stdout: 'c-1'});
-	t.like(await field('agentSessions'), {stdout: '{"claude":"c-1"}'});
-	t.deepEqual(await field('title'), {code: 0, stdout: '', stderr: ''});
-	t.like(await field('prLinks'), {code: 0, stdout: '[]'});
-	t.like(await field('profile', 'pipeline'), {
+	expect(await field('agentSessions.claude')).toMatchObject({
+		code: 0,
+		stdout: 'c-1',
+	});
+	expect(await field('agentSessions')).toMatchObject({
+		stdout: '{"claude":"c-1"}',
+	});
+	expect(await field('title')).toStrictEqual({code: 0, stdout: '', stderr: ''});
+	expect(await field('prLinks')).toMatchObject({code: 0, stdout: '[]'});
+	expect(await field('profile', 'pipeline')).toMatchObject({
 		stdout: '{"profile":"dev","pipeline":null}',
 	});
-	t.like(await run(['get', 'STA-1', '--field=profile'], deps(state)), {
+	expect(
+		await run(['get', 'STA-1', '--field=profile'], deps(state)),
+	).toMatchObject({
 		stdout: 'dev',
 	});
 });
 
-test('--field outside the record is a usage error', async t => {
-	const state = stateOf(t);
+test('--field outside the record is a usage error', async () => {
+	const state = stateOf();
 	await openSpace(state, 'STA-1');
 	for (const field of [
 		'bogus',
@@ -550,12 +557,12 @@ test('--field outside the record is a usage error', async t => {
 		'agentSessions.a.b',
 	]) {
 		const {code} = await run(['get', 'STA-1', '--field', field], deps(state));
-		t.is(code, 2, field);
+		expect(code, field).toBe(2);
 	}
 });
 
-test('a stored or tmux field starts no process', async t => {
-	const state = stateOf(t);
+test('a stored or tmux field starts no process', async () => {
+	const state = stateOf();
 	await openSpace(state, 'STA-1');
 	const tmux = fakeTmux([{session: 'agent-repo-STA-1', id: '%1'}]);
 	let gitCalls = 0;
@@ -569,9 +576,9 @@ test('a stored or tmux field starts no process', async t => {
 			},
 		}),
 	);
-	t.is(result.code, 0);
-	t.deepEqual(tmux.verbs, []);
-	t.is(gitCalls, 0);
+	expect(result.code).toBe(0);
+	expect(tmux.verbs).toStrictEqual([]);
+	expect(gitCalls).toBe(0);
 });
 
 /** A hook status and a program status snapshot for STA-1's agent. */
@@ -608,8 +615,8 @@ function statusDaos(
 	};
 }
 
-test("status merges the hook's record with the snapshot of the session's pinned pane", async t => {
-	const state = stateOf(t);
+test("status merges the hook's record with the snapshot of the session's pinned pane", async () => {
+	const state = stateOf();
 	await openSpace(state, 'STA-1');
 	const snapshotPanes: string[] = [];
 	const tmux = fakeTmux([
@@ -631,7 +638,7 @@ test("status merges the hook's record with the snapshot of the session's pinned 
 				),
 		}),
 	);
-	t.deepEqual(JSON.parse(result.stdout), {
+	expect(JSON.parse(result.stdout)).toStrictEqual({
 		status: {
 			status: 'working',
 			app: 'claude-code',
@@ -641,12 +648,12 @@ test("status merges the hook's record with the snapshot of the session's pinned 
 		},
 		panes: {agent: '%2', companion: '%7'},
 	});
-	t.deepEqual(snapshotPanes, ['%2']);
-	t.deepEqual(tmux.verbs, ['list-panes']);
+	expect(snapshotPanes).toStrictEqual(['%2']);
+	expect(tmux.verbs).toStrictEqual(['list-panes']);
 });
 
-test('without a session there are no panes and only the hook status', async t => {
-	const state = stateOf(t);
+test('without a session there are no panes and only the hook status', async () => {
+	const state = stateOf();
 	await openSpace(state, 'STA-1');
 	const snapshotPanes: string[] = [];
 	const result = await run(
@@ -656,19 +663,19 @@ test('without a session there are no panes and only the hook status', async t =>
 				statusDaos(state, {status: 'waiting_for_input'}, snapshotPanes),
 		}),
 	);
-	t.deepEqual(JSON.parse(result.stdout), {
+	expect(JSON.parse(result.stdout)).toStrictEqual({
 		status: {status: 'idle', app: 'claude-code', source: 'hook'},
 		panes: {agent: null, companion: null},
 	});
-	t.deepEqual(snapshotPanes, []);
+	expect(snapshotPanes).toStrictEqual([]);
 });
 
-test("main's status is read under its branch without the database, and under its key with it", async t => {
+test("main's status is read under its branch without the database, and under its key with it", async () => {
 	for (const [sqlite, reportedAs] of [
 		[false, 'repo-master'],
 		[true, 'repo-main'],
 	] as const) {
-		const state = stateOf(t, {repo: 'repo', sqlite});
+		const state = stateOf({repo: 'repo', sqlite});
 		await openSpace(state, 'main');
 		await writeClaudeStatus(state, {
 			sessionId: 's',
@@ -686,17 +693,21 @@ test("main's status is read under its branch without the database, and under its
 				},
 			}),
 		);
-		t.deepEqual(result, {code: 0, stdout: 'working', stderr: ''}, reportedAs);
+		expect(result, reportedAs).toStrictEqual({
+			code: 0,
+			stdout: 'working',
+			stderr: '',
+		});
 		// Only a status keyed by branch needs git.
-		t.is(branchesRead.length, sqlite ? 0 : 1, reportedAs);
+		expect(branchesRead.length, reportedAs).toBe(sqlite ? 0 : 1);
 	}
 });
 
-function cli(t: ExecutionContext) {
+function cli() {
 	const root = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-cli-space-get-')),
 	);
-	t.teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+	teardown(() => fs.rmSync(root, {recursive: true, force: true}));
 	const projectRoot = path.resolve(import.meta.dirname, '..');
 	const repo = path.join(root, 'project');
 	const home = path.join(root, 'home');
@@ -754,7 +765,7 @@ profiles:
 					stdio: ['ignore', 'pipe', 'pipe'],
 				},
 			);
-			t.teardown(() => child.kill());
+			teardown(() => child.kill());
 			let stderr = '';
 			child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
 				stderr += chunk;
@@ -765,20 +776,17 @@ profiles:
 	};
 }
 
-test.serial(
-	'pappardelle space with a bad verb, flag or field exits 2 without opening a space',
-	async t => {
-		const f = cli(t);
-		for (const args of [
-			['space', 'bogus'],
-			['space', 'get', '--bogus'],
-			['space', 'get', '--field='],
-		]) {
-			const result = await f.run(args);
-			t.is(result.code, 2, args.join(' '));
-			t.regex(result.stderr, /Usage: pappardelle space get/);
-		}
+test('pappardelle space with a bad verb, flag or field exits 2 without opening a space', async () => {
+	const f = cli();
+	for (const args of [
+		['space', 'bogus'],
+		['space', 'get', '--bogus'],
+		['space', 'get', '--field='],
+	]) {
+		const result = await f.run(args);
+		expect(result.code, args.join(' ')).toBe(2);
+		expect(result.stderr).toMatch(/Usage: pappardelle space get/);
+	}
 
-		t.false(f.idowRan());
-	},
-);
+	expect(f.idowRan()).toBe(false);
+});

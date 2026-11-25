@@ -4,8 +4,8 @@ import {unlink} from 'node:fs/promises';
 
 // Compile the real row component and its renderer together so React remains a
 // singleton. Importing a prebundled row into another React runtime is invalid.
-const [mode = 'bundle', destination] = process.argv.slice(2);
-if (!destination) throw new Error('Usage: build-fixture.ts <mode> <output>');
+const [destination] = process.argv.slice(2);
+if (!destination) throw new Error('Usage: build-fixture.ts <output>');
 const project = path.resolve(import.meta.dirname, '../..');
 const entry = path.join(project, '.pappardelle-fixture-source.mjs');
 if (await Bun.file(entry).exists()) throw new Error(`${entry} already exists`);
@@ -31,25 +31,14 @@ const source = template
 	);
 try {
 	await Bun.write(entry, source);
-	const compiled = mode === 'standalone' || mode === 'bytecode';
 	const result = await Bun.build({
 		entrypoints: [entry],
 		target: 'bun',
 		format: 'esm',
-		...(compiled
-			? {compile: nativeCompileOptions(destination)}
-			: {
-					outdir: path.dirname(destination),
-					naming: path.basename(destination),
-				}),
-		bytecode: mode === 'bytecode',
-		external: compiled
-			? []
-			: mode === 'full-bundle'
-				? ['@opentui/core-*']
-				: ['@opentui/core'],
+		compile: nativeCompileOptions(destination),
+		bytecode: true,
 		define: {
-			PAPPARDELLE_COMPILED: JSON.stringify(compiled),
+			PAPPARDELLE_COMPILED: 'true',
 			'process.env.NODE_ENV': JSON.stringify('production'),
 			...(process.platform === 'linux'
 				? {'process.env.OPENTUI_LIBC': JSON.stringify('glibc')}

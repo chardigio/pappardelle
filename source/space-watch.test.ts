@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {idowIdentities} from '../test/helpers/state.ts';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
 import {
 	runSuperviseCommand,
@@ -125,54 +125,49 @@ function spaces(
 	};
 }
 
-test('without a cursor, spaces already blocked come back at once, the caller left out', async t => {
+test('without a cursor, spaces already blocked come back at once, the caller left out', async () => {
 	const h = spaces({
 		'STA-1': permission('rm -rf /tmp/q-a'),
 		'STA-2': idle,
 		'STA-9': question,
 	});
 	const result = await h.watch('--until', 'blocked');
-	t.is(result.result, 'changed');
-	t.deepEqual(
+	expect(result.result).toBe('changed');
+	expect(
 		result.changes.map(change => [change.key, change.from, change.to]),
-		[['STA-1', null, 'permission']],
-	);
-	t.is(result.changes[0]!.permission?.command, 'rm -rf /tmp/q-a');
-	t.like(h.logged[0], {
+	).toStrictEqual([['STA-1', null, 'permission']]);
+	expect(result.changes[0]!.permission?.command).toBe('rm -rf /tmp/q-a');
+	expect(h.logged[0]).toMatchObject({
 		action: 'watch',
 		key: 'STA-1',
 		detail: 'new -> permission',
 	});
 });
 
-test('watching every space watches exactly those with a live stored agent session', async t => {
+test('watching every space watches exactly those with a live stored agent session', async () => {
 	// STA-2 has an identity and no session; STA-3 a session and no identity.
 	const h = spaces({'STA-1': permission('ls'), 'STA-3': permission('ls')}, [
 		'STA-1',
 		'STA-2',
 	]);
 	const result = await h.watch('--until', 'blocked');
-	t.deepEqual(
-		result.changes.map(change => change.key),
-		['STA-1'],
-	);
+	expect(result.changes.map(change => change.key)).toStrictEqual(['STA-1']);
 });
 
-test('a change while the supervisor was busy is returned by the next call', async t => {
+test('a change while the supervisor was busy is returned by the next call', async () => {
 	const h = spaces({'STA-1': permission('ls'), 'STA-2': idle});
 	const first = await h.watch('--until', 'blocked');
 	// The supervisor answers STA-1; meanwhile STA-2 asks a question.
 	h.screens['STA-1'] = idle;
 	h.screens['STA-2'] = question;
 	const next = await h.watch('--until', 'blocked', '--since', first.cursor);
-	t.deepEqual(
+	expect(
 		next.changes.map(change => [change.key, change.from, change.to]),
-		[['STA-2', 'idle', 'question']],
-	);
-	t.truthy(next.changes[0]!.question);
+	).toStrictEqual([['STA-2', 'idle', 'question']]);
+	expect(next.changes[0]!.question).toBeTruthy();
 });
 
-test('a space still on the prompt the cursor saw is not reported again, and the timeout is its own result', async t => {
+test('a space still on the prompt the cursor saw is not reported again, and the timeout is its own result', async () => {
 	const h = spaces({'STA-1': permission('ls'), 'STA-2': idle});
 	const first = await h.watch('--until', 'blocked');
 	const again = await h.watch(
@@ -183,14 +178,14 @@ test('a space still on the prompt the cursor saw is not reported again, and the 
 		'--timeout',
 		'10',
 	);
-	t.deepEqual(again, {
+	expect(again).toStrictEqual({
 		result: 'timed_out',
 		changes: [],
 		cursor: first.cursor,
 	});
 });
 
-test('leaving a prompt and landing on a new one is reported', async t => {
+test('leaving a prompt and landing on a new one is reported', async () => {
 	const h = spaces({'STA-1': permission('ls')});
 	const first = await h.watch('--until', 'permission');
 	h.onWait(
@@ -202,82 +197,84 @@ test('leaving a prompt and landing on a new one is reported', async t => {
 		},
 	);
 	const next = await h.watch('--until', 'permission', '--since', first.cursor);
-	t.like(next.changes[0], {key: 'STA-1', from: 'idle', to: 'permission'});
-	t.is(next.result, 'changed');
-	t.is(next.changes[0]!.permission?.command, 'ls -la');
+	expect(next.changes[0]).toMatchObject({
+		key: 'STA-1',
+		from: 'idle',
+		to: 'permission',
+	});
+	expect(next.result).toBe('changed');
+	expect(next.changes[0]!.permission?.command).toBe('ls -la');
 });
 
-test('with no targets, only a change from the first look counts', async t => {
+test('with no targets, only a change from the first look counts', async () => {
 	const h = spaces({'STA-1': idle, 'STA-2': permission('ls')});
 	h.onWait(() => {
 		h.screens['STA-1'] = question;
 	});
 	const result = await h.watch();
-	t.deepEqual(
+	expect(
 		result.changes.map(change => [change.key, change.from, change.to]),
-		[['STA-1', 'idle', 'question']],
-	);
+	).toStrictEqual([['STA-1', 'idle', 'question']]);
 });
 
-test('named spaces only, and a space in the cursor that closed reports no_session', async t => {
+test('named spaces only, and a space in the cursor that closed reports no_session', async () => {
 	const h = spaces({'STA-1': idle, 'STA-2': idle});
 	const first = await h.watch('--timeout', '1');
-	t.is(first.result, 'timed_out');
+	expect(first.result).toBe('timed_out');
 	delete h.screens['STA-2'];
 	const closed = await h.watch('--since', first.cursor);
-	t.deepEqual(
+	expect(
 		closed.changes.map(change => [change.key, change.from, change.to]),
-		[['STA-2', 'idle', 'no_session']],
-	);
+	).toStrictEqual([['STA-2', 'idle', 'no_session']]);
 
 	h.screens['STA-3'] = question;
 	const named = await h.watch('STA-1', '--until', 'question', '--timeout', '1');
-	t.is(named.result, 'timed_out');
+	expect(named.result).toBe('timed_out');
 });
 
-test('the cursor survives a round trip and junk is refused', t => {
+test('the cursor survives a round trip and junk is refused', () => {
 	const cursor = {'STA-1': 'idle', main: 'permission'} as const;
-	t.deepEqual(decodeCursor(encodeCursor(cursor)), cursor);
-	t.is(decodeCursor('not a cursor'), null);
-	t.is(decodeCursor(encodeCursor({'STA-1': 'asleep'} as never)), null);
-	t.throws(() => parseSuperviseArgs(['watch', '--since', 'nope']), {
-		instanceOf: SuperviseUsageError,
-	});
-	t.throws(
-		() => parseSuperviseArgs(['watch', '--until', 'permission_prompt']),
-		{
-			instanceOf: SuperviseUsageError,
-		},
+	expect(decodeCursor(encodeCursor(cursor))).toStrictEqual(cursor);
+	expect(decodeCursor('not a cursor')).toBe(null);
+	expect(decodeCursor(encodeCursor({'STA-1': 'asleep'} as never))).toBe(null);
+	expect(() => parseSuperviseArgs(['watch', '--since', 'nope'])).toThrow(
+		SuperviseUsageError,
 	);
-	t.throws(() => parseSuperviseArgs(['watch', '--timeout', '601']), {
-		instanceOf: SuperviseUsageError,
-	});
+	expect(() =>
+		parseSuperviseArgs(['watch', '--until', 'permission_prompt']),
+	).toThrow(SuperviseUsageError);
+	expect(() => parseSuperviseArgs(['watch', '--timeout', '601'])).toThrow(
+		SuperviseUsageError,
+	);
 });
 
-test('a new prompt where the last one was answered is news, though the state is the same', async t => {
+test('a new prompt where the last one was answered is news, though the state is the same', async () => {
 	const h = spaces({'STA-1': permission('cksum a')});
 	const first = await h.watch('--until', 'blocked');
 	// Answered; by the next call the agent already asks again.
 	h.screens['STA-1'] = permission('cksum b');
 	const next = await h.watch('--until', 'blocked', '--since', first.cursor);
-	t.like(next.changes[0], {key: 'STA-1', from: 'permission', to: 'permission'});
-	t.is(next.changes[0]!.permission?.command, 'cksum b');
+	expect(next.changes[0]).toMatchObject({
+		key: 'STA-1',
+		from: 'permission',
+		to: 'permission',
+	});
+	expect(next.changes[0]!.permission?.command).toBe('cksum b');
 });
 
-test('a named space with no session comes back at once', async t => {
+test('a named space with no session comes back at once', async () => {
 	const h = spaces({'STA-1': idle});
 	const result = await h.watch('STA-77', '--until', 'blocked');
-	t.deepEqual(
+	expect(
 		result.changes.map(change => [change.key, change.from, change.to]),
-		[['STA-77', null, 'no_session']],
-	);
+	).toStrictEqual([['STA-77', null, 'no_session']]);
 });
 
-test('a closed space leaves the cursor once reported, and junk after a cursor is refused', async t => {
+test('a closed space leaves the cursor once reported, and junk after a cursor is refused', async () => {
 	const h = spaces({'STA-1': idle, 'STA-2': idle});
 	const first = await h.watch('--timeout', '1');
 	delete h.screens['STA-2'];
 	const closed = await h.watch('--since', first.cursor);
-	t.deepEqual(Object.keys(decodeCursor(closed.cursor)!), ['STA-1']);
-	t.is(decodeCursor(`${first.cursor}!!`), null);
+	expect(Object.keys(decodeCursor(closed.cursor)!)).toStrictEqual(['STA-1']);
+	expect(decodeCursor(`${first.cursor}!!`)).toBe(null);
 });

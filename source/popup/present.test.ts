@@ -1,5 +1,5 @@
 import {PassThrough} from 'node:stream';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {until} from '../../test/helpers/render.ts';
 import {presentPopup} from './present.tsx';
 import type {PopupActions, PopupSpec} from './spec.ts';
@@ -76,7 +76,7 @@ function fakeActions() {
 	return {actions, cancels: () => cancels};
 }
 
-test('Ctrl+C in the popup cancels and closes its terminal', async t => {
+test('Ctrl+C in the popup cancels and closes its terminal', async () => {
 	const fake = fakeTerminal();
 	const {actions, cancels} = fakeActions();
 	presentPopup(HELP, actions, fake.terminal);
@@ -84,10 +84,10 @@ test('Ctrl+C in the popup cancels and closes its terminal', async t => {
 
 	fake.terminal.input.write('\u0003');
 	await until(() => cancels() === 1);
-	t.is(fake.closes(), 1);
+	expect(fake.closes()).toBe(1);
 });
 
-test('tmux closing the popup unmounts the dialog as a cancel', async t => {
+test('tmux closing the popup unmounts the dialog as a cancel', async () => {
 	const fake = fakeTerminal();
 	const {actions, cancels} = fakeActions();
 	presentPopup(HELP, actions, fake.terminal);
@@ -95,10 +95,10 @@ test('tmux closing the popup unmounts the dialog as a cancel', async t => {
 
 	fake.closeFromTmux();
 	await until(() => cancels() === 1);
-	t.pass();
+	expect().pass();
 });
 
-test('closing waits for the current key handler before unmounting', async t => {
+test('closing waits for the current key handler before unmounting', async () => {
 	const fake = fakeTerminal();
 	const {actions} = fakeActions();
 	const close = presentPopup(HELP, actions, fake.terminal);
@@ -106,34 +106,31 @@ test('closing waits for the current key handler before unmounting', async t => {
 
 	close();
 	// The popup leaves the client without waiting for the renderer.
-	t.is(fake.dismissals(), 1);
-	t.is(fake.closes(), 0);
+	expect(fake.dismissals()).toBe(1);
+	expect(fake.closes()).toBe(0);
 	await until(() => fake.closes() === 1);
-	t.pass();
+	expect().pass();
 });
 
-test.serial(
-	'tmux closing the popup does not log the dead tty as an error',
-	async t => {
-		const fake = fakeTerminal();
-		const {actions, cancels} = fakeActions();
-		presentPopup(HELP, actions, fake.terminal);
-		await until(fake.isListening);
+test('tmux closing the popup does not log the dead tty as an error', async () => {
+	const fake = fakeTerminal();
+	const {actions, cancels} = fakeActions();
+	presentPopup(HELP, actions, fake.terminal);
+	await until(fake.isListening);
 
-		fake.killTty();
+	fake.killTty();
 
-		const logged: unknown[][] = [];
-		const consoleError = console.error;
-		console.error = (...args: unknown[]) => {
-			logged.push(args);
-		};
-		try {
-			fake.closeFromTmux();
-			await until(() => cancels() === 1);
-		} finally {
-			console.error = consoleError;
-		}
+	const logged: unknown[][] = [];
+	const consoleError = console.error;
+	console.error = (...args: unknown[]) => {
+		logged.push(args);
+	};
+	try {
+		fake.closeFromTmux();
+		await until(() => cancels() === 1);
+	} finally {
+		console.error = consoleError;
+	}
 
-		t.deepEqual(logged, []);
-	},
-);
+	expect(logged).toStrictEqual([]);
+});

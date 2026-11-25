@@ -1,7 +1,6 @@
 import {useKeyboard, usePaste} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
-import {useRef, useState} from 'react';
+import {useState} from 'react';
 import {displayWidth, POPUP_WIDTH_METHOD} from '../text-measure.ts';
 
 import {
@@ -39,32 +38,16 @@ export default function AgentProfilePicker({
 		),
 	}));
 	const options = filterAgentProfiles(request.options, state.query ?? '');
-	// OpenTUI emits every key of a burst to the handler before React re-renders,
-	// so keys read the latest state here.
-	const stateRef = useRef(state);
 
 	usePaste(event => {
-		const next = pasteIntoFilterablePicker(
-			stateRef.current,
-			new TextDecoder().decode(event.bytes),
+		setState(
+			pasteIntoFilterablePicker(state, new TextDecoder().decode(event.bytes)),
 		);
-		stateRef.current = next;
-		setState(next);
 	});
 
 	useKeyboard(event => {
-		const {input, key} = shortcutKey(event);
-		const shown = filterAgentProfiles(
-			request.options,
-			stateRef.current.query ?? '',
-		);
-		const result = handleFilterablePickerKey(
-			stateRef.current,
-			input,
-			key,
-			shown.length,
-		);
-		stateRef.current = result.state;
+		const shown = filterAgentProfiles(request.options, state.query ?? '');
+		const result = handleFilterablePickerKey(state, event, shown.length);
 		setState(result.state);
 		if (result.action === 'submit' || result.action === 'select') {
 			const chosen = shown[result.state.index];

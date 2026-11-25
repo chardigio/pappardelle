@@ -172,9 +172,7 @@ profiles:
 		'-m',
 		'Fixture',
 	]);
-	const command = [process.execPath, path.join(project, 'dist/cli.js')]
-		.map(value => shellQuoteStatus(value))
-		.join(' ');
+	const command = shellQuoteStatus(path.join(project, 'dist/pappardelle'));
 	tmux(
 		outer,
 		'-f',

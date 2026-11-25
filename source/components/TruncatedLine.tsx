@@ -28,17 +28,17 @@ export default function TruncatedLine({runs}: {runs: Run[]}) {
 				if (box.current) setWidth(box.current.width);
 			}}
 		>
-			{shown.map((run, index) => (
-				<text
-					key={index}
-					flexShrink={0}
-					wrapMode="none"
-					fg={run.fg ?? terminalColor()}
-					attributes={run.attributes}
-				>
-					{run.text}
-				</text>
-			))}
+			<text flexShrink={0} wrapMode="none">
+				{shown.map((run, index) => (
+					<span
+						key={index}
+						fg={run.fg ?? terminalColor()}
+						attributes={run.attributes}
+					>
+						{run.text}
+					</span>
+				))}
+			</text>
 		</box>
 	);
 }

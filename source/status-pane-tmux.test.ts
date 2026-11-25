@@ -1,7 +1,8 @@
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
 	parseStatusPane,
@@ -10,20 +11,19 @@ import {
 	statusMarker,
 } from './program-status-monitor.ts';
 
-const tmuxTest =
-	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
+const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 // The pane's process exits with remain-on-exit on, as a user's tmux.conf can
 // set it. tmux 3.8 then lists no pid for the pane.
 tmuxTest(
 	'a monitored pane that died is read as dead under the generation it was monitored with',
-	async t => {
-		const socket = path.join(tempDir(t, 'status-pane-'), 's');
+	async () => {
+		const socket = path.join(tempDir('status-pane-'), 's');
 		const tmux = (...args: string[]) =>
 			spawnSync('tmux', ['-S', socket, '-f', '/dev/null', ...args], {
 				encoding: 'utf8',
 			});
-		t.teardown(() => tmux('kill-server'));
+		teardown(() => tmux('kill-server'));
 		const created = tmux(
 			'new-session',
 			'-d',
@@ -36,7 +36,7 @@ tmuxTest(
 			'remain-on-exit',
 			'on',
 		);
-		t.is(created.status, 0, created.stderr);
+		expect(created.status, created.stderr).toBe(0);
 		const read = () =>
 			parseStatusPane(
 				tmux('display-message', '-p', '-t', '=agent:', STATUS_PANE_FORMAT)
@@ -53,11 +53,11 @@ tmuxTest(
 			STATUS_MONITOR_OPTION,
 			statusMarker(alive.pid),
 		);
-		t.is(marked.status, 0, marked.stderr);
+		expect(marked.status, marked.stderr).toBe(0);
 		const monitored = read()!;
 		for (let i = 0; i < 100 && !read()?.dead; i++) await delay(50);
 
-		t.like(read(), {
+		expect(read()).toMatchObject({
 			dead: true,
 			pid: monitored.pid,
 			generation: monitored.generation,

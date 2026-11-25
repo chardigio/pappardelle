@@ -3,7 +3,8 @@ import net from 'node:net';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {isDeepStrictEqual, promisify} from 'node:util';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {snapshotOf} from '../test/helpers/program-status.ts';
 import {
 	connectRaw,
@@ -41,11 +42,7 @@ const snapshot = (key: string, generation: string) =>
 		updatedAt: 1000,
 	});
 
-function testClient(
-	t: ExecutionContext,
-	socketPath: string,
-	options: StatusClientOptions = {},
-) {
+function testClient(socketPath: string, options: StatusClientOptions = {}) {
 	const clock = manualTimers();
 	const started: string[] = [];
 	const client = new StatusClient(socketPath, {
@@ -56,7 +53,7 @@ function testClient(
 		},
 		...options,
 	});
-	t.teardown(() => {
+	teardown(() => {
 		client.close();
 	});
 	const changes: StatusChange[] = [];
@@ -64,12 +61,8 @@ function testClient(
 }
 
 /** Put `messages` in the daemon, and return once it holds them. */
-async function seed(
-	t: ExecutionContext,
-	socketPath: string,
-	messages: ClientMessage[],
-) {
-	const sender = await connectRaw(t, socketPath);
+async function seed(socketPath: string, messages: ClientMessage[]) {
+	const sender = await connectRaw(socketPath);
 	for (const message of messages) sender.send(message);
 	sender.send({type: 'subscribe', repo: 'repo'});
 	await sender.received(
@@ -103,20 +96,20 @@ async function inAnotherProcess(
 	return stdout.trim();
 }
 
-test('after ready() the replica holds what the daemon held, and each push after it', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	const sender = await seed(t, socketPath, [
+test('after ready() the replica holds what the daemon held, and each push after it', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	const sender = await seed(socketPath, [
 		{type: 'hook', state: hookState('repo-A')},
 		{type: 'snapshot', snapshot: snapshot('A', 'g1')},
 		{type: 'snapshot', snapshot: snapshot('A', 'g2')},
 	]);
-	const {client, changes} = testClient(t, socketPath, {repo: 'repo'});
+	const {client, changes} = testClient(socketPath, {repo: 'repo'});
 
 	await client.ready();
-	t.deepEqual(client.hook('repo-A'), hookState('repo-A'));
-	t.deepEqual(client.snapshot('A', 'g1'), snapshot('A', 'g1'));
-	t.is(client.hook('repo-B'), undefined);
+	expect(client.hook('repo-A')).toStrictEqual(hookState('repo-A'));
+	expect(client.snapshot('A', 'g1')).toStrictEqual(snapshot('A', 'g1'));
+	expect(client.hook('repo-B')).toBe(undefined);
 
 	client.onChange(change => changes.push(change));
 	sender.send({type: 'hook', state: hookState('repo-B', 'waiting_for_input')});
@@ -124,27 +117,27 @@ test('after ready() the replica holds what the daemon held, and each push after 
 	sender.send({type: 'forget', repo: 'repo', key: 'A', keep: 'g2'});
 	await waitUntil(() => changes.length === 3, 'the three pushes');
 
-	t.deepEqual(changes, [
+	expect(changes).toStrictEqual([
 		{kind: 'hook', statusKey: 'repo-B'},
 		{kind: 'snapshot', key: 'B'},
 		{kind: 'snapshot', key: 'A'},
 	]);
-	t.is(client.hook('repo-B')?.status, 'waiting_for_input');
-	t.deepEqual(client.snapshot('B', 'g1'), snapshot('B', 'g1'));
-	t.is(client.snapshot('A', 'g1'), undefined);
-	t.deepEqual(client.snapshot('A', 'g2'), snapshot('A', 'g2'));
+	expect(client.hook('repo-B')?.status).toBe('waiting_for_input');
+	expect(client.snapshot('B', 'g1')).toStrictEqual(snapshot('B', 'g1'));
+	expect(client.snapshot('A', 'g1')).toBe(undefined);
+	expect(client.snapshot('A', 'g2')).toStrictEqual(snapshot('A', 'g2'));
 });
 
-test('ready() gives up on a daemon that accepts and sends no state, stays connected, and a state that comes later is a change', async t => {
-	const socketPath = testSocketPath(t);
+test('ready() gives up on a daemon that accepts and sends no state, stays connected, and a state that comes later is a change', async () => {
+	const socketPath = testSocketPath();
 	const accepted: net.Socket[] = [];
 	const silent = net.createServer(connection => accepted.push(connection));
 	silent.listen(socketPath);
-	t.teardown(() => {
+	teardown(() => {
 		for (const connection of accepted) connection.destroy();
 		silent.close();
 	});
-	const {client, clock, changes} = testClient(t, socketPath, {repo: 'repo'});
+	const {client, clock, changes} = testClient(socketPath, {repo: 'repo'});
 	client.onChange(change => changes.push(change));
 	let ready = false;
 	const waiting = client.ready().then(() => {
@@ -154,13 +147,13 @@ test('ready() gives up on a daemon that accepts and sends no state, stays connec
 		() => accepted.length === 1 && clock.delays().length === 1,
 		'the client to wait for the state',
 	);
-	t.false(ready);
-	t.deepEqual(clock.delays(), [STATE_WAIT_MS]);
+	expect(ready).toBe(false);
+	expect(clock.delays()).toStrictEqual([STATE_WAIT_MS]);
 
 	clock.fire();
 	await waiting;
-	t.is(client.hook('repo-A'), undefined);
-	t.deepEqual(clock.delays(), []);
+	expect(client.hook('repo-A')).toBe(undefined);
+	expect(clock.delays()).toStrictEqual([]);
 
 	accepted[0]!.write(
 		encodeMessage({
@@ -171,19 +164,19 @@ test('ready() gives up on a daemon that accepts and sends no state, stays connec
 		}),
 	);
 	await waitUntil(() => changes.length === 1, 'the late state');
-	t.deepEqual(changes, [{kind: 'hook', statusKey: 'repo-A'}]);
-	t.deepEqual(client.hook('repo-A'), hookState('repo-A'));
+	expect(changes).toStrictEqual([{kind: 'hook', statusKey: 'repo-A'}]);
+	expect(client.hook('repo-A')).toStrictEqual(hookState('repo-A'));
 });
 
-test('after the daemon is replaced the client reconnects, keeps what it knew, sends the new daemon the hook records it lacks, and tells listeners every key', async t => {
-	const socketPath = testSocketPath(t);
-	const first = await serveTestDaemon(t, socketPath);
-	await seed(t, socketPath, [
+test('after the daemon is replaced the client reconnects, keeps what it knew, sends the new daemon the hook records it lacks, and tells listeners every key', async () => {
+	const socketPath = testSocketPath();
+	const first = await serveTestDaemon(socketPath);
+	await seed(socketPath, [
 		{type: 'hook', state: hookState('repo-A', 'waiting_for_approval')},
 		{type: 'hook', state: hookState('repo-B')},
 		{type: 'snapshot', snapshot: snapshot('A', 'g1')},
 	]);
-	const {client, clock, changes} = testClient(t, socketPath, {repo: 'repo'});
+	const {client, clock, changes} = testClient(socketPath, {repo: 'repo'});
 	await client.ready();
 	client.onChange(change => changes.push(change));
 
@@ -192,12 +185,12 @@ test('after the daemon is replaced the client reconnects, keeps what it knew, se
 		() => clock.delays().length === 1,
 		'the client to see that the daemon went away',
 	);
-	t.deepEqual(clock.delays(), [200]);
+	expect(clock.delays()).toStrictEqual([200]);
 
 	// The new daemon has heard from repo-B's agent since, and from nobody else.
-	await serveTestDaemon(t, socketPath);
+	await serveTestDaemon(socketPath);
 	const newer = {...hookState('repo-B', 'waiting_for_input'), lastUpdate: 2000};
-	const sender = await seed(t, socketPath, [{type: 'hook', state: newer}]);
+	const sender = await seed(socketPath, [{type: 'hook', state: newer}]);
 	clock.fire();
 
 	await sender.received(
@@ -205,28 +198,28 @@ test('after the daemon is replaced the client reconnects, keeps what it knew, se
 			message.type === 'hook' && message.state.workspaceName === 'repo-A',
 		'the hook record the new daemon lacked',
 	);
-	t.deepEqual(
-		client.hook('repo-A'),
+	expect(client.hook('repo-A')).toStrictEqual(
 		hookState('repo-A', 'waiting_for_approval'),
 	);
-	t.deepEqual(client.hook('repo-B'), newer);
-	t.deepEqual(client.snapshot('A', 'g1'), snapshot('A', 'g1'));
+	expect(client.hook('repo-B')).toStrictEqual(newer);
+	expect(client.snapshot('A', 'g1')).toStrictEqual(snapshot('A', 'g1'));
 	for (const change of [
 		{kind: 'hook', statusKey: 'repo-A'},
 		{kind: 'hook', statusKey: 'repo-B'},
 		{kind: 'snapshot', key: 'A'},
 	] as const) {
-		t.true(
+		expect(
 			changes.some(told => isDeepStrictEqual(told, change)),
 			`listeners were told of ${JSON.stringify(change)}`,
-		);
+		).toBe(true);
 	}
 
-	const reader = await subscribeRaw(t, socketPath, 'repo');
-	t.like(
+	const reader = await subscribeRaw(socketPath, 'repo');
+	expect(
 		reader.messages.find(message => message.type === 'state'),
-		{hooks: [newer, hookState('repo-A', 'waiting_for_approval')]},
-	);
+	).toMatchObject({
+		hooks: [newer, hookState('repo-A', 'waiting_for_approval')],
+	});
 
 	sender.send({type: 'hook', state: hookState('repo-C')});
 	await waitUntil(
@@ -235,8 +228,8 @@ test('after the daemon is replaced the client reconnects, keeps what it knew, se
 	);
 });
 
-test('a state from the daemon the client was on replaces the replica: what the daemon forgot while the connection was down is dropped, and nothing is sent back to it', async t => {
-	const socketPath = testSocketPath(t);
+test('a state from the daemon the client was on replaces the replica: what the daemon forgot while the connection was down is dropped, and nothing is sent back to it', async () => {
+	const socketPath = testSocketPath();
 	const states: DaemonMessage[] = [
 		{
 			type: 'state',
@@ -269,11 +262,11 @@ test('a state from the daemon the client was on replaces the replica: what the d
 		});
 	});
 	daemon.listen(socketPath);
-	t.teardown(() => {
+	teardown(() => {
 		for (const connection of accepted) connection.destroy();
 		daemon.close();
 	});
-	const {client, clock, changes} = testClient(t, socketPath, {repo: 'repo'});
+	const {client, clock, changes} = testClient(socketPath, {repo: 'repo'});
 	await client.ready();
 	client.onChange(change => changes.push(change));
 
@@ -285,10 +278,10 @@ test('a state from the daemon the client was on replaces the replica: what the d
 	clock.fire();
 	await waitUntil(() => changes.length > 0, 'the state after the reconnect');
 
-	t.is(client.snapshot('A', 'g1'), undefined);
-	t.deepEqual(client.snapshot('B', 'g1'), snapshot('B', 'g1'));
-	t.is(client.hook('repo-A'), undefined);
-	t.deepEqual(changes, [
+	expect(client.snapshot('A', 'g1')).toBe(undefined);
+	expect(client.snapshot('B', 'g1')).toStrictEqual(snapshot('B', 'g1'));
+	expect(client.hook('repo-A')).toBe(undefined);
+	expect(changes).toStrictEqual([
 		{kind: 'hook', statusKey: 'repo-A'},
 		{kind: 'snapshot', key: 'A'},
 		{kind: 'snapshot', key: 'B'},
@@ -299,38 +292,37 @@ test('a state from the daemon the client was on replaces the replica: what the d
 	await client.send(last);
 	await waitUntil(() => received.at(-1)?.type === 'forget', 'the last line');
 	const subscribe = {type: 'subscribe', repo: 'repo'};
-	t.deepEqual(received, [subscribe, subscribe, last]);
+	expect(received).toStrictEqual([subscribe, subscribe, last]);
 });
 
-test('with nothing listening and start off, ready() resolves with an empty replica, no daemon is started, and a daemon started later is seen', async t => {
-	const socketPath = testSocketPath(t);
-	const {client, clock, started, changes} = testClient(t, socketPath, {
+test('with nothing listening and start off, ready() resolves with an empty replica, no daemon is started, and a daemon started later is seen', async () => {
+	const socketPath = testSocketPath();
+	const {client, clock, started, changes} = testClient(socketPath, {
 		repo: 'repo',
 	});
 
 	await client.ready();
-	t.is(client.hook('repo-A'), undefined);
-	t.is(
-		await client.send({type: 'hook', state: hookState('repo-A')}),
+	expect(client.hook('repo-A')).toBe(undefined);
+	expect(await client.send({type: 'hook', state: hookState('repo-A')})).toBe(
 		'unreachable',
 	);
 
 	client.onChange(change => changes.push(change));
-	await serveTestDaemon(t, socketPath);
-	await seed(t, socketPath, [{type: 'hook', state: hookState('repo-A')}]);
+	await serveTestDaemon(socketPath);
+	await seed(socketPath, [{type: 'hook', state: hookState('repo-A')}]);
 	clock.fire();
 	await waitUntil(
 		() => client.hook('repo-A') !== undefined,
 		'the state of the daemon that started later',
 	);
 
-	t.deepEqual(changes, [{kind: 'hook', statusKey: 'repo-A'}]);
-	t.deepEqual(started, []);
+	expect(changes).toStrictEqual([{kind: 'hook', statusKey: 'repo-A'}]);
+	expect(started).toStrictEqual([]);
 });
 
-test('with start on, the first refused attempt starts a daemon and later ones do at each doubling of their count, and the wait between attempts doubles up to a cap', async t => {
-	const socketPath = testSocketPath(t);
-	const {client, clock, started} = testClient(t, socketPath, {start: true});
+test('with start on, the first refused attempt starts a daemon and later ones do at each doubling of their count, and the wait between attempts doubles up to a cap', async () => {
+	const socketPath = testSocketPath();
+	const {client, clock, started} = testClient(socketPath, {start: true});
 
 	await client.ready();
 	const waits: number[] = [];
@@ -345,86 +337,89 @@ test('with start on, the first refused attempt starts a daemon and later ones do
 		clock.fire();
 	}
 
-	t.deepEqual(startedAfter, [1, 2, 2, 3, 3, 3, 3, 4]);
+	expect(startedAfter).toStrictEqual([1, 2, 2, 3, 3, 3, 3, 4]);
 
-	t.deepEqual(waits, [300, 400, 600, 1000, 1800, 3400, 5200, 5200]);
-	t.deepEqual(new Set(started), new Set([socketPath]));
+	expect(waits).toStrictEqual([300, 400, 600, 1000, 1800, 3400, 5200, 5200]);
+	expect(new Set(started)).toStrictEqual(new Set([socketPath]));
 });
 
-test('a client allowed to start a daemon after it was made does so from its next refused attempt', async t => {
-	const socketPath = testSocketPath(t);
-	const {client, clock, started} = testClient(t, socketPath);
+test('a client allowed to start a daemon after it was made does so from its next refused attempt', async () => {
+	const socketPath = testSocketPath();
+	const {client, clock, started} = testClient(socketPath);
 
 	await client.ready();
-	t.deepEqual(started, []);
+	expect(started).toStrictEqual([]);
 	client.allowStart();
 	clock.fire();
 	await waitUntil(() => clock.delays().length === 1, 'the second attempt');
 
-	t.deepEqual(started, [socketPath]);
+	expect(started).toStrictEqual([socketPath]);
 });
 
-test('a connect listener runs on every connection, so a publisher’s latest status reaches a daemon that replaced the first', async t => {
-	const socketPath = testSocketPath(t);
-	const first = await serveTestDaemon(t, socketPath);
-	const {client: publisher, clock} = testClient(t, socketPath);
+test('a connect listener runs on every connection, so a publisher’s latest status reaches a daemon that replaced the first', async () => {
+	const socketPath = testSocketPath();
+	const first = await serveTestDaemon(socketPath);
+	const {client: publisher, clock} = testClient(socketPath);
 	const latest = {type: 'snapshot', snapshot: snapshot('A', 'g1')} as const;
 	publisher.onConnect(() => {
 		void publisher.send(latest);
 	});
-	t.is(await publisher.send(latest), 'sent');
+	expect(await publisher.send(latest)).toBe('sent');
 
 	await first.close();
 	await waitUntil(
 		() => clock.delays().length === 1,
 		'the publisher to see that the daemon went away',
 	);
-	await serveTestDaemon(t, socketPath);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
+	await serveTestDaemon(socketPath);
+	const rail = await subscribeRaw(socketPath, 'repo');
 	clock.fire();
 
 	await rail.received(
 		message => message.type === 'snapshot',
 		'the snapshot sent again',
 	);
-	t.like(rail.messages[0], {type: 'state', hooks: [], snapshots: []});
-	t.deepEqual(rail.messages.slice(1), [latest]);
+	expect(rail.messages[0]).toMatchObject({
+		type: 'state',
+		hooks: [],
+		snapshots: [],
+	});
+	expect(rail.messages.slice(1)).toStrictEqual([latest]);
 });
 
-test('a client with no repo is pushed nothing', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	const {client: publisher, changes} = testClient(t, socketPath);
-	const {client: rail} = testClient(t, socketPath, {repo: 'repo'});
+test('a client with no repo is pushed nothing', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	const {client: publisher, changes} = testClient(socketPath);
+	const {client: rail} = testClient(socketPath, {repo: 'repo'});
 	publisher.onChange(change => changes.push(change));
 	await Promise.all([publisher.ready(), rail.ready()]);
 
 	await publisher.send({type: 'hook', state: hookState('repo-A')});
 	await waitUntil(() => rail.hook('repo-A') !== undefined, 'the push');
 
-	t.deepEqual(changes, []);
-	t.is(publisher.hook('repo-A'), undefined);
+	expect(changes).toStrictEqual([]);
+	expect(publisher.hook('repo-A')).toBe(undefined);
 });
 
-test('a closed client makes no further attempt', async t => {
-	const socketPath = testSocketPath(t);
-	const {client, clock} = testClient(t, socketPath, {repo: 'repo'});
+test('a closed client makes no further attempt', async () => {
+	const socketPath = testSocketPath();
+	const {client, clock} = testClient(socketPath, {repo: 'repo'});
 	await client.ready();
-	t.is(clock.delays().length, 1);
+	expect(clock.delays().length).toBe(1);
 
 	client.close();
 
-	t.deepEqual(clock.delays(), []);
-	t.is(
-		await client.send({type: 'hook', state: hookState('repo-A')}),
+	expect(clock.delays()).toStrictEqual([]);
+	expect(await client.send({type: 'hook', state: hookState('repo-A')})).toBe(
 		'unreachable',
 	);
 });
 
-test('two clients with start on, started together, end up on one daemon', async t => {
-	const socketPath = testSocketPath(t);
+test('two clients with start on, started together, end up on one daemon', async () => {
+	const socketPath = testSocketPath();
 	const pids: number[] = [];
-	t.teardown(() => {
+	teardown(() => {
 		for (const pid of pids.filter(pid => isPidAlive(pid)))
 			process.kill(pid, 'SIGKILL');
 	});
@@ -438,10 +433,10 @@ test('two clients with start on, started together, end up on one daemon', async 
 	};
 
 	const [one, two] = [1, 2].map(() =>
-		testClient(t, socketPath, {repo: 'repo', start: true, startDaemon}),
+		testClient(socketPath, {repo: 'repo', start: true, startDaemon}),
 	) as [ReturnType<typeof testClient>, ReturnType<typeof testClient>];
 	await Promise.all([one.client.ready(), two.client.ready()]);
-	t.is(pids.length, 2);
+	expect(pids.length).toBe(2);
 	await waitUntil(
 		() => pids.filter(pid => isPidAlive(pid)).length === 1,
 		'one of the two daemons to give way to the other',
@@ -456,21 +451,20 @@ test('two clients with start on, started together, end up on one daemon', async 
 	one.clock.fire();
 	two.clock.fire();
 	await waitUntil(() => connected.length === 2, 'both clients to connect');
-	t.is(
+	expect(
 		await one.client.send({type: 'hook', state: hookState('repo-A')}),
-		'sent',
-	);
+	).toBe('sent');
 	await waitUntil(
 		() => two.client.hook('repo-A') !== undefined,
 		'the other client to be pushed what the first sent',
 	);
-	t.is(pids.filter(pid => isPidAlive(pid)).length, 1);
+	expect(pids.filter(pid => isPidAlive(pid)).length).toBe(1);
 });
 
-test('a process with a connected client and no other work exits', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	await seed(t, socketPath, [{type: 'hook', state: hookState('repo-A')}]);
+test('a process with a connected client and no other work exits', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	await seed(socketPath, [{type: 'hook', state: hookState('repo-A')}]);
 
 	const printed = await inAnotherProcess(
 		socketPath,
@@ -481,13 +475,13 @@ test('a process with a connected client and no other work exits', async t => {
 		`,
 	);
 
-	t.is(printed, 'processing');
+	expect(printed).toBe('processing');
 });
 
-test('a process whose last work is a send has its line written, and exits', async t => {
-	const socketPath = testSocketPath(t);
-	await serveTestDaemon(t, socketPath);
-	const rail = await subscribeRaw(t, socketPath, 'repo');
+test('a process whose last work is a send has its line written, and exits', async () => {
+	const socketPath = testSocketPath();
+	await serveTestDaemon(socketPath);
+	const rail = await subscribeRaw(socketPath, 'repo');
 
 	const printed = await inAnotherProcess(
 		socketPath,
@@ -498,6 +492,6 @@ test('a process whose last work is a send has its line written, and exits', asyn
 		`,
 	);
 
-	t.is(printed, 'sent');
+	expect(printed).toBe('sent');
 	await rail.received(message => message.type === 'forgotten', 'the forget');
 });

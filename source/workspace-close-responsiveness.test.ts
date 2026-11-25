@@ -3,14 +3,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {innerKillSession} from './tmux.ts';
 
 const execFileAsync = promisify(execFile);
 
-test('slow session kills and simulator cleanup leave the event loop responsive', async t => {
+test('slow session kills and simulator cleanup leave the event loop responsive', async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-close-slow-'));
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
 	for (const command of ['tmux', 'xcrun']) {
 		fs.writeFileSync(
 			path.join(dir, command),
@@ -94,45 +95,41 @@ console.log(JSON.stringify({closed, closeMs, closeTicks, cleanupPendingAtClose, 
 		ticks: number;
 		registered: string[];
 	};
-	t.is(result.closed.outcome, 'closed');
-	t.true(result.closeTicks >= 5);
-	t.true(result.cleanupPendingAtClose);
-	t.true(result.cleanupResult);
-	t.true(result.ticks > result.closeTicks + 10);
-	t.deepEqual(result.registered, ['B']);
+	expect(result.closed.outcome).toBe('closed');
+	expect(result.closeTicks >= 5).toBe(true);
+	expect(result.cleanupPendingAtClose).toBe(true);
+	expect(result.cleanupResult).toBe(true);
+	expect(result.ticks > result.closeTicks + 10).toBe(true);
+	expect(result.registered).toStrictEqual(['B']);
 	const calls = fs
 		.readFileSync(callsFile, 'utf8')
 		.trim()
 		.split('\n')
 		.map(line => JSON.parse(line) as {command: string; args: string[]});
-	t.is(
+	expect(
 		calls.filter(
 			call => call.command === 'tmux' && call.args.includes('kill-session'),
 		).length,
-		// companion, agent, and the legacy agent name
-		3,
-	);
-	t.false(calls.some(call => call.args.includes('has-session')));
-	t.is(
+	).toBe(3);
+	expect(calls.some(call => call.args.includes('has-session'))).toBe(false);
+	expect(
 		calls.filter(call => call.command === 'xcrun' && call.args.includes('list'))
 			.length,
-		1,
-	);
-	t.deepEqual(
+	).toBe(1);
+	expect(
 		calls.find(call => call.command === 'xcrun' && call.args.includes('delete'))
 			?.args,
-		['simctl', 'delete', 'fixture-device'],
-	);
-	t.log(
+	).toStrictEqual(['simctl', 'delete', 'fixture-device']);
+	console.log(
 		`close dispatched/completed in ${result.closeMs.toFixed(1)} ms; ${result.closeTicks} timer ticks during session close, ${result.ticks} including cleanup`,
 	);
 });
 
-test('real isolated tmux session close uses exact targets and tolerates already absent sessions', async t => {
+test('real isolated tmux session close uses exact targets and tolerates already absent sessions', async () => {
 	try {
 		await execFileAsync('tmux', ['-V']);
 	} catch {
-		t.pass('tmux unavailable');
+		expect().pass('tmux unavailable');
 		return;
 	}
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-close-tmux-'));
@@ -145,7 +142,7 @@ test('real isolated tmux session close uses exact targets and tolerates already 
 		);
 		return stdout;
 	};
-	t.teardown(async () => {
+	teardown(async () => {
 		try {
 			await execFileAsync('tmux', ['-S', socket, 'kill-server']);
 		} catch {}
@@ -175,8 +172,8 @@ test('real isolated tmux session close uses exact targets and tolerates already 
 		'fixture-AB',
 		'sleep 60',
 	]);
-	t.true(await innerKillSession('fixture-A', run));
-	t.true(await innerKillSession('fixture-A', run));
+	expect(await innerKillSession('fixture-A', run)).toBe(true);
+	expect(await innerKillSession('fixture-A', run)).toBe(true);
 	const {stdout} = await execFileAsync('tmux', [
 		'-S',
 		socket,
@@ -184,7 +181,7 @@ test('real isolated tmux session close uses exact targets and tolerates already 
 		'-F',
 		'#{session_name}',
 	]);
-	t.is(stdout.trim(), 'fixture-AB');
-	t.true(await innerKillSession('fixture-AB', run));
-	t.true(await innerKillSession('fixture-AB', run));
+	expect(stdout.trim()).toBe('fixture-AB');
+	expect(await innerKillSession('fixture-AB', run)).toBe(true);
+	expect(await innerKillSession('fixture-AB', run)).toBe(true);
 });

@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	calculateLayoutForSize,
 	calculateIdealListHeightForCount,
@@ -137,7 +137,6 @@ function parseVerticalViewport(ascii: string): {
  * Assert that a calculated layout matches the expected ASCII viewport.
  */
 function assertViewport(
-	t: any,
 	layout: LayoutConfig,
 	expectedAscii: string,
 	label: string,
@@ -154,22 +153,22 @@ function assertViewport(
 		);
 
 		if (actual !== trimmedExpected) {
-			t.log(`\n${label} - MISMATCH`);
-			t.log('Expected:');
-			t.log(trimmedExpected);
-			t.log('\nActual:');
-			t.log(actual);
-			t.log(
+			console.log(`\n${label} - MISMATCH`);
+			console.log('Expected:');
+			console.log(trimmedExpected);
+			console.log('\nActual:');
+			console.log(actual);
+			console.log(
 				`\nDimensions: list=${layout.listWidth}, agent=${layout.agentWidth}, companion=${layout.companionWidth}`,
 			);
 		}
 
-		t.is(layout.listWidth, expected.listWidth, `${label}: list width`);
-		t.is(layout.agentWidth, expected.agentWidth, `${label}: claude width`);
-		t.is(
-			layout.companionWidth,
+		expect(layout.listWidth, `${label}: list width`).toBe(expected.listWidth);
+		expect(layout.agentWidth, `${label}: claude width`).toBe(
+			expected.agentWidth,
+		);
+		expect(layout.companionWidth, `${label}: companion width`).toBe(
 			expected.companionWidth,
-			`${label}: companion width`,
 		);
 	} else {
 		const expected = parseVerticalViewport(trimmedExpected);
@@ -180,18 +179,22 @@ function assertViewport(
 		);
 
 		if (actual !== trimmedExpected) {
-			t.log(`\n${label} - MISMATCH`);
-			t.log('Expected:');
-			t.log(trimmedExpected);
-			t.log('\nActual:');
-			t.log(actual);
-			t.log(
+			console.log(`\n${label} - MISMATCH`);
+			console.log('Expected:');
+			console.log(trimmedExpected);
+			console.log('\nActual:');
+			console.log(actual);
+			console.log(
 				`\nDimensions: listHeight=${layout.listHeight}, agentHeight=${layout.agentHeight}`,
 			);
 		}
 
-		t.is(layout.listHeight, expected.listHeight, `${label}: list height`);
-		t.is(layout.agentHeight, expected.agentHeight, `${label}: claude height`);
+		expect(layout.listHeight, `${label}: list height`).toBe(
+			expected.listHeight,
+		);
+		expect(layout.agentHeight, `${label}: claude height`).toBe(
+			expected.agentHeight,
+		);
 	}
 }
 
@@ -199,16 +202,16 @@ function assertViewport(
 // Constants Verification
 // ============================================================================
 
-test('layout constants', t => {
-	t.is(NARROW_SCREEN_THRESHOLD, 90);
-	t.is(MIN_LIST_WIDTH, 15);
-	t.is(MAX_LIST_WIDTH, 40);
-	t.is(MIN_CLAUDE_WIDTH, 40);
-	t.is(MIN_COMPANION_WIDTH, 20);
-	t.is(MAX_COMPANION_WIDTH, 86);
-	t.is(MAX_LIST_HEIGHT, 14);
-	t.is(DEFAULT_MIN_LIST_HEIGHT, 8);
-	t.is(MAX_LIST_HEIGHT_RATIO, 0.25);
+test('layout constants', () => {
+	expect(NARROW_SCREEN_THRESHOLD).toBe(90);
+	expect(MIN_LIST_WIDTH).toBe(15);
+	expect(MAX_LIST_WIDTH).toBe(40);
+	expect(MIN_CLAUDE_WIDTH).toBe(40);
+	expect(MIN_COMPANION_WIDTH).toBe(20);
+	expect(MAX_COMPANION_WIDTH).toBe(86);
+	expect(MAX_LIST_HEIGHT).toBe(14);
+	expect(DEFAULT_MIN_LIST_HEIGHT).toBe(8);
+	expect(MAX_LIST_HEIGHT_RATIO).toBe(0.25);
 });
 
 // ============================================================================
@@ -232,8 +235,8 @@ for (const [sessions, height] of [
 	[15, 14],
 	[100, 14],
 ] as const) {
-	test(`list height for ${sessions} sessions = ${height}`, t => {
-		t.is(calculateIdealListHeightForCount(sessions), height);
+	test(`list height for ${sessions} sessions = ${height}`, () => {
+		expect(calculateIdealListHeightForCount(sessions)).toBe(height);
 	});
 }
 
@@ -244,84 +247,83 @@ for (const [sessions, height] of [
 	[5, 12],
 	[13, 14],
 ] as const) {
-	test(`list height for ${sessions} two-line sessions = ${height}`, t => {
-		t.is(calculateIdealListHeightForCount(sessions, 2), height);
+	test(`list height for ${sessions} two-line sessions = ${height}`, () => {
+		expect(calculateIdealListHeightForCount(sessions, 2)).toBe(height);
 	});
 }
 
-test('a stacked layout fits two-line rows for every session', t => {
-	t.is(calculateLayoutForSize(80, 52, 3, {}, 2).listHeight, 8);
+test('a stacked layout fits two-line rows for every session', () => {
+	expect(calculateLayoutForSize(80, 52, 3, {}, 2).listHeight).toBe(8);
 });
 
-test('a stacked rail on a short screen shows three one-line spaces or one two-line space', t => {
+test('a stacked rail on a short screen shows three one-line spaces or one two-line space', () => {
 	// The ratio cap, floor(27 * 0.25), leaves room for more than three one-line
 	// rows or one two-line row.
-	t.is(calculateLayoutForSize(61, 28, 10, {}, 1).listHeight, 6);
-	t.is(calculateLayoutForSize(61, 28, 10, {}, 2).listHeight, 6);
+	expect(calculateLayoutForSize(61, 28, 10, {}, 1).listHeight).toBe(6);
+	expect(calculateLayoutForSize(61, 28, 10, {}, 2).listHeight).toBe(6);
 	// 2 rows for the frame.
-	t.is(calculateLayoutForSize(61, 12, 10, {}, 2).listHeight, 2 + 2);
+	expect(calculateLayoutForSize(61, 12, 10, {}, 2).listHeight).toBe(2 + 2);
 });
 
-test('a phone with the keyboard up (76x24) still shows three spaces below the pinned main row, with no blank status row', t => {
+test('a phone with the keyboard up (76x24) still shows three spaces below the pinned main row, with no blank status row', () => {
 	// STA-3146: production passes one pinned row for main. A build without the
 	// floor gave the rail 5 rows here, so only one space showed.
 	// The frame takes 2 rows; the idle status row takes none.
 	const layout = calculateLayoutForSize(76, 24, 26, {}, 1, 1);
-	t.is(layout.listHeight, 1 + 3 + 2);
-	t.is(layout.agentHeight, 23 - 6);
+	expect(layout.listHeight).toBe(1 + 3 + 2);
+	expect(layout.agentHeight).toBe(23 - 6);
 });
 
 // ============================================================================
 // Threshold Behavior: Vertical vs Horizontal
 // ============================================================================
 
-test('width 50 → vertical', t => {
-	t.is(calculateLayoutForSize(50, 30, 5).direction, 'vertical');
+test('width 50 → vertical', () => {
+	expect(calculateLayoutForSize(50, 30, 5).direction).toBe('vertical');
 });
 
-test('width 80 → vertical', t => {
-	t.is(calculateLayoutForSize(80, 30, 5).direction, 'vertical');
+test('width 80 → vertical', () => {
+	expect(calculateLayoutForSize(80, 30, 5).direction).toBe('vertical');
 });
 
-test('width 89 → vertical', t => {
-	t.is(calculateLayoutForSize(89, 30, 5).direction, 'vertical');
+test('width 89 → vertical', () => {
+	expect(calculateLayoutForSize(89, 30, 5).direction).toBe('vertical');
 });
 
-test('width 90 → horizontal', t => {
-	t.is(calculateLayoutForSize(90, 30, 5).direction, 'horizontal');
+test('width 90 → horizontal', () => {
+	expect(calculateLayoutForSize(90, 30, 5).direction).toBe('horizontal');
 });
 
-test('width 99 → horizontal', t => {
-	t.is(calculateLayoutForSize(99, 30, 5).direction, 'horizontal');
+test('width 99 → horizontal', () => {
+	expect(calculateLayoutForSize(99, 30, 5).direction).toBe('horizontal');
 });
 
-test('width 100 → horizontal', t => {
-	t.is(calculateLayoutForSize(100, 30, 5).direction, 'horizontal');
+test('width 100 → horizontal', () => {
+	expect(calculateLayoutForSize(100, 30, 5).direction).toBe('horizontal');
 });
 
-test('width 101 → horizontal', t => {
-	t.is(calculateLayoutForSize(101, 30, 5).direction, 'horizontal');
+test('width 101 → horizontal', () => {
+	expect(calculateLayoutForSize(101, 30, 5).direction).toBe('horizontal');
 });
 
-test('width 150 → horizontal', t => {
-	t.is(calculateLayoutForSize(150, 30, 5).direction, 'horizontal');
+test('width 150 → horizontal', () => {
+	expect(calculateLayoutForSize(150, 30, 5).direction).toBe('horizontal');
 });
 
-test('width 200 → horizontal', t => {
-	t.is(calculateLayoutForSize(200, 30, 5).direction, 'horizontal');
+test('width 200 → horizontal', () => {
+	expect(calculateLayoutForSize(200, 30, 5).direction).toBe('horizontal');
 });
 
 // ============================================================================
 // VERTICAL LAYOUT VIEWPORTS (width < 90)
 // ============================================================================
 
-test('vertical 40x15, 1 session', t => {
+test('vertical 40x15, 1 session', () => {
 	// 1 space shown at least: listHeight = 1 + 2 for the frame = 3, agentHeight = (15-1) - 3 = 11
 	const layout = calculateLayoutForSize(40, 15, 1);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -344,13 +346,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('vertical 40x20, 2 sessions', t => {
+test('vertical 40x20, 2 sessions', () => {
 	// 2 spaces shown at least: listHeight = 2 + 2 for the frame = 4, agentHeight = (20-1) - 4 = 15
 	const layout = calculateLayoutForSize(40, 20, 2);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -378,13 +379,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('vertical 60x20, 3 sessions', t => {
+test('vertical 60x20, 3 sessions', () => {
 	// 3 spaces shown at least: listHeight = 3 + 2 for the frame = 5, agentHeight = (20-1) - 5 = 14
 	const layout = calculateLayoutForSize(60, 20, 3);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -412,13 +412,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('vertical 80x24, 3 sessions', t => {
+test('vertical 80x24, 3 sessions', () => {
 	// 3 spaces shown at least: listHeight = 3 + 2 for the frame = 5, agentHeight = (24-1) - 5 = 18
 	const layout = calculateLayoutForSize(80, 24, 3);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -450,13 +449,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('vertical 80x24, 5 sessions', t => {
+test('vertical 80x24, 5 sessions', () => {
 	// 3 spaces shown at least: listHeight = 3 + 2 for the frame = 5, agentHeight = (24-1) - 5 = 18
 	const layout = calculateLayoutForSize(80, 24, 5);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -488,13 +486,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('vertical 80x24, 10 sessions (ratio-capped)', t => {
+test('vertical 80x24, 10 sessions (ratio-capped)', () => {
 	// 3 spaces shown at least: listHeight = 3 + 2 for the frame = 5, agentHeight = (24-1) - 5 = 18
 	const layout = calculateLayoutForSize(80, 24, 10);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -526,13 +523,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('vertical 80x28, 10 sessions (phone: the ratio cap shows four one-line spaces, Claude gets the rest)', t => {
+test('vertical 80x28, 10 sessions (phone: the ratio cap shows four one-line spaces, Claude gets the rest)', () => {
 	// The ratio cap, floor(27 * 0.25) = 6, shows 4 spaces: listHeight = 4 + 2 for the frame = 6, agentHeight = (28-1) - 6 = 21
 	const layout = calculateLayoutForSize(80, 28, 10);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -568,13 +564,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('vertical 80x40, 5 sessions (tall terminal)', t => {
+test('vertical 80x40, 5 sessions (tall terminal)', () => {
 	// listHeight = 5 + 2 for the frame = 7, agentHeight = (40-1) - 7 = 32
 	const layout = calculateLayoutForSize(80, 40, 5);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -622,13 +617,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('vertical 50x12, 0 sessions (minimal)', t => {
+test('vertical 50x12, 0 sessions (minimal)', () => {
 	// 1 space shown at least: listHeight = 1 + 2 for the frame = 3, agentHeight = (12-1) - 3 = 8
 	const layout = calculateLayoutForSize(50, 12, 0);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -648,13 +642,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('vertical 89x30, 5 sessions (just under threshold)', t => {
+test('vertical 89x30, 5 sessions (just under threshold)', () => {
 	// listHeight = 5+2 = 7, maxListForScreen = floor(29*0.25) = 7, agentHeight = 29 - 7 = 22
 	const layout = calculateLayoutForSize(89, 30, 5);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -696,14 +689,13 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 // HORIZONTAL LAYOUT VIEWPORTS (width >= 90)
 // ============================================================================
 
-test('horizontal 100x10, 5 sessions (at threshold)', t => {
+test('horizontal 100x10, 5 sessions (at threshold)', () => {
 	// usable = 100-2 = 98
 	// list=floor(98*0.24)=23, agent=max(40,floor(98*0.38))=40, companion=98-23-40=35
 	const layout = calculateLayoutForSize(100, 10, 5);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
@@ -721,14 +713,13 @@ LLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGG
 	);
 });
 
-test('horizontal 120x15, 5 sessions', t => {
+test('horizontal 120x15, 5 sessions', () => {
 	// usable = 120-2 = 118
 	// list=floor(118*0.24)=28, agent=floor(118*0.38)=44, companion=118-28-44=46
 	const layout = calculateLayoutForSize(120, 15, 5);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
@@ -751,14 +742,13 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGG
 	);
 });
 
-test('horizontal 140x12, 5 sessions', t => {
+test('horizontal 140x12, 5 sessions', () => {
 	// usable = 140-2 = 138
 	// list=floor(138*0.24)=33, agent=floor(138*0.38)=52, companion=138-33-52=53
 	const layout = calculateLayoutForSize(140, 12, 5);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
@@ -778,14 +768,13 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('horizontal 160x10, 5 sessions', t => {
+test('horizontal 160x10, 5 sessions', () => {
 	// usable = 160-2 = 158
 	// list=floor(158*0.24)=37, agent=floor(158*0.38)=60, companion=158-37-60=61
 	const layout = calculateLayoutForSize(160, 10, 5);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
@@ -803,14 +792,13 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('horizontal 180x8, 5 sessions', t => {
+test('horizontal 180x8, 5 sessions', () => {
 	// usable = 180-2 = 178
 	// list=floor(178*0.24)=42 → capped at 40, agent=floor(178*0.38)=67, companion=178-40-67=71
 	const layout = calculateLayoutForSize(180, 8, 5);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
@@ -826,14 +814,13 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('horizontal 200x8, 5 sessions', t => {
+test('horizontal 200x8, 5 sessions', () => {
 	// usable = 200-2 = 198
 	// list=floor(198*0.24)=47 → capped at 40, agent=floor(198*0.38)=75, companion=198-40-75=83
 	const layout = calculateLayoutForSize(200, 8, 5);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
@@ -853,13 +840,12 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 // REAL-WORLD SCENARIOS
 // ============================================================================
 
-test('MacBook Pro 14" fullscreen: 160x45, 5 sessions', t => {
+test('MacBook Pro 14" fullscreen: 160x45, 5 sessions', () => {
 	const layout = calculateLayoutForSize(160, 45, 5);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	// list=37, agent=60, companion=61
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
@@ -877,13 +863,12 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('MacBook Pro 14" half-width: 80x45, 5 sessions', t => {
+test('MacBook Pro 14" half-width: 80x45, 5 sessions', () => {
 	const layout = calculateLayoutForSize(80, 45, 5);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	// listHeight=7, agentHeight=37
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -936,13 +921,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('External 27" monitor: 200x60, 8 sessions', t => {
+test('External 27" monitor: 200x60, 8 sessions', () => {
 	const layout = calculateLayoutForSize(200, 60, 8);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	// list=40, agent=75, companion=83
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
@@ -960,13 +944,12 @@ LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('Phone SSH terminal: 40x20, 2 sessions', t => {
+test('Phone SSH terminal: 40x20, 2 sessions', () => {
 	const layout = calculateLayoutForSize(40, 20, 2);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 
 	// 2 spaces shown at least: listHeight = 2 + 2 for the frame = 4, agentHeight = (20-1) - 4 = 15
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL
@@ -994,13 +977,12 @@ CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 	);
 });
 
-test('iPad SSH: 100x30, 3 sessions (at threshold)', t => {
+test('iPad SSH: 100x30, 3 sessions (at threshold)', () => {
 	const layout = calculateLayoutForSize(100, 30, 3);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	// list=23, agent=40, companion=35
 	assertViewport(
-		t,
 		layout,
 		`
 LLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
@@ -1022,67 +1004,73 @@ LLLLLLLLLLLLLLLLLLLLLLL|CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC|GGGGGGGGGGGGGGG
 // EDGE CASES
 // ============================================================================
 
-test('edge: zero dimensions', t => {
+test('edge: zero dimensions', () => {
 	const layout = calculateLayoutForSize(0, 0, 0);
-	t.is(layout.direction, 'vertical');
-	t.truthy(layout.listHeight);
+	expect(layout.direction).toBe('vertical');
+	expect(layout.listHeight).toBeTruthy();
 });
 
-test('edge: very large terminal 500x100', t => {
+test('edge: very large terminal 500x100', () => {
 	const layout = calculateLayoutForSize(500, 100, 20);
-	t.is(layout.direction, 'horizontal');
+	expect(layout.direction).toBe('horizontal');
 
 	// usable = 498
 	// list=floor(498*0.24)=119 → capped at MAX_LIST_WIDTH=40
 	// agent=floor(498*0.38)=189, companion=498-40-189=269 → capped at MAX_COMPANION_WIDTH=86
 	// excess 269-86=183 → agent=189+183=372
 	const total = layout.listWidth! + layout.agentWidth! + layout.companionWidth!;
-	t.is(total, 498);
+	expect(total).toBe(498);
 
 	// List is capped at MAX_LIST_WIDTH
-	t.is(layout.listWidth, MAX_LIST_WIDTH);
+	expect(layout.listWidth).toBe(MAX_LIST_WIDTH);
 	// Companion is capped at MAX_COMPANION_WIDTH
-	t.is(layout.companionWidth, MAX_COMPANION_WIDTH);
+	expect(layout.companionWidth).toBe(MAX_COMPANION_WIDTH);
 	// Claude gets all the excess
-	t.true(layout.agentWidth! > layout.companionWidth!);
+	expect(layout.agentWidth! > layout.companionWidth!).toBe(true);
 });
 
-test('edge: single column', t => {
+test('edge: single column', () => {
 	const layout = calculateLayoutForSize(1, 50, 5);
-	t.is(layout.direction, 'vertical');
+	expect(layout.direction).toBe('vertical');
 });
 
 // ============================================================================
 // CONSISTENCY TESTS
 // ============================================================================
 
-test('deterministic: same input = same output', t => {
+test('deterministic: same input = same output', () => {
 	const a = calculateLayoutForSize(150, 40, 5);
 	const b = calculateLayoutForSize(150, 40, 5);
-	t.deepEqual(a, b);
+	expect(a).toStrictEqual(b);
 });
 
-test('horizontal: height is ignored', t => {
+test('horizontal: height is ignored', () => {
 	const short = calculateLayoutForSize(160, 10, 5);
 	const tall = calculateLayoutForSize(160, 100, 5);
-	t.deepEqual(short, tall);
+	expect(short).toStrictEqual(tall);
 });
 
-test('vertical: session count changes list height', t => {
+test('vertical: session count changes list height', () => {
 	const few = calculateLayoutForSize(80, 30, 2);
 	const many = calculateLayoutForSize(80, 30, 10);
 
-	t.is(few.listHeight, 4); // 2+2
-	t.is(many.listHeight, 7); // 10+2 capped by ratio floor(29*0.25)=7
+	expect(few.listHeight).toBe(4); // 2+2
+	expect(many.listHeight).toBe(7); // 10+2 capped by ratio floor(29*0.25)=7
 
-	t.is(few.agentHeight, 25); // 29-4
-	t.is(many.agentHeight, 22); // 29-7
+	expect(few.agentHeight).toBe(25); // 29-4
+	expect(many.agentHeight).toBe(22); // 29-7
 });
 
-test('a stacked rail keeps its minimum spaces below the pinned agent row', t => {
+test('a stacked rail keeps its minimum spaces below the pinned agent row', () => {
 	// Frame (2) + the sous-chef on one line + the minimum spaces.
-	t.is(calculateLayoutForSize(60, 12, 35, {}, 1, 1).listHeight, 2 + 1 + 3);
-	t.is(calculateLayoutForSize(60, 12, 35, {}, 2, 1).listHeight, 2 + 1 + 2);
+	expect(calculateLayoutForSize(60, 12, 35, {}, 1, 1).listHeight).toBe(
+		2 + 1 + 3,
+	);
+	expect(calculateLayoutForSize(60, 12, 35, {}, 2, 1).listHeight).toBe(
+		2 + 1 + 2,
+	);
 	// Every space fits: no spare row for a second line the agent row never draws.
-	t.is(calculateLayoutForSize(60, 60, 1, {}, 2, 1).listHeight, 2 + 1 + 2);
+	expect(calculateLayoutForSize(60, 60, 1, {}, 2, 1).listHeight).toBe(
+		2 + 1 + 2,
+	);
 });

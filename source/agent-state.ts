@@ -201,11 +201,12 @@ export function listAgentKeys(
 }
 
 // A window nobody is viewing keeps the size of whatever last showed it: a
-// phone's, or tmux's 80x24 for one never shown. The agent draws a dialog only
-// within it, on the alternate screen with no scrollback to read the rest from,
-// so a question with a few described options loses its top. Before a read, a
-// window no client shows grows to at least this, and the next client to show
-// it sizes it to itself again.
+// phone's, or for one never shown the agent viewer's size when it was created
+// (tmux's 80x24 if no rail had laid out since the inner server started). The
+// agent draws a dialog only within it, on the alternate screen with no
+// scrollback to read the rest from, so a question with a few described
+// options loses its top. Before a read, a window no client shows grows to at
+// least this, and the next client to show it sizes it to itself again.
 export const READ_WINDOW = {columns: 120, rows: 60};
 // Claude redraws within about 35 ms of a resize.
 const REDRAW_MS = 200;

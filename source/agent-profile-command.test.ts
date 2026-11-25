@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	runAgentProfileCommand,
 	type AgentProfileCommandDeps,
@@ -29,17 +29,17 @@ const config = {
 	},
 } as unknown as PappardelleConfig;
 
-test('list prints one agent profile name per line, the built-in claude first', t => {
+test('list prints one agent profile name per line, the built-in claude first', () => {
 	const d = deps(() => config);
-	t.is(runAgentProfileCommand(['list'], d.commandDeps), 0);
-	t.deepEqual(d.out, ['claude\ncodex-sol:high\naider']);
-	t.deepEqual(d.err, []);
+	expect(runAgentProfileCommand(['list'], d.commandDeps)).toBe(0);
+	expect(d.out).toStrictEqual(['claude\ncodex-sol:high\naider']);
+	expect(d.err).toStrictEqual([]);
 });
 
-test('list --json gives each name with the files defining it as a list', t => {
+test('list --json gives each name with the files defining it as a list', () => {
 	const d = deps(() => config);
-	t.is(runAgentProfileCommand(['list', '--json'], d.commandDeps), 0);
-	t.deepEqual(JSON.parse(d.out[0]!), [
+	expect(runAgentProfileCommand(['list', '--json'], d.commandDeps)).toBe(0);
+	expect(JSON.parse(d.out[0]!)).toStrictEqual([
 		{name: 'claude', sources: []},
 		{
 			name: 'codex-sol:high',
@@ -49,36 +49,36 @@ test('list --json gives each name with the files defining it as a list', t => {
 	]);
 });
 
-test('an unknown verb or flag is a usage error, not a listing', t => {
+test('an unknown verb or flag is a usage error, not a listing', () => {
 	for (const argv of [[], ['ls'], ['list', '--yaml']]) {
 		const d = deps(() => config);
-		t.is(
+		expect(
 			runAgentProfileCommand(argv, d.commandDeps),
-			2,
 			`argv: ${argv.join(' ')}`,
-		);
-		t.deepEqual(d.out, []);
-		t.regex(d.err.join('\n'), /Usage: pappardelle agent-profile list/);
+		).toBe(2);
+		expect(d.out).toStrictEqual([]);
+		expect(d.err.join('\n')).toMatch(/Usage: pappardelle agent-profile list/);
 	}
 });
 
-test('-h and --help print the help, before or after the verb', t => {
+test('-h and --help print the help, before or after the verb', () => {
 	for (const argv of [['-h'], ['--help'], ['list', '-h'], ['list', '--help']]) {
 		const d = deps(() => config);
-		t.is(
+		expect(
 			runAgentProfileCommand(argv, d.commandDeps),
-			0,
 			`argv: ${argv.join(' ')}`,
-		);
-		t.regex(d.out.join('\n'), /agent-profile list/);
-		t.deepEqual(d.err, []);
+		).toBe(0);
+		expect(d.out.join('\n')).toMatch(/agent-profile list/);
+		expect(d.err).toStrictEqual([]);
 	}
 });
 
-test('an unreadable config exits 3 with the reason', t => {
+test('an unreadable config exits 3 with the reason', () => {
 	const d = deps(() => {
 		throw new Error('Not in a git repository');
 	});
-	t.is(runAgentProfileCommand(['list'], d.commandDeps), 3);
-	t.deepEqual(d.err, ['Could not read the config: Not in a git repository']);
+	expect(runAgentProfileCommand(['list'], d.commandDeps)).toBe(3);
+	expect(d.err).toStrictEqual([
+		'Could not read the config: Not in a git repository',
+	]);
 });

@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import React from 'react';
 import {render} from '../../test/helpers/render.ts';
 import stringWidth from 'string-width';
@@ -44,7 +44,7 @@ async function renderReady(
 	return frame;
 }
 
-test('eight ready suggestions fit eight rows inside narrow frames', async t => {
+test('eight ready suggestions fit eight rows inside narrow frames', async () => {
 	for (const width of [20, 30, 40, 60, 90]) {
 		for (const prefix of ['bd', 'seatgeek-ticket-management-cli']) {
 			for (const title of [
@@ -53,33 +53,33 @@ test('eight ready suggestions fit eight rows inside narrow frames', async t => {
 			]) {
 				const frame = await renderReady(width, prefix, title);
 				const lines = frame.split('\n');
-				t.is(lines.length, 10, `Rendered frame: ${frame}`);
+				expect(lines.length, `Rendered frame: ${frame}`).toBe(10);
 				for (const line of lines) {
-					t.is(stringWidth(line), width, `Rendered frame: ${frame}`);
+					expect(stringWidth(line), `Rendered frame: ${frame}`).toBe(width);
 				}
-				t.true(lines[1]!.includes('❯ '), `Rendered frame: ${frame}`);
+				expect(lines[1]!.includes('❯ '), `Rendered frame: ${frame}`).toBe(true);
 			}
 		}
 	}
 });
 
-test('title budget follows identifier length and preserves full keys when they fit', async t => {
+test('title budget follows identifier length and preserves full keys when they fit', async () => {
 	const short = await renderReady(
 		40,
 		'bd',
 		'Repair the workspace configuration',
 	);
-	t.true(
+	expect(
 		short.includes('bd-abc.1 Repair the workspace'),
 		`Rendered frame: ${short}`,
-	);
+	).toBe(true);
 	const long = await renderReady(
 		60,
 		'seatgeek-ticket-management-cli',
 		'Repair the workspace configuration',
 	);
-	t.true(
+	expect(
 		long.includes('seatgeek-ticket-management-cli-abc.1 Repair'),
 		`Rendered frame: ${long}`,
-	);
+	).toBe(true);
 });

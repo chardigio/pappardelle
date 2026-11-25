@@ -1,5 +1,6 @@
 import {setImmediate as nextTurn} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 
@@ -11,7 +12,7 @@ function gate() {
 	return {promise, release};
 }
 
-test('burst startups yield between launches and never exceed two active setups', async t => {
+test('burst startups yield between launches and never exceed two active setups', async () => {
 	const queue = new StartupQueue();
 	const gates = Array.from({length: 5}, () => gate());
 	const started: number[] = [];
@@ -26,36 +27,36 @@ test('burst startups yield between launches and never exceed two active setups',
 		}),
 	);
 	await nextTurn();
-	t.deepEqual(started, [0]);
+	expect(started).toStrictEqual([0]);
 	await nextTurn();
-	t.deepEqual(started, [0, 1]);
+	expect(started).toStrictEqual([0, 1]);
 	await nextTurn();
-	t.deepEqual(started, [0, 1]);
+	expect(started).toStrictEqual([0, 1]);
 	gates[0]!.release();
 	await jobs[0];
 	await nextTurn();
-	t.deepEqual(started, [0, 1, 2]);
+	expect(started).toStrictEqual([0, 1, 2]);
 	for (const wait of gates) wait.release();
 	await Promise.all(jobs);
-	t.deepEqual(started, [0, 1, 2, 3, 4]);
-	t.is(peak, 2);
+	expect(started).toStrictEqual([0, 1, 2, 3, 4]);
+	expect(peak).toBe(2);
 });
 
-test('failed process creation releases a queue slot without registering success', async t => {
+test('failed process creation releases a queue slot without registering success', async () => {
 	const queue = new StartupQueue(1);
 	const completed: string[] = [];
 	const failed = queue.enqueue(async () => {
 		await runWorkspaceSetup('/missing/pappardelle-idow', [], {});
 		completed.push('missing');
 	});
-	const failure = t.throwsAsync(failed, {code: 'ENOENT'});
+	const failure = rejectionOf(failed);
 	const next = queue.enqueue(async () => {
 		const result = await runWorkspaceSetup(
 			process.execPath,
 			['-e', 'process.stdout.write("ready"); process.stderr.write("detail");'],
 			{},
 		);
-		t.deepEqual(result, {
+		expect(result).toStrictEqual({
 			code: 0,
 			signal: null,
 			stdout: 'ready',
@@ -63,28 +64,28 @@ test('failed process creation releases a queue slot without registering success'
 		});
 		completed.push('next');
 	});
-	await failure;
+	expect(await failure).toHaveProperty('code', 'ENOENT');
 	await next;
-	t.deepEqual(completed, ['next']);
+	expect(completed).toStrictEqual(['next']);
 });
 
-test('setup failures and signals are distinguishable from successful completion', async t => {
+test('setup failures and signals are distinguishable from successful completion', async () => {
 	const failed = await runWorkspaceSetup(
 		process.execPath,
 		['-e', 'process.exitCode = 7;'],
 		{},
 	);
-	t.is(failed.code, 7);
+	expect(failed.code).toBe(7);
 	const killed = await runWorkspaceSetup(
 		process.execPath,
 		['-e', 'process.kill(process.pid, "SIGTERM");'],
 		{},
 	);
-	t.is(killed.code, null);
-	t.is(killed.signal, 'SIGTERM');
+	expect(killed.code).toBe(null);
+	expect(killed.signal).toBe('SIGTERM');
 });
 
-test('stopping the queue drops pending launches and lets active setup finish', async t => {
+test('stopping the queue drops pending launches and lets active setup finish', async () => {
 	const queue = new StartupQueue(1);
 	const wait = gate();
 	const started: string[] = [];
@@ -103,10 +104,10 @@ test('stopping the queue drops pending launches and lets active setup finish', a
 	});
 	wait.release();
 	await active;
-	t.deepEqual(started, ['active']);
+	expect(started).toStrictEqual(['active']);
 });
 
-test('a user-started workspace does not wait behind a full watchlist queue', async t => {
+test('a user-started workspace does not wait behind a full watchlist queue', async () => {
 	const queue = new StartupQueue(2);
 	const blocked = Array.from({length: 4}, () => gate());
 	const jobs = blocked.map(async wait =>
@@ -121,13 +122,13 @@ test('a user-started workspace does not wait behind a full watchlist queue', asy
 		},
 		{queued: false},
 	);
-	t.true(userStarted);
+	expect(userStarted).toBe(true);
 	await userJob;
 	for (const wait of blocked) wait.release();
 	await Promise.all(jobs);
 });
 
-test('watchlist starts still share the two queue slots', async t => {
+test('watchlist starts still share the two queue slots', async () => {
 	const queue = new StartupQueue(2);
 	const blocked = Array.from({length: 3}, () => gate());
 	const started: number[] = [];
@@ -142,8 +143,8 @@ test('watchlist starts still share the two queue slots', async t => {
 		),
 	);
 	for (let i = 0; i < 3; i++) await nextTurn();
-	t.deepEqual(started, [0, 1]);
+	expect(started).toStrictEqual([0, 1]);
 	for (const wait of blocked) wait.release();
 	await Promise.all(jobs);
-	t.deepEqual(started, [0, 1, 2]);
+	expect(started).toStrictEqual([0, 1, 2]);
 });

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	FAST,
 	type FakeTuiBehavior,
@@ -75,18 +75,18 @@ function restartedTuis(h: Harness): string[] {
 	return restarted(h.tmuxCalls, h.sessions);
 }
 
-test('a failed install returns its status and leaves tmux alone', async t => {
+test('a failed install returns its status and leaves tmux alone', async () => {
 	const h = harness({
 		installerStatus: 3,
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
 	});
 
-	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 3);
-	t.deepEqual(h.tmuxCalls, []);
+	expect(await runUpdateCommand({restartTuis: true}, h.deps)).toBe(3);
+	expect(h.tmuxCalls).toStrictEqual([]);
 });
 
-test('only pappardelle sessions with a repo state dir count as running TUIs', async t => {
+test('only pappardelle sessions with a repo state dir count as running TUIs', async () => {
 	const h = harness({
 		sessions: [
 			'pappardelle-app',
@@ -99,40 +99,43 @@ test('only pappardelle sessions with a repo state dir count as running TUIs', as
 
 	await runUpdateCommand({restartTuis: true}, h.deps);
 
-	t.deepEqual(restartedTuis(h), ['pappardelle-app', 'pappardelle-web']);
+	expect(restartedTuis(h)).toStrictEqual([
+		'pappardelle-app',
+		'pappardelle-web',
+	]);
 });
 
-test('--restart-tuis restarts the session running the command last', async t => {
+test('--restart-tuis restarts the session running the command last', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web', 'pappardelle-api'],
 		repos: ['app', 'web', 'api'],
 		currentSession: 'pappardelle-app',
 	});
 
-	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 0);
-	t.deepEqual(restartedTuis(h), [
+	expect(await runUpdateCommand({restartTuis: true}, h.deps)).toBe(0);
+	expect(restartedTuis(h)).toStrictEqual([
 		'pappardelle-web',
 		'pappardelle-api',
 		'pappardelle-app',
 	]);
 });
 
-test('--no-restart-tuis leaves TUIs running and names them in a restart hint', async t => {
+test('--no-restart-tuis leaves TUIs running and names them in a restart hint', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web'],
 		repos: ['app', 'web'],
 		isTTY: true,
 	});
 
-	t.is(await runUpdateCommand({restartTuis: false}, h.deps), 0);
-	t.deepEqual(restartedTuis(h), []);
-	t.deepEqual(h.confirmCalls, []);
+	expect(await runUpdateCommand({restartTuis: false}, h.deps)).toBe(0);
+	expect(restartedTuis(h)).toStrictEqual([]);
+	expect(h.confirmCalls).toStrictEqual([]);
 	const hint = h.printed.at(-1)!;
-	t.true(hint.includes('pappardelle-app'));
-	t.true(hint.includes('pappardelle-web'));
+	expect(hint.includes('pappardelle-app')).toBe(true);
+	expect(hint.includes('pappardelle-web')).toBe(true);
 });
 
-test('on a TTY with no flag, a yes to the prompt restarts the TUIs', async t => {
+test('on a TTY with no flag, a yes to the prompt restarts the TUIs', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web'],
 		repos: ['app', 'web'],
@@ -142,12 +145,17 @@ test('on a TTY with no flag, a yes to the prompt restarts the TUIs', async t => 
 
 	await runUpdateCommand({}, h.deps);
 
-	t.is(h.confirmCalls.length, 1);
-	t.true(h.confirmCalls[0]!.startsWith('Restart 2 running Pappardelle TUIs'));
-	t.deepEqual(restartedTuis(h), ['pappardelle-app', 'pappardelle-web']);
+	expect(h.confirmCalls.length).toBe(1);
+	expect(
+		h.confirmCalls[0]!.startsWith('Restart 2 running Pappardelle TUIs'),
+	).toBe(true);
+	expect(restartedTuis(h)).toStrictEqual([
+		'pappardelle-app',
+		'pappardelle-web',
+	]);
 });
 
-test('on a TTY with no flag, a no to the prompt prints the hint instead', async t => {
+test('on a TTY with no flag, a no to the prompt prints the hint instead', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
@@ -157,12 +165,12 @@ test('on a TTY with no flag, a no to the prompt prints the hint instead', async 
 
 	await runUpdateCommand({}, h.deps);
 
-	t.is(h.confirmCalls.length, 1);
-	t.deepEqual(restartedTuis(h), []);
-	t.true(h.printed.at(-1)!.includes('pappardelle-app'));
+	expect(h.confirmCalls.length).toBe(1);
+	expect(restartedTuis(h)).toStrictEqual([]);
+	expect(h.printed.at(-1)!.includes('pappardelle-app')).toBe(true);
 });
 
-test('without a TTY or a flag, it never prompts and prints the hint', async t => {
+test('without a TTY or a flag, it never prompts and prints the hint', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app'],
 		repos: ['app'],
@@ -171,63 +179,69 @@ test('without a TTY or a flag, it never prompts and prints the hint', async t =>
 
 	await runUpdateCommand({}, h.deps);
 
-	t.deepEqual(h.confirmCalls, []);
-	t.deepEqual(restartedTuis(h), []);
-	t.true(h.printed.at(-1)!.includes('pappardelle-app'));
+	expect(h.confirmCalls).toStrictEqual([]);
+	expect(restartedTuis(h)).toStrictEqual([]);
+	expect(h.printed.at(-1)!.includes('pappardelle-app')).toBe(true);
 });
 
-test('no running TUIs means no prompt and no hint', async t => {
+test('no running TUIs means no prompt and no hint', async () => {
 	const h = harness({sessions: ['claude-app-STA-1'], isTTY: true});
 
-	t.is(await runUpdateCommand({}, h.deps), 0);
-	t.deepEqual(h.confirmCalls, []);
-	t.false(h.printed.some(line => line.includes('old build')));
+	expect(await runUpdateCommand({}, h.deps)).toBe(0);
+	expect(h.confirmCalls).toStrictEqual([]);
+	expect(h.printed.some(line => line.includes('old build'))).toBe(false);
 });
 
-test('a tmux server that is not running is treated as no TUIs', async t => {
+test('a tmux server that is not running is treated as no TUIs', async () => {
 	const h = harness({listFails: true, repos: ['app']});
 
-	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 0);
-	t.deepEqual(restartedTuis(h), []);
+	expect(await runUpdateCommand({restartTuis: true}, h.deps)).toBe(0);
+	expect(restartedTuis(h)).toStrictEqual([]);
 });
 
-test('the opening line names the version being replaced when known', async t => {
+test('the opening line names the version being replaced when known', async () => {
 	const h = harness();
 	await runUpdateCommand({}, h.deps);
-	t.true(h.printed[0]!.includes('v1.2.3'));
+	expect(h.printed[0]!.includes('v1.2.3')).toBe(true);
 
 	const unknown = harness();
 	unknown.deps.installedVersion = null;
 	await runUpdateCommand({}, unknown.deps);
-	t.false(unknown.printed[0]!.includes('currently on'));
+	expect(unknown.printed[0]!.includes('currently on')).toBe(false);
 });
 
-test('--restart-tuis reruns each TUI through the shim and reports its build', async t => {
+test('--restart-tuis reruns each TUI through the shim and reports its build', async () => {
 	const h = harness({sessions: ['pappardelle-app'], repos: ['app']});
 
-	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 0);
-	t.is(h.tmuxCalls.find(args => args[0] === 'kill-pane')!.at(-1), SHIM);
-	t.true(h.printed.at(-1)!.startsWith('pappardelle-app is running '));
+	expect(await runUpdateCommand({restartTuis: true}, h.deps)).toBe(0);
+	expect(h.tmuxCalls.find(args => args[0] === 'kill-pane')!.at(-1)).toBe(SHIM);
+	expect(h.printed.at(-1)!.startsWith('pappardelle-app is running ')).toBe(
+		true,
+	);
 });
 
-test('a TUI that fails to restart or report ready fails the update and is named', async t => {
+test('a TUI that fails to restart or report ready fails the update and is named', async () => {
 	const h = harness({
 		sessions: ['pappardelle-app', 'pappardelle-web', 'pappardelle-api'],
 		repos: ['app', 'web', 'api'],
 		behavior: {'pappardelle-app': 'refused', 'pappardelle-api': 'silent'},
 	});
 
-	t.is(await runUpdateCommand({restartTuis: true}, h.deps), 1);
-	t.true(h.printed.includes(`Couldn't restart pappardelle-app: ${REFUSAL}`));
-	t.true(h.printed.some(line => line.startsWith('pappardelle-web is running')));
+	expect(await runUpdateCommand({restartTuis: true}, h.deps)).toBe(1);
+	expect(
+		h.printed.includes(`Couldn't restart pappardelle-app: ${REFUSAL}`),
+	).toBe(true);
+	expect(
+		h.printed.some(line => line.startsWith('pappardelle-web is running')),
+	).toBe(true);
 	const summary = h.printed.at(-1)!;
-	t.true(
+	expect(
 		summary.includes('pappardelle-app, pappardelle-api are not confirmed'),
-	);
-	t.false(summary.includes('pappardelle-web'));
+	).toBe(true);
+	expect(summary.includes('pappardelle-web')).toBe(false);
 });
 
-test('the restart command is chosen after the install, which is what creates the shim', async t => {
+test('the restart command is chosen after the install, which is what creates the shim', async () => {
 	const h = harness({sessions: ['pappardelle-app'], repos: ['app']});
 	let installed = false;
 	h.deps.runInstaller = () => {
@@ -238,5 +252,5 @@ test('the restart command is chosen after the install, which is what creates the
 
 	await runUpdateCommand({restartTuis: true}, h.deps);
 
-	t.is(h.tmuxCalls.find(args => args[0] === 'kill-pane')!.at(-1), SHIM);
+	expect(h.tmuxCalls.find(args => args[0] === 'kill-pane')!.at(-1)).toBe(SHIM);
 });

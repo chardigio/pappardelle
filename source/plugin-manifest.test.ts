@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 
 // Regression tests for STA-1459: the STA-732 release bumped the marketplace
 // entry to 1.0.1 but forgot the plugin's own manifest, leaving the two
@@ -40,27 +40,37 @@ const plugin = readJson<PluginManifest>(
 
 const marketplaceEntry = marketplace.plugins.find(p => p.name === plugin.name);
 
-test('marketplace lists the pappardelle plugin', t => {
-	t.truthy(marketplaceEntry);
+test('marketplace lists the pappardelle plugin', () => {
+	expect(marketplaceEntry).toBeTruthy();
 });
 
-test('plugin manifest version matches its marketplace entry', t => {
-	if (!t.truthy(marketplaceEntry, 'pappardelle must be listed in marketplace'))
+test('plugin manifest version matches its marketplace entry', () => {
+	if (
+		!expect(
+			marketplaceEntry,
+			'pappardelle must be listed in marketplace',
+		).toBeTruthy()
+	)
 		return;
-	t.is(plugin.version, marketplaceEntry.version);
+	expect(plugin.version).toBe(marketplaceEntry.version);
 });
 
-test('plugin manifest description matches its marketplace entry', t => {
-	if (!t.truthy(marketplaceEntry, 'pappardelle must be listed in marketplace'))
+test('plugin manifest description matches its marketplace entry', () => {
+	if (
+		!expect(
+			marketplaceEntry,
+			'pappardelle must be listed in marketplace',
+		).toBeTruthy()
+	)
 		return;
-	t.is(plugin.description, marketplaceEntry.description);
+	expect(plugin.description).toBe(marketplaceEntry.description);
 });
 
-test('the Codex and agy manifests ship the same version as Claude Code', t => {
+test('the Codex and agy manifests ship the same version as Claude Code', () => {
 	for (const agent of ['.codex-plugin', '.antigravity-plugin']) {
 		const manifest = readJson<PluginManifest>(
 			`plugins/pappardelle/${agent}/plugin.json`,
 		);
-		t.is(manifest.version, plugin.version, `${agent} version`);
+		expect(manifest.version, `${agent} version`).toBe(plugin.version);
 	}
 });

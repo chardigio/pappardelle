@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {spawnSync} from 'node:child_process';
 import {openPopup, type ShowPopup} from './host.ts';
 import type {PopupActions, PopupSpec} from './spec.ts';
@@ -13,7 +13,7 @@ const CONFIRM: PopupSpec = {
 	},
 };
 
-test('loading the popup host does not initialize the renderer', t => {
+test('loading the popup host does not initialize the renderer', () => {
 	const hostUrl = new URL('host.ts', import.meta.url).href;
 	const result = spawnSync(
 		process.execPath,
@@ -28,7 +28,7 @@ test('loading the popup host does not initialize the renderer', t => {
 		],
 		{encoding: 'utf8'},
 	);
-	t.is(result.status, 0, `${result.stderr}`);
+	expect(result.status, `${result.stderr}`).toBe(0);
 });
 
 type FakeDialog = {
@@ -86,7 +86,7 @@ const tick = async (ms = 20) =>
 		setTimeout(resolve, ms);
 	});
 
-test('without tmux the popup is unavailable and nothing is shown', async t => {
+test('without tmux the popup is unavailable and nothing is shown', async () => {
 	let shown = false;
 	const outcome = await openPopup(
 		CONFIRM,
@@ -100,33 +100,33 @@ test('without tmux the popup is unavailable and nothing is shown', async t => {
 		},
 	);
 
-	t.is(outcome, 'unavailable');
-	t.false(shown);
+	expect(outcome).toBe('unavailable');
+	expect(shown).toBe(false);
 });
 
-test('a popup that cannot be shown is unavailable', async t => {
+test('a popup that cannot be shown is unavailable', async () => {
 	const outcome = await openPopup(
 		CONFIRM,
 		{},
 		deps(async () => undefined),
 	);
 
-	t.is(outcome, 'unavailable');
+	expect(outcome).toBe('unavailable');
 });
 
-test('the dialog is sized for the client', async t => {
+test('the dialog is sized for the client', async () => {
 	const tmux = fakeTmux();
 	const result = openPopup(CONFIRM, {}, deps(tmux.show));
 	const dialog = await tmux.dialog;
 
-	t.is(dialog.size.width, 72);
+	expect(dialog.size.width).toBe(72);
 
 	dialog.actions.cancel();
-	t.is(await result, 'cancelled');
-	t.is(dialog.closes(), 1);
+	expect(await result).toBe('cancelled');
+	expect(dialog.closes()).toBe(1);
 });
 
-test('the popup closes only after the confirm handler finishes', async t => {
+test('the popup closes only after the confirm handler finishes', async () => {
 	const tmux = fakeTmux();
 	let finishDelete!: () => void;
 	const deleting = new Promise<void>(resolve => {
@@ -147,16 +147,16 @@ test('the popup closes only after the confirm handler finishes', async t => {
 
 	const confirmed = dialog.actions.confirm();
 	await tick();
-	t.true(handlerRan);
-	t.is(dialog.closes(), 0);
+	expect(handlerRan).toBe(true);
+	expect(dialog.closes()).toBe(0);
 
 	finishDelete();
 	await confirmed;
-	t.is(await result, 'confirmed');
-	t.is(dialog.closes(), 1);
+	expect(await result).toBe('confirmed');
+	expect(dialog.closes()).toBe(1);
 });
 
-test('the popup closing before an answer is a cancel, and no handler runs', async t => {
+test('the popup closing before an answer is a cancel, and no handler runs', async () => {
 	const tmux = fakeTmux();
 	let handlerRan = false;
 	const result = openPopup(
@@ -171,11 +171,11 @@ test('the popup closing before an answer is a cancel, and no handler runs', asyn
 	const dialog = await tmux.dialog;
 
 	dialog.closeFromTmux();
-	t.is(await result, 'cancelled');
-	t.false(handlerRan);
+	expect(await result).toBe('cancelled');
+	expect(handlerRan).toBe(false);
 });
 
-test('the popup closing mid-action does not resolve until the action finishes', async t => {
+test('the popup closing mid-action does not resolve until the action finishes', async () => {
 	const tmux = fakeTmux();
 	let finishDelete!: () => void;
 	const deleting = new Promise<void>(resolve => {
@@ -198,13 +198,13 @@ test('the popup closing mid-action does not resolve until the action finishes', 
 	// The dialog unmounting reports a cancel, which must not end the action.
 	dialog.actions.cancel();
 	await tick();
-	t.false(resolved);
+	expect(resolved).toBe(false);
 
 	finishDelete();
-	t.is(await result, 'confirmed');
+	expect(await result).toBe('confirmed');
 });
 
-test('closeBeforeConfirm runs the action only after the popup has closed', async t => {
+test('closeBeforeConfirm runs the action only after the popup has closed', async () => {
 	const tmux = fakeTmux();
 	const order: string[] = [];
 	const result = openPopup(
@@ -221,11 +221,11 @@ test('closeBeforeConfirm runs the action only after the popup has closed', async
 	void dialog.closed.then(() => order.push('closed'));
 
 	void dialog.actions.confirm();
-	t.is(await result, 'confirmed');
-	t.deepEqual(order, ['closed', 'confirm']);
+	expect(await result).toBe('confirmed');
+	expect(order).toStrictEqual(['closed', 'confirm']);
 });
 
-test('clearing errors runs the handler, then closes the popup', async t => {
+test('clearing errors runs the handler, then closes the popup', async () => {
 	const tmux = fakeTmux();
 	let cleared = false;
 	const result = openPopup(
@@ -240,12 +240,12 @@ test('clearing errors runs the handler, then closes the popup', async t => {
 	const dialog = await tmux.dialog;
 
 	await dialog.actions.clearErrors();
-	t.is(await result, 'confirmed');
-	t.true(cleared);
-	t.is(dialog.closes(), 1);
+	expect(await result).toBe('confirmed');
+	expect(cleared).toBe(true);
+	expect(dialog.closes()).toBe(1);
 });
 
-test('the payload the dialog confirms with reaches the handler', async t => {
+test('the payload the dialog confirms with reaches the handler', async () => {
 	const tmux = fakeTmux();
 	let received: unknown;
 	const result = openPopup(
@@ -264,11 +264,11 @@ test('the payload the dialog confirms with reaches the handler', async t => {
 		state: {id: 'deferred', name: 'Deferred', done: false},
 	};
 	await dialog.actions.confirm({choice} as never);
-	t.is(await result, 'confirmed');
-	t.deepEqual(received, {choice});
+	expect(await result).toBe('confirmed');
+	expect(received).toStrictEqual({choice});
 });
 
-test('onShown fires once the popup is on screen, not before', async t => {
+test('onShown fires once the popup is on screen, not before', async () => {
 	let shown = false;
 	let releaseShow!: () => void;
 	const showing = new Promise<void>(resolve => {
@@ -288,11 +288,11 @@ test('onShown fires once the popup is on screen, not before', async t => {
 		}),
 	);
 	await tick();
-	t.false(shown);
+	expect(shown).toBe(false);
 	releaseShow();
 	const dialog = await tmux.dialog;
 	await tick();
-	t.true(shown);
+	expect(shown).toBe(true);
 	dialog.actions.cancel();
-	t.is(await result, 'cancelled');
+	expect(await result).toBe('cancelled');
 });

@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {unreachable} from '../test/helpers/unreachable.ts';
 import {GitLabProvider} from './providers/gitlab-provider.ts';
 import type {RepositoryDiscovery} from './providers/workspace-repositories.ts';
 
@@ -17,7 +18,7 @@ const response = (aliases: Record<string, unknown>) =>
 	JSON.stringify({data: {project: aliases}});
 const connection = (node = mr()) => ({nodes: [node]});
 
-test('workspace repos and actual branches are batched across projects and aggregated', async t => {
+test('workspace repos and actual branches are batched across projects and aggregated', async () => {
 	const calls: string[][] = [];
 	const discover: RepositoryDiscovery = async directory =>
 		directory === '/a'
@@ -51,21 +52,21 @@ test('workspace repos and actual branches are batched across projects and aggreg
 			['RXAI-181', '/b'],
 		]),
 	);
-	t.deepEqual(statuses.get('RXAI-197'), {
+	expect(statuses.get('RXAI-197')).toStrictEqual({
 		pipeline: 'progressing_dirty',
 		unresolvedCommentCount: 2,
 		hasConflict: true,
 	});
-	t.is(statuses.get('RXAI-181')?.prNumber, 55);
-	t.is(calls.length, 1);
+	expect(statuses.get('RXAI-181')?.prNumber).toBe(55);
+	expect(calls.length).toBe(1);
 	const query = calls[0]!.join(' ');
-	t.true(query.includes('rex/agent'));
-	t.true(query.includes('rex/catalyst'));
-	t.true(query.includes('sd-RXAI-197-feature'));
-	t.false(query.includes('mr3:'));
+	expect(query.includes('rex/agent')).toBe(true);
+	expect(query.includes('rex/catalyst')).toBe(true);
+	expect(query.includes('sd-RXAI-197-feature')).toBe(true);
+	expect(query.includes('mr3:')).toBe(false);
 });
 
-test('branch switches and project changes bypass the cache', async t => {
+test('branch switches and project changes bypass the cache', async () => {
 	let repository = {project: 'rex/a', branch: 'first'};
 	let calls = 0;
 	const provider = new GitLabProvider(
@@ -82,17 +83,17 @@ test('branch switches and project changes bypass the cache', async t => {
 	const paths = new Map([['ticket', '/workspace']]);
 	await provider.getBulkRailStatus(['ticket'], paths);
 	await provider.getBulkRailStatus(['ticket'], paths);
-	t.is(calls, 1);
+	expect(calls).toBe(1);
 	repository = {...repository, branch: 'second'};
 	const switched = await provider.getBulkRailStatus(['ticket'], paths);
-	t.is(switched.get('ticket')?.pipeline, 'failing');
-	t.is(calls, 2);
+	expect(switched.get('ticket')?.pipeline).toBe('failing');
+	expect(calls).toBe(2);
 	repository = {...repository, project: 'rex/b'};
 	await provider.getBulkRailStatus(['ticket'], paths);
-	t.is(calls, 3);
+	expect(calls).toBe(3);
 });
 
-test('failed project preserves entire workspace while independent workspace updates', async t => {
+test('failed project preserves entire workspace while independent workspace updates', async () => {
 	const discover: RepositoryDiscovery = async directory =>
 		directory === '/a'
 			? [
@@ -120,15 +121,15 @@ test('failed project preserves entire workspace while independent workspace upda
 			['b', '/b'],
 		]),
 	);
-	t.false(statuses.has('a'));
-	t.is(statuses.get('b')?.pipeline, 'passing');
+	expect(statuses.has('a')).toBe(false);
+	expect(statuses.get('b')?.pipeline).toBe('passing');
 });
 
-test('nested repo discovery failure preserves state instead of reporting no MR', async t => {
+test('nested repo discovery failure preserves state instead of reporting no MR', async () => {
 	const provider = new GitLabProvider(
 		undefined,
 		async () => {
-			t.fail('No API request for a failed discovery');
+			unreachable('No API request for a failed discovery');
 			return '{}';
 		},
 		() => 0,
@@ -140,10 +141,10 @@ test('nested repo discovery failure preserves state instead of reporting no MR',
 		['a'],
 		new Map([['a', '/a']]),
 	);
-	t.is(statuses.size, 0);
+	expect(statuses.size).toBe(0);
 });
 
-test('cross-project pagination stays on the MR project', async t => {
+test('cross-project pagination stays on the MR project', async () => {
 	const queries: string[] = [];
 	const replies = [
 		JSON.stringify({
@@ -170,8 +171,8 @@ test('cross-project pagination stays on the MR project', async t => {
 		['a'],
 		new Map([['a', '/a']]),
 	);
-	t.is(statuses.get('a')?.unresolvedCommentCount, 3);
-	t.is(statuses.get('a')?.pipeline, 'passing');
-	t.true(queries[1]!.includes('rex/b'));
-	t.false(queries[1]!.includes('rex/a'));
+	expect(statuses.get('a')?.unresolvedCommentCount).toBe(3);
+	expect(statuses.get('a')?.pipeline).toBe('passing');
+	expect(queries[1]!.includes('rex/b')).toBe(true);
+	expect(queries[1]!.includes('rex/a')).toBe(false);
 });

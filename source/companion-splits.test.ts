@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	MIN_MAIN_PANE,
 	parseCompanionListing,
@@ -8,8 +8,8 @@ import {
 
 const column = {width: 86, height: 50};
 
-test('a size is cells or a share of the column, and main gives up what each split takes', t => {
-	t.deepEqual(
+test('a size is cells or a share of the column, and main gives up what each split takes', () => {
+	expect(
 		splitTargets(
 			[
 				{split: 'down', size: '30%'},
@@ -17,12 +17,11 @@ test('a size is cells or a share of the column, and main gives up what each spli
 			],
 			column,
 		),
-		[15, 20],
-	);
+	).toStrictEqual([15, 20]);
 });
 
-test('a split with no size takes half of what main has left, whichever space showed before', t => {
-	t.deepEqual(
+test('a split with no size takes half of what main has left, whichever space showed before', () => {
+	expect(
 		splitTargets(
 			[
 				{split: 'down', size: null},
@@ -30,13 +29,12 @@ test('a split with no size takes half of what main has left, whichever space sho
 			],
 			column,
 		),
-		[24, 12],
-	);
+	).toStrictEqual([24, 12]);
 });
 
-test('a split never leaves main smaller than its frame', t => {
+test('a split never leaves main smaller than its frame', () => {
 	const [logs] = splitTargets([{split: 'right', size: 85}], column);
-	t.is(column.width - logs! - 1, MIN_MAIN_PANE.width);
+	expect(column.width - logs! - 1).toBe(MIN_MAIN_PANE.width);
 	const [tests, more] = splitTargets(
 		[
 			{split: 'down', size: '99%'},
@@ -44,8 +42,8 @@ test('a split never leaves main smaller than its frame', t => {
 		],
 		column,
 	);
-	t.is(tests, column.height - 1 - MIN_MAIN_PANE.height);
-	t.is(more, 1);
+	expect(tests).toBe(column.height - 1 - MIN_MAIN_PANE.height);
+	expect(more).toBe(1);
 });
 
 const listing = [
@@ -81,26 +79,27 @@ const listing = [
 	.map(fields => fields.join('\t'))
 	.join('\n');
 
-test('splits are read for their own companion only, in the order they were made', t => {
+test('splits are read for their own companion only, in the order they were made', () => {
 	const {companion, splits} = parseCompanionListing(listing, 'companion-r-K');
-	t.deepEqual(companion, {seeded: true});
-	t.is(parseCompanionListing(listing, 'companion-r-X').companion, null);
-	t.deepEqual(
+	expect(companion).toStrictEqual({seeded: true});
+	expect(parseCompanionListing(listing, 'companion-r-X').companion).toBe(null);
+	expect(
 		splits.map(split => [split.name, split.split, split.size, split.shown]),
-		[
-			['tests', 'down', '30%', false],
-			['logs', 'right', null, true],
-		],
-	);
+	).toStrictEqual([
+		['tests', 'down', '30%', false],
+		['logs', 'right', null, true],
+	]);
 });
 
-test('the signature follows names, directions and order, not sizes or creation times', t => {
+test('the signature follows names, directions and order, not sizes or creation times', () => {
 	const {splits} = parseCompanionListing(listing, 'companion-r-K');
 	const resized = splits.map(split => ({
 		...split,
 		size: 9,
 		order: split.order + 1,
 	}));
-	t.is(splitSignature(resized), splitSignature(splits));
-	t.not(splitSignature([...splits].reverse()), splitSignature(splits));
+	expect(splitSignature(resized)).toBe(splitSignature(splits));
+	expect(splitSignature([...splits].reverse())).not.toBe(
+		splitSignature(splits),
+	);
 });

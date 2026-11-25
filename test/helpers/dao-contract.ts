@@ -1,4 +1,4 @@
-import test, {type ExecutionContext, type ImplementationFn} from 'ava';
+import {test} from 'bun:test';
 import {testState, type TestState} from './state.ts';
 
 /**
@@ -9,14 +9,12 @@ import {testState, type TestState} from './state.ts';
  */
 export function contractTest(
 	title: string,
-	run: (t: ExecutionContext, state: TestState) => Promise<void> | void,
+	run: (state: TestState) => Promise<void> | void,
 ): void {
 	for (const [name, sqlite] of [
 		['json', false],
 		['sqlite', true],
 	] as const) {
-		const implementation: ImplementationFn<[]> = async t =>
-			run(t, testState(t, {sqlite}));
-		test(`${name}: ${title}`, implementation);
+		test(`${name}: ${title}`, async () => run(testState({sqlite})));
 	}
 }

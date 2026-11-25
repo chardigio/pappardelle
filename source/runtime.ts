@@ -6,7 +6,7 @@ export const isStandalone =
 	// eslint-disable-next-line unicorn/no-typeof-undefined -- Absent in source/dev execution.
 	typeof PAPPARDELLE_COMPILED !== 'undefined' && PAPPARDELLE_COMPILED;
 
-// Both the executable and JavaScript entry points live in <install>/dist.
+// The executable lives in <install>/dist and this module in <install>/source.
 // Compiled import.meta URLs live in Bun's virtual filesystem, not the install.
 export const installationRoot = path.resolve(
 	isStandalone
@@ -15,8 +15,8 @@ export const installationRoot = path.resolve(
 	'..',
 );
 export const scriptsDir = path.join(installationRoot, 'scripts');
-export const packageModuleUrl = pathToFileURL(
-	path.join(installationRoot, 'dist/cli.js'),
+export const packageJsonUrl = pathToFileURL(
+	path.join(installationRoot, 'package.json'),
 ).href;
 export function cliFilePath(): string {
 	return isStandalone ? process.execPath : path.resolve(process.argv[1] ?? '');
@@ -31,22 +31,19 @@ export function selfLaunchArgs(): string[] {
 /**
  * The command that runs one of this install's own entry points in a process
  * of its own. The compiled executable holds them all and picks one by `flag`;
- * a source or dist install runs the entry's file, named `entryName`.
+ * a source run runs the entry's file, named `entryName`.
  */
 export function internalEntryCommand(
 	flag: string,
 	entryName: string,
 ): string[] {
 	if (isStandalone) return [process.execPath, flag];
-	const extension = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
-	const entry = fileURLToPath(
-		new URL(`${entryName}${extension}`, import.meta.url),
-	);
+	const entry = fileURLToPath(new URL(`${entryName}.ts`, import.meta.url));
 	return [process.execPath, ...bunIsolationArgs, entry];
 }
 // The Bun running a source install, handed to child scripts whose PATH (the
-// tmux server's, or a shell's behind the pinned shim) may not contain it. The
-// compiled executable needs no Bun.
+// tmux server's, or a shell's) may not contain it. The compiled executable
+// needs no Bun.
 export function bunForChildren(): string | undefined {
 	return isStandalone ? undefined : process.execPath;
 }

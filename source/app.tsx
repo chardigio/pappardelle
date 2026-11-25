@@ -1,20 +1,21 @@
 import {recordSupervision} from './supervise-log.ts';
 import {stripVTControlCharacters} from 'node:util';
-import {useKeyboard, useRenderer} from '@opentui/react';
+import {flushSync, useKeyboard, useRenderer} from '@opentui/react';
 import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
 import type {CliRenderer, KeyEvent} from '@opentui/core';
-import {shortcutKey} from './tui-key.ts';
+import {typedText} from './key-press.ts';
 import {textAttributes, terminalColor, dimText} from './tui-style.ts';
 import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
 
 import TextInput from './components/TextInput.tsx';
-import PaneFrame, {PANE_FRAME_SIZE} from './components/PaneFrame.tsx';
+import PaneFrame from './components/PaneFrame.tsx';
 import {spawn, spawnSync} from 'node:child_process';
 import {spawnQuietCommand} from './quiet-command.ts';
 import {once} from 'node:events';
 import {openPR} from './open-pr.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
+import {PANE_FRAME_SIZE} from './pane-frame-options.ts';
 import {PaneLayoutTask, syncTerminalDimensions} from './pane-layout-task.ts';
 import {scriptsDir, cliFilePath} from './runtime.ts';
 import {homedir} from 'node:os';
@@ -171,7 +172,6 @@ import {
 import {spaceStatusKey} from './claude-status.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
-import {AttachmentGate} from './attachment-gate.ts';
 import {LatestTask} from './latest-task.ts';
 import {
 	sendToSelectedAgent,
@@ -344,7 +344,7 @@ export default function App({
 		spaces,
 		setSpaces,
 		selectedIndex,
-		setSelectedIndex,
+		moveSelection,
 		selectSpace,
 		current: currentSelection,
 	} = useSpaceSelection();
@@ -399,9 +399,10 @@ export default function App({
 	const [recentErrors, setRecentErrors] = useState<LogEntry[]>([]);
 	const errorCount = recentErrors.length;
 	const [runningCommand, setRunningCommand] = useState<string | null>(null);
-	// Several keys can arrive in one input write, and their handlers all run
-	// before the next render. Search keys read the ref so each acts on what
-	// the previous one left; the state copy is for drawing.
+	// One key reaches the rail's key handler and then the search input's
+	// onChange before it is committed, and a click is not committed before a
+	// key that follows it. Search handlers read the ref so each acts on what
+	// the one before left; the state copy is for drawing.
 	const searchNow = useRef<RailSearch | null>(null);
 	const [search, setSearch] = useState<RailSearch | null>(null);
 	// Until the search row is drawn there is no input to take typed text.
@@ -499,9 +500,6 @@ export default function App({
 	const railGrouped = isRailGroupedByStatus(configMemo);
 	const [stackedLayout, setStackedLayout] = useState(false);
 	const railGroups = useMemo(() => getRailGroups(configMemo), [configMemo]);
-	// Grouped rows and cursor from the live selection, not the last render: one
-	// input write can carry several keys, and each must see what the previous
-	// one did.
 	const railNow = useCallback(() => {
 		if (!railGrouped || searchNow.current) return null;
 		const {spaces, selectedIndex} = currentSelection();
@@ -592,7 +590,7 @@ export default function App({
 		setStderrTerminalPassthrough(true);
 		await renderer.suspend();
 		runUpdateScript({waitOnFailure: true});
-		// Reruns the TUI through the shim the installer just re-pinned (which
+		// Reruns the TUI through the shim the installer just rewrote (which
 		// still points at the old build after a failed install).
 		restartOwnTui(
 			{
@@ -779,7 +777,11 @@ export default function App({
 				);
 			});
 			if (focus) focusSpaceAgentRef.current(issueKey);
-			else selectSpace(issueKey);
+			// Not a key, so nothing else commits it before the rail's next key.
+			else
+				flushSync(() => {
+					selectSpace(issueKey);
+				});
 		});
 
 		return unwatch;
@@ -803,7 +805,6 @@ export default function App({
 	const startupQueue = useMemo(() => new StartupQueue(2), []);
 	const attachmentTask = useMemo(() => new LatestTask(), []);
 	const sendTask = useMemo(() => new LatestTask(), []);
-	const attachmentGate = useMemo(() => new AttachmentGate(), []);
 	const [attachmentRevision, setAttachmentRevision] = useState(0);
 	useEffect(
 		() => () => {
@@ -1199,19 +1200,6 @@ export default function App({
 		attachmentTask,
 		attachmentRevision,
 	]);
-	// Declared after the attachment effect so it runs after any attachment
-	// this render queued. Every render releases waiting keys: one whose space
-	// was left again in the same input write is then refused, not kept.
-	useEffect(() => {
-		attachmentGate.rendered(selectedSpaceName);
-	});
-	// Every key in one input write runs before React renders, so keys after one
-	// that opened an inline dialog would still act on the rail.
-	// They are dropped until that dialog is on screen to take them.
-	const inlineDialogOpening = useRef(false);
-	useEffect(() => {
-		inlineDialogOpening.current = false;
-	});
 
 	// Initialize panes with empty state message on first load
 	useEffect(() => {
@@ -1371,26 +1359,25 @@ export default function App({
 		if (!paneLayout || !targetSpace) return;
 
 		// Attaching ends by selecting the rail pane, so focus goes after it.
-		void attachmentGate.whenRendered(targetSpace).then(async () =>
-			attachmentTask.exclusive(async () => {
-				const layout = paneLayoutRef.current;
-				if (layout) await focusPane(layout.agentViewerPaneId);
-			}),
-		);
+		void attachmentTask.exclusive(async () => {
+			const layout = paneLayoutRef.current;
+			if (layout) await focusPane(layout.agentViewerPaneId);
+		});
 	};
 
 	// While a dialog or prompt is open, the rail owns the keyboard.
 	const railInputBlockedNow = () =>
-		dialogOpenRef.current ||
-		popupOpening.current ||
-		inlineDialogOpening.current;
+		dialogOpenRef.current || popupOpening.current;
 
 	// Selects a space and focuses its agent, as the sous-chef key and `s` do.
 	const focusSpaceAgent = (issueKey: string) => {
 		// Moving focus away would leave the dialog open with the user's next
 		// keys going to the agent.
 		if (railInputBlockedNow()) return;
-		selectSpace(issueKey);
+		// Committed now so the attachment it queues is ahead of the focus.
+		flushSync(() => {
+			selectSpace(issueKey);
+		});
 		const {spaces, selectedIndex} = currentSelection();
 		// Before the rows load, or for an unknown key, the selection stays put
 		// and focusing would land on another space's agent.
@@ -1456,38 +1443,30 @@ export default function App({
 
 		const targetSpace = selectedSpaceNow()?.name;
 		if (!targetSpace) return;
-		void attachmentGate
-			.whenRendered(targetSpace)
-			.then(async () =>
-				sendToSelectedAgent({
-					queue: attachmentTask,
-					sends: sendTask,
-					targetSpace,
-					viewingSpace: getCurrentlyViewingSpace,
-					// Not through the viewer pane: its frame process holds a bracketed
-					// paste briefly while plain keys pass, so Enter would arrive first.
-					async send() {
-						const result = await sendToSpaceAgent(targetSpace, text);
-						recordSupervision(
-							repoName,
-							'tui',
-							{action: 'send', key: targetSpace, sent: text, detail: result},
-							new Date(),
-						);
-						if (result !== 'sent') {
-							log.error(`Send to ${targetSpace}'s agent session: ${result}`);
-						}
-
-						return result;
-					},
-				}),
-			)
-			.then(result => {
-				setHeaderWithTimeout(
-					sendResultMessage(result, targetSpace, text),
-					3000,
+		void sendToSelectedAgent({
+			queue: attachmentTask,
+			sends: sendTask,
+			targetSpace,
+			viewingSpace: getCurrentlyViewingSpace,
+			// Not through the viewer pane: its frame process holds a bracketed
+			// paste briefly while plain keys pass, so Enter would arrive first.
+			async send() {
+				const result = await sendToSpaceAgent(targetSpace, text);
+				recordSupervision(
+					repoName,
+					'tui',
+					{action: 'send', key: targetSpace, sent: text, detail: result},
+					new Date(),
 				);
-			});
+				if (result !== 'sent') {
+					log.error(`Send to ${targetSpace}'s agent session: ${result}`);
+				}
+
+				return result;
+			},
+		}).then(result => {
+			setHeaderWithTimeout(sendResultMessage(result, targetSpace, text), 3000);
+		});
 	};
 
 	// Execute a custom keybinding command for the selected workspace
@@ -1585,13 +1564,8 @@ export default function App({
 		handlers: PopupHandlers,
 		showInline: () => void,
 	) => {
-		const openInline = () => {
-			inlineDialogOpening.current = true;
-			showInline();
-		};
-
 		if (!isPopupAvailable()) {
-			openInline();
+			showInline();
 			return;
 		}
 
@@ -1609,7 +1583,9 @@ export default function App({
 			},
 		})
 			.then(outcome => {
-				if (outcome === 'unavailable') openInline();
+				// Committed before the gate below opens, so the rail's next key
+				// finds the dialog open.
+				if (outcome === 'unavailable') flushSync(showInline);
 			})
 			.finally(() => {
 				popupBusy.current = false;
@@ -1720,7 +1696,7 @@ export default function App({
 		const step = searchKeyStep(
 			current,
 			displaySpacesRef.current,
-			shortcutKey(event),
+			event,
 			searchInputDrawn.current,
 		);
 		if (step.select) selectSpace(step.select);
@@ -1732,7 +1708,7 @@ export default function App({
 	useKeyboard(event => {
 		if (handleSearchKey(event)) return;
 		if (railInputBlockedNow()) return;
-		const {input, key} = shortcutKey(event);
+		const input = typedText(event);
 
 		// Check custom keybindings first — they can override default keys
 		const kb = keybindingMap.get(input);
@@ -1747,9 +1723,9 @@ export default function App({
 		if (rail && rail.rows.length > 0) {
 			const {rows, cursor} = rail;
 			const step =
-				key.upArrow || input === 'k'
+				event.name === 'up' || input === 'k'
 					? -1
-					: key.downArrow || input === 'j'
+					: event.name === 'down' || input === 'j'
 						? 1
 						: 0;
 			if (step !== 0) {
@@ -1760,17 +1736,11 @@ export default function App({
 		}
 
 		// Non-overridable built-in shortcuts
-		if (key.upArrow || input === 'k') {
-			const {selectedIndex} = currentSelection();
-			if (selectedIndex > 0) {
-				setSelectedIndex(selectedIndex - 1);
-			}
-		} else if (key.downArrow || input === 'j') {
-			const {spaces, selectedIndex} = currentSelection();
-			if (selectedIndex < spaces.length - 1) {
-				setSelectedIndex(selectedIndex + 1);
-			}
-		} else if (isFocusAgentKey(key)) {
+		if (event.name === 'up' || input === 'k') {
+			moveSelection(-1);
+		} else if (event.name === 'down' || input === 'j') {
+			moveSelection(1);
+		} else if (isFocusAgentKey(event)) {
 			handleFocusAgent();
 		} else if (input === 'n') {
 			if (hasNoProfiles()) {
@@ -1779,10 +1749,9 @@ export default function App({
 					4000,
 				);
 			} else {
-				inlineDialogOpening.current = true;
 				setShowPromptDialog(true);
 			}
-		} else if (isCloseSpaceKey(input, key)) {
+		} else if (isCloseSpaceKey(event)) {
 			// Backspace, Delete, or 'x' closes the selected space
 			const space = selectedSpaceNow();
 			if (space?.isMainWorktree) {
@@ -2817,7 +2786,11 @@ export default function App({
 				);
 				if (index !== -1) updateSearch({...current, index});
 			} else {
-				selectSpace(name);
+				// A click is not a key, so nothing else commits it before a key
+				// that arrives with it in one write.
+				flushSync(() => {
+					selectSpace(name);
+				});
 			}
 		},
 		[railInputBlocked, filteredDisplaySpaces, selectSpace, updateSearch],

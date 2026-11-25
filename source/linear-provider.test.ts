@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {unreachable} from '../test/helpers/unreachable.ts';
 import {testState} from '../test/helpers/state.ts';
 import {
 	LinearProvider,
@@ -51,8 +52,8 @@ function tempCache(): StateColorCache {
 }
 
 /** A color store on a temp directory, and the file it keeps. */
-function colorStore(t: ExecutionContext) {
-	const {daos, stateDir} = testState(t);
+function colorStore() {
+	const {daos, stateDir} = testState();
 	return {
 		dao: daos.stateColors,
 		cachePath: getStateColorsPath('repo', stateDir),
@@ -63,25 +64,24 @@ function colorStore(t: ExecutionContext) {
 // Existing pure-logic tests
 // ============================================================================
 
-test('LinearProvider has name "linear"', t => {
+test('LinearProvider has name "linear"', () => {
 	const provider = new LinearProvider(undefined, undefined, tempCache());
-	t.is(provider.name, 'linear');
+	expect(provider.name).toBe('linear');
 });
 
-test('getIssueCached returns null for uncached issues', t => {
+test('getIssueCached returns null for uncached issues', () => {
 	const provider = new LinearProvider(undefined, undefined, tempCache());
-	t.is(provider.getIssueCached('STA-999'), null);
+	expect(provider.getIssueCached('STA-999')).toBe(null);
 });
 
-test('buildIssueUrl falls back to hardcoded slug when cache is empty', t => {
+test('buildIssueUrl falls back to hardcoded slug when cache is empty', () => {
 	const provider = new LinearProvider(undefined, undefined, tempCache());
-	t.is(
-		provider.buildIssueUrl('STA-123'),
+	expect(provider.buildIssueUrl('STA-123')).toBe(
 		'https://linear.app/stardust-labs/issue/STA-123',
 	);
 });
 
-test('buildIssueUrl prefers cached issue.url so cross-workspace issues open correctly', async t => {
+test('buildIssueUrl prefers cached issue.url so cross-workspace issues open correctly', async () => {
 	// Real failure mode the fallback alone can't catch: a WAB-* issue (in the
 	// wabo-ventures workspace) was being advertised as linear.app/stardust-labs/
 	// because buildIssueUrl ignored the API-provided URL on the cached issue.
@@ -97,9 +97,8 @@ test('buildIssueUrl prefers cached issue.url so cross-workspace issues open corr
 
 	const provider = new LinearProvider(fetchOnce, noopSleep, tempCache());
 	const issue = await provider.getIssue('WAB-10');
-	t.truthy(issue);
-	t.is(
-		provider.buildIssueUrl('WAB-10'),
+	expect(issue).toBeTruthy();
+	expect(provider.buildIssueUrl('WAB-10')).toBe(
 		'https://linear.app/wabo-ventures/issue/WAB-10/cross-workspace-issue',
 	);
 });
@@ -112,30 +111,30 @@ test('buildIssueUrl prefers cached issue.url so cross-workspace issues open corr
 // The fix: getWorkflowStateColor should only check the in-memory cache.
 // ============================================================================
 
-test('getWorkflowStateColor returns null for uncached state (no subprocess)', t => {
+test('getWorkflowStateColor returns null for uncached state (no subprocess)', () => {
 	const provider = new LinearProvider(undefined, undefined, tempCache());
 	// This should return null immediately without shelling out to linctl.
 	// If it shelled out, it would throw/hang in CI where linctl isn't installed.
 	const color = provider.getWorkflowStateColor('In Progress');
-	t.is(color, null);
+	expect(color).toBe(null);
 });
 
-test('getWorkflowStateColor returns null for "Done" when not cached', t => {
+test('getWorkflowStateColor returns null for "Done" when not cached', () => {
 	const provider = new LinearProvider(undefined, undefined, tempCache());
 	const color = provider.getWorkflowStateColor('Done');
-	t.is(color, null);
+	expect(color).toBe(null);
 });
 
-test('clearCache does not throw', t => {
+test('clearCache does not throw', () => {
 	const provider = new LinearProvider(undefined, undefined, tempCache());
-	t.notThrows(() => provider.clearCache());
+	expect(() => provider.clearCache()).not.toThrow();
 });
 
 // ============================================================================
 // getIssue: retry logic
 // ============================================================================
 
-test('getIssue succeeds on first attempt — no retry', async t => {
+test('getIssue succeeds on first attempt — no retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -145,13 +144,13 @@ test('getIssue succeeds on first attempt — no retry', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const issue = await provider.getIssue('STA-100');
 
-	t.is(callCount, 1);
-	t.truthy(issue);
-	t.is(issue!.title, 'First try');
-	t.is(issue!.identifier, 'STA-100');
+	expect(callCount).toBe(1);
+	expect(issue).toBeTruthy();
+	expect(issue!.title).toBe('First try');
+	expect(issue!.identifier).toBe('STA-100');
 });
 
-test('getIssue fails once then succeeds on retry', async t => {
+test('getIssue fails once then succeeds on retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -165,12 +164,12 @@ test('getIssue fails once then succeeds on retry', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const issue = await provider.getIssue('STA-200');
 
-	t.is(callCount, 2);
-	t.truthy(issue);
-	t.is(issue!.title, 'Retry success');
+	expect(callCount).toBe(2);
+	expect(issue).toBeTruthy();
+	expect(issue!.title).toBe('Retry success');
 });
 
-test('getIssue fails all retries — returns null and caches null', async t => {
+test('getIssue fails all retries — returns null and caches null', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -180,12 +179,12 @@ test('getIssue fails all retries — returns null and caches null', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const issue = await provider.getIssue('STA-300');
 
-	t.is(callCount, MAX_RETRIES);
-	t.is(issue, null);
-	t.is(provider.getIssueCached('STA-300'), null);
+	expect(callCount).toBe(MAX_RETRIES);
+	expect(issue).toBe(null);
+	expect(provider.getIssueCached('STA-300')).toBe(null);
 });
 
-test('getIssue with ENOENT — fails immediately, no retry', async t => {
+test('getIssue with ENOENT — fails immediately, no retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -195,11 +194,11 @@ test('getIssue with ENOENT — fails immediately, no retry', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const issue = await provider.getIssue('STA-400');
 
-	t.is(callCount, 1, 'should not retry on ENOENT');
-	t.is(issue, null);
+	expect(callCount, 'should not retry on ENOENT').toBe(1);
+	expect(issue).toBe(null);
 });
 
-test('getIssue with ENOENT — subsequent calls return cached without CLI call', async t => {
+test('getIssue with ENOENT — subsequent calls return cached without CLI call', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -208,15 +207,15 @@ test('getIssue with ENOENT — subsequent calls return cached without CLI call',
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	await provider.getIssue('STA-410');
-	t.is(callCount, 1);
+	expect(callCount).toBe(1);
 
 	// Second call should not invoke exec at all
 	const issue2 = await provider.getIssue('STA-420');
-	t.is(callCount, 1, 'linctlMissing should prevent further calls');
-	t.is(issue2, null);
+	expect(callCount, 'linctlMissing should prevent further calls').toBe(1);
+	expect(issue2).toBe(null);
 });
 
-test('getIssue sleep is called between retries, not after final attempt', async t => {
+test('getIssue sleep is called between retries, not after final attempt', async () => {
 	const sleepCalls: number[] = [];
 	const sleepSpy: SleepFn = async (ms: number) => {
 		sleepCalls.push(ms);
@@ -229,27 +228,25 @@ test('getIssue sleep is called between retries, not after final attempt', async 
 	const provider = new LinearProvider(exec, sleepSpy, tempCache());
 	await provider.getIssue('STA-500');
 
-	t.is(
-		sleepCalls.length,
+	expect(sleepCalls.length, 'sleep should be called between retries only').toBe(
 		MAX_RETRIES - 1,
-		'sleep should be called between retries only',
 	);
 	for (const ms of sleepCalls) {
-		t.is(ms, 500, 'sleep delay should be RETRY_DELAY_MS');
+		expect(ms, 'sleep delay should be RETRY_DELAY_MS').toBe(500);
 	}
 });
 
-test('getIssue populates workflow state color cache', async t => {
+test('getIssue populates workflow state color cache', async () => {
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-600', 'Color test', 'In Progress', '#4b9fea');
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	await provider.getIssue('STA-600');
 
-	t.is(provider.getWorkflowStateColor('In Progress'), '#4b9fea');
+	expect(provider.getWorkflowStateColor('In Progress')).toBe('#4b9fea');
 });
 
-test('getIssue returns cached result within TTL without calling CLI', async t => {
+test('getIssue returns cached result within TTL without calling CLI', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -258,13 +255,13 @@ test('getIssue returns cached result within TTL without calling CLI', async t =>
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	await provider.getIssue('STA-700');
-	t.is(callCount, 1);
+	expect(callCount).toBe(1);
 
 	// Second call should use cache
 	const issue2 = await provider.getIssue('STA-700');
-	t.is(callCount, 1, 'should not call CLI again within TTL');
-	t.truthy(issue2);
-	t.is(issue2!.title, 'Cached');
+	expect(callCount, 'should not call CLI again within TTL').toBe(1);
+	expect(issue2).toBeTruthy();
+	expect(issue2!.title).toBe('Cached');
 });
 
 // ============================================================================
@@ -273,24 +270,23 @@ test('getIssue returns cached result within TTL without calling CLI', async t =>
 // so that stateColorMap stays populated (used for main worktree color).
 // ============================================================================
 
-test('getIssue refreshes stateColorMap from cache hit within TTL', async t => {
+test('getIssue refreshes stateColorMap from cache hit within TTL', async () => {
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-800', 'Color refresh', 'In Progress', '#4b9fea');
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	await provider.getIssue('STA-800');
-	t.is(provider.getWorkflowStateColor('In Progress'), '#4b9fea');
+	expect(provider.getWorkflowStateColor('In Progress')).toBe('#4b9fea');
 
 	// Calling getIssue again (cache hit) should still keep stateColorMap populated
 	await provider.getIssue('STA-800');
-	t.is(
+	expect(
 		provider.getWorkflowStateColor('In Progress'),
-		'#4b9fea',
 		'stateColorMap should persist across cache-hit getIssue calls',
-	);
+	).toBe('#4b9fea');
 });
 
-test('getIssueCached does NOT populate stateColorMap', async t => {
+test('getIssueCached does NOT populate stateColorMap', async () => {
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-810', 'Cache only', 'Done', '#27b067');
 
@@ -300,21 +296,20 @@ test('getIssueCached does NOT populate stateColorMap', async t => {
 	// Clear internal stateColorMap by creating a fresh provider and copying the cache
 	// Instead, verify the asymmetry: getIssueCached returns the issue but
 	// calling getWorkflowStateColor for a *different* state not yet seen returns null
-	t.is(provider.getWorkflowStateColor('Backlog'), null);
-	t.truthy(provider.getIssueCached('STA-810'));
+	expect(provider.getWorkflowStateColor('Backlog')).toBe(null);
+	expect(provider.getIssueCached('STA-810')).toBeTruthy();
 	// After getIssueCached, 'Backlog' is still not in stateColorMap
-	t.is(
+	expect(
 		provider.getWorkflowStateColor('Backlog'),
-		null,
 		'getIssueCached should not populate stateColorMap with new states',
-	);
+	).toBe(null);
 });
 
 // ============================================================================
 // createComment: retry logic
 // ============================================================================
 
-test('createComment succeeds on first attempt', async t => {
+test('createComment succeeds on first attempt', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -324,11 +319,11 @@ test('createComment succeeds on first attempt', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.createComment('STA-100', 'Hello');
 
-	t.is(callCount, 1);
-	t.true(result);
+	expect(callCount).toBe(1);
+	expect(result).toBe(true);
 });
 
-test('createComment fails once then succeeds on retry', async t => {
+test('createComment fails once then succeeds on retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -342,11 +337,11 @@ test('createComment fails once then succeeds on retry', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.createComment('STA-200', 'Hello');
 
-	t.is(callCount, 2);
-	t.true(result);
+	expect(callCount).toBe(2);
+	expect(result).toBe(true);
 });
 
-test('createComment fails all retries — returns false', async t => {
+test('createComment fails all retries — returns false', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -356,11 +351,11 @@ test('createComment fails all retries — returns false', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.createComment('STA-300', 'Hello');
 
-	t.is(callCount, MAX_RETRIES);
-	t.false(result);
+	expect(callCount).toBe(MAX_RETRIES);
+	expect(result).toBe(false);
 });
 
-test('createComment with ENOENT — fails immediately, no retry', async t => {
+test('createComment with ENOENT — fails immediately, no retry', async () => {
 	let callCount = 0;
 	const exec: CliExecutor = async () => {
 		callCount++;
@@ -370,8 +365,8 @@ test('createComment with ENOENT — fails immediately, no retry', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.createComment('STA-400', 'Hello');
 
-	t.is(callCount, 1, 'should not retry on ENOENT');
-	t.false(result);
+	expect(callCount, 'should not retry on ENOENT').toBe(1);
+	expect(result).toBe(false);
 });
 
 // ============================================================================
@@ -380,8 +375,8 @@ test('createComment with ENOENT — fails immediately, no retry', async t => {
 // main worktree color works even when no active issue has "Done" state.
 // ============================================================================
 
-test('getIssue persists state colors to disk', async t => {
-	const {dao, cachePath} = colorStore(t);
+test('getIssue persists state colors to disk', async () => {
+	const {dao, cachePath} = colorStore();
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-900', 'Persist test', 'In Progress', '#f2c94c');
 
@@ -393,13 +388,15 @@ test('getIssue persists state colors to disk', async t => {
 	await provider.getIssue('STA-900');
 
 	// Verify file was written
-	t.true(fs.existsSync(cachePath), 'state-colors.json should be created');
+	expect(fs.existsSync(cachePath), 'state-colors.json should be created').toBe(
+		true,
+	);
 	const data = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-	t.is(data['In Progress'], '#f2c94c');
+	expect(data['In Progress']).toBe('#f2c94c');
 });
 
-test('new provider loads persisted state colors from disk', t => {
-	const {dao, cachePath} = colorStore(t);
+test('new provider loads persisted state colors from disk', () => {
+	const {dao, cachePath} = colorStore();
 
 	// Seed the cache file with state colors
 	fs.writeFileSync(
@@ -413,20 +410,18 @@ test('new provider loads persisted state colors from disk', t => {
 		undefined,
 		new StateColorCache(dao),
 	);
-	t.is(
+	expect(
 		provider.getWorkflowStateColor('Done'),
-		'#74d09f',
 		'Done color should be loaded from persisted cache',
-	);
-	t.is(
+	).toBe('#74d09f');
+	expect(
 		provider.getWorkflowStateColor('In Progress'),
-		'#f2c94c',
 		'In Progress color should be loaded from persisted cache',
-	);
+	).toBe('#f2c94c');
 });
 
-test('persisted colors survive across provider instances', async t => {
-	const {dao, cachePath} = colorStore(t);
+test('persisted colors survive across provider instances', async () => {
+	const {dao, cachePath} = colorStore();
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-910', 'Cross-instance', 'Done', '#74d09f');
 
@@ -437,7 +432,7 @@ test('persisted colors survive across provider instances', async t => {
 		new StateColorCache(dao),
 	);
 	await provider1.getIssue('STA-910');
-	t.is(provider1.getWorkflowStateColor('Done'), '#74d09f');
+	expect(provider1.getWorkflowStateColor('Done')).toBe('#74d09f');
 
 	// Second provider (fresh instance, no issue fetches) should still have the color
 	const provider2 = new LinearProvider(
@@ -445,15 +440,14 @@ test('persisted colors survive across provider instances', async t => {
 		undefined,
 		new StateColorCache(dao),
 	);
-	t.is(
+	expect(
 		provider2.getWorkflowStateColor('Done'),
-		'#74d09f',
 		'Done color should persist across provider instances',
-	);
+	).toBe('#74d09f');
 });
 
-test('state color update overwrites previous persisted value', async t => {
-	const {dao, cachePath} = colorStore(t);
+test('state color update overwrites previous persisted value', async () => {
+	const {dao, cachePath} = colorStore();
 
 	// Seed with old color
 	fs.writeFileSync(
@@ -470,19 +464,19 @@ test('state color update overwrites previous persisted value', async t => {
 		new StateColorCache(dao),
 	);
 	// Verify old color was loaded
-	t.is(provider.getWorkflowStateColor('In Progress'), '#old0000');
+	expect(provider.getWorkflowStateColor('In Progress')).toBe('#old0000');
 
 	// Fetch issue with updated color
 	await provider.getIssue('STA-920');
-	t.is(provider.getWorkflowStateColor('In Progress'), '#new1111');
+	expect(provider.getWorkflowStateColor('In Progress')).toBe('#new1111');
 
 	// Verify disk was updated
 	const data = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-	t.is(data['In Progress'], '#new1111');
+	expect(data['In Progress']).toBe('#new1111');
 });
 
-test('persisted cache with invalid JSON is silently ignored', t => {
-	const {dao, cachePath} = colorStore(t);
+test('persisted cache with invalid JSON is silently ignored', () => {
+	const {dao, cachePath} = colorStore();
 	fs.writeFileSync(cachePath, 'not valid json!!!');
 
 	// Should not throw — just start with empty map
@@ -491,7 +485,7 @@ test('persisted cache with invalid JSON is silently ignored', t => {
 		undefined,
 		new StateColorCache(dao),
 	);
-	t.is(provider.getWorkflowStateColor('Done'), null);
+	expect(provider.getWorkflowStateColor('Done')).toBe(null);
 });
 
 // ============================================================================
@@ -504,13 +498,13 @@ test('persisted cache with invalid JSON is silently ignored', t => {
 // path keeps a CLI implementation.
 // ============================================================================
 
-test('getIssues returns empty map for empty keys array', async t => {
+test('getIssues returns empty map for empty keys array', async () => {
 	const provider = new LinearProvider(undefined, undefined, tempCache());
 	const result = await provider.getIssues([]);
-	t.is(result.size, 0);
+	expect(result.size).toBe(0);
 });
 
-test('getIssues without GraphQL client returns null for every uncached key (no CLI)', async t => {
+test('getIssues without GraphQL client returns null for every uncached key (no CLI)', async () => {
 	let cliCallCount = 0;
 	const exec: CliExecutor = async () => {
 		cliCallCount++;
@@ -520,14 +514,14 @@ test('getIssues without GraphQL client returns null for every uncached key (no C
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.getIssues(['STA-1', 'STA-2', 'STA-3']);
 
-	t.is(cliCallCount, 0, 'getIssues must never shell out to linctl');
-	t.is(result.size, 3);
-	t.is(result.get('STA-1'), null);
-	t.is(result.get('STA-2'), null);
-	t.is(result.get('STA-3'), null);
+	expect(cliCallCount, 'getIssues must never shell out to linctl').toBe(0);
+	expect(result.size).toBe(3);
+	expect(result.get('STA-1')).toBe(null);
+	expect(result.get('STA-2')).toBe(null);
+	expect(result.get('STA-3')).toBe(null);
 });
 
-test('getIssues without GraphQL client still serves cache-fresh keys', async t => {
+test('getIssues without GraphQL client still serves cache-fresh keys', async () => {
 	let cliCallCount = 0;
 	const exec: CliExecutor = async () => {
 		cliCallCount++;
@@ -537,12 +531,12 @@ test('getIssues without GraphQL client still serves cache-fresh keys', async t =
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	// Prime the cache via the singular path (which is still CLI-backed).
 	await provider.getIssue('STA-90');
-	t.is(cliCallCount, 1);
+	expect(cliCallCount).toBe(1);
 
 	const result = await provider.getIssues(['STA-90', 'STA-91']);
-	t.is(cliCallCount, 1, 'getIssues must not call CLI even for the miss');
-	t.is(result.get('STA-90')!.title, 'Cached via getIssue');
-	t.is(result.get('STA-91'), null);
+	expect(cliCallCount, 'getIssues must not call CLI even for the miss').toBe(1);
+	expect(result.get('STA-90')!.title).toBe('Cached via getIssue');
+	expect(result.get('STA-91')).toBe(null);
 });
 
 // ============================================================================
@@ -575,7 +569,7 @@ function makeIssueListJson(
 	);
 }
 
-test('searchAssignedIssues calls linctl with --assignee and --state flags', async t => {
+test('searchAssignedIssues calls linctl with --assignee and --state flags', async () => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {
 		calls.push(args);
@@ -587,8 +581,8 @@ test('searchAssignedIssues calls linctl with --assignee and --state flags', asyn
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.searchAssignedIssues('me', ['To Do']);
 
-	t.is(calls.length, 1);
-	t.deepEqual(calls[0], [
+	expect(calls.length).toBe(1);
+	expect(calls[0]).toStrictEqual([
 		'issue',
 		'list',
 		'--assignee',
@@ -597,11 +591,11 @@ test('searchAssignedIssues calls linctl with --assignee and --state flags', asyn
 		'To Do',
 		'--json',
 	]);
-	t.is(result.length, 1);
-	t.is(result[0]!.identifier, 'STA-10');
+	expect(result.length).toBe(1);
+	expect(result[0]!.identifier).toBe('STA-10');
 });
 
-test('searchAssignedIssues omits --assignee flag when assignee is undefined', async t => {
+test('searchAssignedIssues omits --assignee flag when assignee is undefined', async () => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {
 		calls.push(args);
@@ -613,13 +607,19 @@ test('searchAssignedIssues omits --assignee flag when assignee is undefined', as
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.searchAssignedIssues(undefined, ['To Do']);
 
-	t.is(calls.length, 1);
-	t.deepEqual(calls[0], ['issue', 'list', '--state', 'To Do', '--json']);
-	t.is(result.length, 1);
-	t.is(result[0]!.identifier, 'STA-10');
+	expect(calls.length).toBe(1);
+	expect(calls[0]).toStrictEqual([
+		'issue',
+		'list',
+		'--state',
+		'To Do',
+		'--json',
+	]);
+	expect(result.length).toBe(1);
+	expect(result[0]!.identifier).toBe('STA-10');
 });
 
-test('searchAssignedIssues keeps a string createdAt and drops anything else', async t => {
+test('searchAssignedIssues keeps a string createdAt and drops anything else', async () => {
 	const exec: CliExecutor = async () =>
 		JSON.stringify([
 			{
@@ -639,11 +639,11 @@ test('searchAssignedIssues keeps a string createdAt and drops anything else', as
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.searchAssignedIssues(undefined, ['To Do']);
 
-	t.is(result[0]!.createdAt, '2026-09-01T12:00:00.000Z');
-	t.is(result[1]!.createdAt, undefined);
+	expect(result[0]!.createdAt).toBe('2026-09-01T12:00:00.000Z');
+	expect(result[1]!.createdAt).toBe(undefined);
 });
 
-test('searchAssignedIssues makes one call per status', async t => {
+test('searchAssignedIssues makes one call per status', async () => {
 	const calls: string[][] = [];
 	const exec: CliExecutor = async (_cmd, args) => {
 		calls.push(args);
@@ -669,13 +669,13 @@ test('searchAssignedIssues makes one call per status', async t => {
 		'In Progress',
 	]);
 
-	t.is(calls.length, 2);
-	t.is(result.length, 2);
-	t.truthy(result.find(i => i.identifier === 'STA-1'));
-	t.truthy(result.find(i => i.identifier === 'STA-2'));
+	expect(calls.length).toBe(2);
+	expect(result.length).toBe(2);
+	expect(result.find(i => i.identifier === 'STA-1')).toBeTruthy();
+	expect(result.find(i => i.identifier === 'STA-2')).toBeTruthy();
 });
 
-test('searchAssignedIssues deduplicates issues across statuses', async t => {
+test('searchAssignedIssues deduplicates issues across statuses', async () => {
 	const exec: CliExecutor = async () =>
 		makeIssueListJson([
 			{identifier: 'STA-1', title: 'Shared', stateName: 'To Do'},
@@ -688,11 +688,11 @@ test('searchAssignedIssues deduplicates issues across statuses', async t => {
 	]);
 
 	// STA-1 appears in both status calls, but should appear only once
-	t.is(result.length, 1);
-	t.is(result[0]!.identifier, 'STA-1');
+	expect(result.length).toBe(1);
+	expect(result[0]!.identifier).toBe('STA-1');
 });
 
-test('searchAssignedIssues returns empty array when linctlMissing', async t => {
+test('searchAssignedIssues returns empty array when linctlMissing', async () => {
 	const exec: CliExecutor = async () => {
 		throw makeEnoentError();
 	};
@@ -702,10 +702,10 @@ test('searchAssignedIssues returns empty array when linctlMissing', async t => {
 	await provider.getIssue('STA-99');
 
 	const result = await provider.searchAssignedIssues('me', ['To Do']);
-	t.deepEqual(result, []);
+	expect(result).toStrictEqual([]);
 });
 
-test('searchAssignedIssues returns empty array on CLI error', async t => {
+test('searchAssignedIssues returns empty array on CLI error', async () => {
 	const exec: CliExecutor = async (_cmd, args) => {
 		if (args[0] === 'issue' && args[1] === 'list') {
 			throw new Error('API error');
@@ -716,31 +716,31 @@ test('searchAssignedIssues returns empty array on CLI error', async t => {
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.searchAssignedIssues('me', ['To Do']);
-	t.deepEqual(result, []);
+	expect(result).toStrictEqual([]);
 });
 
-test('searchAssignedIssues handles non-array JSON response (e.g. linctl "No issues found")', async t => {
+test('searchAssignedIssues handles non-array JSON response (e.g. linctl "No issues found")', async () => {
 	const exec: CliExecutor = async () =>
 		JSON.stringify({info: 'No issues found'});
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.searchAssignedIssues('me', ['To Do']);
-	t.deepEqual(result, []);
+	expect(result).toStrictEqual([]);
 });
 
-test('searchAssignedIssues returns empty array for empty statuses', async t => {
+test('searchAssignedIssues returns empty array for empty statuses', async () => {
 	const exec: CliExecutor = async () => makeIssueListJson([]);
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.searchAssignedIssues('me', []);
-	t.deepEqual(result, []);
+	expect(result).toStrictEqual([]);
 });
 
 // ============================================================================
 // Label parsing
 // ============================================================================
 
-test('getIssue parses labels from labels.nodes', async t => {
+test('getIssue parses labels from labels.nodes', async () => {
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-100', 'Labels test', 'In Progress', '#f2c94c', [
 			'pappardelle',
@@ -750,22 +750,22 @@ test('getIssue parses labels from labels.nodes', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const issue = await provider.getIssue('STA-100');
 
-	t.truthy(issue);
-	t.deepEqual(issue!.labels, ['pappardelle', 'platform']);
+	expect(issue).toBeTruthy();
+	expect(issue!.labels).toStrictEqual(['pappardelle', 'platform']);
 });
 
-test('getIssue returns empty labels for issue with no labels', async t => {
+test('getIssue returns empty labels for issue with no labels', async () => {
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-100', 'No labels', 'In Progress', '#f2c94c');
 
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const issue = await provider.getIssue('STA-100');
 
-	t.truthy(issue);
-	t.deepEqual(issue!.labels, []);
+	expect(issue).toBeTruthy();
+	expect(issue!.labels).toStrictEqual([]);
 });
 
-test('searchAssignedIssues parses labels from list results', async t => {
+test('searchAssignedIssues parses labels from list results', async () => {
 	const exec: CliExecutor = async () =>
 		JSON.stringify([
 			{
@@ -787,9 +787,9 @@ test('searchAssignedIssues parses labels from list results', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache());
 	const result = await provider.searchAssignedIssues('me', ['To Do']);
 
-	t.is(result.length, 2);
-	t.deepEqual(result[0]!.labels, ['pappardelle', 'urgent']);
-	t.deepEqual(result[1]!.labels, []);
+	expect(result.length).toBe(2);
+	expect(result[0]!.labels).toStrictEqual(['pappardelle', 'urgent']);
+	expect(result[1]!.labels).toStrictEqual([]);
 });
 
 // ============================================================================
@@ -817,7 +817,7 @@ function fakeIssue(
 	};
 }
 
-test('getIssues uses GraphQL client when provided — one batched call, no CLI', async t => {
+test('getIssues uses GraphQL client when provided — one batched call, no CLI', async () => {
 	let cliCallCount = 0;
 	const exec: CliExecutor = async () => {
 		cliCallCount++;
@@ -837,15 +837,19 @@ test('getIssues uses GraphQL client when provided — one batched call, no CLI',
 	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
 	const result = await provider.getIssues(['STA-1', 'STA-2', 'STA-3']);
 
-	t.is(graphqlCallCount, 1, 'GraphQL client should be called exactly once');
-	t.is(cliCallCount, 0, 'CLI should not be called when GraphQL succeeds');
-	t.deepEqual(receivedKeys, ['STA-1', 'STA-2', 'STA-3']);
-	t.is(result.size, 3);
-	t.is(result.get('STA-1')!.title, 'Issue STA-1');
-	t.is(result.get('STA-3')!.title, 'Issue STA-3');
+	expect(graphqlCallCount, 'GraphQL client should be called exactly once').toBe(
+		1,
+	);
+	expect(cliCallCount, 'CLI should not be called when GraphQL succeeds').toBe(
+		0,
+	);
+	expect(receivedKeys).toStrictEqual(['STA-1', 'STA-2', 'STA-3']);
+	expect(result.size).toBe(3);
+	expect(result.get('STA-1')!.title).toBe('Issue STA-1');
+	expect(result.get('STA-3')!.title).toBe('Issue STA-3');
 });
 
-test('getIssues returns null for every key when GraphQL client returns null (no CLI)', async t => {
+test('getIssues returns null for every key when GraphQL client returns null (no CLI)', async () => {
 	let cliCallCount = 0;
 	const exec: CliExecutor = async () => {
 		cliCallCount++;
@@ -857,13 +861,13 @@ test('getIssues returns null for every key when GraphQL client returns null (no 
 	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
 	const result = await provider.getIssues(['STA-1', 'STA-2']);
 
-	t.is(cliCallCount, 0, 'getIssues must never shell out');
-	t.is(result.size, 2);
-	t.is(result.get('STA-1'), null);
-	t.is(result.get('STA-2'), null);
+	expect(cliCallCount, 'getIssues must never shell out').toBe(0);
+	expect(result.size).toBe(2);
+	expect(result.get('STA-1')).toBe(null);
+	expect(result.get('STA-2')).toBe(null);
 });
 
-test('getIssues leaves partial-response gaps as null (no per-key CLI rescue)', async t => {
+test('getIssues leaves partial-response gaps as null (no per-key CLI rescue)', async () => {
 	let cliCallCount = 0;
 	const exec: CliExecutor = async () => {
 		cliCallCount++;
@@ -884,14 +888,14 @@ test('getIssues leaves partial-response gaps as null (no per-key CLI rescue)', a
 	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
 	const result = await provider.getIssues(['STA-1', 'STA-2', 'STA-3']);
 
-	t.is(cliCallCount, 0, 'getIssues must never shell out');
-	t.is(result.size, 3);
-	t.is(result.get('STA-1')!.title, 'GQL-STA-1');
-	t.is(result.get('STA-2'), null);
-	t.is(result.get('STA-3'), null);
+	expect(cliCallCount, 'getIssues must never shell out').toBe(0);
+	expect(result.size).toBe(3);
+	expect(result.get('STA-1')!.title).toBe('GQL-STA-1');
+	expect(result.get('STA-2')).toBe(null);
+	expect(result.get('STA-3')).toBe(null);
 });
 
-test('getIssues returns null for every key when GraphQL client throws (no CLI)', async t => {
+test('getIssues returns null for every key when GraphQL client throws (no CLI)', async () => {
 	let cliCallCount = 0;
 	const exec: CliExecutor = async () => {
 		cliCallCount++;
@@ -905,15 +909,18 @@ test('getIssues returns null for every key when GraphQL client throws (no CLI)',
 	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
 	const result = await provider.getIssues(['STA-1', 'STA-2']);
 
-	t.is(cliCallCount, 0, 'thrown GraphQL errors must not trigger CLI fan-out');
-	t.is(result.size, 2);
-	t.is(result.get('STA-1'), null);
-	t.is(result.get('STA-2'), null);
+	expect(
+		cliCallCount,
+		'thrown GraphQL errors must not trigger CLI fan-out',
+	).toBe(0);
+	expect(result.size).toBe(2);
+	expect(result.get('STA-1')).toBe(null);
+	expect(result.get('STA-2')).toBe(null);
 });
 
-test('getIssues GraphQL path populates cache and stateColors', async t => {
+test('getIssues GraphQL path populates cache and stateColors', async () => {
 	const exec: CliExecutor = async () => {
-		t.fail('CLI should not be called');
+		unreachable('CLI should not be called');
 		return '';
 	};
 
@@ -926,11 +933,11 @@ test('getIssues GraphQL path populates cache and stateColors', async t => {
 	const provider = new LinearProvider(exec, noopSleep, tempCache(), graphql);
 	await provider.getIssues(['STA-50']);
 
-	t.is(provider.getIssueCached('STA-50')!.title, 'GQL');
-	t.is(provider.getWorkflowStateColor('Done'), '#74d09f');
+	expect(provider.getIssueCached('STA-50')!.title).toBe('GQL');
+	expect(provider.getWorkflowStateColor('Done')).toBe('#74d09f');
 });
 
-test('getIssues GraphQL path respects per-key TTL cache', async t => {
+test('getIssues GraphQL path respects per-key TTL cache', async () => {
 	let graphqlCalls = 0;
 	const seenKeys: string[][] = [];
 	const exec: CliExecutor = async () => makeIssueJson('STA-X', 'noop');
@@ -947,16 +954,15 @@ test('getIssues GraphQL path respects per-key TTL cache', async t => {
 	await provider.getIssues(['STA-1', 'STA-2']);
 	await provider.getIssues(['STA-2', 'STA-3']);
 
-	t.is(
+	expect(
 		graphqlCalls,
-		2,
 		'GraphQL called once per getIssues invocation (TTL not yet exceeded)',
-	);
+	).toBe(2);
 	// Second batch should skip STA-2 (cached, fresh) and only ask for STA-3
-	t.deepEqual(seenKeys[1], ['STA-3']);
+	expect(seenKeys[1]).toStrictEqual(['STA-3']);
 });
 
-test('getIssues GraphQL path skips entirely when all keys are cache-fresh', async t => {
+test('getIssues GraphQL path skips entirely when all keys are cache-fresh', async () => {
 	let graphqlCalls = 0;
 	const exec: CliExecutor = async () => makeIssueJson('STA-X', 'noop');
 
@@ -971,11 +977,13 @@ test('getIssues GraphQL path skips entirely when all keys are cache-fresh', asyn
 	await provider.getIssues(['STA-1', 'STA-2']);
 	await provider.getIssues(['STA-1', 'STA-2']);
 
-	t.is(graphqlCalls, 1, 'second call should be served entirely from cache');
+	expect(graphqlCalls, 'second call should be served entirely from cache').toBe(
+		1,
+	);
 });
 
-test('persistence does not write when color unchanged', async t => {
-	const {dao, cachePath} = colorStore(t);
+test('persistence does not write when color unchanged', async () => {
+	const {dao, cachePath} = colorStore();
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-930', 'No-op', 'In Progress', '#f2c94c');
 
@@ -993,9 +1001,8 @@ test('persistence does not write when color unchanged', async t => {
 	await provider.getIssue('STA-930');
 	const stat2 = fs.statSync(cachePath);
 
-	t.is(
+	expect(
 		stat1.mtimeMs,
-		stat2.mtimeMs,
 		'file should not be rewritten when color is unchanged',
-	);
+	).toBe(stat2.mtimeMs);
 });

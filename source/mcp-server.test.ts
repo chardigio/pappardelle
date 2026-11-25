@@ -1,7 +1,8 @@
 import {setTimeout as delay} from 'node:timers/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {
 	createMcpServer,
 	workspaceInstructions,
@@ -40,29 +41,28 @@ type TextResult = {
 
 const text = (result: unknown) => (result as TextResult).content[0]!.text;
 
-test('a tool call runs its CLI call and returns the output', async t => {
+test('a tool call runs its CLI call and returns the output', async () => {
 	const {client, calls} = await connect();
 	const result = await client.callTool({
 		name: 'space_send',
 		arguments: {key: 'STA-2', text: "it's"},
 	});
-	t.deepEqual(calls, [{args: ['send', 'STA-2'], stdin: "it's"}]);
-	t.is(text(result), 'out');
-	t.falsy(result.isError);
+	expect(calls).toStrictEqual([{args: ['send', 'STA-2'], stdin: "it's"}]);
+	expect(text(result)).toBe('out');
+	expect(result.isError).toBeFalsy();
 });
 
-test('a command with no output still answers', async t => {
+test('a command with no output still answers', async () => {
 	const {client, result} = await connect();
 	result.stdout = '';
-	t.is(
+	expect(
 		text(
 			await client.callTool({name: 'space_highlight', arguments: {key: 'A'}}),
 		),
-		'Done',
-	);
+	).toBe('Done');
 });
 
-test('a failed command is a tool error carrying its output and exit code', async t => {
+test('a failed command is a tool error carrying its output and exit code', async () => {
 	const {client, result} = await connect();
 	result.code = 3;
 	result.stdout = 'Workspace STA-2 is ready!\n';
@@ -71,28 +71,27 @@ test('a failed command is a tool error carrying its output and exit code', async
 		name: 'space_open',
 		arguments: {input: 'STA-2', wait: true},
 	});
-	t.true(response.isError);
-	t.deepEqual(
+	expect(response.isError).toBe(true);
+	expect(
 		(response as TextResult).content.map(block => block.text),
-		[
-			'Workspace STA-2 is ready!',
-			'STA-2 is open, but its agent was not confirmed to start',
-			'exit 3',
-		],
-	);
+	).toStrictEqual([
+		'Workspace STA-2 is ready!',
+		'STA-2 is open, but its agent was not confirmed to start',
+		'exit 3',
+	]);
 });
 
-test('input that fails the schema never reaches the CLI', async t => {
+test('input that fails the schema never reaches the CLI', async () => {
 	const {client, calls} = await connect();
 	const response = await client.callTool({
 		name: 'space_send',
 		arguments: {key: 'STA-2'},
 	});
-	t.true(response.isError);
-	t.deepEqual(calls, []);
+	expect(response.isError).toBe(true);
+	expect(calls).toStrictEqual([]);
 });
 
-test('cancelling a call aborts the running command', async t => {
+test('cancelling a call aborts the running command', async () => {
 	let aborted = false;
 	const {client} = await connect({
 		runCli: async (_call, signal) =>
@@ -111,81 +110,83 @@ test('cancelling a call aborts the running command', async t => {
 	);
 	await delay(20);
 	controller.abort();
-	await t.throwsAsync(pending);
+	await rejectionOf(pending);
 	await delay(20);
-	t.true(aborted);
+	expect(aborted).toBe(true);
 });
 
-test('outside a Pappardelle repo the server offers nothing', async t => {
+test('outside a Pappardelle repo the server offers nothing', async () => {
 	const {client} = await connect({awareness: {kind: 'off'}});
-	t.is(client.getServerCapabilities()?.tools, undefined);
-	t.is(client.getInstructions(), undefined);
+	expect(client.getServerCapabilities()?.tools).toBe(undefined);
+	expect(client.getInstructions()).toBe(undefined);
 });
 
-test('an invalid config turns the tools off and the instructions say why', async t => {
+test('an invalid config turns the tools off and the instructions say why', async () => {
 	const {client} = await connect({
 		awareness: {
 			kind: 'invalid-config',
 			errors: ['agent_profiles.opus.model: must be a string'],
 		},
 	});
-	t.is(client.getServerCapabilities()?.tools, undefined);
+	expect(client.getServerCapabilities()?.tools).toBe(undefined);
 	const instructions = client.getInstructions() ?? '';
-	t.true(instructions.includes('agent_profiles.opus.model: must be a string'));
-	t.true(instructions.includes('restart this session'));
+	expect(
+		instructions.includes('agent_profiles.opus.model: must be a string'),
+	).toBe(true);
+	expect(instructions.includes('restart this session')).toBe(true);
 });
 
-test('inside a repo tools are annotated and instructions are sent', async t => {
+test('inside a repo tools are annotated and instructions are sent', async () => {
 	const {client} = await connect();
 	const {tools} = await client.listTools();
 	const byName = new Map(tools.map(tool => [tool.name, tool]));
-	t.true(byName.get('spaces_list')?.annotations?.readOnlyHint);
-	t.true(byName.get('space_close')?.annotations?.destructiveHint);
-	t.false(byName.get('companion_run')?.annotations?.readOnlyHint);
-	t.regex(client.getInstructions() ?? '', /space STA-1 \(repo repo\)/);
+	expect(byName.get('spaces_list')?.annotations?.readOnlyHint).toBe(true);
+	expect(byName.get('space_close')?.annotations?.destructiveHint).toBe(true);
+	expect(byName.get('companion_run')?.annotations?.readOnlyHint).toBe(false);
+	expect(client.getInstructions() ?? '').toMatch(/space STA-1 \(repo repo\)/);
 });
 
-test('instructions fit before Claude Code truncates them', t => {
+test('instructions fit before Claude Code truncates them', () => {
 	// Measured with Claude Code 2.1.318: text past roughly 3KB gets cut off.
-	t.true(workspaceInstructions('A-KEY-THAT-IS-LONG', 'repo').length < 3000);
-	t.true(
+	expect(
+		workspaceInstructions('A-KEY-THAT-IS-LONG', 'repo').length < 3000,
+	).toBe(true);
+	expect(
 		workspaceInstructions(undefined, 'repo', {
 			sousChef: true,
 			sousChefFile: `/${'long-directory/'.repeat(12)}SOUS-CHEF.md`,
 		}).length < 3000,
+	).toBe(true);
+});
+
+test('only a session in a space is told to keep a companion current', () => {
+	expect(workspaceInstructions('STA-1', 'repo')).toMatch(/companion_run/);
+	expect(workspaceInstructions(undefined, 'repo')).not.toMatch(/companion_run/);
+	expect(workspaceInstructions(undefined, 'repo')).toMatch(/isn't in a space/);
+});
+
+test('only an opted-in session outside a space is told to coordinate', () => {
+	expect(workspaceInstructions(undefined, 'repo')).not.toMatch(
+		/Sous-chef mode/,
 	);
-});
-
-test('only a session in a space is told to keep a companion current', t => {
-	t.regex(workspaceInstructions('STA-1', 'repo'), /companion_run/);
-	t.notRegex(workspaceInstructions(undefined, 'repo'), /companion_run/);
-	t.regex(workspaceInstructions(undefined, 'repo'), /isn't in a space/);
-});
-
-test('only an opted-in session outside a space is told to coordinate', t => {
-	t.notRegex(workspaceInstructions(undefined, 'repo'), /Sous-chef mode/);
-	t.regex(
-		workspaceInstructions(undefined, 'repo', {sousChef: true}),
+	expect(workspaceInstructions(undefined, 'repo', {sousChef: true})).toMatch(
 		/Sous-chef mode is on/,
 	);
 	const inSpace = workspaceInstructions('STA-1', 'repo', {sousChef: true});
-	t.notRegex(inSpace, /Sous-chef mode/);
-	t.regex(inSpace, /SendMessage to `sous-chef`/);
-	t.notRegex(workspaceInstructions('STA-1', 'repo'), /sous-chef/);
+	expect(inSpace).not.toMatch(/Sous-chef mode/);
+	expect(inSpace).toMatch(/SendMessage to `sous-chef`/);
+	expect(workspaceInstructions('STA-1', 'repo')).not.toMatch(/sous-chef/);
 });
 
-test('the coordinator is pointed at SOUS-CHEF.md only in sous-chef mode', t => {
+test('the coordinator is pointed at SOUS-CHEF.md only in sous-chef mode', () => {
 	const sousChefFile = '/repo/SOUS-CHEF.md';
-	t.regex(
+	expect(
 		workspaceInstructions(undefined, 'repo', {sousChef: true, sousChefFile}),
-		/instructions for the sous-chef are in \/repo\/SOUS-CHEF\.md/,
-	);
-	t.notRegex(
-		workspaceInstructions(undefined, 'repo', {sousChefFile}),
+	).toMatch(/instructions for the sous-chef are in \/repo\/SOUS-CHEF\.md/);
+	expect(workspaceInstructions(undefined, 'repo', {sousChefFile})).not.toMatch(
 		/SOUS-CHEF\.md/,
 	);
-	t.notRegex(
+	expect(
 		workspaceInstructions(undefined, 'repo', {sousChef: true}),
-		/SOUS-CHEF\.md/,
-	);
+	).not.toMatch(/SOUS-CHEF\.md/);
 });

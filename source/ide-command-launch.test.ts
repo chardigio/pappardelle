@@ -10,7 +10,7 @@
 import {spawn} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {DEFAULT_IDE_COMMAND, expandTemplate} from './config.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 
@@ -57,19 +57,19 @@ function readArgs(argsFile: string): string[] {
 	return fs.readFileSync(argsFile, 'utf-8').split('\n').slice(0, -1);
 }
 
-test('env-supplied WORKTREE_PATH reaches the editor as one literal argument', async t => {
-	const dir = tempDir(t, 'pappardelle-ide-launch-');
+test('env-supplied WORKTREE_PATH reaches the editor as one literal argument', async () => {
+	const dir = tempDir('pappardelle-ide-launch-');
 	const {bin, argsFile} = makeFakeEditor(dir);
 
 	await runIdeCommand(`${JSON.stringify(bin)} "\${WORKTREE_PATH}"`, {
 		WORKTREE_PATH: HOSTILE_PATH,
 	});
 
-	t.deepEqual(readArgs(argsFile), [HOSTILE_PATH]);
+	expect(readArgs(argsFile)).toStrictEqual([HOSTILE_PATH]);
 });
 
-test('interpolating the path into the command string executes it instead', async t => {
-	const dir = tempDir(t, 'pappardelle-ide-launch-');
+test('interpolating the path into the command string executes it instead', async () => {
+	const dir = tempDir('pappardelle-ide-launch-');
 	const {bin, argsFile} = makeFakeEditor(dir);
 
 	// The rejected implementation: expandTemplate pastes the value into the
@@ -84,16 +84,18 @@ test('interpolating the path into the command string executes it instead', async
 	await runIdeCommand(interpolated, {});
 
 	const args = readArgs(argsFile);
-	t.notDeepEqual(
+	expect(
 		args,
-		[HOSTILE_PATH],
 		'expected interpolation to corrupt the path — if this passes, the env-based launch is no longer the thing under test',
-	);
-	t.true(args[0]?.includes('PWNED'), 'command substitution should have run');
+	).not.toStrictEqual([HOSTILE_PATH]);
+	expect(
+		args[0]?.includes('PWNED'),
+		'command substitution should have run',
+	).toBe(true);
 });
 
-test('the built-in default survives a worktree path containing spaces', async t => {
-	const dir = tempDir(t, 'pappardelle-ide-launch-');
+test('the built-in default survives a worktree path containing spaces', async () => {
+	const dir = tempDir('pappardelle-ide-launch-');
 	const {bin, argsFile} = makeFakeEditor(dir);
 	const spacey = path.join(dir, 'a b', 'c');
 
@@ -101,5 +103,5 @@ test('the built-in default survives a worktree path containing spaces', async t 
 	const command = DEFAULT_IDE_COMMAND.replace('cursor', JSON.stringify(bin));
 	await runIdeCommand(command, {WORKTREE_PATH: spacey});
 
-	t.deepEqual(readArgs(argsFile), [spacey]);
+	expect(readArgs(argsFile)).toStrictEqual([spacey]);
 });

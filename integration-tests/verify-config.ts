@@ -3,7 +3,7 @@
  * Local verification of config loading against real .pappardelle.yml files.
  * Tests: config exists → loads → validates → local overrides merge → profile matching
  *
- * NOT an ava test — run manually with `bun integration-tests/verify-config.ts`
+ * NOT a unit test — run manually with `bun integration-tests/verify-config.ts`
  *
  * Must be run from inside a repo that has a .pappardelle.yml.
  */

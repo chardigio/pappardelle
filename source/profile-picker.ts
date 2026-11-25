@@ -9,6 +9,7 @@ import {
 	type ConfigLoad,
 	type PappardelleConfig,
 } from './config.ts';
+import {typedText, type KeyPress} from './key-press.ts';
 
 /**
  * The new-session flow used to be one keystroke: type a prompt, hit Enter, and
@@ -293,45 +294,36 @@ export type PickerKeyResult = {
 	index: number;
 };
 
-type PickerKey = {
-	upArrow?: boolean;
-	downArrow?: boolean;
-	return?: boolean;
-	escape?: boolean;
-	ctrl?: boolean;
-	meta?: boolean;
-};
-
 /**
  * Movement clamps rather than wraps, matching the main space list: arrowing
  * past the end of a four-item list should not silently teleport you back to the
  * profile you were trying to move away from.
  */
 export function handleProfilePickerKey(
-	input: string,
-	key: PickerKey,
+	key: KeyPress,
 	selectedIndex: number,
 	total: number,
 ): PickerKeyResult {
-	if (key.escape) {
+	if (key.name === 'escape') {
 		return {action: 'back', index: selectedIndex};
 	}
 
-	if (key.return) {
+	if (key.name === 'return') {
 		if (total <= 0) return {action: 'ignore', index: selectedIndex};
 		return {action: 'submit', index: selectedIndex};
 	}
 
-	if (input === 'a' && !key.ctrl && !key.meta) {
+	const input = typedText(key);
+	if (input === 'a') {
 		if (total <= 0) return {action: 'ignore', index: selectedIndex};
 		return {action: 'agent', index: selectedIndex};
 	}
 
-	if (key.upArrow || input === 'k') {
+	if (key.name === 'up' || input === 'k') {
 		return {action: 'move', index: Math.max(0, selectedIndex - 1)};
 	}
 
-	if (key.downArrow || input === 'j') {
+	if (key.name === 'down' || input === 'j') {
 		return {action: 'move', index: Math.min(total - 1, selectedIndex + 1)};
 	}
 
@@ -407,12 +399,6 @@ export type FilterablePickerState = {
 	indexBeforeQuery?: number;
 };
 
-type FilterablePickerKey = PickerKey & {
-	backspace?: boolean;
-	delete?: boolean;
-	tab?: boolean;
-};
-
 export type FilterablePickerKeyResult = {
 	state: FilterablePickerState;
 	/** `select` is Enter on a filtered list: the caller decides what picking means. */
@@ -426,15 +412,15 @@ export type FilterablePickerKeyResult = {
  */
 export function handleFilterablePickerKey(
 	state: FilterablePickerState,
-	input: string,
-	key: FilterablePickerKey,
+	key: KeyPress,
 	total: number,
 ): FilterablePickerKeyResult {
+	const input = typedText(key);
 	if (state.query === null) {
 		if (input === '/') {
 			return {state: {query: '', index: 0, indexBeforeQuery: state.index}};
 		}
-		const result = handleProfilePickerKey(input, key, state.index, total);
+		const result = handleProfilePickerKey(key, state.index, total);
 		switch (result.action) {
 			case 'move': {
 				return {state: {...state, index: result.index}};
@@ -452,15 +438,16 @@ export function handleFilterablePickerKey(
 		}
 	}
 
-	if (key.escape) {
+	if (key.name === 'escape') {
 		return {state: {query: null, index: state.indexBeforeQuery ?? 0}};
 	}
-	if (key.return) return total > 0 ? {state, action: 'select'} : {state};
-	if (key.upArrow) {
+	if (key.name === 'return')
+		return total > 0 ? {state, action: 'select'} : {state};
+	if (key.name === 'up') {
 		return {state: {...state, index: Math.max(0, state.index - 1)}};
 	}
 
-	if (key.downArrow) {
+	if (key.name === 'down') {
 		return {
 			state: {
 				...state,
@@ -469,11 +456,11 @@ export function handleFilterablePickerKey(
 		};
 	}
 
-	if (key.backspace || key.delete) {
+	if (key.name === 'backspace' || key.name === 'delete') {
 		return {state: {...state, query: state.query.slice(0, -1), index: 0}};
 	}
 
-	if (input && !key.ctrl && !key.meta && !key.tab) {
+	if (input) {
 		return {state: {...state, query: state.query + input, index: 0}};
 	}
 

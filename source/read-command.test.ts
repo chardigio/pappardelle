@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {formatTurns, parseTurns, turnsJson} from './read-command.ts';
 
 const jsonl = (...entries: unknown[]) =>
@@ -15,7 +15,7 @@ const assistant = (content: unknown) => ({
 	message: {content},
 });
 
-test('a turn is a typed prompt and the assistant text after it', t => {
+test('a turn is a typed prompt and the assistant text after it', () => {
 	const turns = parseTurns(
 		jsonl(
 			user('fix the tests'),
@@ -26,7 +26,7 @@ test('a turn is a typed prompt and the assistant text after it', t => {
 			assistant('Shipped.'),
 		),
 	);
-	t.deepEqual(turns, [
+	expect(turns).toStrictEqual([
 		{
 			prompt: 'fix the tests',
 			ts: '2026-10-17T12:00:00.000Z',
@@ -36,7 +36,7 @@ test('a turn is a typed prompt and the assistant text after it', t => {
 	]);
 });
 
-test('injected meta text, sidechains, other entry types and bad lines are skipped', t => {
+test('injected meta text, sidechains, other entry types and bad lines are skipped', () => {
 	const turns = parseTurns(
 		[
 			JSON.stringify(user('real prompt')),
@@ -49,32 +49,29 @@ test('injected meta text, sidechains, other entry types and bad lines are skippe
 			'',
 		].join('\n'),
 	);
-	t.deepEqual(
-		turns.map(turn => turn.prompt),
-		['real prompt'],
-	);
+	expect(turns.map(turn => turn.prompt)).toStrictEqual(['real prompt']);
 });
 
-test('assistant text before any prompt has no turn to join', t => {
-	t.deepEqual(parseTurns(jsonl(assistant('hello'))), []);
+test('assistant text before any prompt has no turn to join', () => {
+	expect(parseTurns(jsonl(assistant('hello')))).toStrictEqual([]);
 });
 
-test('prompts and replies are cut at 500 characters', t => {
+test('prompts and replies are cut at 500 characters', () => {
 	const long = 'x'.repeat(800);
 	const [turn] = parseTurns(jsonl(user(long), assistant(long)));
-	t.is(turn!.prompt.length, 500);
-	t.is(turn!.replies[0]!.length, 500);
+	expect(turn!.prompt.length).toBe(500);
+	expect(turn!.replies[0]!.length).toBe(500);
 });
 
-test('text and JSON output keep only the last N turns', t => {
+test('text and JSON output keep only the last N turns', () => {
 	const turns = parseTurns(
 		jsonl(user('one'), assistant('a'), user('two'), assistant('b')),
 	);
 	const text = formatTurns('STA-1', turns, 1);
-	t.true(text.startsWith('STA-1: 2 turns, last 1'));
-	t.false(text.includes('one'));
-	t.regex(text, /user: two\n {2}assistant: b$/);
-	t.deepEqual(turnsJson('STA-1', turns, 1), {
+	expect(text.startsWith('STA-1: 2 turns, last 1')).toBe(true);
+	expect(text.includes('one')).toBe(false);
+	expect(text).toMatch(/user: two\n {2}assistant: b$/);
+	expect(turnsJson('STA-1', turns, 1)).toStrictEqual({
 		issueKey: 'STA-1',
 		totalTurns: 2,
 		turns: [turns[1]],

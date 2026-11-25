@@ -2,7 +2,8 @@ import {spawnSync} from 'node:child_process';
 import {mkdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {sessionNamesFor} from './space-identity.ts';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {ensureCompanionSession} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
@@ -10,26 +11,26 @@ import {getRepoName} from './config.ts';
 
 // tmux.ts names a space's sessions from the stores. Without the database they
 // are the names idow gives a space, which is all this file needs.
-const stateTeardowns: Array<() => void> = [];
-test.before(() => {
-	testTmuxState(
-		{teardown: fn => stateTeardowns.push(fn)},
-		{repo: getRepoName(), sqlite: false},
-	);
+const stateTeardowns: Array<() => unknown> = [];
+beforeAll(() => {
+	testTmuxState({
+		cleanup: fn => stateTeardowns.push(fn),
+		repo: getRepoName(),
+		sqlite: false,
+	});
 });
-test.after.always(() => {
-	for (const teardown of stateTeardowns) teardown();
+afterAll(async () => {
+	for (const step of stateTeardowns.reverse()) await step();
 });
 
-const runtimeTest =
-	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.skip;
+const runtimeTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 /**
  * A private inner server for one test: HOME (whose .tmux.conf the server
  * loads) and PAPPARDELLE_TMUX_SOCKET point into a temp dir.
  */
-function privateInnerServer(t: ExecutionContext, tmuxConf = '') {
-	const root = tempDir(t, 'inner-options-');
+function privateInnerServer(tmuxConf = '') {
+	const root = tempDir('inner-options-');
 	const socket = path.join(root, 's');
 	writeFileSync(path.join(root, '.tmux.conf'), tmuxConf);
 	const saved = {
@@ -40,7 +41,7 @@ function privateInnerServer(t: ExecutionContext, tmuxConf = '') {
 	process.env['HOME'] = root;
 	delete process.env['XDG_CONFIG_HOME'];
 	process.env['PAPPARDELLE_TMUX_SOCKET'] = socket;
-	t.teardown(() => {
+	teardown(() => {
 		for (const [key, value] of Object.entries(saved)) {
 			if (value === undefined) Reflect.deleteProperty(process.env, key);
 			else process.env[key] = value;
@@ -55,17 +56,16 @@ function privateInnerServer(t: ExecutionContext, tmuxConf = '') {
 
 runtimeTest(
 	'space sessions survive a tmux.conf that destroys unattached sessions and exits the unattached server',
-	async t => {
+	async () => {
 		const {root, tmux} = privateInnerServer(
-			t,
 			'set -g destroy-unattached on\nset -g exit-unattached on\n',
 		);
 
-		t.true(await ensureCompanionSession('KEEP-1', root, ''));
-		t.true(await ensureCompanionSession('KEEP-2', root, ''));
+		expect(await ensureCompanionSession('KEEP-1', root, '')).toBe(true);
+		expect(await ensureCompanionSession('KEEP-2', root, '')).toBe(true);
 
 		const sessions = tmux('list-sessions', '-F', '#{session_name}');
-		t.deepEqual(sessions.stdout.trim().split('\n').sort(), [
+		expect(sessions.stdout.trim().split('\n').sort()).toStrictEqual([
 			sessionNamesFor('KEEP-1', getRepoName()).companion,
 			sessionNamesFor('KEEP-2', getRepoName()).companion,
 		]);
@@ -74,12 +74,12 @@ runtimeTest(
 
 runtimeTest(
 	'a space whose worktree path reads as a tmux format starts in that worktree',
-	async t => {
-		const {root, tmux} = privateInnerServer(t);
+	async () => {
+		const {root, tmux} = privateInnerServer();
 		const worktree = path.join(root, 'pasta#S');
 		mkdirSync(worktree);
 
-		t.true(await ensureCompanionSession('HASH-1', worktree, ''));
+		expect(await ensureCompanionSession('HASH-1', worktree, '')).toBe(true);
 
 		const shown = tmux(
 			'display-message',
@@ -88,7 +88,7 @@ runtimeTest(
 			`=${sessionNamesFor('HASH-1', getRepoName()).companion}:`,
 			'#{session_path}',
 		);
-		t.is(shown.stdout.trim(), worktree);
+		expect(shown.stdout.trim()).toBe(worktree);
 	},
 );
 
@@ -96,9 +96,9 @@ runtimeTest(
 // with "server exited unexpectedly".
 runtimeTest(
 	'the inner server outlives its last session, and the next space starts on it',
-	async t => {
-		const {root, tmux} = privateInnerServer(t);
-		t.true(await ensureCompanionSession('EMPTY-1', root, ''));
+	async () => {
+		const {root, tmux} = privateInnerServer();
+		expect(await ensureCompanionSession('EMPTY-1', root, '')).toBe(true);
 		const pid = tmux('display-message', '-p', '#{pid}').stdout.trim();
 
 		const killed = tmux(
@@ -106,12 +106,12 @@ runtimeTest(
 			'-t',
 			`=${sessionNamesFor('EMPTY-1', getRepoName()).companion}:`,
 		);
-		t.is(killed.status, 0, killed.stderr);
+		expect(killed.status, killed.stderr).toBe(0);
 
 		const listed = tmux('list-sessions');
-		t.is(listed.status, 0, listed.stderr);
-		t.is(listed.stdout, '');
-		t.true(await ensureCompanionSession('EMPTY-2', root, ''));
-		t.is(tmux('display-message', '-p', '#{pid}').stdout.trim(), pid);
+		expect(listed.status, listed.stderr).toBe(0);
+		expect(listed.stdout).toBe('');
+		expect(await ensureCompanionSession('EMPTY-2', root, '')).toBe(true);
+		expect(tmux('display-message', '-p', '#{pid}').stdout.trim()).toBe(pid);
 	},
 );

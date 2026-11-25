@@ -2,7 +2,8 @@ import {
 	setImmediate as nextTurn,
 	setTimeout as delay,
 } from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import React from 'react';
 import {useKeyboard} from '@opentui/react';
 import {terminalView} from '../test/helpers/terminal-view.ts';
@@ -14,11 +15,7 @@ process.env['TMUX'] = '/nonexistent/tmux-socket,0,0';
 const ESCAPE = '\u001B';
 const PARSER_WAIT_MS = 20;
 
-async function keyLog(
-	t: {teardown: (fn: () => Promise<void>) => void},
-	typedAhead = '',
-	ready?: Promise<void>,
-) {
+async function keyLog(typedAhead = '', ready?: Promise<void>) {
 	const keys: string[] = [];
 	function KeyLog() {
 		useKeyboard(key => {
@@ -31,144 +28,123 @@ async function keyLog(
 		typedAhead,
 		ready,
 	});
-	t.teardown(async () => view.dispose());
+	teardown(async () => view.dispose());
 	return {keys, stdin: view.stdin};
 }
 
-test.serial('a lone Escape is delivered on arrival, and only once', async t => {
-	const {keys, stdin} = await keyLog(t);
+test('a lone Escape is delivered on arrival, and only once', async () => {
+	const {keys, stdin} = await keyLog();
 	stdin.write(ESCAPE);
 	await nextTurn();
-	t.deepEqual(keys, ['escape']);
+	expect(keys).toStrictEqual(['escape']);
 	await delay(PARSER_WAIT_MS * 3);
-	t.deepEqual(keys, ['escape']);
+	expect(keys).toStrictEqual(['escape']);
 });
 
-test.serial('an escape sequence is left to the parser', async t => {
-	const {keys, stdin} = await keyLog(t);
+test('an escape sequence is left to the parser', async () => {
+	const {keys, stdin} = await keyLog();
 	stdin.write(`${ESCAPE}[A`);
 	await delay(PARSER_WAIT_MS * 3);
-	t.deepEqual(keys, ['up']);
+	expect(keys).toStrictEqual(['up']);
 });
 
-test.serial('a key typed right after an Escape keeps its meaning', async t => {
-	const {keys, stdin} = await keyLog(t);
+test('a key typed right after an Escape keeps its meaning', async () => {
+	const {keys, stdin} = await keyLog();
 	stdin.write(ESCAPE);
 	stdin.write('/');
 	await delay(PARSER_WAIT_MS * 3);
 	stdin.write(ESCAPE);
 	stdin.write(`${ESCAPE}[A`);
 	await delay(PARSER_WAIT_MS * 3);
-	t.deepEqual(keys, ['escape', '/', 'escape', 'up']);
+	expect(keys).toStrictEqual(['escape', '/', 'escape', 'up']);
 });
 
-test.serial('two Escapes in quick succession are two keys', async t => {
-	const {keys, stdin} = await keyLog(t);
+test('two Escapes in quick succession are two keys', async () => {
+	const {keys, stdin} = await keyLog();
 	stdin.write(ESCAPE);
 	stdin.write(ESCAPE);
 	await delay(PARSER_WAIT_MS * 3);
 	stdin.write(`${ESCAPE}[A`);
 	await delay(PARSER_WAIT_MS * 3);
-	t.deepEqual(keys, ['escape', 'escape', 'up']);
+	expect(keys).toStrictEqual(['escape', 'escape', 'up']);
 });
 
-test.serial(
-	'an Escape at the end of other input is still delivered',
-	async t => {
-		const {keys, stdin} = await keyLog(t);
-		stdin.write(`a${ESCAPE}`);
-		await delay(PARSER_WAIT_MS * 3);
-		t.deepEqual(keys, ['a', 'escape']);
-	},
-);
-
-test.serial(
-	'a focus report right after an Escape is not read as a key',
-	async t => {
-		const {keys, stdin} = await keyLog(t);
-		const logged: unknown[][] = [];
-		const logError = console.error;
-		console.error = (...args: unknown[]) => logged.push(args);
-		t.teardown(() => {
-			console.error = logError;
-		});
-		stdin.write(ESCAPE);
-		stdin.write(`${ESCAPE}[O`);
-		await delay(PARSER_WAIT_MS * 3);
-		stdin.write('a');
-		await delay(PARSER_WAIT_MS * 3);
-		t.deepEqual(keys, ['escape', 'a']);
-		t.deepEqual(logged, []);
-	},
-);
-
-test.serial('keys typed before the app has mounted are delivered', async t => {
-	const {keys} = await keyLog(t, 'jk');
-	t.deepEqual(keys, ['j', 'k']);
+test('an Escape at the end of other input is still delivered', async () => {
+	const {keys, stdin} = await keyLog();
+	stdin.write(`a${ESCAPE}`);
+	await delay(PARSER_WAIT_MS * 3);
+	expect(keys).toStrictEqual(['a', 'escape']);
 });
 
-test.serial(
-	'Alt with a character outside ASCII typed before the renderer reads is not a control key',
-	async t => {
-		const {keys} = await keyLog(t, `j${ESCAPE}ăk${ESCAPE}č`);
-		t.deepEqual(keys, ['j', 'k']);
-	},
-);
+test('a focus report right after an Escape is not read as a key', async () => {
+	const {keys, stdin} = await keyLog();
+	const logged: unknown[][] = [];
+	const logError = console.error;
+	console.error = (...args: unknown[]) => logged.push(args);
+	teardown(() => {
+		console.error = logError;
+	});
+	stdin.write(ESCAPE);
+	stdin.write(`${ESCAPE}[O`);
+	await delay(PARSER_WAIT_MS * 3);
+	stdin.write('a');
+	await delay(PARSER_WAIT_MS * 3);
+	expect(keys).toStrictEqual(['escape', 'a']);
+	expect(logged).toStrictEqual([]);
+});
 
-test.serial(
-	'an Escape typed while start-up keys are held keeps its place',
-	async t => {
-		const ready = Promise.withResolvers<void>();
-		const {keys, stdin} = await keyLog(t, '', ready.promise);
-		for (const read of ['a', ESCAPE, 'b']) {
-			stdin.write(read);
-			await nextTurn();
-		}
+test('keys typed before the app has mounted are delivered', async () => {
+	const {keys} = await keyLog('jk');
+	expect(keys).toStrictEqual(['j', 'k']);
+});
 
-		t.deepEqual(keys, []);
-		ready.resolve();
+test('Alt with a character outside ASCII typed before the renderer reads is not a control key', async () => {
+	const {keys} = await keyLog(`j${ESCAPE}ăk${ESCAPE}č`);
+	expect(keys).toStrictEqual(['j', 'k']);
+});
+
+test('an Escape typed while start-up keys are held keeps its place', async () => {
+	const ready = Promise.withResolvers<void>();
+	const {keys, stdin} = await keyLog('', ready.promise);
+	for (const read of ['a', ESCAPE, 'b']) {
+		stdin.write(read);
 		await nextTurn();
-		t.deepEqual(keys, ['a', 'escape', 'b']);
-	},
-);
+	}
 
-test.serial(
-	'Enter typed before the terminal is raw is still Enter',
-	async t => {
-		const {keys} = await keyLog(t, 'j\n');
-		t.deepEqual(keys, ['j', 'return']);
-	},
-);
+	expect(keys).toStrictEqual([]);
+	ready.resolve();
+	await nextTurn();
+	expect(keys).toStrictEqual(['a', 'escape', 'b']);
+});
 
-test.serial(
-	'Alt with a character that opens a sequence does not take the next key',
-	async t => {
-		const {keys, stdin} = await keyLog(t);
-		stdin.write(`${ESCAPE}[`);
-		stdin.write('A');
-		stdin.write(`${ESCAPE}P`);
-		stdin.write('b');
-		await delay(PARSER_WAIT_MS * 3);
-		t.deepEqual(
-			keys.filter(key => !key.startsWith('meta+')),
-			['a', 'b'],
-		);
-	},
-);
+test('Enter typed before the terminal is raw is still Enter', async () => {
+	const {keys} = await keyLog('j\n');
+	expect(keys).toStrictEqual(['j', 'return']);
+});
 
-test.serial(
-	'Alt with a character outside ASCII is not read as a control key',
-	async t => {
-		const {keys, stdin} = await keyLog(t);
-		// Their UTF-8 ends in 0x83, 0x8d and 0x88, which an 8-bit terminal
-		// would send for Alt with Ctrl+C, Enter and Backspace.
-		for (const character of ['ă', 'č', 'Ĉ', '🍝'])
-			stdin.write(`${ESCAPE}${character}`);
-		await delay(PARSER_WAIT_MS * 3);
-		t.deepEqual(keys, []);
-		// The same when a busy app reads it together with the keys around it.
-		stdin.write(`a${ESCAPE}ăb${ESCAPE}č`);
-		await delay(PARSER_WAIT_MS * 3);
-		t.deepEqual(keys, ['a', 'b']);
-	},
-);
+test('Alt with a character that opens a sequence does not take the next key', async () => {
+	const {keys, stdin} = await keyLog();
+	stdin.write(`${ESCAPE}[`);
+	stdin.write('A');
+	stdin.write(`${ESCAPE}P`);
+	stdin.write('b');
+	await delay(PARSER_WAIT_MS * 3);
+	expect(keys.filter(key => !key.startsWith('meta+'))).toStrictEqual([
+		'a',
+		'b',
+	]);
+});
+
+test('Alt with a character outside ASCII is not read as a control key', async () => {
+	const {keys, stdin} = await keyLog();
+	// Their UTF-8 ends in 0x83, 0x8d and 0x88, which an 8-bit terminal
+	// would send for Alt with Ctrl+C, Enter and Backspace.
+	for (const character of ['ă', 'č', 'Ĉ', '🍝'])
+		stdin.write(`${ESCAPE}${character}`);
+	await delay(PARSER_WAIT_MS * 3);
+	expect(keys).toStrictEqual([]);
+	// The same when a busy app reads it together with the keys around it.
+	stdin.write(`a${ESCAPE}ăb${ESCAPE}č`);
+	await delay(PARSER_WAIT_MS * 3);
+	expect(keys).toStrictEqual(['a', 'b']);
+});

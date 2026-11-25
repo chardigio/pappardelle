@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import React from 'react';
 import {render} from '../../test/helpers/render.ts';
 import stringWidth from 'string-width';
@@ -14,15 +14,6 @@ import type {SpaceData} from '../types.ts';
 // layout but wraps in tmux fails here.
 const tmux36Width = (text: string): number =>
 	stringWidth(text) + 2 * (text.match(/[\u{1F3FB}-\u{1F3FF}]/gu)?.length ?? 0);
-
-const previousTmuxEnv = process.env['TMUX'];
-process.on('exit', () => {
-	if (previousTmuxEnv === undefined) {
-		delete process.env['TMUX'];
-	} else {
-		process.env['TMUX'] = previousTmuxEnv;
-	}
-});
 
 function makeSpace(title: string): SpaceData {
 	return {
@@ -81,64 +72,63 @@ async function renderRow(
 	return frame;
 }
 
-test.serial(
-	'tmux 3.6 strips the modifier and keeps the rail on one line',
-	async t => {
-		for (const width of [30, 40, 60, 80]) {
-			const frame = await renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes');
-			t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
-			t.true(tmux36Width(frame) <= width, `Rendered row: ${frame}`);
-			t.true(frame.startsWith(' 💪 ● TEST-1'), `Rendered row: ${frame}`);
-			t.true(frame.includes('✓'), `Rendered row: ${frame}`);
-		}
-	},
-);
-
-test.serial(
-	'tmux 3.6a keeps the full grapheme at its 2-cell width',
-	async t => {
-		for (const version of ['3.6a', '3.7c', 'next-3.9']) {
-			for (const width of [30, 40, 60, 80]) {
-				const frame = await renderRow(version, width, 'Ship 👍🏽 and 💪🏿 fixes');
-				t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
-				t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
-				t.true(frame.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
-				t.true(frame.includes('✓'), `Rendered row: ${frame}`);
-			}
-		}
-	},
-);
-
-test.serial('outside tmux the full grapheme is kept', async t => {
+test('tmux 3.6 strips the modifier and keeps the rail on one line', async () => {
 	for (const width of [30, 40, 60, 80]) {
-		const frame = await renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes', false);
-		t.is(frame.split('\n').length, 1, `Rendered row: ${frame}`);
-		t.true(stringWidth(frame) <= width, `Rendered row: ${frame}`);
-		t.true(frame.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${frame}`);
+		const frame = await renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes');
+		expect(frame.split('\n').length, `Rendered row: ${frame}`).toBe(1);
+		expect(tmux36Width(frame) <= width, `Rendered row: ${frame}`).toBe(true);
+		expect(frame.startsWith(' 💪 ● TEST-1'), `Rendered row: ${frame}`).toBe(
+			true,
+		);
+		expect(frame.includes('✓'), `Rendered row: ${frame}`).toBe(true);
 	}
 });
 
-test.serial(
-	'a row renders before the tmux version is known and refreshes once it is',
-	async t => {
-		setInsideTmux(true);
-		let finish!: (version: string) => void;
-		setTmuxVersionProbeForTests(
-			async () =>
-				new Promise(resolve => {
-					finish = resolve;
-				}),
+test('tmux 3.6a keeps the full grapheme at its 2-cell width', async () => {
+	for (const version of ['3.6a', '3.7c', 'next-3.9']) {
+		for (const width of [30, 40, 60, 80]) {
+			const frame = await renderRow(version, width, 'Ship 👍🏽 and 💪🏿 fixes');
+			expect(frame.split('\n').length, `Rendered row: ${frame}`).toBe(1);
+			expect(stringWidth(frame) <= width, `Rendered row: ${frame}`).toBe(true);
+			expect(frame.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${frame}`).toBe(
+				true,
+			);
+			expect(frame.includes('✓'), `Rendered row: ${frame}`).toBe(true);
+		}
+	}
+});
+
+test('outside tmux the full grapheme is kept', async () => {
+	for (const width of [30, 40, 60, 80]) {
+		const frame = await renderRow('3.6', width, 'Ship 👍🏽 and 💪🏿 fixes', false);
+		expect(frame.split('\n').length, `Rendered row: ${frame}`).toBe(1);
+		expect(stringWidth(frame) <= width, `Rendered row: ${frame}`).toBe(true);
+		expect(frame.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${frame}`).toBe(
+			true,
 		);
-		const view = await mountRow(60, 'Ship 👍🏽 fixes');
-		const before = view.lastFrame();
-		t.true(before.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${before}`);
-		t.truthy(finish, 'mounting the row starts the probe');
-		finish('3.6');
-		await resolveTmuxSkinTone();
-		await view.renderOnce();
-		const after = view.lastFrame();
-		t.true(after.startsWith(' 💪 ● TEST-1'), `Rendered row: ${after}`);
-		t.true(after.includes('Ship 👍 fixes'), `Rendered row: ${after}`);
-		await view.unmount();
-	},
-);
+	}
+});
+
+test('a row renders before the tmux version is known and refreshes once it is', async () => {
+	setInsideTmux(true);
+	let finish!: (version: string) => void;
+	setTmuxVersionProbeForTests(
+		async () =>
+			new Promise(resolve => {
+				finish = resolve;
+			}),
+	);
+	const view = await mountRow(60, 'Ship 👍🏽 fixes');
+	const before = view.lastFrame();
+	expect(before.startsWith(' 💪🏼 ● TEST-1'), `Rendered row: ${before}`).toBe(
+		true,
+	);
+	expect(finish, 'mounting the row starts the probe').toBeTruthy();
+	finish('3.6');
+	await resolveTmuxSkinTone();
+	await view.renderOnce();
+	const after = view.lastFrame();
+	expect(after.startsWith(' 💪 ● TEST-1'), `Rendered row: ${after}`).toBe(true);
+	expect(after.includes('Ship 👍 fixes'), `Rendered row: ${after}`).toBe(true);
+	await view.unmount();
+});

@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {
 	classifierInput,
 	classifyCommand,
@@ -25,27 +27,28 @@ const answering =
 const verdict = (structured: unknown) =>
 	JSON.stringify({result: '', structured_output: structured});
 
-test('a yes from the model approves, with its reason', async t => {
-	t.deepEqual(
+test('a yes from the model approves, with its reason', async () => {
+	expect(
 		await classifyCommand(
 			request,
 			answering(verdict({approve: true, reason: 'a local build'})),
 		),
-		{kind: 'approve', reason: 'a local build'},
-	);
+	).toStrictEqual({kind: 'approve', reason: 'a local build'});
 });
 
-test('a no from the model holds, with its reason', async t => {
-	t.deepEqual(
+test('a no from the model holds, with its reason', async () => {
+	expect(
 		await classifyCommand(
 			request,
 			answering(verdict({approve: false, reason: 'it deploys'})),
 		),
-		{kind: 'hold', reason: 'the approval check said no: it deploys'},
-	);
+	).toStrictEqual({
+		kind: 'hold',
+		reason: 'the approval check said no: it deploys',
+	});
 });
 
-test('a check that gives no clear answer is unavailable, not a no', async t => {
+test('a check that gives no clear answer is unavailable, not a no', async () => {
 	const runs: ClassifierRun[] = [
 		answering(verdict({approve: false})),
 		answering(verdict({approve: 'yes', reason: 'x'})),
@@ -59,10 +62,10 @@ test('a check that gives no clear answer is unavailable, not a no', async t => {
 	const verdicts = await Promise.all(
 		runs.map(async run => classifyCommand(request, run)),
 	);
-	t.true(verdicts.every(verdict => verdict.kind === 'unavailable'));
+	expect(verdicts.every(verdict => verdict.kind === 'unavailable')).toBe(true);
 });
 
-test('a check that fails to run is tried once more', async t => {
+test('a check that fails to run is tried once more', async () => {
 	let calls = 0;
 	const flaky: ClassifierRun = async () => {
 		calls++;
@@ -70,23 +73,22 @@ test('a check that fails to run is tried once more', async t => {
 			? {status: 1, stdout: ''}
 			: {status: 0, stdout: verdict({approve: true, reason: 'fine'})};
 	};
-	t.deepEqual(await classifyCommand(request, flaky), {
+	expect(await classifyCommand(request, flaky)).toStrictEqual({
 		kind: 'approve',
 		reason: 'fine',
 	});
-	t.is(calls, 2);
+	expect(calls).toBe(2);
 
 	let failures = 0;
 	await classifyCommand(request, async () => {
 		failures++;
 		return {status: 1, stdout: ''};
 	});
-	t.is(failures, 2);
+	expect(failures).toBe(2);
 });
 
-test('the model is told the tool, where the agent works and which dirs are temp', t => {
-	t.is(
-		classifierInput(request),
+test('the model is told the tool, where the agent works and which dirs are temp', () => {
+	expect(classifierInput(request)).toBe(
 		[
 			'Tool: Bash command',
 			'Purpose: Build the app',
@@ -99,9 +101,9 @@ test('the model is told the tool, where the agent works and which dirs are temp'
 	);
 });
 
-test('a check that outlives its deadline ends then, even if a child keeps its output open', async t => {
+test('a check that outlives its deadline ends then, even if a child keeps its output open', async () => {
 	const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'classifier-'));
-	t.teardown(() => {
+	teardown(() => {
 		fs.rmSync(bin, {recursive: true, force: true});
 	});
 	fs.writeFileSync(
@@ -113,12 +115,12 @@ test('a check that outlives its deadline ends then, even if a child keeps its ou
 	);
 	const path0 = process.env['PATH'];
 	process.env['PATH'] = `${bin}:${path0 ?? ''}`;
-	t.teardown(() => {
+	teardown(() => {
 		process.env['PATH'] = path0;
 	});
 	const started = Date.now();
-	await t.throwsAsync(defaultClassifierRun([], '', 300), {
-		message: 'timed out after 0.3s',
+	await rejectionOf(defaultClassifierRun([], '', 300)).then(error => {
+		expect(error.message).toBe('timed out after 0.3s');
 	});
-	t.true(Date.now() - started < 5000);
+	expect(Date.now() - started < 5000).toBe(true);
 });

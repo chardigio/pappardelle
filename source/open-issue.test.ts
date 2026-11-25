@@ -1,11 +1,11 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {openIssueForKey} from './open-issue.ts';
 
 const urlTracker = {
 	buildIssueUrl: (issueKey: string) => `https://example.test/${issueKey}`,
 };
 
-test('a tracker that shows issues in place is used instead of the browser', async t => {
+test('a tracker that shows issues in place is used instead of the browser', async () => {
 	const opened: string[] = [];
 	const shown: string[] = [];
 
@@ -20,12 +20,12 @@ test('a tracker that shows issues in place is used instead of the browser', asyn
 		openUrl: (url: string) => opened.push(url),
 	});
 
-	t.deepEqual(shown, ['bd-a1b2']);
-	t.deepEqual(opened, []);
-	t.deepEqual(result, {ok: true, message: 'Showing bd-a1b2'});
+	expect(shown).toStrictEqual(['bd-a1b2']);
+	expect(opened).toStrictEqual([]);
+	expect(result).toStrictEqual({ok: true, message: 'Showing bd-a1b2'});
 });
 
-test('an in-place tracker that cannot display reports it without falling back to the browser', async t => {
+test('an in-place tracker that cannot display reports it without falling back to the browser', async () => {
 	const opened: string[] = [];
 
 	const result = await openIssueForKey('bd-a1b2', {
@@ -33,11 +33,14 @@ test('an in-place tracker that cannot display reports it without falling back to
 		openUrl: (url: string) => opened.push(url),
 	});
 
-	t.deepEqual(opened, []);
-	t.deepEqual(result, {ok: false, message: 'Cannot show issue outside tmux'});
+	expect(opened).toStrictEqual([]);
+	expect(result).toStrictEqual({
+		ok: false,
+		message: 'Cannot show issue outside tmux',
+	});
 });
 
-test('a tracker with a web UI opens the issue URL', async t => {
+test('a tracker with a web UI opens the issue URL', async () => {
 	const opened: string[] = [];
 
 	const result = await openIssueForKey('STA-123', {
@@ -45,21 +48,21 @@ test('a tracker with a web UI opens the issue URL', async t => {
 		openUrl: (url: string) => opened.push(url),
 	});
 
-	t.deepEqual(opened, ['https://example.test/STA-123']);
-	t.deepEqual(result, {ok: true, message: 'Opened STA-123'});
+	expect(opened).toStrictEqual(['https://example.test/STA-123']);
+	expect(result).toStrictEqual({ok: true, message: 'Opened STA-123'});
 });
 
-test('a tracker that cannot be constructed fails without throwing', async t => {
+test('a tracker that cannot be constructed fails without throwing', async () => {
 	const result = await openIssueForKey('STA-123', {
 		createTracker() {
 			throw new Error('no tracker configured');
 		},
 	});
 
-	t.deepEqual(result, {ok: false, message: 'Failed to look up issue'});
+	expect(result).toStrictEqual({ok: false, message: 'Failed to look up issue'});
 });
 
-test('a URL that cannot be built fails without throwing', async t => {
+test('a URL that cannot be built fails without throwing', async () => {
 	const result = await openIssueForKey('STA-123', {
 		createTracker: () => ({
 			buildIssueUrl() {
@@ -69,5 +72,5 @@ test('a URL that cannot be built fails without throwing', async t => {
 		openUrl: () => undefined,
 	});
 
-	t.deepEqual(result, {ok: false, message: 'Failed to look up issue'});
+	expect(result).toStrictEqual({ok: false, message: 'Failed to look up issue'});
 });

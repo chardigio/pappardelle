@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../../test/helpers/teardown.ts';
 import React from 'react';
 import {render, until} from '../../test/helpers/render.ts';
 import CloseSpaceDialog from '../components/CloseSpaceDialog.tsx';
@@ -42,25 +43,22 @@ const cases: Array<{cols: number; props: ConfirmPopupProps}> = [
 ];
 
 for (const {cols, props} of cases) {
-	test.serial(
-		`a ${cols}-column confirm popup is as tall as OpenTUI draws "${props.message}"`,
-		async t => {
-			const size = popupSize({kind: 'confirm', props}, {cols, rows: 80});
-			const view = await render(
-				React.createElement(ConfirmDialog, {
-					...props,
-					onConfirm: noop,
-					onCancel: noop,
-				}),
-				{width: size.width, height: 80},
-			);
-			t.teardown(async () => {
-				await view.unmount();
-			});
+	test(`a ${cols}-column confirm popup is as tall as OpenTUI draws "${props.message}"`, async () => {
+		const size = popupSize({kind: 'confirm', props}, {cols, rows: 80});
+		const view = await render(
+			React.createElement(ConfirmDialog, {
+				...props,
+				onConfirm: noop,
+				onCancel: noop,
+			}),
+			{width: size.width, height: 80},
+		);
+		teardown(async () => {
+			await view.unmount();
+		});
 
-			t.is(size.height, view.lastFrame().split('\n').length);
-		},
-	);
+		expect(size.height).toBe(view.lastFrame().split('\n').length);
+	});
 }
 
 const pickingTracker = {
@@ -70,66 +68,64 @@ const pickingTracker = {
 } as unknown as IssueTrackerProvider;
 
 for (const cols of [30, 80]) {
-	test.serial(
-		`a ${cols}-column Close Space popup fits its rows and shows the whole state choice`,
-		async t => {
-			const spec = {
-				kind: 'close-space',
-				props: {spaceName: 'bd-1', currentIssue: null},
-			} as const;
-			const size = popupSize(spec, {cols, rows: 80});
-			const view = await render(
-				React.createElement(CloseSpaceDialog, {
-					...spec.props,
-					tracker: pickingTracker,
-					isFullHeight: true,
-					onConfirm: noop,
-					onCancel: noop,
-				}),
-				{width: size.width, height: size.height},
-			);
-			t.teardown(async () => {
-				await view.unmount();
-			});
-
-			await until(
-				() => view.lastFrame().includes('‹ Closed ›'),
-				() => view.lastFrame(),
-			);
-			const rows = view.lastFrame().split('\n');
-			t.is(rows.length, size.height);
-			t.true(rows.at(-3)!.includes('cancel'), 'the hint is the last row');
-		},
-	);
-}
-
-test.serial(
-	'the help popup is wide enough for a custom command OpenTUI measures wider than widest-line',
-	async t => {
-		const customKeybindings = [
-			{key: 'z', name: `Deploy­${'x'.repeat(60)}­­­end`, run: 'true'},
-		];
-		const size = popupSize(
-			{kind: 'help', props: {customKeybindings, commitSha: 'abc1234'}},
-			{cols: 200, rows: 80},
-		);
+	test(`a ${cols}-column Close Space popup fits its rows and shows the whole state choice`, async () => {
+		const spec = {
+			kind: 'close-space',
+			props: {spaceName: 'bd-1', currentIssue: null},
+		} as const;
+		const size = popupSize(spec, {cols, rows: 80});
 		const view = await render(
-			React.createElement(HelpOverlay, {
-				commitSha: 'abc1234',
-				customKeybindings,
-				onClose: noop,
+			React.createElement(CloseSpaceDialog, {
+				...spec.props,
+				tracker: pickingTracker,
+				isFullHeight: true,
+				onConfirm: noop,
+				onCancel: noop,
 			}),
-			{width: size.width, height: 80},
+			{width: size.width, height: size.height},
 		);
-		t.teardown(async () => {
+		teardown(async () => {
 			await view.unmount();
 		});
 
-		await until(() => view.lastFrame().includes('Deploy'));
-		const row = view
-			.lastFrame()
-			.split('\n')
-			.find(line => line.includes('Deploy'))!;
-		t.true(row.includes('end'), 'the custom command row is not clipped');
-	},
-);
+		await until(
+			() => view.lastFrame().includes('‹ Closed ›'),
+			() => view.lastFrame(),
+		);
+		const rows = view.lastFrame().split('\n');
+		expect(rows.length).toBe(size.height);
+		expect(rows.at(-3)!.includes('cancel'), 'the hint is the last row').toBe(
+			true,
+		);
+	});
+}
+
+test('the help popup is wide enough for a custom command OpenTUI measures wider than widest-line', async () => {
+	const customKeybindings = [
+		{key: 'z', name: `Deploy­${'x'.repeat(60)}­­­end`, run: 'true'},
+	];
+	const size = popupSize(
+		{kind: 'help', props: {customKeybindings, commitSha: 'abc1234'}},
+		{cols: 200, rows: 80},
+	);
+	const view = await render(
+		React.createElement(HelpOverlay, {
+			commitSha: 'abc1234',
+			customKeybindings,
+			onClose: noop,
+		}),
+		{width: size.width, height: 80},
+	);
+	teardown(async () => {
+		await view.unmount();
+	});
+
+	await until(() => view.lastFrame().includes('Deploy'));
+	const row = view
+		.lastFrame()
+		.split('\n')
+		.find(line => line.includes('Deploy'))!;
+	expect(row.includes('end'), 'the custom command row is not clipped').toBe(
+		true,
+	);
+});

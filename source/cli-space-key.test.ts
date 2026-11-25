@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import type {ConfigLoad, PappardelleConfig} from './config.ts';
 import {cliSpaceKey} from './cli-space-key.ts';
 
@@ -14,33 +14,39 @@ const invalid: ConfigLoad = {
 };
 const noBeadsPrefix = () => undefined;
 
-test('a bare number takes the configured team prefix', t => {
-	t.deepEqual(cliSpaceKey('42', valid, 'linear', noBeadsPrefix), {
+test('a bare number takes the configured team prefix', () => {
+	expect(cliSpaceKey('42', valid, 'linear', noBeadsPrefix)).toStrictEqual({
 		kind: 'key',
 		key: 'ABC-42',
 	});
 });
 
-test('a bare number is refused while the config is invalid', t => {
-	t.deepEqual(cliSpaceKey('42', invalid, 'linear', noBeadsPrefix), {
+test('a bare number is refused while the config is invalid', () => {
+	expect(cliSpaceKey('42', invalid, 'linear', noBeadsPrefix)).toStrictEqual({
 		kind: 'invalid-config',
 		errors: ['agent_profiles.opus.model: must be a string'],
 	});
 });
 
-test('a full key still resolves while the config is invalid', t => {
-	t.deepEqual(cliSpaceKey('abc-12', invalid, 'linear', noBeadsPrefix), {
-		kind: 'key',
-		key: 'ABC-12',
-	});
-	t.deepEqual(cliSpaceKey('pap-a1b2', invalid, 'beads', noBeadsPrefix), {
+test('a full key still resolves while the config is invalid', () => {
+	expect(cliSpaceKey('abc-12', invalid, 'linear', noBeadsPrefix)).toStrictEqual(
+		{
+			kind: 'key',
+			key: 'ABC-12',
+		},
+	);
+	expect(
+		cliSpaceKey('pap-a1b2', invalid, 'beads', noBeadsPrefix),
+	).toStrictEqual({
 		kind: 'key',
 		key: 'pap-a1b2',
 	});
 });
 
-test('without a config a bare number takes the built-in prefix', t => {
-	t.deepEqual(cliSpaceKey('42', {kind: 'missing'}, 'linear', noBeadsPrefix), {
+test('without a config a bare number takes the built-in prefix', () => {
+	expect(
+		cliSpaceKey('42', {kind: 'missing'}, 'linear', noBeadsPrefix),
+	).toStrictEqual({
 		kind: 'key',
 		key: 'STA-42',
 	});

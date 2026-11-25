@@ -1,8 +1,9 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {thrownBy} from '../test/helpers/thrown.ts';
 import path from 'node:path';
 import type {PappardelleConfig} from './config.ts';
 import {setupTempDir, writeFiles} from '../test/helpers/config-fixtures.ts';
-import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
 	deepMerge,
 	mergeConfigLayers,
@@ -25,26 +26,26 @@ import {getRecentErrors} from './logger.ts';
 // deepMerge — pure utility tests
 // ============================================================================
 
-test('deepMerge returns overlay when base is empty', t => {
+test('deepMerge returns overlay when base is empty', () => {
 	const result = deepMerge({}, {version: 1, team_prefix: 'ENG'});
-	t.deepEqual(result, {version: 1, team_prefix: 'ENG'});
+	expect(result).toStrictEqual({version: 1, team_prefix: 'ENG'});
 });
 
-test('deepMerge returns base when overlay is empty', t => {
+test('deepMerge returns base when overlay is empty', () => {
 	const result = deepMerge({version: 1, team_prefix: 'ENG'}, {});
-	t.deepEqual(result, {version: 1, team_prefix: 'ENG'});
+	expect(result).toStrictEqual({version: 1, team_prefix: 'ENG'});
 });
 
-test('deepMerge overrides scalar values', t => {
+test('deepMerge overrides scalar values', () => {
 	const result = deepMerge(
 		{version: 1, team_prefix: 'STA'},
 		{team_prefix: 'ENG'},
 	);
-	t.is(result['team_prefix'], 'ENG');
-	t.is(result['version'], 1);
+	expect(result['team_prefix']).toBe('ENG');
+	expect(result['version']).toBe(1);
 });
 
-test('deepMerge deeply merges nested objects', t => {
+test('deepMerge deeply merges nested objects', () => {
 	const result = deepMerge(
 		{
 			claude: {
@@ -55,21 +56,21 @@ test('deepMerge deeply merges nested objects', t => {
 		{claude: {dangerously_skip_permissions: true}},
 	);
 	const claude = result['claude'] as Record<string, unknown>;
-	t.is(claude['initialization_command'], '/idow');
-	t.is(claude['dangerously_skip_permissions'], true);
+	expect(claude['initialization_command']).toBe('/idow');
+	expect(claude['dangerously_skip_permissions']).toBe(true);
 });
 
-test('deepMerge replaces arrays entirely', t => {
+test('deepMerge replaces arrays entirely', () => {
 	const result = deepMerge(
 		{post_workspace_init: [{name: 'a', run: 'echo a'}]},
 		{post_workspace_init: [{name: 'b', run: 'echo b'}]},
 	);
 	const cmds = result['post_workspace_init'] as Array<Record<string, unknown>>;
-	t.is(cmds.length, 1);
-	t.is(cmds[0]!['name'], 'b');
+	expect(cmds.length).toBe(1);
+	expect(cmds[0]!['name']).toBe('b');
 });
 
-test('deepMerge merges profiles from both layers', t => {
+test('deepMerge merges profiles from both layers', () => {
 	const result = deepMerge(
 		{
 			profiles: {
@@ -83,11 +84,11 @@ test('deepMerge merges profiles from both layers', t => {
 		},
 	);
 	const profiles = result['profiles'] as Record<string, unknown>;
-	t.truthy(profiles['music']);
-	t.truthy(profiles['hive']);
+	expect(profiles['music']).toBeTruthy();
+	expect(profiles['hive']).toBeTruthy();
 });
 
-test('deepMerge overlay profile overrides base profile with same key', t => {
+test('deepMerge overlay profile overrides base profile with same key', () => {
 	const result = deepMerge(
 		{
 			profiles: {
@@ -108,25 +109,25 @@ test('deepMerge overlay profile overrides base profile with same key', t => {
 		string,
 		Record<string, unknown>
 	>;
-	t.is(profiles['music']!['display_name'], 'Music NEW');
+	expect(profiles['music']!['display_name']).toBe('Music NEW');
 	// Deep merge preserves fields from base profile not in overlay
-	t.deepEqual(profiles['music']!['keywords'], ['music']);
-	t.is(profiles['music']!['team_prefix'], 'MUS');
+	expect(profiles['music']!['keywords']).toStrictEqual(['music']);
+	expect(profiles['music']!['team_prefix']).toBe('MUS');
 });
 
-test('deepMerge handles null overlay value by replacing', t => {
+test('deepMerge handles null overlay value by replacing', () => {
 	const result = deepMerge(
 		{claude: {initialization_command: '/idow'}},
 		{claude: null},
 	);
-	t.is(result['claude'], null);
+	expect(result['claude']).toBe(null);
 });
 
 // ============================================================================
 // mergeConfigLayers — config-specific merge
 // ============================================================================
 
-test('mergeConfigLayers with home config only', t => {
+test('mergeConfigLayers with home config only', () => {
 	const home = {
 		version: 1,
 		team_prefix: 'HOME',
@@ -135,13 +136,13 @@ test('mergeConfigLayers with home config only', t => {
 		},
 	};
 	const result = mergeConfigLayers([home, null, null]);
-	t.is(result['version'], 1);
-	t.is(result['team_prefix'], 'HOME');
+	expect(result['version']).toBe(1);
+	expect(result['team_prefix']).toBe('HOME');
 	const profiles = result['profiles'] as Record<string, unknown>;
-	t.truthy(profiles['music']);
+	expect(profiles['music']).toBeTruthy();
 });
 
-test('mergeConfigLayers with project config only', t => {
+test('mergeConfigLayers with project config only', () => {
 	const project = {
 		version: 1,
 		team_prefix: 'STA',
@@ -150,10 +151,10 @@ test('mergeConfigLayers with project config only', t => {
 		},
 	};
 	const result = mergeConfigLayers([null, project, null]);
-	t.is(result['team_prefix'], 'STA');
+	expect(result['team_prefix']).toBe('STA');
 });
 
-test('mergeConfigLayers with local config only', t => {
+test('mergeConfigLayers with local config only', () => {
 	const local = {
 		version: 1,
 		team_prefix: 'LOCAL',
@@ -162,10 +163,10 @@ test('mergeConfigLayers with local config only', t => {
 		},
 	};
 	const result = mergeConfigLayers([null, null, local]);
-	t.is(result['team_prefix'], 'LOCAL');
+	expect(result['team_prefix']).toBe('LOCAL');
 });
 
-test('mergeConfigLayers project overrides home', t => {
+test('mergeConfigLayers project overrides home', () => {
 	const home = {
 		version: 1,
 		team_prefix: 'HOME',
@@ -182,17 +183,17 @@ test('mergeConfigLayers project overrides home', t => {
 		},
 	};
 	const result = mergeConfigLayers([home, project, null]);
-	t.is(result['team_prefix'], 'STA');
+	expect(result['team_prefix']).toBe('STA');
 	// Home's claude config is preserved since project didn't set it
 	const claude = result['claude'] as Record<string, unknown>;
-	t.is(claude['initialization_command'], '/dow');
+	expect(claude['initialization_command']).toBe('/dow');
 	// Profiles from both layers
 	const profiles = result['profiles'] as Record<string, unknown>;
-	t.truthy(profiles['music']);
-	t.truthy(profiles['hive']);
+	expect(profiles['music']).toBeTruthy();
+	expect(profiles['hive']).toBeTruthy();
 });
 
-test('mergeConfigLayers local overrides project', t => {
+test('mergeConfigLayers local overrides project', () => {
 	const project = {
 		version: 1,
 		team_prefix: 'STA',
@@ -206,12 +207,12 @@ test('mergeConfigLayers local overrides project', t => {
 		claude: {dangerously_skip_permissions: true},
 	};
 	const result = mergeConfigLayers([null, project, local]);
-	t.is(result['team_prefix'], 'LOCAL');
+	expect(result['team_prefix']).toBe('LOCAL');
 	const claude = result['claude'] as Record<string, unknown>;
-	t.is(claude['dangerously_skip_permissions'], true);
+	expect(claude['dangerously_skip_permissions']).toBe(true);
 });
 
-test('mergeConfigLayers three-layer merge: local > project > home', t => {
+test('mergeConfigLayers three-layer merge: local > project > home', () => {
 	const home = {
 		version: 1,
 		team_prefix: 'HOME',
@@ -237,18 +238,18 @@ test('mergeConfigLayers three-layer merge: local > project > home', t => {
 	const result = mergeConfigLayers([home, project, local]);
 
 	// team_prefix: project overrides home, local doesn't set it
-	t.is(result['team_prefix'], 'STA');
+	expect(result['team_prefix']).toBe('STA');
 	// claude: init_cmd from project overrides home; skip_permissions from local overrides all
 	const claude = result['claude'] as Record<string, unknown>;
-	t.is(claude['initialization_command'], '/idow');
-	t.is(claude['dangerously_skip_permissions'], true);
+	expect(claude['initialization_command']).toBe('/idow');
+	expect(claude['dangerously_skip_permissions']).toBe(true);
 	// profiles: merged from both home and project
 	const profiles = result['profiles'] as Record<string, unknown>;
-	t.truthy(profiles['music']);
-	t.truthy(profiles['hive']);
+	expect(profiles['music']).toBeTruthy();
+	expect(profiles['hive']).toBeTruthy();
 });
 
-test('mergeConfigLayers smart-merges keybindings across layers', t => {
+test('mergeConfigLayers smart-merges keybindings across layers', () => {
 	const home = {
 		version: 1,
 		keybindings: [
@@ -274,43 +275,43 @@ test('mergeConfigLayers smart-merges keybindings across layers', t => {
 
 	// 'b' overridden by project
 	const bBinding = bindings.find(kb => kb['key'] === 'b');
-	t.is(bBinding!['name'], 'Build Proj');
+	expect(bBinding!['name']).toBe('Build Proj');
 	// 'r' disabled by local
 	const rBinding = bindings.find(kb => kb['key'] === 'r');
-	t.is(rBinding, undefined);
+	expect(rBinding).toBe(undefined);
 	// 't' added by project
 	const tBinding = bindings.find(kb => kb['key'] === 't');
-	t.truthy(tBinding);
+	expect(tBinding).toBeTruthy();
 	// 'v' added by local
 	const vBinding = bindings.find(kb => kb['key'] === 'v');
-	t.truthy(vBinding);
+	expect(vBinding).toBeTruthy();
 });
 
 // ============================================================================
 // mergeConfigLayers — every config field from home/local works
 // ============================================================================
 
-test('team_prefix from home config works', t => {
+test('team_prefix from home config works', () => {
 	const result = mergeConfigLayers([
 		{version: 1, team_prefix: 'HOME', profiles: {t: {display_name: 'T'}}},
 		null,
 		null,
 	]);
 	validateConfig(result);
-	t.is(getTeamPrefix(result as PappardelleConfig), 'HOME');
+	expect(getTeamPrefix(result as PappardelleConfig)).toBe('HOME');
 });
 
-test('team_prefix from local config overrides project', t => {
+test('team_prefix from local config overrides project', () => {
 	const result = mergeConfigLayers([
 		null,
 		{version: 1, team_prefix: 'STA', profiles: {t: {display_name: 'T'}}},
 		{team_prefix: 'LOCAL'},
 	]);
 	validateConfig(result);
-	t.is(getTeamPrefix(result as PappardelleConfig), 'LOCAL');
+	expect(getTeamPrefix(result as PappardelleConfig)).toBe('LOCAL');
 });
 
-test('issue_tracker from home config works', t => {
+test('issue_tracker from home config works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -322,11 +323,11 @@ test('issue_tracker from home config works', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(config.issue_tracker!.provider, 'jira');
-	t.is(config.issue_tracker!.base_url, 'https://jira.example.com');
+	expect(config.issue_tracker!.provider).toBe('jira');
+	expect(config.issue_tracker!.base_url).toBe('https://jira.example.com');
 });
 
-test('vcs_host from home config works', t => {
+test('vcs_host from home config works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -338,10 +339,10 @@ test('vcs_host from home config works', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(config.vcs_host!.provider, 'gitlab');
+	expect(config.vcs_host!.provider).toBe('gitlab');
 });
 
-test('claude config from home works', t => {
+test('claude config from home works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -356,11 +357,11 @@ test('claude config from home works', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(getInitializationCommand(config), '/dow');
-	t.is(getDangerouslySkipPermissions(config), true);
+	expect(getInitializationCommand(config)).toBe('/dow');
+	expect(getDangerouslySkipPermissions(config)).toBe(true);
 });
 
-test('issue_watchlist from home config works', t => {
+test('issue_watchlist from home config works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -373,11 +374,11 @@ test('issue_watchlist from home config works', t => {
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	const wl = getIssueWatchlist(config)!;
-	t.is(wl.assignee, 'me');
-	t.deepEqual(wl.statuses, ['To Do', 'In Progress']);
+	expect(wl.assignee).toBe('me');
+	expect(wl.statuses).toStrictEqual(['To Do', 'In Progress']);
 });
 
-test('issue_watchlist from local overrides project', t => {
+test('issue_watchlist from local overrides project', () => {
 	const result = mergeConfigLayers([
 		null,
 		{
@@ -395,11 +396,11 @@ test('issue_watchlist from local overrides project', t => {
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	const wl = getIssueWatchlist(config)!;
-	t.is(wl.assignee, 'charlie');
-	t.deepEqual(wl.statuses, ['In Progress', 'In Review']);
+	expect(wl.assignee).toBe('charlie');
+	expect(wl.statuses).toStrictEqual(['In Progress', 'In Review']);
 });
 
-test('post_workspace_init from home config works', t => {
+test('post_workspace_init from home config works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -411,11 +412,11 @@ test('post_workspace_init from home config works', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(config.post_workspace_init!.length, 1);
-	t.is(config.post_workspace_init![0]!.run, 'make setup');
+	expect(config.post_workspace_init!.length).toBe(1);
+	expect(config.post_workspace_init![0]!.run).toBe('make setup');
 });
 
-test('pre_workspace_deinit from home config works', t => {
+test('pre_workspace_deinit from home config works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -427,11 +428,11 @@ test('pre_workspace_deinit from home config works', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(config.pre_workspace_deinit!.length, 1);
-	t.is(config.pre_workspace_deinit![0]!.run, 'make clean');
+	expect(config.pre_workspace_deinit!.length).toBe(1);
+	expect(config.pre_workspace_deinit![0]!.run).toBe('make clean');
 });
 
-test('terminal from home config works', t => {
+test('terminal from home config works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -443,10 +444,10 @@ test('terminal from home config works', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(config.terminal!.app, 'Warp');
+	expect(config.terminal!.app).toBe('Warp');
 });
 
-test('hooks from home config works', t => {
+test('hooks from home config works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -458,10 +459,10 @@ test('hooks from home config works', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(config.hooks!.post_workspace_create!.length, 1);
+	expect(config.hooks!.post_workspace_create!.length).toBe(1);
 });
 
-test('keybindings from home config works', t => {
+test('keybindings from home config works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -473,11 +474,11 @@ test('keybindings from home config works', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(getKeybindings(config).length, 1);
-	t.is(getKeybindings(config)[0]!.key, 'b');
+	expect(getKeybindings(config).length).toBe(1);
+	expect(getKeybindings(config)[0]!.key).toBe('b');
 });
 
-test('profiles from home config work with all profile features', t => {
+test('profiles from home config work with all profile features', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -503,21 +504,21 @@ test('profiles from home config work with all profile features', t => {
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	const profile = config.profiles['music']!;
-	t.is(profile.display_name, 'Music');
-	t.deepEqual(profile.keywords, ['music', 'jams']);
-	t.is(profile.team_prefix, 'MUS');
+	expect(profile.display_name).toBe('Music');
+	expect(profile.keywords).toStrictEqual(['music', 'jams']);
+	expect(profile.team_prefix).toBe('MUS');
 	// eslint-disable-next-line @typescript-eslint/no-deprecated -- pins the deprecated spelling still merging correctly
-	t.is(profile.claude!.initialization_command, '/idow');
-	t.is(profile.vars!['APP_DIR'], '_ios/stardust-jams');
-	t.is(profile.vcs!.label, 'stardust_jams');
-	t.is(profile.links!.length, 1);
-	t.is(profile.apps!.length, 1);
-	t.is(profile.post_workspace_init!.length, 1);
-	t.is(profile.pre_workspace_deinit!.length, 1);
-	t.is(profile.commands!.length, 1);
+	expect(profile.claude!.initialization_command).toBe('/idow');
+	expect(profile.vars!['APP_DIR']).toBe('_ios/stardust-jams');
+	expect(profile.vcs!.label).toBe('stardust_jams');
+	expect(profile.links!.length).toBe(1);
+	expect(profile.apps!.length).toBe(1);
+	expect(profile.post_workspace_init!.length).toBe(1);
+	expect(profile.pre_workspace_deinit!.length).toBe(1);
+	expect(profile.commands!.length).toBe(1);
 });
 
-test('default_profile from home config works', t => {
+test('default_profile from home config works', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -532,10 +533,10 @@ test('default_profile from home config works', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(config.default_profile, 'music');
+	expect(config.default_profile).toBe('music');
 });
 
-test('default_profile from local config overrides project', t => {
+test('default_profile from local config overrides project', () => {
 	const result = mergeConfigLayers([
 		null,
 		{
@@ -550,10 +551,10 @@ test('default_profile from local config overrides project', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(config.default_profile, 'music');
+	expect(config.default_profile).toBe('music');
 });
 
-test('default_profile from local config overrides home', t => {
+test('default_profile from local config overrides home', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -568,10 +569,10 @@ test('default_profile from local config overrides home', t => {
 	]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(config.default_profile, 'hive');
+	expect(config.default_profile).toBe('hive');
 });
 
-test('default_profile from local overrides all three layers', t => {
+test('default_profile from local overrides all three layers', () => {
 	const result = mergeConfigLayers([
 		{
 			version: 1,
@@ -591,17 +592,17 @@ test('default_profile from local overrides all three layers', t => {
 	validateConfig(result);
 	const config = result as PappardelleConfig;
 	// local wins: picks 'music' even though project set 'hive'
-	t.is(config.default_profile, 'music');
+	expect(config.default_profile).toBe('music');
 	// Both profiles are still present from home + project merge
-	t.truthy(config.profiles['music']);
-	t.truthy(config.profiles['hive']);
+	expect(config.profiles['music']).toBeTruthy();
+	expect(config.profiles['hive']).toBeTruthy();
 });
 
 // ============================================================================
 // mergeConfigLayers — project not needed when home or local provides all
 // ============================================================================
 
-test('config works without project config when home provides everything', t => {
+test('config works without project config when home provides everything', () => {
 	const home = {
 		version: 1,
 		team_prefix: 'HOME',
@@ -615,14 +616,14 @@ test('config works without project config when home provides everything', t => {
 	const result = mergeConfigLayers([home, null, null]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(getTeamPrefix(config), 'HOME');
-	t.is(getInitializationCommand(config), '/dow');
-	t.truthy(getIssueWatchlist(config));
-	t.is(getKeybindings(config).length, 1);
-	t.truthy(config.profiles['music']);
+	expect(getTeamPrefix(config)).toBe('HOME');
+	expect(getInitializationCommand(config)).toBe('/dow');
+	expect(getIssueWatchlist(config)).toBeTruthy();
+	expect(getKeybindings(config).length).toBe(1);
+	expect(config.profiles['music']).toBeTruthy();
 });
 
-test('config works without project config when local provides everything', t => {
+test('config works without project config when local provides everything', () => {
 	const local = {
 		version: 1,
 		team_prefix: 'LOCAL',
@@ -633,10 +634,10 @@ test('config works without project config when local provides everything', t => 
 	const result = mergeConfigLayers([null, null, local]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(getTeamPrefix(config), 'LOCAL');
+	expect(getTeamPrefix(config)).toBe('LOCAL');
 });
 
-test('home + local works without project config', t => {
+test('home + local works without project config', () => {
 	const home = {
 		version: 1,
 		team_prefix: 'HOME',
@@ -652,16 +653,16 @@ test('home + local works without project config', t => {
 	const result = mergeConfigLayers([home, null, local]);
 	validateConfig(result);
 	const config = result as PappardelleConfig;
-	t.is(getTeamPrefix(config), 'LOCAL');
-	t.is(getInitializationCommand(config), '/dow');
-	t.is(getDangerouslySkipPermissions(config), true);
+	expect(getTeamPrefix(config)).toBe('LOCAL');
+	expect(getInitializationCommand(config)).toBe('/dow');
+	expect(getDangerouslySkipPermissions(config)).toBe(true);
 });
 
 // ============================================================================
 // mergeConfigLayers — profile merging across layers
 // ============================================================================
 
-test('profiles from all three layers are merged', t => {
+test('profiles from all three layers are merged', () => {
 	const home = {
 		version: 1,
 		profiles: {
@@ -683,12 +684,12 @@ test('profiles from all three layers are merged', t => {
 		string,
 		Record<string, unknown>
 	>;
-	t.truthy(profiles['music']);
-	t.truthy(profiles['hive']);
-	t.truthy(profiles['test']);
+	expect(profiles['music']).toBeTruthy();
+	expect(profiles['hive']).toBeTruthy();
+	expect(profiles['test']).toBeTruthy();
 });
 
-test('local profile overrides same-named project profile', t => {
+test('local profile overrides same-named project profile', () => {
 	const project = {
 		version: 1,
 		profiles: {
@@ -710,18 +711,18 @@ test('local profile overrides same-named project profile', t => {
 		Record<string, unknown>
 	>;
 	// display_name overridden by local
-	t.is(profiles['music']!['display_name'], 'Music V2');
+	expect(profiles['music']!['display_name']).toBe('Music V2');
 	// keywords preserved from project (deep merge)
-	t.deepEqual(profiles['music']!['keywords'], ['music']);
+	expect(profiles['music']!['keywords']).toStrictEqual(['music']);
 	// team_prefix preserved from project (deep merge)
-	t.is(profiles['music']!['team_prefix'], 'MUS');
+	expect(profiles['music']!['team_prefix']).toBe('MUS');
 });
 
 // ============================================================================
 // loadConfigFromPaths — file-based loading tests
 // ============================================================================
 
-test('loadConfigFromPaths loads from home config only', t => {
+test('loadConfigFromPaths loads from home config only', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 team_prefix: HOME
@@ -736,14 +737,14 @@ profiles:
 		const config = loadConfigFromPaths({
 			homeConfigDir: path.join(dir, 'home'),
 		});
-		t.is(getTeamPrefix(config), 'HOME');
-		t.truthy(config.profiles['music']);
+		expect(getTeamPrefix(config)).toBe('HOME');
+		expect(config.profiles['music']).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths loads from project config only', t => {
+test('loadConfigFromPaths loads from project config only', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 team_prefix: STA
@@ -758,14 +759,14 @@ profiles:
 		const config = loadConfigFromPaths({
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getTeamPrefix(config), 'STA');
-		t.truthy(config.profiles['hive']);
+		expect(getTeamPrefix(config)).toBe('STA');
+		expect(config.profiles['hive']).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths loads from local config only', t => {
+test('loadConfigFromPaths loads from local config only', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.local.yml': `version: 1
 team_prefix: LOCAL
@@ -778,13 +779,13 @@ profiles:
 		const config = loadConfigFromPaths({
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getTeamPrefix(config), 'LOCAL');
+		expect(getTeamPrefix(config)).toBe('LOCAL');
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths merges home + project', t => {
+test('loadConfigFromPaths merges home + project', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 team_prefix: HOME
@@ -811,18 +812,18 @@ profiles:
 			projectDir: path.join(dir, 'project'),
 		});
 		// project overrides home's team_prefix
-		t.is(getTeamPrefix(config), 'STA');
+		expect(getTeamPrefix(config)).toBe('STA');
 		// home's claude config preserved
-		t.is(getInitializationCommand(config), '/dow');
+		expect(getInitializationCommand(config)).toBe('/dow');
 		// profiles from both
-		t.truthy(config.profiles['music']);
-		t.truthy(config.profiles['hive']);
+		expect(config.profiles['music']).toBeTruthy();
+		expect(config.profiles['hive']).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths merges all three layers', t => {
+test('loadConfigFromPaths merges all three layers', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 team_prefix: HOME
@@ -854,33 +855,31 @@ profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getTeamPrefix(config), 'STA');
-		t.is(getInitializationCommand(config), '/idow');
-		t.is(getDangerouslySkipPermissions(config), true);
-		t.truthy(config.profiles['music']);
-		t.truthy(config.profiles['hive']);
+		expect(getTeamPrefix(config)).toBe('STA');
+		expect(getInitializationCommand(config)).toBe('/idow');
+		expect(getDangerouslySkipPermissions(config)).toBe(true);
+		expect(config.profiles['music']).toBeTruthy();
+		expect(config.profiles['hive']).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths throws when no config found at any layer', t => {
+test('loadConfigFromPaths throws when no config found at any layer', () => {
 	const {dir, cleanup} = setupTempDir({});
 	try {
-		t.throws(
-			() =>
-				loadConfigFromPaths({
-					homeConfigDir: path.join(dir, 'home'),
-					projectDir: path.join(dir, 'project'),
-				}),
-			{instanceOf: ConfigNotFoundError},
-		);
+		expect(() =>
+			loadConfigFromPaths({
+				homeConfigDir: path.join(dir, 'home'),
+				projectDir: path.join(dir, 'project'),
+			}),
+		).toThrow(ConfigNotFoundError);
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths home provides profiles, project does not need them', t => {
+test('loadConfigFromPaths home provides profiles, project does not need them', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 profiles:
@@ -904,17 +903,17 @@ claude:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getTeamPrefix(config), 'STA');
-		t.is(getInitializationCommand(config), '/idow');
+		expect(getTeamPrefix(config)).toBe('STA');
+		expect(getInitializationCommand(config)).toBe('/idow');
 		// Profiles come from home
-		t.truthy(config.profiles['music']);
-		t.truthy(config.profiles['hive']);
+		expect(config.profiles['music']).toBeTruthy();
+		expect(config.profiles['hive']).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths keybindings smart-merged across layers from files', t => {
+test('loadConfigFromPaths keybindings smart-merged across layers from files', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 keybindings:
@@ -956,22 +955,22 @@ profiles:
 		const bindings = getKeybindings(config);
 		// 'b' overridden by project
 		const b = bindings.find(kb => kb.key === 'b');
-		t.is(b!.name, 'Build Project');
+		expect(b!.name).toBe('Build Project');
 		// 'r' disabled by local
 		const r = bindings.find(kb => kb.key === 'r');
-		t.is(r, undefined);
+		expect(r).toBe(undefined);
 		// 't' from project
 		const tKey = bindings.find(kb => kb.key === 't');
-		t.truthy(tKey);
+		expect(tKey).toBeTruthy();
 		// 'v' from local
 		const v = bindings.find(kb => kb.key === 'v');
-		t.truthy(v);
+		expect(v).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths local can override every field from files', t => {
+test('loadConfigFromPaths local can override every field from files', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 team_prefix: STA
@@ -1002,16 +1001,16 @@ vcs_host:
 		const config = loadConfigFromPaths({
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getTeamPrefix(config), 'LOCAL');
-		t.is(config.terminal!.app, 'Warp');
-		t.is(config.issue_tracker!.provider, 'jira');
-		t.is(config.vcs_host!.provider, 'gitlab');
+		expect(getTeamPrefix(config)).toBe('LOCAL');
+		expect(config.terminal!.app).toBe('Warp');
+		expect(config.issue_tracker!.provider).toBe('jira');
+		expect(config.vcs_host!.provider).toBe('gitlab');
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths local overrides default_profile from project', t => {
+test('loadConfigFromPaths local overrides default_profile from project', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 team_prefix: STA
@@ -1033,16 +1032,16 @@ profiles:
 		const config = loadConfigFromPaths({
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(config.default_profile, 'music');
+		expect(config.default_profile).toBe('music');
 		// Both profiles still present
-		t.truthy(config.profiles['music']);
-		t.truthy(config.profiles['hive']);
+		expect(config.profiles['music']).toBeTruthy();
+		expect(config.profiles['hive']).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths gracefully ignores missing home config dir', t => {
+test('loadConfigFromPaths gracefully ignores missing home config dir', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 team_prefix: STA
@@ -1056,13 +1055,13 @@ profiles:
 			homeConfigDir: path.join(dir, 'nonexistent'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getTeamPrefix(config), 'STA');
+		expect(getTeamPrefix(config)).toBe('STA');
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths home config dir uses .pappardelle.yml filename', t => {
+test('loadConfigFromPaths home config dir uses .pappardelle.yml filename', () => {
 	// The home config file should be at ~/.pappardelle/.pappardelle.yml
 	const {dir, cleanup} = setupTempDir({
 		'.pappardelle.yml': `version: 1
@@ -1077,7 +1076,7 @@ profiles:
 		const config = loadConfigFromPaths({
 			homeConfigDir: dir,
 		});
-		t.is(getTeamPrefix(config), 'HOME');
+		expect(getTeamPrefix(config)).toBe('HOME');
 	} finally {
 		cleanup();
 	}
@@ -1087,7 +1086,7 @@ profiles:
 // loadConfigFromPaths — empty YAML files
 // ============================================================================
 
-test('loadConfigFromPaths accepts old init spelling in one layer and new in another', t => {
+test('loadConfigFromPaths accepts old init spelling in one layer and new in another', () => {
 	// Regression: the both-spellings check used to run on the MERGED config, so
 	// a home config still on the deprecated spelling bricked a project that
 	// had already migrated — despite each file being individually valid.
@@ -1111,16 +1110,16 @@ profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getInitializationCommand(config), '/new');
+		expect(getInitializationCommand(config)).toBe('/new');
 		// Each layer's deprecated key is renamed before the merge.
 		// eslint-disable-next-line @typescript-eslint/no-deprecated -- pins the rename of the deprecated spelling
-		t.is(config.claude?.initialization_command, undefined);
+		expect(config.claude?.initialization_command).toBe(undefined);
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths accepts cross-layer init spellings per profile', t => {
+test('loadConfigFromPaths accepts cross-layer init spellings per profile', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 profiles:
@@ -1141,15 +1140,17 @@ profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(config.profiles['t']!.initialization_command, '/new');
+		expect(config.profiles['t']!.initialization_command).toBe('/new');
 		// eslint-disable-next-line @typescript-eslint/no-deprecated -- pins the rename of the deprecated spelling
-		t.is(config.profiles['t']!.claude?.initialization_command, undefined);
+		expect(config.profiles['t']!.claude?.initialization_command).toBe(
+			undefined,
+		);
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths lets a more specific layer on the old init spelling win', t => {
+test('loadConfigFromPaths lets a more specific layer on the old init spelling win', () => {
 	// Layer precedence decides, not which spelling a layer uses: a project
 	// that hasn't migrated yet still overrides a home config that has.
 	const {dir, cleanup} = setupTempDir({
@@ -1175,14 +1176,16 @@ profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getInitializationCommand(config), '/project');
-		t.is(config.profiles['t']!.initialization_command, '/project-profile');
+		expect(getInitializationCommand(config)).toBe('/project');
+		expect(config.profiles['t']!.initialization_command).toBe(
+			'/project-profile',
+		);
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths rejects both init spellings on one profile in the same file', t => {
+test('loadConfigFromPaths rejects both init spellings on one profile in the same file', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 profiles:
@@ -1194,18 +1197,20 @@ profiles:
 `,
 	});
 	try {
-		const error = t.throws(
+		const error = thrownBy(
 			() => loadConfigFromPaths({projectDir: path.join(dir, 'project')}),
-			{instanceOf: ConfigValidationError},
+			ConfigValidationError,
 		);
-		t.truthy(error?.message.includes('profiles.t.initialization_command'));
-		t.truthy(error?.message.includes('cannot both be specified'));
+		expect(
+			error?.message.includes('profiles.t.initialization_command'),
+		).toBeTruthy();
+		expect(error?.message.includes('cannot both be specified')).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths rejects both init spellings in the same file, naming it', t => {
+test('loadConfigFromPaths rejects both init spellings in the same file, naming it', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 initialization_command: /new
@@ -1217,18 +1222,18 @@ profiles:
 `,
 	});
 	try {
-		const error = t.throws(
+		const error = thrownBy(
 			() => loadConfigFromPaths({projectDir: path.join(dir, 'project')}),
-			{instanceOf: ConfigValidationError},
+			ConfigValidationError,
 		);
-		t.truthy(error?.message.includes('.pappardelle.yml'));
-		t.truthy(error?.message.includes('cannot both be specified'));
+		expect(error?.message.includes('.pappardelle.yml')).toBeTruthy();
+		expect(error?.message.includes('cannot both be specified')).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths ignores empty home YAML file', t => {
+test('loadConfigFromPaths ignores empty home YAML file', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': '',
 		'project/.pappardelle.yml': `version: 1
@@ -1243,13 +1248,13 @@ profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getTeamPrefix(config), 'STA');
+		expect(getTeamPrefix(config)).toBe('STA');
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths ignores empty project YAML file', t => {
+test('loadConfigFromPaths ignores empty project YAML file', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 team_prefix: HOME
@@ -1264,13 +1269,13 @@ profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getTeamPrefix(config), 'HOME');
+		expect(getTeamPrefix(config)).toBe('HOME');
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths ignores empty local YAML file', t => {
+test('loadConfigFromPaths ignores empty local YAML file', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 team_prefix: STA
@@ -1284,7 +1289,7 @@ profiles:
 		const config = loadConfigFromPaths({
 			projectDir: path.join(dir, 'project'),
 		});
-		t.is(getTeamPrefix(config), 'STA');
+		expect(getTeamPrefix(config)).toBe('STA');
 	} finally {
 		cleanup();
 	}
@@ -1294,45 +1299,45 @@ profiles:
 // loadConfigFromPaths — YAML parse error handling
 // ============================================================================
 
-test('loadConfigFromPaths wraps invalid home YAML in ConfigValidationError', t => {
+test('loadConfigFromPaths wraps invalid home YAML in ConfigValidationError', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
   bad indentation: [`,
 	});
 	try {
-		const error = t.throws(
+		const error = thrownBy(
 			() =>
 				loadConfigFromPaths({
 					homeConfigDir: path.join(dir, 'home'),
 				}),
-			{instanceOf: ConfigValidationError},
+			ConfigValidationError,
 		);
-		t.truthy(error?.message.includes('.pappardelle.yml'));
+		expect(error?.message.includes('.pappardelle.yml')).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths wraps invalid project YAML in ConfigValidationError', t => {
+test('loadConfigFromPaths wraps invalid project YAML in ConfigValidationError', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
   bad indentation: [`,
 	});
 	try {
-		const error = t.throws(
+		const error = thrownBy(
 			() =>
 				loadConfigFromPaths({
 					projectDir: path.join(dir, 'project'),
 				}),
-			{instanceOf: ConfigValidationError},
+			ConfigValidationError,
 		);
-		t.truthy(error?.message.includes('.pappardelle.yml'));
+		expect(error?.message.includes('.pappardelle.yml')).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths wraps invalid local YAML in ConfigValidationError', t => {
+test('loadConfigFromPaths wraps invalid local YAML in ConfigValidationError', () => {
 	const {dir, cleanup} = setupTempDir({
 		'project/.pappardelle.yml': `version: 1
 profiles:
@@ -1342,14 +1347,14 @@ profiles:
 		'project/.pappardelle.local.yml': `bad: [`,
 	});
 	try {
-		const error = t.throws(
+		const error = thrownBy(
 			() =>
 				loadConfigFromPaths({
 					projectDir: path.join(dir, 'project'),
 				}),
-			{instanceOf: ConfigValidationError},
+			ConfigValidationError,
 		);
-		t.truthy(error?.message.includes('.pappardelle.local.yml'));
+		expect(error?.message.includes('.pappardelle.local.yml')).toBeTruthy();
 	} finally {
 		cleanup();
 	}
@@ -1359,7 +1364,7 @@ profiles:
 // state_colors layer merge
 // ============================================================================
 
-test('state_colors merges key by key across project and local layers', t => {
+test('state_colors merges key by key across project and local layers', () => {
 	const {dir, cleanup} = setupTempDir({
 		'.pappardelle.yml': `version: 1
 state_colors:
@@ -1378,7 +1383,7 @@ state_colors:
 
 	try {
 		const config = loadConfigFromPaths({projectDir: dir});
-		t.deepEqual(getStateColors(config), {
+		expect(getStateColors(config)).toStrictEqual({
 			'In Progress': '#f2c94c',
 			'In Review': 'cyan',
 			Done: '#74d09f',
@@ -1388,7 +1393,7 @@ state_colors:
 	}
 });
 
-test('a local layer can add state_colors when the project layer has none', t => {
+test('a local layer can add state_colors when the project layer has none', () => {
 	const {dir, cleanup} = setupTempDir({
 		'.pappardelle.yml': `version: 1
 profiles:
@@ -1403,13 +1408,13 @@ state_colors:
 
 	try {
 		const config = loadConfigFromPaths({projectDir: dir});
-		t.deepEqual(getStateColors(config), {'In Review': 'cyan'});
+		expect(getStateColors(config)).toStrictEqual({'In Review': 'cyan'});
 	} finally {
 		cleanup();
 	}
 });
 
-test('an invalid color in a merged layer fails validation', t => {
+test('an invalid color in a merged layer fails validation', () => {
 	const {dir, cleanup} = setupTempDir({
 		'.pappardelle.yml': `version: 1
 state_colors:
@@ -1425,15 +1430,15 @@ state_colors:
 	});
 
 	try {
-		t.throws(() => loadConfigFromPaths({projectDir: dir}), {
-			instanceOf: ConfigValidationError,
-		});
+		expect(() => loadConfigFromPaths({projectDir: dir})).toThrow(
+			ConfigValidationError,
+		);
 	} finally {
 		cleanup();
 	}
 });
 
-test('a case-variant state name across layers fails the duplicate check', t => {
+test('a case-variant state name across layers fails the duplicate check', () => {
 	// deepMerge is generic and keys objects by their literal string, so
 	// "In Progress" in the project layer and "in progress" in the local layer
 	// survive as two entries rather than one overriding the other. The
@@ -1455,10 +1460,11 @@ state_colors:
 	});
 
 	try {
-		const error = t.throws(() => loadConfigFromPaths({projectDir: dir}), {
-			instanceOf: ConfigValidationError,
-		});
-		t.deepEqual(error?.errors, [
+		const error = thrownBy(
+			() => loadConfigFromPaths({projectDir: dir}),
+			ConfigValidationError,
+		);
+		expect(error?.errors).toStrictEqual([
 			'state_colors: duplicate state name "in progress" (names are matched case-insensitively)',
 		]);
 	} finally {
@@ -1479,8 +1485,8 @@ profiles:
     display_name: Test
 `;
 
-function schemaErrors(t: Teardown, files: Record<string, string>): string[] {
-	const dir = tempDir(t, 'pappardelle-merge-');
+function schemaErrors(files: Record<string, string>): string[] {
+	const dir = tempDir('pappardelle-merge-');
 	writeFiles(dir, files);
 	try {
 		loadConfigFromPaths({
@@ -1494,54 +1500,52 @@ function schemaErrors(t: Teardown, files: Record<string, string>): string[] {
 	}
 }
 
-test('a single-file config reports its schema errors without a file name', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('a single-file config reports its schema errors without a file name', () => {
+	expect(
+		schemaErrors({
 			'project/.pappardelle.yml': opusProfile.replace(
 				'    command: claude\n',
 				'    command: claude\n    model: 5\n',
 			),
 		}),
-		['agent_profiles.opus.model: must be a string'],
-	);
+	).toStrictEqual(['agent_profiles.opus.model: must be a string']);
 });
 
-test('a schema error from the local file is labelled with it', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('a schema error from the local file is labelled with it', () => {
+	expect(
+		schemaErrors({
 			'project/.pappardelle.yml': opusProfile,
 			'project/.pappardelle.local.yml':
 				'agent_profiles:\n  opus:\n    model: 5\n',
 		}),
-		['.pappardelle.local.yml: agent_profiles.opus.model: must be a string'],
-	);
+	).toStrictEqual([
+		'.pappardelle.local.yml: agent_profiles.opus.model: must be a string',
+	]);
 });
 
-test('a schema error from the home file is labelled with it', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('a schema error from the home file is labelled with it', () => {
+	expect(
+		schemaErrors({
 			'home/.pappardelle.yml': 'agent_profiles:\n  opus:\n    model: 5\n',
 			'project/.pappardelle.yml': opusProfile,
 		}),
-		[
-			'~/.pappardelle/.pappardelle.yml: agent_profiles.opus.model: must be a string',
-		],
-	);
+	).toStrictEqual([
+		'~/.pappardelle/.pappardelle.yml: agent_profiles.opus.model: must be a string',
+	]);
 });
 
-test('an error no single file causes stays unlabelled', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('an error no single file causes stays unlabelled', () => {
+	expect(
+		schemaErrors({
 			'home/.pappardelle.yml': 'team_prefix: ABC\n',
 			'project/.pappardelle.yml': 'profiles: {}\n',
 		}),
-		['version: must be 1'],
-	);
+	).toStrictEqual(['version: must be 1']);
 });
 
-test('a bad value shadowed by a good one in a higher file is no error', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('a bad value shadowed by a good one in a higher file is no error', () => {
+	expect(
+		schemaErrors({
 			'project/.pappardelle.yml': opusProfile.replace(
 				'    command: claude\n',
 				'    command: claude\n    model: 5\n',
@@ -1549,83 +1553,76 @@ test('a bad value shadowed by a good one in a higher file is no error', t => {
 			'project/.pappardelle.local.yml':
 				'agent_profiles:\n  opus:\n    model: opus\n',
 		}),
-		[],
-	);
+	).toStrictEqual([]);
 });
 
 // Leaving the home file out removes the profiles default_profile is checked
 // against, but home sets no default_profile, so it is not the file to fix.
-test('an error is not labelled with a file that does not set its key', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('an error is not labelled with a file that does not set its key', () => {
+	expect(
+		schemaErrors({
 			'home/.pappardelle.yml':
 				'version: 1\nprofiles:\n  main:\n    display_name: Main\n',
 			'project/.pappardelle.yml': 'default_profile: nope\n',
 			'project/.pappardelle.local.yml': 'default_profile: nope\n',
 		}),
-		['default_profile: profile "nope" not found in profiles'],
-	);
-	t.deepEqual(
-		schemaErrors(t, {
+	).toStrictEqual(['default_profile: profile "nope" not found in profiles']);
+	expect(
+		schemaErrors({
 			'home/.pappardelle.yml': 'version: 1\ndefault_profile: nope\n',
 			'project/.pappardelle.yml':
 				'profiles:\n  main:\n    display_name: Main\n',
 			'project/.pappardelle.local.yml': 'default_profile: nope\n',
 		}),
-		['default_profile: profile "nope" not found in profiles'],
-	);
+	).toStrictEqual(['default_profile: profile "nope" not found in profiles']);
 });
 
-test('an error is not labelled with a file whose value a higher file overrides', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('an error is not labelled with a file whose value a higher file overrides', () => {
+	expect(
+		schemaErrors({
 			'home/.pappardelle.yml':
 				'version: 1\ndefault_profile: main\nprofiles:\n  main:\n    display_name: Main\n',
 			'project/.pappardelle.yml': 'default_profile: nope\n',
 			'project/.pappardelle.local.yml': 'default_profile: nope\n',
 		}),
-		['default_profile: profile "nope" not found in profiles'],
-	);
+	).toStrictEqual(['default_profile: profile "nope" not found in profiles']);
 });
 
 // The key the error names is missing everywhere, so the file to fix is the
 // one that sets the nearest key around it.
-test('an error about a missing key is labelled with the file that sets its parent', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('an error about a missing key is labelled with the file that sets its parent', () => {
+	expect(
+		schemaErrors({
 			'project/.pappardelle.yml': opusProfile,
 			'project/.pappardelle.local.yml': 'issue_tracker:\n  provider: jira\n',
 		}),
-		[
-			'.pappardelle.local.yml: issue_tracker.base_url: required when provider is "jira"',
-		],
-	);
-	t.deepEqual(
-		schemaErrors(t, {
+	).toStrictEqual([
+		'.pappardelle.local.yml: issue_tracker.base_url: required when provider is "jira"',
+	]);
+	expect(
+		schemaErrors({
 			'project/.pappardelle.yml': opusProfile,
 			'project/.pappardelle.local.yml':
 				'agent_profiles:\n  foo:\n    model: opus\n',
 		}),
-		[
-			'.pappardelle.local.yml: agent_profiles.foo.command: required non-empty string',
-		],
-	);
+	).toStrictEqual([
+		'.pappardelle.local.yml: agent_profiles.foo.command: required non-empty string',
+	]);
 });
 
-test('an error under a name with a dot is labelled with its file', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('an error under a name with a dot is labelled with its file', () => {
+	expect(
+		schemaErrors({
 			'home/.pappardelle.yml': 'agent_profiles:\n  gpt-4.1:\n    command: 1\n',
 			'project/.pappardelle.yml': opusProfile,
 			'project/.pappardelle.local.yml':
 				'agent_profiles:\n  codex:\n    command: codex\n',
 		}),
-		[
-			'~/.pappardelle/.pappardelle.yml: agent_profiles.gpt-4.1.command: required non-empty string',
-		],
-	);
-	t.deepEqual(
-		schemaErrors(t, {
+	).toStrictEqual([
+		'~/.pappardelle/.pappardelle.yml: agent_profiles.gpt-4.1.command: required non-empty string',
+	]);
+	expect(
+		schemaErrors({
 			'project/.pappardelle.yml': opusProfile.replace(
 				'    command: claude\n',
 				'    command: claude\n  gpt-4:\n    command: codex\n',
@@ -1633,11 +1630,12 @@ test('an error under a name with a dot is labelled with its file', t => {
 			'project/.pappardelle.local.yml':
 				'agent_profiles:\n  gpt-4.1:\n    command: codex\n    model: 5\n',
 		}),
-		['.pappardelle.local.yml: agent_profiles.gpt-4.1.model: must be a string'],
-	);
+	).toStrictEqual([
+		'.pappardelle.local.yml: agent_profiles.gpt-4.1.model: must be a string',
+	]);
 });
 
-test('keybindings that are not a list of bindings fail validation, not the merge', t => {
+test('keybindings that are not a list of bindings fail validation, not the merge', () => {
 	for (const [local, expected] of [
 		[
 			'keybindings: nope\n',
@@ -1645,7 +1643,7 @@ test('keybindings that are not a list of bindings fail validation, not the merge
 		],
 		['keybindings:\n  - ~\n', 'keybindings[0]: must be a map'],
 	]) {
-		const errors = schemaErrors(t, {
+		const errors = schemaErrors({
 			'project/.pappardelle.yml': `${opusProfile}keybindings:
   - key: x
     name: X
@@ -1653,13 +1651,13 @@ test('keybindings that are not a list of bindings fail validation, not the merge
 `,
 			'project/.pappardelle.local.yml': local!,
 		});
-		t.deepEqual(errors, [expected]);
+		expect(errors).toStrictEqual([expected]);
 	}
 });
 
-test('a bad keybinding in a higher file stays unlabelled', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('a bad keybinding in a higher file stays unlabelled', () => {
+	expect(
+		schemaErrors({
 			'project/.pappardelle.yml': `${opusProfile}keybindings:
   - key: x
     name: X
@@ -1671,13 +1669,12 @@ test('a bad keybinding in a higher file stays unlabelled', t => {
     run: echo q
 `,
 		}),
-		['keybindings[1].key: "q" conflicts with built-in shortcut'],
-	);
+	).toStrictEqual(['keybindings[1].key: "q" conflicts with built-in shortcut']);
 });
 
-test('a keybinding error names no file, since merging re-indexes the bindings', t => {
-	t.deepEqual(
-		schemaErrors(t, {
+test('a keybinding error names no file, since merging re-indexes the bindings', () => {
+	expect(
+		schemaErrors({
 			'home/.pappardelle.yml': `keybindings:
   - key: a
     name: A
@@ -1697,11 +1694,10 @@ test('a keybinding error names no file, since merging re-indexes the bindings', 
     run: echo x
 `,
 		}),
-		['keybindings[0].name: required string field'],
-	);
+	).toStrictEqual(['keybindings[0].name: required string field']);
 });
 
-test('a layer that repeats a state name verbatim overrides it cleanly', t => {
+test('a layer that repeats a state name verbatim overrides it cleanly', () => {
 	const {dir, cleanup} = setupTempDir({
 		'.pappardelle.yml': `version: 1
 state_colors:
@@ -1718,7 +1714,7 @@ state_colors:
 
 	try {
 		const config = loadConfigFromPaths({projectDir: dir});
-		t.deepEqual(getStateColors(config), {'In Progress': 'cyan'});
+		expect(getStateColors(config)).toStrictEqual({'In Progress': 'cyan'});
 	} finally {
 		cleanup();
 	}
@@ -1734,7 +1730,7 @@ state_colors:
 // hold at once, which is why the two layers resolve per file rather than per
 // directory.
 
-test('loadConfigFromPaths falls back to the main checkout for a missing project config', t => {
+test('loadConfigFromPaths falls back to the main checkout for a missing project config', () => {
 	const {dir, cleanup} = setupTempDir({
 		'main/.pappardelle.yml': `version: 1
 team_prefix: MAIN
@@ -1749,14 +1745,14 @@ profiles:
 			projectDir: path.join(dir, 'worktree'),
 			fallbackProjectDir: () => path.join(dir, 'main'),
 		});
-		t.is(getTeamPrefix(config), 'MAIN');
-		t.truthy(config.profiles['hive']);
+		expect(getTeamPrefix(config)).toBe('MAIN');
+		expect(config.profiles['hive']).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test("loadConfigFromPaths prefers the worktree's own local override", t => {
+test("loadConfigFromPaths prefers the worktree's own local override", () => {
 	const {dir, cleanup} = setupTempDir({
 		'main/.pappardelle.yml': `version: 1
 team_prefix: MAIN
@@ -1775,14 +1771,14 @@ profiles:
 			fallbackProjectDir: () => path.join(dir, 'main'),
 		});
 		// Project layer came from the main checkout, local layer from the worktree.
-		t.is(getTeamPrefix(config), 'WTLOCAL');
-		t.truthy(config.profiles['hive']);
+		expect(getTeamPrefix(config)).toBe('WTLOCAL');
+		expect(config.profiles['hive']).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths without a fallback behaves exactly as before', t => {
+test('loadConfigFromPaths without a fallback behaves exactly as before', () => {
 	const {dir, cleanup} = setupTempDir({
 		'main/.pappardelle.yml': `version: 1
 profiles:
@@ -1792,16 +1788,15 @@ profiles:
 		'worktree/.keep': '',
 	});
 	try {
-		t.throws(
-			() => loadConfigFromPaths({projectDir: path.join(dir, 'worktree')}),
-			{instanceOf: ConfigNotFoundError},
-		);
+		expect(() =>
+			loadConfigFromPaths({projectDir: path.join(dir, 'worktree')}),
+		).toThrow(ConfigNotFoundError);
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths never resolves the fallback when the project dir has every layer', t => {
+test('loadConfigFromPaths never resolves the fallback when the project dir has every layer', () => {
 	const {dir, cleanup} = setupTempDir({
 		'worktree/.pappardelle.yml': `version: 1
 team_prefix: WT
@@ -1819,13 +1814,13 @@ profiles:
 				throw new Error('fallback resolved');
 			},
 		});
-		t.is(getTeamPrefix(config), 'WTLOCAL');
+		expect(getTeamPrefix(config)).toBe('WTLOCAL');
 	} finally {
 		cleanup();
 	}
 });
 
-test('loadConfigFromPaths merges agent profile env per variable across layers', t => {
+test('loadConfigFromPaths merges agent profile env per variable across layers', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': `version: 1
 profiles: {}
@@ -1850,7 +1845,7 @@ agent_profiles:
 			homeConfigDir: path.join(dir, 'home'),
 			projectDir: path.join(dir, 'project'),
 		});
-		t.deepEqual(getAgentProfile(config).env, {
+		expect(getAgentProfile(config).env).toStrictEqual({
 			CODE_MODE: '1',
 			SHARED: 'repo',
 			EXTRA: 'a b',
@@ -1873,94 +1868,95 @@ const sqliteStateOn = `experimental:
   sqliteState: true
 `;
 
-test('experimental.sqliteState is accepted from the home config', t => {
+test('experimental.sqliteState is accepted from the home config', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': minimalConfig + sqliteStateOn,
 	});
 	try {
 		const config = loadConfigFromPaths({homeConfigDir: path.join(dir, 'home')});
-		t.is(config.experimental?.sqliteState, true);
-		t.true(readHomeSqliteState(path.join(dir, 'home')));
+		expect(config.experimental?.sqliteState).toBe(true);
+		expect(readHomeSqliteState(path.join(dir, 'home'))).toBe(true);
 	} finally {
 		cleanup();
 	}
 });
 
 for (const file of ['.pappardelle.yml', '.pappardelle.local.yml']) {
-	test(`experimental.sqliteState in ${file} is rejected by name`, t => {
+	test(`experimental.sqliteState in ${file} is rejected by name`, () => {
 		const {dir, cleanup} = setupTempDir({
 			'home/.pappardelle.yml': minimalConfig,
 			[`project/${file}`]: sqliteStateOn,
 		});
 		try {
-			const error = t.throws(
+			const error = thrownBy(
 				() =>
 					loadConfigFromPaths({
 						homeConfigDir: path.join(dir, 'home'),
 						projectDir: path.join(dir, 'project'),
 					}),
-				{instanceOf: ConfigValidationError},
+				ConfigValidationError,
 			);
-			t.true(
+			expect(
 				error?.message.includes(
 					`${file}: experimental.sqliteState can only be set in ~/.pappardelle/.pappardelle.yml`,
 				),
-			);
+			).toBe(true);
 		} finally {
 			cleanup();
 		}
 	});
 }
 
-test('the home flag is false when the home config leaves it out or is missing', t => {
+test('the home flag is false when the home config leaves it out or is missing', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': minimalConfig + sqliteStateOn,
 		'bare/.pappardelle.yml': minimalConfig,
 	});
 	try {
-		t.true(readHomeSqliteState(path.join(dir, 'home')));
-		t.false(readHomeSqliteState(path.join(dir, 'bare')));
-		t.false(readHomeSqliteState(path.join(dir, 'missing')));
-		t.deepEqual(
+		expect(readHomeSqliteState(path.join(dir, 'home'))).toBe(true);
+		expect(readHomeSqliteState(path.join(dir, 'bare'))).toBe(false);
+		expect(readHomeSqliteState(path.join(dir, 'missing'))).toBe(false);
+		expect(
 			getRecentErrors().filter(entry =>
 				entry.message.includes(path.join(dir, 'missing')),
 			),
-			[],
-		);
+		).toStrictEqual([]);
 	} finally {
 		cleanup();
 	}
 });
 
-test('a home config that does not parse leaves the flag off and says so', t => {
+test('a home config that does not parse leaves the flag off and says so', () => {
 	const {dir, cleanup} = setupTempDir({
 		'home/.pappardelle.yml': 'experimental: {sqliteState: true',
 	});
 	try {
-		t.false(readHomeSqliteState(path.join(dir, 'home')));
+		expect(readHomeSqliteState(path.join(dir, 'home'))).toBe(false);
 		const warnings = getRecentErrors().filter(entry =>
 			entry.message.includes(path.join(dir, 'home', '.pappardelle.yml')),
 		);
-		t.like(warnings, [{level: 'warn'}]);
-		t.is(warnings.length, 1);
-		t.regex(warnings[0]!.message, /Could not read experimental\.sqliteState/);
-		t.truthy(warnings[0]!.error);
+		expect(warnings).toMatchObject([{level: 'warn'}]);
+		expect(warnings.length).toBe(1);
+		expect(warnings[0]!.message).toMatch(
+			/Could not read experimental\.sqliteState/,
+		);
+		expect(warnings[0]!.error).toBeTruthy();
 	} finally {
 		cleanup();
 	}
 });
 
-test('experimental.sqliteState must be a boolean', t => {
-	const error = t.throws(
+test('experimental.sqliteState must be a boolean', () => {
+	const error = thrownBy(
 		() =>
 			validateConfig({
 				version: 1,
 				profiles: {t: {display_name: 'T'}},
 				experimental: {sqliteState: 'yes'},
 			}),
-		{instanceOf: ConfigValidationError},
+		ConfigValidationError,
 	);
-	t.true(
+	expect(
 		error?.message.includes('experimental.sqliteState: must be a boolean'),
-	);
+	).toBe(true);
 });

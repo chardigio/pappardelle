@@ -2,9 +2,6 @@ import type {BorderStyle, BoxRenderable, OptimizedBuffer} from '@opentui/core';
 import {useMemo, type ReactNode} from 'react';
 import {paintFrame, type FrameSpec} from './frame-paint.ts';
 
-/** Rows and columns the frame's border takes from the pane. */
-export const PANE_FRAME_SIZE = 2;
-
 export const PANE_FRAME_STYLE: BorderStyle = 'rounded';
 
 /**

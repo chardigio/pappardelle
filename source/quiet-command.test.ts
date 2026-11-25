@@ -2,10 +2,11 @@ import {once} from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {spawnQuietCommand} from './quiet-command.ts';
 
-test('verbose lifecycle commands finish without buffering output or blocking UI timers', async t => {
+test('verbose lifecycle commands finish without buffering output or blocking UI timers', async () => {
 	const child = spawnQuietCommand(
 		process.execPath,
 		[
@@ -22,21 +23,21 @@ setTimeout(() => process.exit(0), 150);
 		],
 		{detached: true, timeout: 5000},
 	);
-	t.teardown(() => child.kill());
+	teardown(() => child.kill());
 	let ticks = 0;
 	const timer = setInterval(() => ticks++, 10);
-	t.teardown(() => clearInterval(timer));
+	teardown(() => clearInterval(timer));
 
 	const [code, signal] = await once(child, 'close');
-	t.is(code, 0);
-	t.is(signal, null);
-	t.true(ticks >= 5);
+	expect(code).toBe(0);
+	expect(signal).toBe(null);
+	expect(ticks >= 5).toBe(true);
 	// With no parent-side streams, output cannot accumulate in memory or reach the TUI.
-	t.is(child.stdout, null);
-	t.is(child.stderr, null);
+	expect(child.stdout).toBe(null);
+	expect(child.stderr).toBe(null);
 });
 
-test('preserves cwd, environment, arguments, and nonzero exit codes', async t => {
+test('preserves cwd, environment, arguments, and nonzero exit codes', async () => {
 	const child = spawnQuietCommand(
 		process.execPath,
 		[
@@ -46,33 +47,33 @@ test('preserves cwd, environment, arguments, and nonzero exit codes', async t =>
 		],
 		{cwd: os.tmpdir(), env: {...process.env, QUIET_COMMAND_TEST: 'present'}},
 	);
-	t.deepEqual(await once(child, 'close'), [23, null]);
+	expect(await once(child, 'close')).toStrictEqual([23, null]);
 });
 
-test('reports spawn failure', async t => {
+test('reports spawn failure', async () => {
 	const child = spawnQuietCommand(
 		path.join(os.tmpdir(), 'nonexistent-pappardelle-command', 'missing'),
 		[],
 		{},
 	);
 	const [error] = (await once(child, 'error')) as [NodeJS.ErrnoException];
-	t.is(error.code, 'ENOENT');
+	expect(error.code).toBe('ENOENT');
 });
 
-test('preserves the subprocess timeout', async t => {
+test('preserves the subprocess timeout', async () => {
 	const child = spawnQuietCommand(
 		process.execPath,
 		['-e', 'setInterval(() => {}, 1000)'],
 		{timeout: 100},
 	);
-	t.teardown(() => child.kill());
-	t.deepEqual(await once(child, 'close'), [null, 'SIGTERM']);
+	teardown(() => child.kill());
+	expect(await once(child, 'close')).toStrictEqual([null, 'SIGTERM']);
 });
 
-test('inherited output descriptors do not delay foreground completion', async t => {
+test('inherited output descriptors do not delay foreground completion', async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-quiet-'));
 	const pidFile = path.join(dir, 'pid');
-	t.teardown(() => {
+	teardown(() => {
 		if (fs.existsSync(pidFile)) {
 			try {
 				process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL');
@@ -96,6 +97,8 @@ child.unref();
 		],
 		{},
 	);
-	t.deepEqual(await once(child, 'close'), [0, null]);
-	t.notThrows(() => process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 0));
+	expect(await once(child, 'close')).toStrictEqual([0, null]);
+	expect(() =>
+		process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 0),
+	).not.toThrow();
 });

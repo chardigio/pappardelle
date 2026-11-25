@@ -1,4 +1,5 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {
 	type CloseCommandDeps,
 	runCloseCommand,
@@ -91,10 +92,10 @@ function fakeDeps(overrides: Partial<CloseCommandDeps> = {}) {
 	return {deps, events};
 }
 
-test('--yes runs hooks, then kills before unregistering', async t => {
+test('--yes runs hooks, then kills before unregistering', async () => {
 	const {deps, events} = fakeDeps();
-	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 0);
-	t.deepEqual(events, [
+	expect(await runCloseCommand({key: 'STA-1', yes: true}, deps)).toBe(0);
+	expect(events).toStrictEqual([
 		'print Running pre_workspace_deinit hooks...',
 		'hooks STA-1 /wt/STA-1 STA-1',
 		'print Ending sessions...',
@@ -105,55 +106,57 @@ test('--yes runs hooks, then kills before unregistering', async t => {
 	]);
 });
 
-test('an unregistered key or main closes nothing', async t => {
+test('an unregistered key or main closes nothing', async () => {
 	for (const key of ['STA-9', 'main']) {
 		const {deps, events} = fakeDeps({
 			registry: fakeRegistry(['STA-1', 'main']),
 		});
-		t.is(await runCloseCommand({key, yes: true}, deps), 1);
-		t.deepEqual(events, [`print No open space ${key}`]);
+		expect(await runCloseCommand({key, yes: true}, deps)).toBe(1);
+		expect(events).toStrictEqual([`print No open space ${key}`]);
 	}
 });
 
-test('without --yes off a terminal it refuses and closes nothing', async t => {
+test('without --yes off a terminal it refuses and closes nothing', async () => {
 	const {deps, events} = fakeDeps();
-	t.is(await runCloseCommand({key: 'STA-1', yes: false}, deps), 1);
-	t.deepEqual(events, ['print close needs --yes when not run from a terminal']);
+	expect(await runCloseCommand({key: 'STA-1', yes: false}, deps)).toBe(1);
+	expect(events).toStrictEqual([
+		'print close needs --yes when not run from a terminal',
+	]);
 });
 
-test('without --yes on a terminal it asks, and a no closes nothing', async t => {
+test('without --yes on a terminal it asks, and a no closes nothing', async () => {
 	const {deps, events} = fakeDeps({isTTY: true});
-	t.is(await runCloseCommand({key: 'STA-1', yes: false}, deps), 0);
-	t.deepEqual(events, [
+	expect(await runCloseCommand({key: 'STA-1', yes: false}, deps)).toBe(0);
+	expect(events).toStrictEqual([
 		'confirm Close STA-1? Runs pre_workspace_deinit hooks and ends its agent and companion sessions. [y/N] ',
 	]);
 });
 
-test('a yes at the prompt closes the space', async t => {
+test('a yes at the prompt closes the space', async () => {
 	const {deps, events} = fakeDeps({
 		isTTY: true,
 		async confirm() {
 			return true;
 		},
 	});
-	t.is(await runCloseCommand({key: 'STA-1', yes: false}, deps), 0);
-	t.true(events.includes('unregister STA-1'));
+	expect(await runCloseCommand({key: 'STA-1', yes: false}, deps)).toBe(0);
+	expect(events.includes('unregister STA-1')).toBe(true);
 });
 
-test('a failed hook names the hook and leaves the space open', async t => {
+test('a failed hook names the hook and leaves the space open', async () => {
 	const {deps, events} = fakeDeps({
 		async runHooks() {
 			return {kind: 'failed', failedCommand: 'remove worktree'};
 		},
 	});
-	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 1);
-	t.deepEqual(events, [
+	expect(await runCloseCommand({key: 'STA-1', yes: true}, deps)).toBe(1);
+	expect(events).toStrictEqual([
 		'print Running pre_workspace_deinit hooks...',
 		'print pre_workspace_deinit hook failed: remove worktree. STA-1 is still open',
 	]);
 });
 
-test('an invalid config closes the space and says the deinit commands were skipped', async t => {
+test('an invalid config closes the space and says the deinit commands were skipped', async () => {
 	const {deps, events} = fakeDeps({
 		async runHooks() {
 			return {
@@ -162,27 +165,29 @@ test('an invalid config closes the space and says the deinit commands were skipp
 			};
 		},
 	});
-	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 0);
-	t.true(events.includes('unregister STA-1'));
-	t.true(
+	expect(await runCloseCommand({key: 'STA-1', yes: true}, deps)).toBe(0);
+	expect(events.includes('unregister STA-1')).toBe(true);
+	expect(
 		events.includes(
 			'print Skipped the deinit commands of STA-1: the config is invalid\nInvalid .pappardelle.yml configuration:\n  - agent_profiles.opus.model: must be a string',
 		),
-	);
+	).toBe(true);
 });
 
-test('a failed kill leaves the space registered', async t => {
+test('a failed kill leaves the space registered', async () => {
 	const {deps, events} = fakeDeps({
 		async killSpaceSessions() {
 			return false;
 		},
 	});
-	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 1);
-	t.false(events.some(event => event.startsWith('unregister')));
-	t.true(events.includes('print Failed to end the tmux sessions for STA-1'));
+	expect(await runCloseCommand({key: 'STA-1', yes: true}, deps)).toBe(1);
+	expect(events.some(event => event.startsWith('unregister'))).toBe(false);
+	expect(
+		events.includes('print Failed to end the tmux sessions for STA-1'),
+	).toBe(true);
 });
 
-test('a tracker failure warns and still runs the global hooks', async t => {
+test('a tracker failure warns and still runs the global hooks', async () => {
 	for (const getIssue of [
 		async () => null,
 		async () => {
@@ -190,25 +195,25 @@ test('a tracker failure warns and still runs the global hooks', async t => {
 		},
 	]) {
 		const {deps, events} = fakeDeps({getIssue});
-		t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 0);
-		t.deepEqual(events.slice(0, 3), [
+		expect(await runCloseCommand({key: 'STA-1', yes: true}, deps)).toBe(0);
+		expect(events.slice(0, 3)).toStrictEqual([
 			"print Couldn't load STA-1 from the tracker; skipping profile pre_workspace_deinit hooks",
 			'print Running pre_workspace_deinit hooks...',
 			'hooks STA-1 /wt/STA-1 no-issue',
 		]);
-		t.true(events.includes('unregister STA-1'));
+		expect(events.includes('unregister STA-1')).toBe(true);
 	}
 });
 
-test('closing the space this process runs in hands teardown to a detached child', async t => {
+test('closing the space this process runs in hands teardown to a detached child', async () => {
 	for (const session of [
 		'agent-repo-STA-1',
 		'companion-repo-STA-1',
 		'claude-repo-STA-1',
 	]) {
 		const {deps, events} = fakeDeps({currentInnerSession: () => session});
-		t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 0);
-		t.deepEqual(events, [
+		expect(await runCloseCommand({key: 'STA-1', yes: true}, deps)).toBe(0);
+		expect(events).toStrictEqual([
 			'print Running pre_workspace_deinit hooks...',
 			'hooks STA-1 /wt/STA-1 STA-1',
 			'print Ending this session; teardown finishes in the background',
@@ -217,24 +222,24 @@ test('closing the space this process runs in hands teardown to a detached child'
 	}
 });
 
-test("another space's session tears down in-process", async t => {
+test("another space's session tears down in-process", async () => {
 	const {deps, events} = fakeDeps({
 		currentInnerSession: () => 'agent-repo-STA-2',
 	});
-	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 0);
-	t.false(events.some(event => event.startsWith('spawn')));
-	t.true(events.includes('kill STA-1'));
+	expect(await runCloseCommand({key: 'STA-1', yes: true}, deps)).toBe(0);
+	expect(events.some(event => event.startsWith('spawn'))).toBe(false);
+	expect(events.includes('kill STA-1')).toBe(true);
 });
 
-test('teardown-only skips the prompt and hooks and logs failures', async t => {
+test('teardown-only skips the prompt and hooks and logs failures', async () => {
 	const {deps, events} = fakeDeps({
 		async killSpaceSessions(key) {
 			events.push(`kill ${key}`);
 			return false;
 		},
 	});
-	t.is(await runCloseTeardown('STA-1', deps), 1);
-	t.deepEqual(events, [
+	expect(await runCloseTeardown('STA-1', deps)).toBe(1);
+	expect(events).toStrictEqual([
 		'closing STA-1',
 		'kill STA-1',
 		'reopen STA-1',
@@ -242,8 +247,8 @@ test('teardown-only skips the prompt and hooks and logs failures', async t => {
 	]);
 
 	const ok = fakeDeps();
-	t.is(await runCloseTeardown('STA-1', ok.deps), 0);
-	t.deepEqual(ok.events, [
+	expect(await runCloseTeardown('STA-1', ok.deps)).toBe(0);
+	expect(ok.events).toStrictEqual([
 		'closing STA-1',
 		'kill STA-1',
 		'unregister STA-1',
@@ -251,17 +256,17 @@ test('teardown-only skips the prompt and hooks and logs failures', async t => {
 	]);
 });
 
-test('teardown-only refuses main and keys that are not open', async t => {
+test('teardown-only refuses main and keys that are not open', async () => {
 	for (const key of ['main', 'STA-9']) {
 		const {deps, events} = fakeDeps({
 			registry: fakeRegistry(['STA-1', 'main']),
 		});
-		t.is(await runCloseTeardown(key, deps), 1);
-		t.deepEqual(events, [`log No open space ${key}`]);
+		expect(await runCloseTeardown(key, deps)).toBe(1);
+		expect(events).toStrictEqual([`log No open space ${key}`]);
 	}
 });
 
-test('close waits for simulator cleanup before it returns', async t => {
+test('close waits for simulator cleanup before it returns', async () => {
 	for (const close of [
 		async (deps: CloseCommandDeps) =>
 			runCloseCommand({key: 'STA-1', yes: true}, deps),
@@ -276,8 +281,8 @@ test('close waits for simulator cleanup before it returns', async t => {
 				return true;
 			},
 		});
-		t.is(await close(deps), 0);
-		t.is(events.at(-1), 'cleanup done STA-1');
+		expect(await close(deps)).toBe(0);
+		expect(events.at(-1)).toBe('cleanup done STA-1');
 	}
 });
 
@@ -302,7 +307,7 @@ function busyRegistry(
 }
 
 // idow opens it when setup finishes, which would undo the close.
-test('a space still being set up is not closed', async t => {
+test('a space still being set up is not closed', async () => {
 	for (const close of closes) {
 		const events: string[] = [];
 		const {deps} = fakeDeps({
@@ -311,17 +316,19 @@ test('a space still being set up is not closed', async t => {
 				phase: () => ({kind: 'phase', phase: 'starting'}),
 			},
 		});
-		t.is(await close(deps), 1);
-		t.false(events.some(event => /^(closing|kill|unregister) /.test(event)));
+		expect(await close(deps)).toBe(1);
+		expect(
+			events.some(event => /^(closing|kill|unregister) /.test(event)),
+		).toBe(false);
 	}
 });
 
 // No pid is this high, so the owner reads as dead.
 const DEAD_PID = 2_147_483_646;
 
-test('a space whose setup died is closed when its sessions run, and is gone when they do not', async t => {
+test('a space whose setup died is closed when its sessions run, and is gone when they do not', async () => {
 	for (const running of [true, false]) {
-		const state = testState(t, {sqlite: true});
+		const state = testState({sqlite: true});
 		await recordIdentities(state, ['STA-1']);
 		await state.daos.registry.reserveStart('STA-1', DEAD_PID);
 		const {deps, events} = fakeDeps({
@@ -329,121 +336,116 @@ test('a space whose setup died is closed when its sessions run, and is gone when
 			sessionNames: () => null,
 			liveSessions: () => new Set(running ? [`agent-${state.repo}-STA-1`] : []),
 		});
-		t.is(
-			await runCloseCommand({key: 'STA-1', yes: true}, deps),
+		expect(await runCloseCommand({key: 'STA-1', yes: true}, deps)).toBe(
 			running ? 0 : 1,
 		);
-		t.is(events.includes('kill STA-1'), running);
-		t.deepEqual(state.daos.registry.phase('STA-1'), {kind: 'unknown'});
+		expect(events.includes('kill STA-1')).toBe(running);
+		expect(state.daos.registry.phase('STA-1')).toStrictEqual({kind: 'unknown'});
 	}
 });
 
-test('a space still being set up by a live idow is not closed', async t => {
-	const state = testState(t, {sqlite: true});
+test('a space still being set up by a live idow is not closed', async () => {
+	const state = testState({sqlite: true});
 	await recordIdentities(state, ['STA-1']);
 	await state.daos.registry.reserveStart('STA-1', process.ppid);
 	const {deps, events} = fakeDeps({
 		registry: state.daos.registry,
 		liveSessions: () => new Set([`agent-${state.repo}-STA-1`]),
 	});
-	t.is(await runCloseCommand({key: 'STA-1', yes: true}, deps), 1);
-	t.false(events.includes('kill STA-1'));
+	expect(await runCloseCommand({key: 'STA-1', yes: true}, deps)).toBe(1);
+	expect(events.includes('kill STA-1')).toBe(false);
 });
 
-test('a close that a lifecycle registry cannot record ends no sessions and says why', async t => {
+test('a close that a lifecycle registry cannot record ends no sessions and says why', async () => {
 	for (const close of closes) {
 		const {deps, events} = fakeDeps();
 		deps.registry = busyRegistry('markClosing', true, events);
-		t.is(await close(deps), 1);
-		t.false(events.some(event => event.startsWith('kill')));
-		t.regex(
-			events.at(-1)!,
+		expect(await close(deps)).toBe(1);
+		expect(events.some(event => event.startsWith('kill'))).toBe(false);
+		expect(events.at(-1)!).toMatch(
 			/^(print|log) Could not start closing STA-1: database is locked\. Its sessions were not ended and it is still open$/,
 		);
 	}
 });
 
-test('a space a lifecycle registry cannot remove is reported as closed but still registered', async t => {
+test('a space a lifecycle registry cannot remove is reported as closed but still registered', async () => {
 	for (const close of closes) {
 		const {deps, events} = fakeDeps();
 		deps.registry = busyRegistry('remove', true, events);
-		t.is(await close(deps), 1);
-		t.true(events.includes('kill STA-1'));
-		t.regex(
-			events.at(-1)!,
+		expect(await close(deps)).toBe(1);
+		expect(events.includes('kill STA-1')).toBe(true);
+		expect(events.at(-1)!).toMatch(
 			/^(print|log) Ended the sessions of STA-1, but could not remove it from the registry: database is locked\. Run close again to finish$/,
 		);
 	}
 });
 
-test('a registry without a lifecycle still fails a close with the error it threw', async t => {
+test('a registry without a lifecycle still fails a close with the error it threw', async () => {
 	for (const failing of ['markClosing', 'remove'] as const) {
 		for (const close of closes) {
 			const {deps, events} = fakeDeps();
 			deps.registry = busyRegistry(failing, false, events);
-			await t.throwsAsync(close(deps), {message: 'database is locked'});
-			t.false(events.some(event => event.includes('database is locked')));
+			await rejectionOf(close(deps)).then(error => {
+				expect(error.message).toBe('database is locked');
+			});
+			expect(events.some(event => event.includes('database is locked'))).toBe(
+				false,
+			);
 		}
 	}
 });
 
 // tmux.ts reads one set of stores for the whole process.
-test.serial(
-	'close kills the sessions stored for the space, and knows its own session by them',
-	async t => {
-		const state = testTmuxState(t, {sqlite: true});
-		await state.daos.spaceIdentities.record({
-			repo: state.repo,
-			key: 'STA-1',
-			worktreePath: '/wt/STA-1',
-			tmux: {
-				socket: 'pappardelle_inner',
-				agentSession: 'agent-hand-named',
-				companionSession: 'companion-hand-named',
-			},
-		});
-		const killed: string[] = [];
-		const run: AsyncTmuxRunner = async args => {
-			if (args.includes('kill-session')) killed.push(args.at(-1)!);
-			return '';
-		};
+test('close kills the sessions stored for the space, and knows its own session by them', async () => {
+	const state = testTmuxState({sqlite: true});
+	await state.daos.spaceIdentities.record({
+		repo: state.repo,
+		key: 'STA-1',
+		worktreePath: '/wt/STA-1',
+		tmux: {
+			socket: 'pappardelle_inner',
+			agentSession: 'agent-hand-named',
+			companionSession: 'companion-hand-named',
+		},
+	});
+	const killed: string[] = [];
+	const run: AsyncTmuxRunner = async args => {
+		if (args.includes('kill-session')) killed.push(args.at(-1)!);
+		return '';
+	};
 
-		const {deps} = fakeDeps({
-			killSpaceSessions: async key => killSpaceSessions(key, {run}),
-			sessionNames: spaceSessionNames,
-		});
-		t.is(await runCloseTeardown('STA-1', deps), 0);
-		t.deepEqual(killed, [
-			'=companion-hand-named:',
-			'=agent-hand-named:',
-			'=claude-hand-named:',
-		]);
+	const {deps} = fakeDeps({
+		killSpaceSessions: async key => killSpaceSessions(key, {run}),
+		sessionNames: spaceSessionNames,
+	});
+	expect(await runCloseTeardown('STA-1', deps)).toBe(0);
+	expect(killed).toStrictEqual([
+		'=companion-hand-named:',
+		'=agent-hand-named:',
+		'=claude-hand-named:',
+	]);
 
-		const inside = fakeDeps({
-			sessionNames: spaceSessionNames,
-			currentInnerSession: () => 'agent-hand-named',
-		});
-		t.is(await runCloseCommand({key: 'STA-1', yes: true}, inside.deps), 0);
-		t.true(inside.events.includes('spawn STA-1 /repo'));
-	},
-);
+	const inside = fakeDeps({
+		sessionNames: spaceSessionNames,
+		currentInnerSession: () => 'agent-hand-named',
+	});
+	expect(await runCloseCommand({key: 'STA-1', yes: true}, inside.deps)).toBe(0);
+	expect(inside.events.includes('spawn STA-1 /repo')).toBe(true);
+});
 
 // tmux.ts reads one set of stores for the whole process.
-test.serial(
-	'a space with no stored names closes with no sessions to end',
-	async t => {
-		testTmuxState(t, {sqlite: true});
-		const calls: string[][] = [];
-		const run: AsyncTmuxRunner = async args => {
-			calls.push(args);
-			return '';
-		};
+test('a space with no stored names closes with no sessions to end', async () => {
+	testTmuxState({sqlite: true});
+	const calls: string[][] = [];
+	const run: AsyncTmuxRunner = async args => {
+		calls.push(args);
+		return '';
+	};
 
-		const {deps, events} = fakeDeps({
-			killSpaceSessions: async key => killSpaceSessions(key, {run}),
-		});
-		t.is(await runCloseTeardown('STA-1', deps), 0);
-		t.deepEqual(calls, []);
-		t.true(events.includes('unregister STA-1'));
-	},
-);
+	const {deps, events} = fakeDeps({
+		killSpaceSessions: async key => killSpaceSessions(key, {run}),
+	});
+	expect(await runCloseTeardown('STA-1', deps)).toBe(0);
+	expect(calls).toStrictEqual([]);
+	expect(events.includes('unregister STA-1')).toBe(true);
+});

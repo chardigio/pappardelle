@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
+import {rejectionOf} from '../test/helpers/thrown.ts';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
@@ -18,11 +20,11 @@ import {stateDbPath} from './state-db.ts';
 const SOCKET = 'identity-test-socket';
 
 /** Stores with a home of their own, and the identities idow would give its spaces. */
-function fixture(t: ExecutionContext, sqlite?: boolean, repo?: string) {
-	const home = tempDir(t, 'papp-identity-');
+function fixture(sqlite?: boolean, repo?: string) {
+	const home = tempDir('papp-identity-');
 	const mainRoot = path.join(home, 'workspace', 'repo');
 	fs.mkdirSync(path.join(mainRoot, 'src'), {recursive: true});
-	const state = testState(t, {
+	const state = testState({
 		sqlite,
 		...(repo === undefined ? {} : {repo}),
 		home,
@@ -53,34 +55,34 @@ function fixture(t: ExecutionContext, sqlite?: boolean, repo?: string) {
 	return {home, mainRoot, state, identity, open};
 }
 
-function contractFixture(t: ExecutionContext, state: TestState) {
-	return fixture(t, state.sqlite);
+function contractFixture(state: TestState) {
+	return fixture(state.sqlite);
 }
 
 contractTest(
 	'a space is found under the names it was opened with',
-	async (t, state) => {
-		const f = contractFixture(t, state);
+	async state => {
+		const f = contractFixture(state);
 		for (const key of ['a.b_c', 'bd-a3f8e9.1', 'main']) {
 			const opened = await f.open(key);
-			t.deepEqual(f.state.daos.spaceIdentities.get(key), {
+			expect(f.state.daos.spaceIdentities.get(key)).toStrictEqual({
 				kind: 'identity',
 				identity: opened,
 			});
 		}
 
-		t.is(f.identity('a.b_c').tmux.agentSession, 'agent-repo-a_b__c');
+		expect(f.identity('a.b_c').tmux.agentSession).toBe('agent-repo-a_b__c');
 	},
 );
 
-contractTest('main is listed with the open spaces', async (t, state) => {
-	const f = contractFixture(t, state);
+contractTest('main is listed with the open spaces', async state => {
+	const f = contractFixture(state);
 	await f.open('main');
 	await f.open('STA-1');
 	const listed = f.state.daos.spaceIdentities.list();
-	t.is(listed.kind, 'identities');
+	expect(listed.kind).toBe('identities');
 	if (listed.kind !== 'identities') return;
-	t.deepEqual(listed.identities.map(identity => identity.key).sort(), [
+	expect(listed.identities.map(identity => identity.key).sort()).toStrictEqual([
 		'STA-1',
 		'main',
 	]);
@@ -88,8 +90,8 @@ contractTest('main is listed with the open spaces', async (t, state) => {
 
 contractTest(
 	'a path is in the space whose worktree holds it, through a symlink too',
-	async (t, state) => {
-		const f = contractFixture(t, state);
+	async state => {
+		const f = contractFixture(state);
 		await f.open('main');
 		const opened = await f.open('STA-1');
 		const deep = path.join(opened.worktreePath, 'packages', 'app');
@@ -98,50 +100,50 @@ contractTest(
 		fs.symlinkSync(path.join(opened.worktreePath, 'packages'), link);
 		const {spaceIdentities} = f.state.daos;
 
-		t.deepEqual(spaceIdentities.atPath(deep), {
+		expect(spaceIdentities.atPath(deep)).toStrictEqual({
 			kind: 'identity',
 			identity: opened,
 		});
-		t.deepEqual(spaceIdentities.atPath(path.join(link, 'app')), {
+		expect(spaceIdentities.atPath(path.join(link, 'app'))).toStrictEqual({
 			kind: 'identity',
 			identity: opened,
 		});
-		t.is(
+		expect(
 			(
 				spaceIdentities.atPath(path.join(f.mainRoot, 'src')) as {
 					identity: SpaceIdentity;
 				}
 			).identity.key,
-			'main',
-		);
-		t.deepEqual(spaceIdentities.atPath(f.home), {kind: 'unknown'});
+		).toBe('main');
+		expect(spaceIdentities.atPath(f.home)).toStrictEqual({kind: 'unknown'});
 	},
 );
 
-test('a key never opened has no identity', t => {
-	const f = fixture(t, true);
-	t.deepEqual(f.state.daos.spaceIdentities.get('STA-9'), {kind: 'unknown'});
+test('a key never opened has no identity', () => {
+	const f = fixture(true);
+	expect(f.state.daos.spaceIdentities.get('STA-9')).toStrictEqual({
+		kind: 'unknown',
+	});
 });
 
-test('a closed space keeps its identity', async t => {
-	const f = fixture(t, true);
+test('a closed space keeps its identity', async () => {
+	const f = fixture(true);
 	await f.open('main');
 	const opened = await f.open('STA-1');
 	await f.state.daos.registry.remove('STA-1');
-	t.deepEqual(f.state.daos.spaceIdentities.get('STA-1'), {
+	expect(f.state.daos.spaceIdentities.get('STA-1')).toStrictEqual({
 		kind: 'identity',
 		identity: opened,
 	});
 	const listed = f.state.daos.spaceIdentities.list();
-	t.deepEqual(
+	expect(
 		listed.kind === 'identities' &&
 			listed.identities.map(identity => identity.key),
-		['main', 'STA-1'],
-	);
+	).toStrictEqual(['main', 'STA-1']);
 });
 
-test('a space whose worktree is not where idow puts them is found where it is', async t => {
-	const f = fixture(t, true);
+test('a space whose worktree is not where idow puts them is found where it is', async () => {
+	const f = fixture(true);
 	const custom = path.join(f.home, 'custom', 'path');
 	const result = spawnSync(
 		process.execPath,
@@ -166,25 +168,25 @@ test('a space whose worktree is not where idow puts them is found where it is', 
 			},
 		},
 	);
-	t.is(result.status, 0, `stderr: ${result.stderr}`);
-	t.deepEqual(f.state.daos.spaceIdentities.get('STA-1'), {
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	expect(f.state.daos.spaceIdentities.get('STA-1')).toStrictEqual({
 		kind: 'identity',
 		identity: {...f.identity('STA-1'), worktreePath: custom},
 	});
-	t.deepEqual(f.state.daos.spaceIdentities.get('main'), {
+	expect(f.state.daos.spaceIdentities.get('main')).toStrictEqual({
 		kind: 'identity',
 		identity: f.identity('main'),
 	});
 });
 
-test('a space opened without the database is given the identity idow gave it, along with main', t => {
-	const f = fixture(t, true);
+test('a space opened without the database is given the identity idow gave it, along with main', () => {
+	const f = fixture(true);
 	fs.writeFileSync(f.state.registryFile, JSON.stringify(['STA-1']));
-	t.deepEqual(f.state.daos.spaceIdentities.get('STA-1'), {
+	expect(f.state.daos.spaceIdentities.get('STA-1')).toStrictEqual({
 		kind: 'identity',
 		identity: f.identity('STA-1'),
 	});
-	t.deepEqual(f.state.daos.spaceIdentities.get('main'), {
+	expect(f.state.daos.spaceIdentities.get('main')).toStrictEqual({
 		kind: 'identity',
 		identity: f.identity('main'),
 	});
@@ -192,42 +194,40 @@ test('a space opened without the database is given the identity idow gave it, al
 
 contractTest(
 	'a checkout with no Pappardelle config or stored identity belongs to no space',
-	(t, state) => {
-		const f = contractFixture(t, state);
-		t.deepEqual(
+	state => {
+		const f = contractFixture(state);
+		expect(
 			f.state.daos.spaceIdentities.atPath(path.join(f.mainRoot, 'src')),
-			{kind: 'unknown'},
-		);
+		).toStrictEqual({kind: 'unknown'});
 	},
 );
 
 contractTest(
 	'a repo with .pappardelle.yml resolves main even before any spaces are opened',
-	(t, state) => {
-		const f = contractFixture(t, state);
+	state => {
+		const f = contractFixture(state);
 		fs.writeFileSync(path.join(f.mainRoot, '.pappardelle.yml'), 'version: 1\n');
-		t.deepEqual(f.state.daos.spaceIdentities.get('main'), {
+		expect(f.state.daos.spaceIdentities.get('main')).toStrictEqual({
 			kind: 'identity',
 			identity: f.identity('main'),
 		});
-		t.deepEqual(
+		expect(
 			f.state.daos.spaceIdentities.atPath(path.join(f.mainRoot, 'src')),
-			{kind: 'identity', identity: f.identity('main')},
-		);
+		).toStrictEqual({kind: 'identity', identity: f.identity('main')});
 	},
 );
 
-test('importing another repo from an unrelated checkout does not seed main with the wrong path', t => {
+test('importing another repo from an unrelated checkout does not seed main with the wrong path', () => {
 	const home = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-identity-cross-')),
 	);
-	t.teardown(() => {
+	teardown(() => {
 		fs.rmSync(home, {recursive: true, force: true});
 	});
 	const otherRepo = path.join(home, 'workspace', 'other-repo');
 	fs.mkdirSync(otherRepo, {recursive: true});
 	fs.writeFileSync(path.join(otherRepo, '.pappardelle.yml'), 'version: 1\n');
-	const state = testState(t, {
+	const state = testState({
 		repo: 'target-repo',
 		sqlite: true,
 		home,
@@ -235,20 +235,22 @@ test('importing another repo from an unrelated checkout does not seed main with 
 		mainRoot: () => otherRepo,
 	});
 	fs.writeFileSync(state.registryFile, JSON.stringify(['STA-1']));
-	t.deepEqual(state.daos.spaceIdentities.get('main'), {kind: 'unknown'});
+	expect(state.daos.spaceIdentities.get('main')).toStrictEqual({
+		kind: 'unknown',
+	});
 });
 
-test('importing open-spaces outside a git checkout still seeds main on a later read inside it', t => {
+test('importing open-spaces outside a git checkout still seeds main on a later read inside it', () => {
 	const home = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-identity-retry-')),
 	);
-	t.teardown(() => {
+	teardown(() => {
 		fs.rmSync(home, {recursive: true, force: true});
 	});
 	const mainRoot = path.join(home, 'workspace', 'repo');
 	fs.mkdirSync(mainRoot, {recursive: true});
 	let inCheckout = false;
-	const state = testState(t, {
+	const state = testState({
 		repo: 'repo',
 		sqlite: true,
 		home,
@@ -259,30 +261,32 @@ test('importing open-spaces outside a git checkout still seeds main on a later r
 		},
 	});
 	fs.writeFileSync(state.registryFile, JSON.stringify(['STA-1']));
-	t.deepEqual(state.daos.spaceIdentities.get('main'), {kind: 'unknown'});
+	expect(state.daos.spaceIdentities.get('main')).toStrictEqual({
+		kind: 'unknown',
+	});
 	inCheckout = true;
 	const lookup = state.daos.spaceIdentities.get('main');
-	t.is(lookup.kind, 'identity');
+	expect(lookup.kind).toBe('identity');
 	if (lookup.kind === 'identity') {
-		t.is(lookup.identity.worktreePath, mainRoot);
+		expect(lookup.identity.worktreePath).toBe(mainRoot);
 	}
 });
 
-test('two keys cannot share an agent session', async t => {
-	const f = fixture(t, true);
+test('two keys cannot share an agent session', async () => {
+	const f = fixture(true);
 	await f.open('a.b');
 	const other = f.identity('other');
 	const clash = {
 		...other,
 		tmux: {...other.tmux, agentSession: f.identity('a.b').tmux.agentSession},
 	};
-	await t.throwsAsync(f.state.daos.spaceIdentities.record(clash), {
-		message: /UNIQUE/,
-	});
+	expect(
+		await rejectionOf(f.state.daos.spaceIdentities.record(clash)),
+	).toHaveProperty('message', expect.stringMatching(/UNIQUE/));
 });
 
-test('the reaper keeps the stored names of main and every protected space', async t => {
-	const f = fixture(t, true);
+test('the reaper keeps the stored names of main and every protected space', async () => {
+	const f = fixture(true);
 	await f.open('main');
 	await f.state.daos.spaceIdentities.record({
 		...f.identity('STA-1'),
@@ -297,7 +301,9 @@ test('the reaper keeps the stored names of main and every protected space', asyn
 		f.state.daos.registry,
 		f.state.daos.spaceIdentities,
 	);
-	t.deepEqual(owned.kind === 'names' ? [...owned.names].sort() : owned, [
+	expect(
+		owned.kind === 'names' ? [...owned.names].sort() : owned,
+	).toStrictEqual([
 		'agent-repo-main',
 		'companion-repo-main',
 		'hand-named-agent',
@@ -305,43 +311,41 @@ test('the reaper keeps the stored names of main and every protected space', asyn
 	]);
 });
 
-test('a protected space without stored names stops the reap', async t => {
-	const f = fixture(t, true);
+test('a protected space without stored names stops the reap', async () => {
+	const f = fixture(true);
 	await f.open('main');
 	await f.state.daos.registry.add('STA-1');
-	t.deepEqual(
+	expect(
 		protectedSessionNames(f.state.daos.registry, f.state.daos.spaceIdentities),
-		{kind: 'missing', keys: ['STA-1']},
-	);
+	).toStrictEqual({kind: 'missing', keys: ['STA-1']});
 });
 
-test('identities that cannot be read stop the reap', t => {
-	const f = fixture(t, true);
+test('identities that cannot be read stop the reap', () => {
+	const f = fixture(true);
 	const error = new Error('locked');
-	t.deepEqual(
+	expect(
 		protectedSessionNames(f.state.daos.registry, {
 			list: () => ({kind: 'unreadable', error}),
 		}),
-		{kind: 'unreadable', error},
-	);
+	).toStrictEqual({kind: 'unreadable', error});
 });
 
-test('a space keeps the names it was first given', async t => {
-	const f = fixture(t, true);
+test('a space keeps the names it was first given', async () => {
+	const f = fixture(true);
 	const first = await f.open('STA-1');
 	await f.state.daos.spaceIdentities.record({
 		...first,
 		worktreePath: '/elsewhere',
 		tmux: {...first.tmux, socket: 'another-socket'},
 	});
-	t.deepEqual(f.state.daos.spaceIdentities.get('STA-1'), {
+	expect(f.state.daos.spaceIdentities.get('STA-1')).toStrictEqual({
 		kind: 'identity',
 		identity: first,
 	});
 });
 
-test('stored session names that tmux would expand as a format are respelled, and others are left as they are', async t => {
-	const f = fixture(t, true, 'pasta#S');
+test('stored session names that tmux would expand as a format are respelled, and others are left as they are', async () => {
+	const f = fixture(true, 'pasta#S');
 	const recorded = await f.open('STA-1');
 	const formatSpelled = {
 		...f.identity('STA-2'),
@@ -355,11 +359,11 @@ test('stored session names that tmux would expand as a format are respelled, and
 
 	await f.state.daos.spaceIdentities.respellFormatSessions();
 
-	t.deepEqual(f.state.daos.spaceIdentities.get('STA-1'), {
+	expect(f.state.daos.spaceIdentities.get('STA-1')).toStrictEqual({
 		kind: 'identity',
 		identity: recorded,
 	});
-	t.deepEqual(f.state.daos.spaceIdentities.get('STA-2'), {
+	expect(f.state.daos.spaceIdentities.get('STA-2')).toStrictEqual({
 		kind: 'identity',
 		identity: {
 			...formatSpelled,
@@ -372,8 +376,8 @@ test('stored session names that tmux would expand as a format are respelled, and
 	});
 });
 
-test("a respelled name another repo's space already holds is left as it is, and the other names are still respelled", async t => {
-	const f = fixture(t, true, 'pasta#S');
+test("a respelled name another repo's space already holds is left as it is, and the other names are still respelled", async () => {
+	const f = fixture(true, 'pasta#S');
 	const held = await f.open('STA-1');
 	await f.state.daos.spaceIdentities.record({
 		...held,
@@ -398,17 +402,17 @@ test("a respelled name another repo's space already holds is left as it is, and 
 
 	await f.state.daos.spaceIdentities.respellFormatSessions();
 
-	t.deepEqual(f.state.daos.spaceIdentities.get('STA-3'), {
+	expect(f.state.daos.spaceIdentities.get('STA-3')).toStrictEqual({
 		kind: 'identity',
 		identity: formatSpelled('STA-3'),
 	});
-	t.like(f.state.daos.spaceIdentities.get('STA-4'), {
+	expect(f.state.daos.spaceIdentities.get('STA-4')).toMatchObject({
 		identity: {tmux: {agentSession: 'agent-pasta_S-STA-4'}},
 	});
 });
 
-test('main follows its checkout when a TUI starts there, not when a space is opened', async t => {
-	const f = fixture(t, true);
+test('main follows its checkout when a TUI starts there, not when a space is opened', async () => {
+	const f = fixture(true);
 	const first = await f.open('main');
 	const moved = {
 		...first,
@@ -416,12 +420,12 @@ test('main follows its checkout when a TUI starts there, not when a space is ope
 		tmux: {...first.tmux, socket: 'another-socket'},
 	};
 	await f.state.daos.spaceIdentities.record(moved);
-	t.deepEqual(f.state.daos.spaceIdentities.get('main'), {
+	expect(f.state.daos.spaceIdentities.get('main')).toStrictEqual({
 		kind: 'identity',
 		identity: first,
 	});
 	await f.state.daos.spaceIdentities.moveMain(moved);
-	t.deepEqual(f.state.daos.spaceIdentities.get('main'), {
+	expect(f.state.daos.spaceIdentities.get('main')).toStrictEqual({
 		kind: 'identity',
 		identity: moved,
 	});
@@ -429,31 +433,34 @@ test('main follows its checkout when a TUI starts there, not when a space is ope
 
 contractTest(
 	'a path in a checkout nested in a worktree belongs to no space',
-	async (t, state) => {
-		const f = contractFixture(t, state);
+	async state => {
+		const f = contractFixture(state);
 		await f.open('main');
 		const nested = path.join(f.mainRoot, '.claude', 'worktrees', 'agent-x');
 		fs.mkdirSync(path.join(nested, 'src'), {recursive: true});
 		fs.writeFileSync(path.join(nested, '.git'), 'gitdir: elsewhere\n');
-		t.deepEqual(f.state.daos.spaceIdentities.atPath(path.join(nested, 'src')), {
+		expect(
+			f.state.daos.spaceIdentities.atPath(path.join(nested, 'src')),
+		).toStrictEqual({
 			kind: 'unknown',
 		});
-		t.is(
+		expect(
 			(
 				f.state.daos.spaceIdentities.atPath(path.join(f.mainRoot, 'src')) as {
 					identity: SpaceIdentity;
 				}
 			).identity.key,
-			'main',
-		);
+		).toBe('main');
 	},
 );
 
-test('a closed space holds no path', async t => {
-	const f = fixture(t, true);
+test('a closed space holds no path', async () => {
+	const f = fixture(true);
 	const opened = await f.open('STA-1');
 	await f.state.daos.registry.remove('STA-1');
-	t.deepEqual(f.state.daos.spaceIdentities.atPath(opened.worktreePath), {
+	expect(
+		f.state.daos.spaceIdentities.atPath(opened.worktreePath),
+	).toStrictEqual({
 		kind: 'unknown',
 	});
 });

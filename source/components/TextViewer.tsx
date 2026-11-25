@@ -1,8 +1,7 @@
 import {useKeyboard} from '@opentui/react';
-import {shortcutKey} from '../tui-key.ts';
 import {textAttributes, terminalColor, dimText} from '../tui-style.ts';
 import {execFile} from 'node:child_process';
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 
 import {handleTextViewerKey} from './text-viewer-keys.ts';
 import {toViewerLines} from './text-viewer-lines.ts';
@@ -30,9 +29,6 @@ export default function TextViewer({
 }: Props) {
 	const [output, setOutput] = useState<string | null>(null);
 	const [top, setTop] = useState(0);
-	// Several keys can arrive before the next render; each scrolls from where
-	// the one before it left off.
-	const topNow = useRef(0);
 	const viewHeight = Math.max(1, height - CHROME_ROWS);
 	const lines = useMemo(
 		() =>
@@ -58,9 +54,8 @@ export default function TextViewer({
 	}, [argv]);
 
 	useKeyboard(event => {
-		const {input, key} = shortcutKey(event);
-		const result = handleTextViewerKey(input, key, {
-			top: topNow.current,
+		const result = handleTextViewerKey(event, {
+			top,
 			lineCount: lines?.length ?? 0,
 			viewHeight,
 		});
@@ -69,7 +64,6 @@ export default function TextViewer({
 			return;
 		}
 
-		topNow.current = result.top;
 		setTop(result.top);
 	});
 

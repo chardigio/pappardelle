@@ -4,7 +4,8 @@ import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {sessionNamesFor} from './space-identity.ts';
-import test, {type ExecutionContext} from 'ava';
+import {test, expect, beforeAll, afterAll, beforeEach} from 'bun:test';
+import {teardown} from '../test/helpers/teardown.ts';
 import {LatestTask} from './latest-task.ts';
 import {
 	attachToSpace,
@@ -38,17 +39,18 @@ import {
 } from '../test/helpers/state.ts';
 
 // A new agent session's launch is recorded in the stores.
-const stateTeardowns: Array<() => void> = [];
+const stateTeardowns: Array<() => unknown> = [];
 let derived: TestState;
-test.before(() => {
+beforeAll(() => {
 	// Without the database a space's sessions get the names idow gives them.
-	derived = testTmuxState(
-		{teardown: fn => stateTeardowns.push(fn)},
-		{repo: getRepoName(), sqlite: false},
-	);
+	derived = testTmuxState({
+		cleanup: fn => stateTeardowns.push(fn),
+		repo: getRepoName(),
+		sqlite: false,
+	});
 });
-test.after.always(() => {
-	for (const teardown of stateTeardowns) teardown();
+afterAll(async () => {
+	for (const step of stateTeardowns.reverse()) await step();
 });
 
 // attachToSpace reads the .pappardelle.yml of the repository it runs in. The
@@ -60,40 +62,36 @@ const emptyRepository = mkdtempSync(join(tmpdir(), 'pappa-attach-repo-'));
 spawnSync('git', ['init', '-q', emptyRepository]);
 process.chdir(emptyRepository);
 delete process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
-test.after.always(() => {
+afterAll(() => {
 	rmSync(emptyRepository, {recursive: true, force: true});
 });
 
-test.serial(
-	'background monitor discovery does not consume the selected startup trace',
-	async t => {
-		const records: StartupRecord[] = [];
-		const previous = startupTrace.current;
-		startupTrace.current = new StartupTrace({
-			pid: 1,
-			now: () => 0,
-			write: record => records.push(record),
-			schedule: () => () => {},
-		});
-		t.teardown(() => {
-			startupTrace.current = previous;
-		});
-		await testState(t).daos.programStatus.attach(
-			'background',
-			'agent-background',
-			'fixture',
-			async () => '',
-		);
-		t.false(records.some(record => record.stage === 'monitor-ready'));
-		await ensureAgentSession('TEST-SELECTED', undefined, false, async () => '');
-		t.is(
-			records.filter(
-				record => record.stage === 'monitor-ready' && record.phase === 'begin',
-			).length,
-			1,
-		);
-	},
-);
+test('background monitor discovery does not consume the selected startup trace', async () => {
+	const records: StartupRecord[] = [];
+	const previous = startupTrace.current;
+	startupTrace.current = new StartupTrace({
+		pid: 1,
+		now: () => 0,
+		write: record => records.push(record),
+		schedule: () => () => {},
+	});
+	teardown(() => {
+		startupTrace.current = previous;
+	});
+	await testState().daos.programStatus.attach(
+		'background',
+		'agent-background',
+		'fixture',
+		async () => '',
+	);
+	expect(records.some(record => record.stage === 'monitor-ready')).toBe(false);
+	await ensureAgentSession('TEST-SELECTED', undefined, false, async () => '');
+	expect(
+		records.filter(
+			record => record.stage === 'monitor-ready' && record.phase === 'begin',
+		).length,
+	).toBe(1);
+});
 
 function fakeTmux() {
 	const calls: string[][] = [];
@@ -135,11 +133,11 @@ function splitBatch(args: string[]): string[][] {
 	return commands;
 }
 
-function isolatedHome(t: ExecutionContext): string {
+function isolatedHome(): string {
 	const home = mkdtempSync(join(tmpdir(), 'pappa-cold-attach-'));
 	const previous = process.env['HOME'];
 	process.env['HOME'] = home;
-	t.teardown(() => {
+	teardown(() => {
 		if (previous === undefined) delete process.env['HOME'];
 		else process.env['HOME'] = previous;
 		rmSync(home, {recursive: true, force: true});
@@ -148,147 +146,143 @@ function isolatedHome(t: ExecutionContext): string {
 }
 
 for (const delayed of ['agent-gate', 'companion-create']) {
-	test.serial(
-		`cold cancellation drains ${delayed} and delivers both launch commands before the next selection`,
-		async t => {
-			const home = isolatedHome(t);
-			const queue = new LatestTask();
-			const calls: string[][] = [];
-			let release = () => {};
-			const pending = new Promise<void>(resolve => {
-				release = resolve;
-			});
-			let blocked = false;
-			let finished = false;
-			const run: AsyncTmuxRunner = async args => {
-				calls.push(args);
-				const cold = args.some(arg => arg.includes('TEST-COLD'));
-				if (cold && args.includes('has-session')) throw new Error('no session');
-				if (
-					cold &&
-					((delayed === 'agent-gate' && args.includes('if-shell')) ||
-						(delayed === 'companion-create' &&
-							args.includes('new-session') &&
-							args.some(arg => arg.startsWith('companion-'))))
-				) {
-					blocked = true;
-					await pending;
-				}
-				if (ttyQueryPane(args) !== undefined)
-					return ttyQueryPane(args) === '%1' ? '/dev/agent' : '/dev/companion';
-				if (args.includes('list-clients')) return '/dev/agent\n/dev/companion';
-				return '';
-			};
-			const select = async (key: string) =>
-				queue.run(async signal => {
-					await attachToSpace('%1', '%2', key, '%0', home, undefined, {
-						run,
-						signal,
-					});
-				});
-			const first = select('TEST-COLD').then(() => {
-				finished = true;
-			});
-			await nextTurn();
-			t.true(blocked);
-			const next = select('TEST-NEXT');
-			await nextTurn();
-			t.false(finished);
-			t.false(calls.some(args => args.some(arg => arg.includes('TEST-NEXT'))));
-			release();
-			await Promise.all([first, next]);
-			const creations = calls.filter(args => args.includes('new-session'));
-			t.is(creations.length, 2);
-			const agent = creations.find(args =>
-				args.some(arg => arg.startsWith('agent-')),
-			)!;
-			const companion = creations.find(args =>
-				args.some(arg => arg.startsWith('companion-')),
-			)!;
-			t.true(agent.some(arg => arg.includes('wait-for')));
-			for (const creation of [agent, companion]) {
-				const shell = creation.findIndex(arg => arg.includes('"$1" -ic "$2'));
-				t.true(shell !== -1);
-				t.truthy(creation[shell + 3]?.trim());
+	test(`cold cancellation drains ${delayed} and delivers both launch commands before the next selection`, async () => {
+		const home = isolatedHome();
+		const queue = new LatestTask();
+		const calls: string[][] = [];
+		let release = () => {};
+		const pending = new Promise<void>(resolve => {
+			release = resolve;
+		});
+		let blocked = false;
+		let finished = false;
+		const run: AsyncTmuxRunner = async args => {
+			calls.push(args);
+			const cold = args.some(arg => arg.includes('TEST-COLD'));
+			if (cold && args.includes('has-session')) throw new Error('no session');
+			if (
+				cold &&
+				((delayed === 'agent-gate' && args.includes('if-shell')) ||
+					(delayed === 'companion-create' &&
+						args.includes('new-session') &&
+						args.some(arg => arg.startsWith('companion-'))))
+			) {
+				blocked = true;
+				await pending;
 			}
-			const gate = calls.findIndex(
-				args =>
-					args.includes('if-shell') &&
-					args.some(arg => arg.includes('TEST-COLD')),
-			);
-			const nextStart = calls.findIndex(args =>
-				args.some(arg => arg.includes('TEST-NEXT')),
-			);
-			t.true(gate !== -1 && gate < nextStart);
-			t.is(getCurrentlyViewingSpace(), 'TEST-NEXT');
-		},
-	);
+			if (ttyQueryPane(args) !== undefined)
+				return ttyQueryPane(args) === '%1' ? '/dev/agent' : '/dev/companion';
+			if (args.includes('list-clients')) return '/dev/agent\n/dev/companion';
+			return '';
+		};
+		const select = async (key: string) =>
+			queue.run(async signal => {
+				await attachToSpace('%1', '%2', key, '%0', home, undefined, {
+					run,
+					signal,
+				});
+			});
+		const first = select('TEST-COLD').then(() => {
+			finished = true;
+		});
+		await nextTurn();
+		expect(blocked).toBe(true);
+		const next = select('TEST-NEXT');
+		await nextTurn();
+		expect(finished).toBe(false);
+		expect(
+			calls.some(args => args.some(arg => arg.includes('TEST-NEXT'))),
+		).toBe(false);
+		release();
+		await Promise.all([first, next]);
+		const creations = calls.filter(args => args.includes('new-session'));
+		expect(creations.length).toBe(2);
+		const agent = creations.find(args =>
+			args.some(arg => arg.startsWith('agent-')),
+		)!;
+		const companion = creations.find(args =>
+			args.some(arg => arg.startsWith('companion-')),
+		)!;
+		expect(agent.some(arg => arg.includes('wait-for'))).toBe(true);
+		for (const creation of [agent, companion]) {
+			const shell = creation.findIndex(arg => arg.includes('"$1" -ic "$2'));
+			expect(shell !== -1).toBe(true);
+			expect(creation[shell + 3]?.trim()).toBeTruthy();
+		}
+		const gate = calls.findIndex(
+			args =>
+				args.includes('if-shell') &&
+				args.some(arg => arg.includes('TEST-COLD')),
+		);
+		const nextStart = calls.findIndex(args =>
+			args.some(arg => arg.includes('TEST-NEXT')),
+		);
+		expect(gate !== -1 && gate < nextStart).toBe(true);
+		expect(getCurrentlyViewingSpace()).toBe('TEST-NEXT');
+	});
 }
 
 for (const delayed of ['%1', '%2']) {
 	for (const cancelled of [false, true]) {
-		test.serial(
-			`cold viewer respawn ${cancelled ? 'cancellation' : 'failure'} drains ${delayed} before recovery`,
-			async t => {
-				const queue = new LatestTask();
-				const started = new Set<string>();
-				let release = () => {};
-				const pending = new Promise<void>(resolve => {
-					release = resolve;
-				});
-				let recovering = false;
-				let finished = false;
-				const run: AsyncTmuxRunner = async args => {
-					if (args.includes('list-clients')) return '';
-					if (ttyQueryPane(args) !== undefined)
-						return `/dev/${ttyQueryPane(args)}`;
-					if (!recovering && args.includes('respawn-pane')) {
-						const pane = args[args.indexOf('-t') + 1]!;
-						started.add(pane);
-						if (pane === delayed) await pending;
-						else if (!cancelled) throw new Error('respawn failed');
-					}
-					return '';
-				};
-				const first = queue.run(async signal => {
-					t.false(
-						await attachToSpace(
-							'%1',
-							'%2',
-							'TEST-COLD',
-							'%0',
-							undefined,
-							undefined,
-							{run, signal},
-						),
-					);
-					finished = true;
-				});
-				await nextTurn();
-				t.deepEqual([...started].sort(), ['%1', '%2']);
-				if (cancelled) queue.cancel();
-				const next = queue.exclusive(async () => {
-					recovering = true;
-					t.true(
-						await attachToSpace(
-							'%1',
-							'%2',
-							'TEST-RECOVER',
-							'%0',
-							undefined,
-							undefined,
-							{run},
-						),
-					);
-				});
-				await nextTurn();
-				t.false(finished);
-				t.false(recovering);
-				release();
-				await Promise.all([first, next]);
-				t.is(getCurrentlyViewingSpace(), 'TEST-RECOVER');
-			},
-		);
+		test(`cold viewer respawn ${cancelled ? 'cancellation' : 'failure'} drains ${delayed} before recovery`, async () => {
+			const queue = new LatestTask();
+			const started = new Set<string>();
+			let release = () => {};
+			const pending = new Promise<void>(resolve => {
+				release = resolve;
+			});
+			let recovering = false;
+			let finished = false;
+			const run: AsyncTmuxRunner = async args => {
+				if (args.includes('list-clients')) return '';
+				if (ttyQueryPane(args) !== undefined)
+					return `/dev/${ttyQueryPane(args)}`;
+				if (!recovering && args.includes('respawn-pane')) {
+					const pane = args[args.indexOf('-t') + 1]!;
+					started.add(pane);
+					if (pane === delayed) await pending;
+					else if (!cancelled) throw new Error('respawn failed');
+				}
+				return '';
+			};
+			const first = queue.run(async signal => {
+				expect(
+					await attachToSpace(
+						'%1',
+						'%2',
+						'TEST-COLD',
+						'%0',
+						undefined,
+						undefined,
+						{run, signal},
+					),
+				).toBe(false);
+				finished = true;
+			});
+			await nextTurn();
+			expect([...started].sort()).toStrictEqual(['%1', '%2']);
+			if (cancelled) queue.cancel();
+			const next = queue.exclusive(async () => {
+				recovering = true;
+				expect(
+					await attachToSpace(
+						'%1',
+						'%2',
+						'TEST-RECOVER',
+						'%0',
+						undefined,
+						undefined,
+						{run},
+					),
+				).toBe(true);
+			});
+			await nextTurn();
+			expect(finished).toBe(false);
+			expect(recovering).toBe(false);
+			release();
+			await Promise.all([first, next]);
+			expect(getCurrentlyViewingSpace()).toBe('TEST-RECOVER');
+		});
 	}
 }
 // The listing that finds a space's companion splits rides the attach's own
@@ -300,61 +294,58 @@ const isSwitchBatch = (args: string[]) =>
 	args.includes('switch-client') && args.includes(';');
 
 for (const delayed of ['agent', 'companion']) {
-	test.serial(
-		`superseding selection waits for pending ${delayed} preparation`,
-		async t => {
-			const fake = fakeTmux();
-			const task = new LatestTask();
-			let release = () => {};
-			const pending = new Promise<void>(resolve => {
-				release = resolve;
-			});
-			const started = new Set<string>();
-			let firstFinished = false;
-			const run: AsyncTmuxRunner = async args => {
-				if (
-					args.includes('has-session') &&
-					args.some(arg => arg.endsWith('-TEST-A:'))
-				) {
-					const kind = args.some(arg => arg.startsWith('=companion-'))
-						? 'companion'
-						: 'agent';
-					started.add(kind);
-					if (kind === delayed) await pending;
-				}
-				return fake.run(args);
-			};
-			const select = async (key: string) =>
-				task.run(async signal => {
-					await attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
-						run,
-						signal,
-					});
+	test(`superseding selection waits for pending ${delayed} preparation`, async () => {
+		const fake = fakeTmux();
+		const task = new LatestTask();
+		let release = () => {};
+		const pending = new Promise<void>(resolve => {
+			release = resolve;
+		});
+		const started = new Set<string>();
+		let firstFinished = false;
+		const run: AsyncTmuxRunner = async args => {
+			if (
+				args.includes('has-session') &&
+				args.some(arg => arg.endsWith('-TEST-A:'))
+			) {
+				const kind = args.some(arg => arg.startsWith('=companion-'))
+					? 'companion'
+					: 'agent';
+				started.add(kind);
+				if (kind === delayed) await pending;
+			}
+			return fake.run(args);
+		};
+		const select = async (key: string) =>
+			task.run(async signal => {
+				await attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
+					run,
+					signal,
 				});
-			const first = select('TEST-A').then(() => {
-				firstFinished = true;
 			});
-			await nextTurn();
-			t.deepEqual([...started].sort(), ['agent', 'companion']);
-			const second = select('TEST-B');
-			await nextTurn();
-			t.false(firstFinished);
-			t.is(getCurrentlyViewingSpace(), null);
-			t.false(
-				fake.calls.some(args => args.some(arg => arg.includes('TEST-B'))),
-			);
-			release();
-			await Promise.all([first, second]);
-			t.is(getCurrentlyViewingSpace(), 'TEST-B');
-			t.false(
-				fake.calls.some(
-					args =>
-						args.includes('switch-client') &&
-						args.some(arg => arg.endsWith('-TEST-A:')),
-				),
-			);
-		},
-	);
+		const first = select('TEST-A').then(() => {
+			firstFinished = true;
+		});
+		await nextTurn();
+		expect([...started].sort()).toStrictEqual(['agent', 'companion']);
+		const second = select('TEST-B');
+		await nextTurn();
+		expect(firstFinished).toBe(false);
+		expect(getCurrentlyViewingSpace()).toBe(null);
+		expect(
+			fake.calls.some(args => args.some(arg => arg.includes('TEST-B'))),
+		).toBe(false);
+		release();
+		await Promise.all([first, second]);
+		expect(getCurrentlyViewingSpace()).toBe('TEST-B');
+		expect(
+			fake.calls.some(
+				args =>
+					args.includes('switch-client') &&
+					args.some(arg => arg.endsWith('-TEST-A:')),
+			),
+		).toBe(false);
+	});
 }
 
 const titleAndFocus = (issueKey: string) => [
@@ -376,878 +367,815 @@ for (const {delayed, cancel} of [
 	{delayed: '/dev/claude', cancel: true},
 	{delayed: '/dev/companion', cancel: true},
 ]) {
-	test.serial(
-		`${cancel ? 'cancelled' : 'failed'} viewer waits for sibling on ${delayed} before allowing retry`,
-		async t => {
-			const fake = fakeTmux();
-			const controller = new AbortController();
-			let release = () => {};
-			const pending = new Promise<void>(resolve => {
-				release = resolve;
-			});
-			const started = new Set<string>();
-			let finished = false;
-			const run: AsyncTmuxRunner = async args => {
-				if (args.includes('switch-client')) {
-					const tty = args[args.indexOf('-c') + 1]!;
-					started.add(tty);
-					if (tty === delayed) await pending;
-					else if (!cancel) throw new Error('client disappeared');
-				}
-				return fake.run(args);
-			};
-			const attaching = attachToSpace(
-				'%1',
-				'%2',
-				'TEST-FAIL',
-				'%0',
-				undefined,
-				undefined,
-				{run, signal: controller.signal},
-			).then(result => {
-				finished = true;
-				return result;
-			});
-			await nextTurn();
-			t.is(started.size, 2);
-			if (cancel) controller.abort();
-			t.false(finished);
-			t.is(getCurrentlyViewingSpace(), null);
-			release();
-			t.false(await attaching);
-			t.false(fake.calls.some(args => args.includes('@pappardelle_title')));
-			fake.calls.length = 0;
-			t.true(
-				await attachToSpace(
-					'%1',
-					'%2',
-					'TEST-RECOVER',
-					'%0',
-					undefined,
-					undefined,
-					{run: fake.run},
-				),
-			);
-			t.false(fake.calls.some(args => isSwitchBatch(args)));
-			t.is(getCurrentlyViewingSpace(), 'TEST-RECOVER');
-		},
-	);
-}
-
-test.beforeEach(() => {
-	clearCurrentlyViewingSpace();
-});
-
-test.serial(
-	'failed cold respawn discards cached ttys before a recycled pty can target the other viewer',
-	async t => {
-		let phase = 'empty';
-		const ttys = new Map([
-			['%1', '/dev/old-agent'],
-			['%2', '/dev/old-companion'],
-		]);
-		const destinations = new Map<string, string>();
-		const run: AsyncTmuxRunner = async args => {
-			if (args.includes('has-session') && phase === 'empty')
-				throw new Error('no session');
-			if (ttyQueryPane(args) !== undefined) {
-				const pane = ttyQueryPane(args)!;
-				if (phase === 'failed' && pane === '%2')
-					throw new Error('tty query failed after respawn');
-				return ttys.get(pane)!;
-			}
-			if (args.includes('list-clients'))
-				return phase === 'retry' ? [...ttys.values()].join('\n') : '';
-			if (args[0] === 'respawn-pane' && phase === 'failed') {
-				const pane = args[args.indexOf('-t') + 1]!;
-				ttys.set(pane, pane === '%1' ? '/dev/new-agent' : '/dev/old-agent');
-			}
-			if (args.includes('switch-client')) {
-				const tty = args[args.indexOf('-c') + 1]!;
-				const pane = [...ttys].find(([, value]) => value === tty)?.[0];
-				if (!pane) throw new Error('client not found');
-				destinations.set(pane, args[args.indexOf('-t') + 1]!);
-			}
-			return '';
-		};
-		const attach = async (key: string) =>
-			attachToSpace('%1', '%2', key, '%0', undefined, undefined, {run});
-		t.true(await attach('TEST-EMPTY'));
-		phase = 'failed';
-		t.false(await attach('TEST-FAILED'));
-		phase = 'retry';
-		t.true(await attach('TEST-RETRY'));
-		t.true(destinations.get('%1')?.startsWith('=agent-'));
-		t.true(destinations.get('%2')?.startsWith('=companion-'));
-		t.true(
-			[...destinations.values()].every(value => value.endsWith('-TEST-RETRY:')),
-		);
-	},
-);
-
-for (const selected of ['qa-custom', "/tmp/socket with ' quotes"]) {
-	test.serial(
-		`cold viewers attach to the selected socket ${selected}`,
-		async t => {
-			const previous = process.env['PAPPARDELLE_TMUX_SOCKET'];
-			process.env['PAPPARDELLE_TMUX_SOCKET'] = selected;
-			t.teardown(() => {
-				if (previous === undefined)
-					delete process.env['PAPPARDELLE_TMUX_SOCKET'];
-				else process.env['PAPPARDELLE_TMUX_SOCKET'] = previous;
-			});
-			const fake = fakeTmux();
-			const run: AsyncTmuxRunner = async args => {
-				if (args.includes('list-clients')) {
-					fake.calls.push(args);
-					return '';
-				}
-				return fake.run(args);
-			};
-			t.true(
-				await attachToSpace(
-					'%1',
-					'%2',
-					'TEST-SOCKET',
-					'%0',
-					undefined,
-					undefined,
-					{run},
-				),
-			);
-			const commands = fake.calls
-				.filter(args => args.includes('respawn-pane'))
-				.map(args => frameScript(args.at(-1)!));
-			t.is(commands.length, 2);
-			for (const command of commands) {
-				t.true(
-					command.includes(
-						`${shellQuote(selected.startsWith('/') ? '-S' : '-L')} ${shellQuote(selected)}`,
-					),
-				);
-				t.false(command.includes('TMUX='));
-				t.true(command.includes('TEST-SOCKET:'));
-			}
-		},
-	);
-}
-
-test.serial(
-	'switching yields to input and sends both clients to the selected inner sessions',
-	async t => {
+	test(`${cancel ? 'cancelled' : 'failed'} viewer waits for sibling on ${delayed} before allowing retry`, async () => {
 		const fake = fakeTmux();
+		const controller = new AbortController();
 		let release = () => {};
-		const wait = new Promise<void>(resolve => {
+		const pending = new Promise<void>(resolve => {
 			release = resolve;
 		});
+		const started = new Set<string>();
 		let finished = false;
 		const run: AsyncTmuxRunner = async args => {
-			await wait;
+			if (args.includes('switch-client')) {
+				const tty = args[args.indexOf('-c') + 1]!;
+				started.add(tty);
+				if (tty === delayed) await pending;
+				else if (!cancel) throw new Error('client disappeared');
+			}
 			return fake.run(args);
 		};
 		const attaching = attachToSpace(
 			'%1',
 			'%2',
-			'TEST-1',
+			'TEST-FAIL',
 			'%0',
 			undefined,
 			undefined,
-			{run},
+			{run, signal: controller.signal},
 		).then(result => {
 			finished = true;
 			return result;
 		});
 		await nextTurn();
-		t.false(finished);
+		expect(started.size).toBe(2);
+		if (cancel) controller.abort();
+		expect(finished).toBe(false);
+		expect(getCurrentlyViewingSpace()).toBe(null);
 		release();
-		t.true(await attaching);
-		const switches = fake.calls.filter(args => args.includes('switch-client'));
-		t.is(switches.length, 2);
-		t.true(
-			switches.every(
-				args => args[0] === '-L' && args[1] === 'pappardelle_inner',
+		expect(await attaching).toBe(false);
+		expect(fake.calls.some(args => args.includes('@pappardelle_title'))).toBe(
+			false,
+		);
+		fake.calls.length = 0;
+		expect(
+			await attachToSpace(
+				'%1',
+				'%2',
+				'TEST-RECOVER',
+				'%0',
+				undefined,
+				undefined,
+				{run: fake.run},
 			),
-		);
-		t.true(switches[0]!.at(-1)!.endsWith('-TEST-1:'));
-		t.true(switches[1]!.at(-1)!.endsWith('-TEST-1:'));
-		t.deepEqual(fake.calls.at(-1), titleAndFocus('TEST-1'));
-	},
-);
+		).toBe(true);
+		expect(fake.calls.some(args => isSwitchBatch(args))).toBe(false);
+		expect(getCurrentlyViewingSpace()).toBe('TEST-RECOVER');
+	});
+}
 
-test.serial(
-	'a superseded partial switch can return to the previously viewed space',
-	async t => {
+beforeEach(() => {
+	clearCurrentlyViewingSpace();
+});
+
+test('failed cold respawn discards cached ttys before a recycled pty can target the other viewer', async () => {
+	let phase = 'empty';
+	const ttys = new Map([
+		['%1', '/dev/old-agent'],
+		['%2', '/dev/old-companion'],
+	]);
+	const destinations = new Map<string, string>();
+	const run: AsyncTmuxRunner = async args => {
+		if (args.includes('has-session') && phase === 'empty')
+			throw new Error('no session');
+		if (ttyQueryPane(args) !== undefined) {
+			const pane = ttyQueryPane(args)!;
+			if (phase === 'failed' && pane === '%2')
+				throw new Error('tty query failed after respawn');
+			return ttys.get(pane)!;
+		}
+		if (args.includes('list-clients'))
+			return phase === 'retry' ? [...ttys.values()].join('\n') : '';
+		if (args[0] === 'respawn-pane' && phase === 'failed') {
+			const pane = args[args.indexOf('-t') + 1]!;
+			ttys.set(pane, pane === '%1' ? '/dev/new-agent' : '/dev/old-agent');
+		}
+		if (args.includes('switch-client')) {
+			const tty = args[args.indexOf('-c') + 1]!;
+			const pane = [...ttys].find(([, value]) => value === tty)?.[0];
+			if (!pane) throw new Error('client not found');
+			destinations.set(pane, args[args.indexOf('-t') + 1]!);
+		}
+		return '';
+	};
+	const attach = async (key: string) =>
+		attachToSpace('%1', '%2', key, '%0', undefined, undefined, {run});
+	expect(await attach('TEST-EMPTY')).toBe(true);
+	phase = 'failed';
+	expect(await attach('TEST-FAILED')).toBe(false);
+	phase = 'retry';
+	expect(await attach('TEST-RETRY')).toBe(true);
+	expect(destinations.get('%1')?.startsWith('=agent-')).toBe(true);
+	expect(destinations.get('%2')?.startsWith('=companion-')).toBe(true);
+	expect(
+		[...destinations.values()].every(value => value.endsWith('-TEST-RETRY:')),
+	).toBe(true);
+});
+
+for (const selected of ['qa-custom', "/tmp/socket with ' quotes"]) {
+	test(`cold viewers attach to the selected socket ${selected}`, async () => {
+		const previous = process.env['PAPPARDELLE_TMUX_SOCKET'];
+		process.env['PAPPARDELLE_TMUX_SOCKET'] = selected;
+		teardown(() => {
+			if (previous === undefined) delete process.env['PAPPARDELLE_TMUX_SOCKET'];
+			else process.env['PAPPARDELLE_TMUX_SOCKET'] = previous;
+		});
 		const fake = fakeTmux();
-		t.true(
-			await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-				run: fake.run,
-			}),
-		);
-		fake.calls.length = 0;
-		const controller = new AbortController();
 		const run: AsyncTmuxRunner = async args => {
-			const output = await fake.run(args);
-			if (args.includes('switch-client')) controller.abort();
-			return output;
+			if (args.includes('list-clients')) {
+				fake.calls.push(args);
+				return '';
+			}
+			return fake.run(args);
 		};
-		t.false(
-			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-				run,
-				signal: controller.signal,
-			}),
-		);
-		t.is(getCurrentlyViewingSpace(), null);
-		t.is(fake.calls.filter(args => args.includes('switch-client')).length, 1);
-		fake.calls.length = 0;
-		t.true(
-			await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-				run: fake.run,
-			}),
-		);
-		t.deepEqual(
-			fake.calls.map(args => args.includes('switch-client')),
-			[true, false],
-		);
-		t.true(fake.calls[0]!.includes(';'));
-		t.is(getCurrentlyViewingSpace(), 'TEST-A');
-	},
-);
+		expect(
+			await attachToSpace(
+				'%1',
+				'%2',
+				'TEST-SOCKET',
+				'%0',
+				undefined,
+				undefined,
+				{run},
+			),
+		).toBe(true);
+		const commands = fake.calls
+			.filter(args => args.includes('respawn-pane'))
+			.map(args => frameScript(args.at(-1)!));
+		expect(commands.length).toBe(2);
+		for (const command of commands) {
+			expect(
+				command.includes(
+					`${shellQuote(selected.startsWith('/') ? '-S' : '-L')} ${shellQuote(selected)}`,
+				),
+			).toBe(true);
+			expect(command.includes('TMUX=')).toBe(false);
+			expect(command.includes('TEST-SOCKET:')).toBe(true);
+		}
+	});
+}
 
-test.serial('a label titles the agent frame in place of the key', async t => {
+test('switching yields to input and sends both clients to the selected inner sessions', async () => {
+	const fake = fakeTmux();
+	let release = () => {};
+	const wait = new Promise<void>(resolve => {
+		release = resolve;
+	});
+	let finished = false;
+	const run: AsyncTmuxRunner = async args => {
+		await wait;
+		return fake.run(args);
+	};
+	const attaching = attachToSpace(
+		'%1',
+		'%2',
+		'TEST-1',
+		'%0',
+		undefined,
+		undefined,
+		{run},
+	).then(result => {
+		finished = true;
+		return result;
+	});
+	await nextTurn();
+	expect(finished).toBe(false);
+	release();
+	expect(await attaching).toBe(true);
+	const switches = fake.calls.filter(args => args.includes('switch-client'));
+	expect(switches.length).toBe(2);
+	expect(
+		switches.every(args => args[0] === '-L' && args[1] === 'pappardelle_inner'),
+	).toBe(true);
+	expect(switches[0]!.at(-1)!.endsWith('-TEST-1:')).toBe(true);
+	expect(switches[1]!.at(-1)!.endsWith('-TEST-1:')).toBe(true);
+	expect(fake.calls.at(-1)).toStrictEqual(titleAndFocus('TEST-1'));
+});
+
+test('a superseded partial switch can return to the previously viewed space', async () => {
+	const fake = fakeTmux();
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		}),
+	).toBe(true);
+	fake.calls.length = 0;
+	const controller = new AbortController();
+	const run: AsyncTmuxRunner = async args => {
+		const output = await fake.run(args);
+		if (args.includes('switch-client')) controller.abort();
+		return output;
+	};
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+			run,
+			signal: controller.signal,
+		}),
+	).toBe(false);
+	expect(getCurrentlyViewingSpace()).toBe(null);
+	expect(fake.calls.filter(args => args.includes('switch-client')).length).toBe(
+		1,
+	);
+	fake.calls.length = 0;
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		}),
+	).toBe(true);
+	expect(fake.calls.map(args => args.includes('switch-client'))).toStrictEqual([
+		true,
+		false,
+	]);
+	expect(fake.calls[0]!.includes(';')).toBe(true);
+	expect(getCurrentlyViewingSpace()).toBe('TEST-A');
+});
+
+test('a label titles the agent frame in place of the key', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
 		run: fake.run,
 	});
 	fake.calls.length = 0;
-	t.true(
+	expect(
 		await attachToSpace('%1', '%2', 'main', '%0', undefined, undefined, {
 			run: fake.run,
 			label: 'sous-chef',
 		}),
-	);
+	).toBe(true);
 	const titles = splitBatch(fake.calls[0]!.slice(2))
 		.filter(command => command[3] === 'set-titles-string')
 		.map(command => command[4]);
-	t.deepEqual(titles, ['agent · sous-chef', 'companion']);
-	t.deepEqual(fake.calls[1], titleAndFocus('sous-chef'));
+	expect(titles).toStrictEqual(['agent · sous-chef', 'companion']);
+	expect(fake.calls[1]).toStrictEqual(titleAndFocus('sous-chef'));
 });
 
-test.serial(
-	'warm switches move both viewers in one request without setup probes',
-	async t => {
-		const fake = fakeTmux();
-		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+test('warm switches move both viewers in one request without setup probes', async () => {
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	fake.calls.length = 0;
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
 			run: fake.run,
-		});
-		fake.calls.length = 0;
-		t.true(
-			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-				run: fake.run,
-			}),
+		}),
+	).toBe(true);
+	expect(fake.calls.length).toBe(2);
+	const batch = fake.calls[0]!;
+	expect(batch.slice(0, 2)).toStrictEqual(['-L', 'pappardelle_inner']);
+	const commands = splitBatch(batch.slice(2));
+	expect(isSplitListing(commands.at(-1))).toBe(true);
+	const target = (prefix: string) =>
+		commands.find(
+			command =>
+				command[0] === 'switch-client' && command[4]!.startsWith(`=${prefix}-`),
 		);
-		t.is(fake.calls.length, 2);
-		const batch = fake.calls[0]!;
-		t.deepEqual(batch.slice(0, 2), ['-L', 'pappardelle_inner']);
-		const commands = splitBatch(batch.slice(2));
-		t.true(isSplitListing(commands.at(-1)));
-		const target = (prefix: string) =>
-			commands.find(
-				command =>
-					command[0] === 'switch-client' &&
-					command[4]!.startsWith(`=${prefix}-`),
-			);
-		t.deepEqual(target('agent')?.slice(0, 4), [
-			'switch-client',
-			'-c',
-			'/dev/claude',
-			'-t',
-		]);
-		t.true(target('agent')![4]!.endsWith('-TEST-B:'));
-		t.deepEqual(target('companion')?.slice(0, 4), [
-			'switch-client',
-			'-c',
-			'/dev/companion',
-			'-t',
-		]);
-		t.true(target('companion')![4]!.endsWith('-TEST-B:'));
-		const titles = commands
-			.filter(command => command[3] === 'set-titles-string')
-			.map(command => command[4]);
-		t.deepEqual(titles, ['agent · TEST-B', 'companion']);
-		t.deepEqual(fake.calls[1], titleAndFocus('TEST-B'));
-	},
-);
+	expect(target('agent')?.slice(0, 4)).toStrictEqual([
+		'switch-client',
+		'-c',
+		'/dev/claude',
+		'-t',
+	]);
+	expect(target('agent')![4]!.endsWith('-TEST-B:')).toBe(true);
+	expect(target('companion')?.slice(0, 4)).toStrictEqual([
+		'switch-client',
+		'-c',
+		'/dev/companion',
+		'-t',
+	]);
+	expect(target('companion')![4]!.endsWith('-TEST-B:')).toBe(true);
+	const titles = commands
+		.filter(command => command[3] === 'set-titles-string')
+		.map(command => command[4]);
+	expect(titles).toStrictEqual(['agent · TEST-B', 'companion']);
+	expect(fake.calls[1]).toStrictEqual(titleAndFocus('TEST-B'));
+});
 
-test.serial(
-	'a switch and a session start use the names stored for the space',
-	async t => {
-		const stored = testState(t, {repo: getRepoName(), sqlite: true});
-		for (const key of ['TEST-A', 'TEST-HAND']) {
-			// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
-			await stored.daos.spaceIdentities.record({
-				repo: getRepoName(),
-				key,
-				worktreePath: '/tmp',
-				tmux: {
-					socket: 'pappardelle_inner',
-					agentSession: `hand-named-agent-${key}`,
-					companionSession: `hand-named-companion-${key}`,
-				},
+test('a switch and a session start use the names stored for the space', async () => {
+	const stored = testState({repo: getRepoName(), sqlite: true});
+	for (const key of ['TEST-A', 'TEST-HAND']) {
+		// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
+		await stored.daos.spaceIdentities.record({
+			repo: getRepoName(),
+			key,
+			worktreePath: '/tmp',
+			tmux: {
+				socket: 'pappardelle_inner',
+				agentSession: `hand-named-agent-${key}`,
+				companionSession: `hand-named-companion-${key}`,
+			},
+		});
+	}
+
+	initTmuxState(stored.daos);
+	teardown(() => {
+		initTmuxState(derived.daos);
+	});
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	fake.calls.length = 0;
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-HAND', '%0', undefined, undefined, {
+			run: fake.run,
+		}),
+	).toBe(true);
+	expect(
+		splitBatch(fake.calls[0]!.slice(2))
+			.filter(command => command[0] === 'switch-client')
+			.map(command => command[4]),
+	).toStrictEqual([
+		'=hand-named-agent-TEST-HAND:',
+		'=hand-named-companion-TEST-HAND:',
+	]);
+
+	const started: string[][] = [];
+	const run: AsyncTmuxRunner = async args => {
+		started.push(args);
+		if (args.includes('has-session')) throw new Error('no session');
+		return '';
+	};
+	expect(await ensureCompanionSession('TEST-HAND', '/tmp', '', run)).toBe(true);
+	expect(await ensureAgentSession('TEST-HAND', '/tmp', false, run)).toBe(true);
+	expect(
+		started
+			.filter(args => args.includes('new-session'))
+			.map(args => args[args.indexOf('-s') + 1]),
+	).toStrictEqual([
+		'hand-named-companion-TEST-HAND',
+		'hand-named-agent-TEST-HAND',
+	]);
+});
+
+test("a warm switch finds the space's splits in its own request's listing", async () => {
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	fake.calls.length = 0;
+	const run: AsyncTmuxRunner = async args => {
+		const output = await fake.run(args);
+		if (!isSwitchBatch(args)) return output;
+		const companion = args
+			.find(arg => arg.startsWith('=companion-'))!
+			.slice(1, -1);
+		return [
+			`${companion}\t\t\t\t%8\tsh\t80\t24\t1\t1\t`,
+			`${companion}~logs\tdown\t\t1\t%9\tsh\t80\t24\t0\t\t`,
+		].join('\n');
+	};
+
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+			run,
+		}),
+	).toBe(true);
+	// The split it found sends it on to measure the window.
+	expect(fake.calls[2]?.slice(0, 3)).toStrictEqual(['list-panes', '-t', '%1']);
+	expect(fake.calls.some(args => args[2] === 'list-sessions')).toBe(false);
+});
+
+test('an invalid warm cache falls back and retries both viewers after a partial batch', async () => {
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	fake.calls.length = 0;
+	const run: AsyncTmuxRunner = async args => {
+		const output = await fake.run(args);
+		if (isSwitchBatch(args)) throw new Error('second client disappeared');
+		if (ttyQueryPane(args) !== undefined) {
+			return ttyQueryPane(args) === '%1'
+				? '/dev/new-claude'
+				: '/dev/new-companion';
+		}
+		if (args.includes('list-clients')) {
+			return '/dev/new-claude\n/dev/new-companion\n';
+		}
+		return output;
+	};
+	clearRecentErrors();
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+			run,
+		}),
+	).toBe(true);
+	const retries = fake.calls.filter(
+		args => args.includes('switch-client') && !args.includes(';'),
+	);
+	expect(retries.length).toBe(2);
+	expect(retries.map(args => args[4])).toStrictEqual([
+		'/dev/new-claude',
+		'/dev/new-companion',
+	]);
+	expect(retries.every(args => args.at(-1)!.endsWith('-TEST-B:'))).toBe(true);
+	expect(getCurrentlyViewingSpace()).toBe('TEST-B');
+	expect(
+		getRecentErrors().some(error =>
+			error.message.includes('Fast workspace switch to TEST-B failed'),
+		),
+	).toBe(true);
+});
+
+test('a first switch to a workspace without sessions falls back without reporting an error', async () => {
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	const run: AsyncTmuxRunner = async args => {
+		const output = await fake.run(args);
+		if (isSwitchBatch(args)) {
+			throw Object.assign(new Error('Command failed'), {
+				code: 1,
+				stderr: "can't find session: agent-TEST-B\n",
 			});
 		}
 
-		initTmuxState(stored.daos);
-		t.teardown(() => {
-			initTmuxState(derived.daos);
-		});
-		const fake = fakeTmux();
-		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-			run: fake.run,
-		});
-		fake.calls.length = 0;
-		t.true(
-			await attachToSpace('%1', '%2', 'TEST-HAND', '%0', undefined, undefined, {
-				run: fake.run,
-			}),
-		);
-		t.deepEqual(
-			splitBatch(fake.calls[0]!.slice(2))
-				.filter(command => command[0] === 'switch-client')
-				.map(command => command[4]),
-			['=hand-named-agent-TEST-HAND:', '=hand-named-companion-TEST-HAND:'],
-		);
-
-		const started: string[][] = [];
-		const run: AsyncTmuxRunner = async args => {
-			started.push(args);
-			if (args.includes('has-session')) throw new Error('no session');
-			return '';
-		};
-		t.true(await ensureCompanionSession('TEST-HAND', '/tmp', '', run));
-		t.true(await ensureAgentSession('TEST-HAND', '/tmp', false, run));
-		t.deepEqual(
-			started
-				.filter(args => args.includes('new-session'))
-				.map(args => args[args.indexOf('-s') + 1]),
-			['hand-named-companion-TEST-HAND', 'hand-named-agent-TEST-HAND'],
-		);
-	},
-);
-
-test.serial(
-	"a warm switch finds the space's splits in its own request's listing",
-	async t => {
-		const fake = fakeTmux();
-		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-			run: fake.run,
-		});
-		fake.calls.length = 0;
-		const run: AsyncTmuxRunner = async args => {
-			const output = await fake.run(args);
-			if (!isSwitchBatch(args)) return output;
-			const companion = args
-				.find(arg => arg.startsWith('=companion-'))!
-				.slice(1, -1);
-			return [
-				`${companion}\t\t\t\t%8\tsh\t80\t24\t1\t1\t`,
-				`${companion}~logs\tdown\t\t1\t%9\tsh\t80\t24\t0\t\t`,
-			].join('\n');
-		};
-
-		t.true(
-			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-				run,
-			}),
-		);
-		// The split it found sends it on to measure the window.
-		t.deepEqual(fake.calls[2]?.slice(0, 3), ['list-panes', '-t', '%1']);
-		t.false(fake.calls.some(args => args[2] === 'list-sessions'));
-	},
-);
-
-test.serial(
-	'an invalid warm cache falls back and retries both viewers after a partial batch',
-	async t => {
-		const fake = fakeTmux();
-		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-			run: fake.run,
-		});
-		fake.calls.length = 0;
-		const run: AsyncTmuxRunner = async args => {
-			const output = await fake.run(args);
-			if (isSwitchBatch(args)) throw new Error('second client disappeared');
-			if (ttyQueryPane(args) !== undefined) {
-				return ttyQueryPane(args) === '%1'
-					? '/dev/new-claude'
-					: '/dev/new-companion';
-			}
-			if (args.includes('list-clients')) {
-				return '/dev/new-claude\n/dev/new-companion\n';
-			}
-			return output;
-		};
-		clearRecentErrors();
-		t.true(
-			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-				run,
-			}),
-		);
-		const retries = fake.calls.filter(
-			args => args.includes('switch-client') && !args.includes(';'),
-		);
-		t.is(retries.length, 2);
-		t.deepEqual(
-			retries.map(args => args[4]),
-			['/dev/new-claude', '/dev/new-companion'],
-		);
-		t.true(retries.every(args => args.at(-1)!.endsWith('-TEST-B:')));
-		t.is(getCurrentlyViewingSpace(), 'TEST-B');
-		t.true(
-			getRecentErrors().some(error =>
-				error.message.includes('Fast workspace switch to TEST-B failed'),
-			),
-		);
-	},
-);
-
-test.serial(
-	'a first switch to a workspace without sessions falls back without reporting an error',
-	async t => {
-		const fake = fakeTmux();
-		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-			run: fake.run,
-		});
-		const run: AsyncTmuxRunner = async args => {
-			const output = await fake.run(args);
-			if (isSwitchBatch(args)) {
-				throw Object.assign(new Error('Command failed'), {
-					code: 1,
-					stderr: "can't find session: agent-TEST-B\n",
-				});
-			}
-
-			return output;
-		};
-		clearRecentErrors();
-		t.true(
-			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-				run,
-			}),
-		);
-		t.is(getCurrentlyViewingSpace(), 'TEST-B');
-		t.deepEqual(getRecentErrors(), []);
-	},
-);
-
-test.serial(
-	'a switch whose viewer client left with its ended session falls back without reporting an error',
-	async t => {
-		const fake = fakeTmux();
-		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-			run: fake.run,
-		});
-		const run: AsyncTmuxRunner = async args => {
-			const output = await fake.run(args);
-			if (isSwitchBatch(args)) {
-				throw Object.assign(new Error('Command failed'), {
-					code: 1,
-					stderr: "can't find client: /dev/pts/9\n",
-				});
-			}
-
-			return output;
-		};
-		clearRecentErrors();
-		t.true(
-			await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-				run,
-			}),
-		);
-		t.deepEqual(getRecentErrors(), []);
-	},
-);
-
-test.serial(
-	'a missing companion session says the companion, not the agent, is not running',
-	async t => {
-		const fake = fakeTmux();
-		const {companion} = sessionNamesFor('TEST-C', getRepoName());
-		const run: AsyncTmuxRunner = async args => {
-			if (
-				(args.includes('has-session') || args.includes('new-session')) &&
-				args.some(arg => arg.includes(companion))
-			)
-				throw Object.assign(new Error('companion failed'), {code: 1});
-			return fake.run(args);
-		};
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-C', '%0', '/tmp', undefined, {
+		return output;
+	};
+	clearRecentErrors();
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
 			run,
-		});
-		const respawned = (paneId: string) =>
-			fake.calls
-				.filter(args => args.includes('respawn-pane') && args.includes(paneId))
-				.flat()
-				.join(' ');
-		t.true(respawned('%2').includes('has no companion running'));
-		t.false(
-			fake.calls.flat().some(arg => arg.includes('has no agent running')),
-		);
-		clearCurrentlyViewingSpace();
-	},
-);
+		}),
+	).toBe(true);
+	expect(getCurrentlyViewingSpace()).toBe('TEST-B');
+	expect(getRecentErrors()).toStrictEqual([]);
+});
 
-test.serial(
-	'an absent inner server displays no-session state without hiding real client-query errors',
-	async t => {
-		const fake = fakeTmux();
-		const missing = Object.assign(new Error('no server'), {
-			code: 1,
-			stderr: 'no server running on /tmp/fixture',
-		});
-		const run: AsyncTmuxRunner = async args => {
-			if (args.includes('has-session') || args.includes('list-clients'))
-				throw missing;
-			return fake.run(args);
-		};
-		clearRecentErrors();
-		await attachToSpace(
-			'%1',
-			'',
-			'ABSENT-FIXTURE-999999',
-			'%0',
-			undefined,
-			undefined,
-			{run},
-		);
-		t.true(
-			fake.calls.some(args =>
-				args.some(
-					arg =>
-						arg.includes('has no agent running') &&
-						arg.includes('ABSENT-FIXTURE-999999'),
-				),
-			),
-		);
-		t.false(
-			getRecentErrors().some(error =>
-				error.message.includes('Failed to attach'),
-			),
-		);
-		clearCurrentlyViewingSpace();
-		const denied: AsyncTmuxRunner = async args => {
-			if (args.includes('list-clients'))
-				throw Object.assign(new Error('permission denied'), {
-					code: 1,
-					stderr: 'Permission denied',
-				});
-			return fake.run(args);
-		};
-		t.false(
-			await attachToSpace('%1', '', 'TEST-DENIED', '%0', undefined, undefined, {
-				run: denied,
-			}),
-		);
-		t.true(
-			getRecentErrors().some(error =>
-				error.message.includes('Failed to attach'),
-			),
-		);
-	},
-);
-
-test.serial(
-	'companion teardown failure leaves Claude alive and reattachment sends no launch command',
-	async t => {
-		const fake = fakeTmux();
-		await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
-			run: fake.run,
-		});
-		fake.calls.length = 0;
-		const run: AsyncTmuxRunner = async args => {
-			await fake.run(args);
-			if (
-				args.includes('kill-session') &&
-				args.some(arg => arg.startsWith('=companion-'))
-			)
-				throw new Error('companion kill failed');
-			return '';
-		};
-		t.false(await killSpaceSessions('TEST-KEEP', {run}));
-		t.false(
-			fake.calls.some(
-				args =>
-					args.includes('kill-session') &&
-					args.some(arg => /^=(?:agent|claude)-/.test(arg)),
-			),
-		);
-		await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
-			run: fake.run,
-		});
-		t.false(
-			fake.calls.some(
-				args =>
-					args.includes('new-session') ||
-					args.some(arg => arg.includes('claude --resume')),
-			),
-		);
-	},
-);
-
-test.serial(
-	'replaced viewer panes invalidate TTYs even for the same selected workspace',
-	async t => {
-		const fake = fakeTmux();
-		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-			run: fake.run,
-		});
-		fake.calls.length = 0;
-		t.true(
-			await attachToSpace('%3', '', 'TEST-A', '%0', undefined, undefined, {
-				run: fake.run,
-			}),
-		);
-		t.true(fake.calls.some(args => ttyQueryPane(args) === '%3'));
-		t.false(fake.calls.some(args => isSwitchBatch(args)));
-	},
-);
-
-test.serial(
-	'rapid navigation skips stale selections while tmux is still responding',
-	async t => {
-		const fake = fakeTmux();
-		const task = new LatestTask();
-		let release = () => {};
-		const wait = new Promise<void>(resolve => {
-			release = resolve;
-		});
-		const run: AsyncTmuxRunner = async args => {
-			await wait;
-			return fake.run(args);
-		};
-		const select = async (key: string) =>
-			task.run(async signal => {
-				await attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
-					run,
-					signal,
-				});
+test('a switch whose viewer client left with its ended session falls back without reporting an error', async () => {
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	const run: AsyncTmuxRunner = async args => {
+		const output = await fake.run(args);
+		if (isSwitchBatch(args)) {
+			throw Object.assign(new Error('Command failed'), {
+				code: 1,
+				stderr: "can't find client: /dev/pts/9\n",
 			});
-		const first = select('TEST-A');
-		await nextTurn();
-		const second = select('TEST-B');
-		const third = select('TEST-C');
-		release();
-		await Promise.all([first, second, third]);
-		const targets = fake.calls
-			.filter(args => args.includes('switch-client'))
-			.map(args => args.at(-1));
-		t.is(targets.length, 2);
-		t.true(targets.every(target => target!.endsWith('-TEST-C:')));
-		t.false(fake.calls.some(args => args.some(arg => arg.includes('-TEST-B'))));
-		t.is(getCurrentlyViewingSpace(), 'TEST-C');
-	},
-);
+		}
 
-test.serial(
-	'a failed tmux switch is reported as failure and can be retried',
-	async t => {
-		const fake = fakeTmux();
-		const run: AsyncTmuxRunner = async args => {
-			if (args.includes('switch-client')) throw new Error('client disappeared');
-			return fake.run(args);
-		};
-		t.false(
-			await attachToSpace('%1', '%2', 'TEST-FAIL', '%0', undefined, undefined, {
+		return output;
+	};
+	clearRecentErrors();
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+			run,
+		}),
+	).toBe(true);
+	expect(getRecentErrors()).toStrictEqual([]);
+});
+
+test('a missing companion session says the companion, not the agent, is not running', async () => {
+	const fake = fakeTmux();
+	const {companion} = sessionNamesFor('TEST-C', getRepoName());
+	const run: AsyncTmuxRunner = async args => {
+		if (
+			(args.includes('has-session') || args.includes('new-session')) &&
+			args.some(arg => arg.includes(companion))
+		)
+			throw Object.assign(new Error('companion failed'), {code: 1});
+		return fake.run(args);
+	};
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-C', '%0', '/tmp', undefined, {
+		run,
+	});
+	const respawned = (paneId: string) =>
+		fake.calls
+			.filter(args => args.includes('respawn-pane') && args.includes(paneId))
+			.flat()
+			.join(' ');
+	expect(respawned('%2').includes('has no companion running')).toBe(true);
+	expect(
+		fake.calls.flat().some(arg => arg.includes('has no agent running')),
+	).toBe(false);
+	clearCurrentlyViewingSpace();
+});
+
+test('an absent inner server displays no-session state without hiding real client-query errors', async () => {
+	const fake = fakeTmux();
+	const missing = Object.assign(new Error('no server'), {
+		code: 1,
+		stderr: 'no server running on /tmp/fixture',
+	});
+	const run: AsyncTmuxRunner = async args => {
+		if (args.includes('has-session') || args.includes('list-clients'))
+			throw missing;
+		return fake.run(args);
+	};
+	clearRecentErrors();
+	await attachToSpace(
+		'%1',
+		'',
+		'ABSENT-FIXTURE-999999',
+		'%0',
+		undefined,
+		undefined,
+		{run},
+	);
+	expect(
+		fake.calls.some(args =>
+			args.some(
+				arg =>
+					arg.includes('has no agent running') &&
+					arg.includes('ABSENT-FIXTURE-999999'),
+			),
+		),
+	).toBe(true);
+	expect(
+		getRecentErrors().some(error => error.message.includes('Failed to attach')),
+	).toBe(false);
+	clearCurrentlyViewingSpace();
+	const denied: AsyncTmuxRunner = async args => {
+		if (args.includes('list-clients'))
+			throw Object.assign(new Error('permission denied'), {
+				code: 1,
+				stderr: 'Permission denied',
+			});
+		return fake.run(args);
+	};
+	expect(
+		await attachToSpace('%1', '', 'TEST-DENIED', '%0', undefined, undefined, {
+			run: denied,
+		}),
+	).toBe(false);
+	expect(
+		getRecentErrors().some(error => error.message.includes('Failed to attach')),
+	).toBe(true);
+});
+
+test('companion teardown failure leaves Claude alive and reattachment sends no launch command', async () => {
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	fake.calls.length = 0;
+	const run: AsyncTmuxRunner = async args => {
+		await fake.run(args);
+		if (
+			args.includes('kill-session') &&
+			args.some(arg => arg.startsWith('=companion-'))
+		)
+			throw new Error('companion kill failed');
+		return '';
+	};
+	expect(await killSpaceSessions('TEST-KEEP', {run})).toBe(false);
+	expect(
+		fake.calls.some(
+			args =>
+				args.includes('kill-session') &&
+				args.some(arg => /^=(?:agent|claude)-/.test(arg)),
+		),
+	).toBe(false);
+	await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	expect(
+		fake.calls.some(
+			args =>
+				args.includes('new-session') ||
+				args.some(arg => arg.includes('claude --resume')),
+		),
+	).toBe(false);
+});
+
+test('replaced viewer panes invalidate TTYs even for the same selected workspace', async () => {
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		run: fake.run,
+	});
+	fake.calls.length = 0;
+	expect(
+		await attachToSpace('%3', '', 'TEST-A', '%0', undefined, undefined, {
+			run: fake.run,
+		}),
+	).toBe(true);
+	expect(fake.calls.some(args => ttyQueryPane(args) === '%3')).toBe(true);
+	expect(fake.calls.some(args => isSwitchBatch(args))).toBe(false);
+});
+
+test('rapid navigation skips stale selections while tmux is still responding', async () => {
+	const fake = fakeTmux();
+	const task = new LatestTask();
+	let release = () => {};
+	const wait = new Promise<void>(resolve => {
+		release = resolve;
+	});
+	const run: AsyncTmuxRunner = async args => {
+		await wait;
+		return fake.run(args);
+	};
+	const select = async (key: string) =>
+		task.run(async signal => {
+			await attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
 				run,
-			}),
-		);
-		t.is(getCurrentlyViewingSpace(), null);
-		t.true(
-			await attachToSpace('%1', '%2', 'TEST-FAIL', '%0', undefined, undefined, {
-				run: fake.run,
-			}),
-		);
-	},
-);
+				signal,
+			});
+		});
+	const first = select('TEST-A');
+	await nextTurn();
+	const second = select('TEST-B');
+	const third = select('TEST-C');
+	release();
+	await Promise.all([first, second, third]);
+	const targets = fake.calls
+		.filter(args => args.includes('switch-client'))
+		.map(args => args.at(-1));
+	expect(targets.length).toBe(2);
+	expect(targets.every(target => target!.endsWith('-TEST-C:'))).toBe(true);
+	expect(
+		fake.calls.some(args => args.some(arg => arg.includes('-TEST-B'))),
+	).toBe(false);
+	expect(getCurrentlyViewingSpace()).toBe('TEST-C');
+});
 
-test.serial(
-	'cold companion creation completes its command before reporting success',
-	async t => {
-		const calls: string[][] = [];
-		const run: AsyncTmuxRunner = async args => {
-			calls.push(args);
-			if (args.includes('has-session')) throw new Error('no session');
-			return '';
-		};
-		t.true(await ensureCompanionSession('TEST-NEW', '/tmp', 'custom-ui', run));
-		t.deepEqual(
-			calls.map(args => args[2]),
-			['has-session', 'new-session', 'set-option'],
-		);
-		t.deepEqual(calls[2]!.slice(3), [
-			'-p',
-			'-t',
-			`=${calls[1]![calls[1]!.indexOf('-s') + 1]}:`,
-			'@pappa_pane',
-			'main',
-		]);
-		t.true(
-			calls.every(args => args[0] === '-L' && args[1] === 'pappardelle_inner'),
-		);
-		t.true(calls[1]!.includes('PAPPARDELLE_SPACE=TEST-NEW'));
-		t.true(calls[1]!.includes('custom-ui'));
-	},
-);
+test('a failed tmux switch is reported as failure and can be retried', async () => {
+	const fake = fakeTmux();
+	const run: AsyncTmuxRunner = async args => {
+		if (args.includes('switch-client')) throw new Error('client disappeared');
+		return fake.run(args);
+	};
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-FAIL', '%0', undefined, undefined, {
+			run,
+		}),
+	).toBe(false);
+	expect(getCurrentlyViewingSpace()).toBe(null);
+	expect(
+		await attachToSpace('%1', '%2', 'TEST-FAIL', '%0', undefined, undefined, {
+			run: fake.run,
+		}),
+	).toBe(true);
+});
+
+test('cold companion creation completes its command before reporting success', async () => {
+	const calls: string[][] = [];
+	const run: AsyncTmuxRunner = async args => {
+		calls.push(args);
+		if (args.includes('has-session')) throw new Error('no session');
+		return '';
+	};
+	expect(
+		await ensureCompanionSession('TEST-NEW', '/tmp', 'custom-ui', run),
+	).toBe(true);
+	expect(calls.map(args => args[2])).toStrictEqual([
+		'has-session',
+		'new-session',
+		'set-option',
+	]);
+	expect(calls[2]!.slice(3)).toStrictEqual([
+		'-p',
+		'-t',
+		`=${calls[1]![calls[1]!.indexOf('-s') + 1]}:`,
+		'@pappa_pane',
+		'main',
+	]);
+	expect(
+		calls.every(args => args[0] === '-L' && args[1] === 'pappardelle_inner'),
+	).toBe(true);
+	expect(calls[1]!.includes('PAPPARDELLE_SPACE=TEST-NEW')).toBe(true);
+	expect(calls[1]!.includes('custom-ui')).toBe(true);
+});
 
 // The agent's hook records its session id under the stored agent profile
 // (plugins/pappardelle/hooks/agent_session.py), never one the session carries.
-test.serial(
-	'a new agent session stores the agent profile it was started with',
-	async t => {
-		const calls: string[][] = [];
-		const run: AsyncTmuxRunner = async args => {
-			calls.push(args);
-			if (args.includes('has-session')) throw new Error('no session');
-			return '';
-		};
-		t.true(
-			await ensureAgentSession('TEST-NEW', '/tmp', false, run, {
-				name: 'codex',
-				command: 'codex',
-				args: '',
-				isClaude: false,
-				model: '',
-				effort: '',
-			}),
-		);
-		t.deepEqual(derived.daos.spaceState.read('TEST-NEW')?.agentProfile, {
+test('a new agent session stores the agent profile it was started with', async () => {
+	const calls: string[][] = [];
+	const run: AsyncTmuxRunner = async args => {
+		calls.push(args);
+		if (args.includes('has-session')) throw new Error('no session');
+		return '';
+	};
+	expect(
+		await ensureAgentSession('TEST-NEW', '/tmp', false, run, {
 			name: 'codex',
+			command: 'codex',
+			args: '',
 			isClaude: false,
-		});
-		const created = calls.find(args => args.includes('new-session'))!;
-		t.false(created.some(arg => arg.startsWith('PAPPARDELLE_AGENT_')));
-	},
-);
+			model: '',
+			effort: '',
+		}),
+	).toBe(true);
+	expect(derived.daos.spaceState.read('TEST-NEW')?.agentProfile).toStrictEqual({
+		name: 'codex',
+		isClaude: false,
+	});
+	const created = calls.find(args => args.includes('new-session'))!;
+	expect(created.some(arg => arg.startsWith('PAPPARDELLE_AGENT_'))).toBe(false);
+});
 
-test.serial(
-	'a new agent session starts when its agent profile cannot be stored',
-	async t => {
-		const {spaceState} = derived.daos;
-		const {write} = spaceState;
-		spaceState.write = async () => {
-			throw new Error('database is locked');
-		};
-		t.teardown(() => {
-			spaceState.write = write;
-		});
-		const calls: string[][] = [];
-		const run: AsyncTmuxRunner = async args => {
-			calls.push(args);
-			if (args.includes('has-session')) throw new Error('no session');
-			return '';
-		};
-		t.true(
-			await ensureAgentSession('TEST-NEW', '/tmp', false, run, {
-				name: 'codex',
-				command: 'codex',
-				args: '',
-				isClaude: false,
-				model: '',
-				effort: '',
-			}),
-		);
-		t.true(calls.some(args => args.includes('new-session')));
-	},
-);
+test('a new agent session starts when its agent profile cannot be stored', async () => {
+	const {spaceState} = derived.daos;
+	const {write} = spaceState;
+	spaceState.write = async () => {
+		throw new Error('database is locked');
+	};
+	teardown(() => {
+		spaceState.write = write;
+	});
+	const calls: string[][] = [];
+	const run: AsyncTmuxRunner = async args => {
+		calls.push(args);
+		if (args.includes('has-session')) throw new Error('no session');
+		return '';
+	};
+	expect(
+		await ensureAgentSession('TEST-NEW', '/tmp', false, run, {
+			name: 'codex',
+			command: 'codex',
+			args: '',
+			isClaude: false,
+			model: '',
+			effort: '',
+		}),
+	).toBe(true);
+	expect(calls.some(args => args.includes('new-session'))).toBe(true);
+});
 
-test.serial(
-	"a new agent session carries its agent profile's env, one -e per variable",
-	async t => {
-		const calls: string[][] = [];
-		const run: AsyncTmuxRunner = async args => {
-			calls.push(args);
-			if (args.includes('has-session')) throw new Error('no session');
-			return '';
-		};
-		await ensureAgentSession('TEST-ENV', '/tmp', false, run, {
-			...DEFAULT_RESOLVED_AGENT_PROFILE,
-			name: 'opus',
-			env: {CODE_MODE: '1', SPACED: "a b'c", PI_PROGRAM_STATUS: '0'},
-		});
-		const created = calls.find(args => args.includes('new-session'))!;
-		const envFlags = created.flatMap((arg, i) =>
-			arg === '-e' ? [created[i + 1]!] : [],
-		);
-		t.true(envFlags.includes('CODE_MODE=1'));
-		t.true(envFlags.includes("SPACED=a b'c"));
-		// tmux keeps the last -e for a name, so pappardelle's own value wins.
-		t.is(
-			envFlags.findLast(flag => flag.startsWith('PI_PROGRAM_STATUS=')),
-			'PI_PROGRAM_STATUS=1',
-		);
-	},
-);
+test("a new agent session carries its agent profile's env, one -e per variable", async () => {
+	const calls: string[][] = [];
+	const run: AsyncTmuxRunner = async args => {
+		calls.push(args);
+		if (args.includes('has-session')) throw new Error('no session');
+		return '';
+	};
+	await ensureAgentSession('TEST-ENV', '/tmp', false, run, {
+		...DEFAULT_RESOLVED_AGENT_PROFILE,
+		name: 'opus',
+		env: {CODE_MODE: '1', SPACED: "a b'c", PI_PROGRAM_STATUS: '0'},
+	});
+	const created = calls.find(args => args.includes('new-session'))!;
+	const envFlags = created.flatMap((arg, i) =>
+		arg === '-e' ? [created[i + 1]!] : [],
+	);
+	expect(envFlags.includes('CODE_MODE=1')).toBe(true);
+	expect(envFlags.includes("SPACED=a b'c")).toBe(true);
+	// tmux keeps the last -e for a name, so pappardelle's own value wins.
+	expect(envFlags.findLast(flag => flag.startsWith('PI_PROGRAM_STATUS='))).toBe(
+		'PI_PROGRAM_STATUS=1',
+	);
+});
 
-test.serial(
-	'a frame started with its pane is handed its program, and a later start respawns it',
-	async t => {
-		registerAwaitingFrame('%7');
-		const calls: string[][] = [];
-		let clientGone = false;
-		const run: AsyncTmuxRunner = async args => {
-			calls.push(args);
-			if (clientGone && isSwitchBatch(args)) throw new Error('client gone');
-			return ttyQueryPane(args) === undefined ? '' : '/dev/frame';
-		};
-		const attach = async (key: string) =>
-			attachToSpace('%7', '', key, '%0', undefined, undefined, {run});
+test('a frame started with its pane is handed its program, and a later start respawns it', async () => {
+	registerAwaitingFrame('%7');
+	const calls: string[][] = [];
+	let clientGone = false;
+	const run: AsyncTmuxRunner = async args => {
+		calls.push(args);
+		if (clientGone && isSwitchBatch(args)) throw new Error('client gone');
+		return ttyQueryPane(args) === undefined ? '' : '/dev/frame';
+	};
+	const attach = async (key: string) =>
+		attachToSpace('%7', '', key, '%0', undefined, undefined, {run});
 
-		t.true(await attach('TEST-WARM'));
-		const handed = calls.find(args => args.includes(FRAME_COMMAND_OPTION))!;
-		const program = handed[handed.indexOf(FRAME_COMMAND_OPTION) + 1]!;
-		t.true(
-			program.includes(
-				`=${sessionNamesFor('TEST-WARM', getRepoName()).agent}:`,
-			),
-		);
-		t.true(program.includes('agent · TEST-WARM'));
-		t.deepEqual(handed.slice(-3), ['wait-for', '-S', frameReadyChannel('%7')]);
-		t.false(calls.some(args => args.includes('respawn-pane')));
+	expect(await attach('TEST-WARM')).toBe(true);
+	const handed = calls.find(args => args.includes(FRAME_COMMAND_OPTION))!;
+	const program = handed[handed.indexOf(FRAME_COMMAND_OPTION) + 1]!;
+	expect(
+		program.includes(`=${sessionNamesFor('TEST-WARM', getRepoName()).agent}:`),
+	).toBe(true);
+	expect(program.includes('agent · TEST-WARM')).toBe(true);
+	expect(handed.slice(-3)).toStrictEqual([
+		'wait-for',
+		'-S',
+		frameReadyChannel('%7'),
+	]);
+	expect(calls.some(args => args.includes('respawn-pane'))).toBe(false);
 
-		calls.length = 0;
-		clientGone = true;
-		t.true(await attach('TEST-NEXT'));
-		t.true(calls.some(args => args.includes('respawn-pane')));
-		t.false(calls.some(args => args.includes(FRAME_COMMAND_OPTION)));
-	},
-);
+	calls.length = 0;
+	clientGone = true;
+	expect(await attach('TEST-NEXT')).toBe(true);
+	expect(calls.some(args => args.includes('respawn-pane'))).toBe(true);
+	expect(calls.some(args => args.includes(FRAME_COMMAND_OPTION))).toBe(false);
+});
 
-test.serial(
-	'a started signal left by an earlier start does not stand in for the new frame',
-	async t => {
-		const calls: string[][] = [];
-		let waits = 0;
-		const run: AsyncTmuxRunner = async args => {
-			calls.push(args);
-			if (args[0] === 'wait-for') return ++waits === 1 ? '' : '/dev/late';
-			return '';
-		};
-		const attach = async (key: string) =>
-			attachToSpace('%8', '', key, '%0', undefined, undefined, {run});
+test('a started signal left by an earlier start does not stand in for the new frame', async () => {
+	const calls: string[][] = [];
+	let waits = 0;
+	const run: AsyncTmuxRunner = async args => {
+		calls.push(args);
+		if (args[0] === 'wait-for') return ++waits === 1 ? '' : '/dev/late';
+		return '';
+	};
+	const attach = async (key: string) =>
+		attachToSpace('%8', '', key, '%0', undefined, undefined, {run});
 
-		t.true(await attach('TEST-STALE'));
-		t.is(waits, 2);
-		t.true(
-			calls
-				.filter(args => args[0] === 'wait-for')
-				.every(args => args[1] === frameStartedChannel('%8')),
-		);
-		calls.length = 0;
-		t.true(await attach('TEST-AFTER'));
-		const switched = calls.find(args => isSwitchBatch(args))!;
-		t.is(switched[switched.indexOf('-c') + 1], '/dev/late');
-	},
-);
+	expect(await attach('TEST-STALE')).toBe(true);
+	expect(waits).toBe(2);
+	expect(
+		calls
+			.filter(args => args[0] === 'wait-for')
+			.every(args => args[1] === frameStartedChannel('%8')),
+	).toBe(true);
+	calls.length = 0;
+	expect(await attach('TEST-AFTER')).toBe(true);
+	const switched = calls.find(args => isSwitchBatch(args))!;
+	expect(switched[switched.indexOf('-c') + 1]).toBe('/dev/late');
+});
 
 // A config that fails validation while the TUI runs must not bring a space's
 // programs back with built-in commands: its agent profile, model and env would
@@ -1257,10 +1185,10 @@ const INVALID_AGENT_PROFILE =
 const VALID_CONFIG = 'version: 1\nprofiles: {}\n';
 const projectConfig = () => join(emptyRepository, '.pappardelle.yml');
 
-function withInvalidConfig(t: ExecutionContext): void {
-	isolatedHome(t);
+function withInvalidConfig(): void {
+	isolatedHome();
 	writeFileSync(projectConfig(), INVALID_AGENT_PROFILE);
-	t.teardown(() => {
+	teardown(() => {
 		rmSync(projectConfig(), {force: true});
 	});
 }
@@ -1306,152 +1234,135 @@ const invalidConfigErrors = (issueKey: string) =>
 		error.message.startsWith(`Sessions of ${issueKey} not started`),
 	);
 
-test.serial(
-	'an invalid config holds back dead sessions and says why, once',
-	async t => {
-		withInvalidConfig(t);
-		const {agent, companion} = sessionNamesFor('TEST-INVALID', getRepoName());
-		const {calls, run} = tmuxMissingSessions(agent, companion);
-		clearRecentErrors();
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
-			run,
-		});
-		t.false(createsSession(calls, agent));
-		t.false(createsSession(calls, companion));
-		t.true(showsNoProgram(calls, 'TEST-INVALID', 'agent'));
-		t.true(showsNoProgram(calls, 'TEST-INVALID', 'companion'));
-		const [reported, ...more] = invalidConfigErrors('TEST-INVALID');
-		t.deepEqual(more, []);
-		t.is(
-			reported?.message,
-			'Sessions of TEST-INVALID not started: the config is invalid',
-		);
-		t.true(
-			configStateLines()[0]?.message.includes('agent_profiles.opus.model'),
-		);
-		t.is(derived.daos.spaceState.read('TEST-INVALID')?.agentProfile, undefined);
+test('an invalid config holds back dead sessions and says why, once', async () => {
+	withInvalidConfig();
+	const {agent, companion} = sessionNamesFor('TEST-INVALID', getRepoName());
+	const {calls, run} = tmuxMissingSessions(agent, companion);
+	clearRecentErrors();
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
+		run,
+	});
+	expect(createsSession(calls, agent)).toBe(false);
+	expect(createsSession(calls, companion)).toBe(false);
+	expect(showsNoProgram(calls, 'TEST-INVALID', 'agent')).toBe(true);
+	expect(showsNoProgram(calls, 'TEST-INVALID', 'companion')).toBe(true);
+	const [reported, ...more] = invalidConfigErrors('TEST-INVALID');
+	expect(more).toStrictEqual([]);
+	expect(reported?.message).toBe(
+		'Sessions of TEST-INVALID not started: the config is invalid',
+	);
+	expect(
+		configStateLines()[0]?.message.includes('agent_profiles.opus.model'),
+	).toBe(true);
+	expect(derived.daos.spaceState.read('TEST-INVALID')?.agentProfile).toBe(
+		undefined,
+	);
 
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
-			run,
-		});
-		t.is(invalidConfigErrors('TEST-INVALID').length, 1);
-		clearCurrentlyViewingSpace();
-	},
-);
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
+		run,
+	});
+	expect(invalidConfigErrors('TEST-INVALID').length).toBe(1);
+	clearCurrentlyViewingSpace();
+});
 
-test.serial(
-	'an invalid config reports again once the rail has dropped the error',
-	async t => {
-		withInvalidConfig(t);
-		const {agent, companion} = sessionNamesFor('TEST-AGAIN', getRepoName());
-		const {run} = tmuxMissingSessions(agent, companion);
-		clearRecentErrors();
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
-			run,
-		});
-		clearRecentErrors();
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
-			run,
-		});
-		t.is(invalidConfigErrors('TEST-AGAIN').length, 1);
-		clearCurrentlyViewingSpace();
-	},
-);
+test('an invalid config reports again once the rail has dropped the error', async () => {
+	withInvalidConfig();
+	const {agent, companion} = sessionNamesFor('TEST-AGAIN', getRepoName());
+	const {run} = tmuxMissingSessions(agent, companion);
+	clearRecentErrors();
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
+		run,
+	});
+	clearRecentErrors();
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
+		run,
+	});
+	expect(invalidConfigErrors('TEST-AGAIN').length).toBe(1);
+	clearCurrentlyViewingSpace();
+});
 
-test.serial(
-	'an invalid config still attaches sessions that are running',
-	async t => {
-		withInvalidConfig(t);
-		const {agent, companion} = sessionNamesFor('TEST-LIVE', getRepoName());
-		const {calls, run} = tmuxMissingSessions();
-		clearRecentErrors();
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-LIVE', '%0', '/tmp', undefined, {
-			run,
-		});
-		t.false(createsSession(calls, agent));
-		t.false(createsSession(calls, companion));
-		t.false(showsNoProgram(calls, 'TEST-LIVE', 'agent'));
-		t.deepEqual(invalidConfigErrors('TEST-LIVE'), []);
-		clearCurrentlyViewingSpace();
-	},
-);
+test('an invalid config still attaches sessions that are running', async () => {
+	withInvalidConfig();
+	const {agent, companion} = sessionNamesFor('TEST-LIVE', getRepoName());
+	const {calls, run} = tmuxMissingSessions();
+	clearRecentErrors();
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-LIVE', '%0', '/tmp', undefined, {
+		run,
+	});
+	expect(createsSession(calls, agent)).toBe(false);
+	expect(createsSession(calls, companion)).toBe(false);
+	expect(showsNoProgram(calls, 'TEST-LIVE', 'agent')).toBe(false);
+	expect(invalidConfigErrors('TEST-LIVE')).toStrictEqual([]);
+	clearCurrentlyViewingSpace();
+});
 
 for (const [recovery, recover] of [
 	['fixed', () => writeFileSync(projectConfig(), VALID_CONFIG)],
 	['removed', () => rmSync(projectConfig())],
 ] as const) {
-	test.serial(
-		`a ${recovery} config starts the held-back sessions and clears the error`,
-		async t => {
-			withInvalidConfig(t);
-			const {agent, companion} = sessionNamesFor('TEST-FIXED', getRepoName());
-			const {calls, run} = tmuxMissingSessions(agent, companion);
-			clearRecentErrors();
-			clearCurrentlyViewingSpace();
-			await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
-				run,
-			});
-			t.is(invalidConfigErrors('TEST-FIXED').length, 1);
+	test(`a ${recovery} config starts the held-back sessions and clears the error`, async () => {
+		withInvalidConfig();
+		const {agent, companion} = sessionNamesFor('TEST-FIXED', getRepoName());
+		const {calls, run} = tmuxMissingSessions(agent, companion);
+		clearRecentErrors();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+			run,
+		});
+		expect(invalidConfigErrors('TEST-FIXED').length).toBe(1);
 
-			recover();
-			clearCurrentlyViewingSpace();
-			await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
-				run,
-			});
-			t.true(createsSession(calls, agent));
-			t.true(createsSession(calls, companion));
-			t.deepEqual(invalidConfigErrors('TEST-FIXED'), []);
-			t.deepEqual(configStateLines(), []);
-			clearCurrentlyViewingSpace();
-		},
-	);
+		recover();
+		clearCurrentlyViewingSpace();
+		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+			run,
+		});
+		expect(createsSession(calls, agent)).toBe(true);
+		expect(createsSession(calls, companion)).toBe(true);
+		expect(invalidConfigErrors('TEST-FIXED')).toStrictEqual([]);
+		expect(configStateLines()).toStrictEqual([]);
+		clearCurrentlyViewingSpace();
+	});
 }
 
-test.serial(
-	'an invalid config explains a held-back companion whose agent is running',
-	async t => {
-		withInvalidConfig(t);
-		const {companion} = sessionNamesFor('TEST-COMPANION', getRepoName());
-		const {calls, run} = tmuxMissingSessions(companion);
-		clearRecentErrors();
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-COMPANION', '%0', '/tmp', undefined, {
-			run,
-		});
-		t.false(createsSession(calls, companion));
-		t.is(invalidConfigErrors('TEST-COMPANION').length, 1);
-		clearCurrentlyViewingSpace();
-	},
-);
+test('an invalid config explains a held-back companion whose agent is running', async () => {
+	withInvalidConfig();
+	const {companion} = sessionNamesFor('TEST-COMPANION', getRepoName());
+	const {calls, run} = tmuxMissingSessions(companion);
+	clearRecentErrors();
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-COMPANION', '%0', '/tmp', undefined, {
+		run,
+	});
+	expect(createsSession(calls, companion)).toBe(false);
+	expect(invalidConfigErrors('TEST-COMPANION').length).toBe(1);
+	clearCurrentlyViewingSpace();
+});
 
-test.serial(
-	'a config that is still invalid in another way replaces the earlier report',
-	async t => {
-		withInvalidConfig(t);
-		const {agent, companion} = sessionNamesFor('TEST-EDITED', getRepoName());
-		const {run} = tmuxMissingSessions(agent, companion);
-		clearRecentErrors();
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
-			run,
-		});
-		writeFileSync(
-			projectConfig(),
-			'agent_profiles:\n  opus:\n    command: claude\n    effort: 7\n',
-		);
-		clearCurrentlyViewingSpace();
-		await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
-			run,
-		});
-		t.is(invalidConfigErrors('TEST-EDITED').length, 1);
-		const [stateLine, ...staleLines] = configStateLines();
-		t.deepEqual(staleLines, []);
-		t.true(stateLine?.message.includes('agent_profiles.opus.effort'));
-		clearCurrentlyViewingSpace();
-	},
-);
+test('a config that is still invalid in another way replaces the earlier report', async () => {
+	withInvalidConfig();
+	const {agent, companion} = sessionNamesFor('TEST-EDITED', getRepoName());
+	const {run} = tmuxMissingSessions(agent, companion);
+	clearRecentErrors();
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
+		run,
+	});
+	writeFileSync(
+		projectConfig(),
+		'agent_profiles:\n  opus:\n    command: claude\n    effort: 7\n',
+	);
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
+		run,
+	});
+	expect(invalidConfigErrors('TEST-EDITED').length).toBe(1);
+	const [stateLine, ...staleLines] = configStateLines();
+	expect(staleLines).toStrictEqual([]);
+	expect(stateLine?.message.includes('agent_profiles.opus.effort')).toBe(true);
+	clearCurrentlyViewingSpace();
+});

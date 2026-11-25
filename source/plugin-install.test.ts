@@ -1,4 +1,4 @@
-import test from 'ava';
+import {test, expect} from 'bun:test';
 import {
 	installPlugin,
 	type PluginInstallDeps,
@@ -67,10 +67,10 @@ function fakeDeps(
 	return {deps, calls, files, links, dirs, printed};
 }
 
-test('points the Claude Code and Codex marketplaces at the checkout, then installs the plugin', t => {
+test('points the Claude Code and Codex marketplaces at the checkout, then installs the plugin', () => {
 	const {deps, calls} = fakeDeps();
-	t.is(installPlugin(deps), 0);
-	t.deepEqual(calls, [
+	expect(installPlugin(deps)).toBe(0);
+	expect(calls).toStrictEqual([
 		`claude plugin marketplace add ${REPO}`,
 		'claude plugin install pappardelle@pappardelle-marketplace --scope user',
 		'codex plugin marketplace remove pappardelle-marketplace (quiet)',
@@ -79,21 +79,21 @@ test('points the Claude Code and Codex marketplaces at the checkout, then instal
 	]);
 });
 
-test('skips an agent whose CLI is missing, leaving its old hooks running', t => {
+test('skips an agent whose CLI is missing, leaving its old hooks running', () => {
 	const settings = JSON.stringify({hooks: {Stop: [{hooks: [legacy('x.py')]}]}});
 	const {deps, calls, files, printed} = fakeDeps({
 		settings,
 		respond: command => (command === 'claude' ? enoent(command) : undefined),
 	});
-	t.is(installPlugin(deps), 0);
-	t.true(printed[0]!.includes('not on PATH'));
-	t.is(files.get(SETTINGS), settings);
-	t.true(
+	expect(installPlugin(deps)).toBe(0);
+	expect(printed[0]!.includes('not on PATH')).toBe(true);
+	expect(files.get(SETTINGS)).toBe(settings);
+	expect(
 		calls.includes('codex plugin add pappardelle@pappardelle-marketplace'),
-	);
+	).toBe(true);
 });
 
-test("a failed marketplace add skips that agent's install and hook cleanup but not the others", t => {
+test("a failed marketplace add skips that agent's install and hook cleanup but not the others", () => {
 	const {deps, calls, files} = fakeDeps({
 		settings: JSON.stringify({hooks: {Stop: [{hooks: [legacy('x.py')]}]}}),
 		respond: (command, args) =>
@@ -101,23 +101,25 @@ test("a failed marketplace add skips that agent's install and hook cleanup but n
 				? {status: 1}
 				: undefined,
 	});
-	t.is(installPlugin(deps), 1);
-	t.false(calls.some(call => call.startsWith('claude plugin install')));
-	t.false(files.has(`${SETTINGS}.pappardelle.bak`));
-	t.true(
-		calls.includes('codex plugin add pappardelle@pappardelle-marketplace'),
+	expect(installPlugin(deps)).toBe(1);
+	expect(calls.some(call => call.startsWith('claude plugin install'))).toBe(
+		false,
 	);
+	expect(files.has(`${SETTINGS}.pappardelle.bak`)).toBe(false);
+	expect(
+		calls.includes('codex plugin add pappardelle@pappardelle-marketplace'),
+	).toBe(true);
 });
 
-test('a Codex marketplace that is not there to remove does not stop the install', t => {
+test('a Codex marketplace that is not there to remove does not stop the install', () => {
 	const {deps, calls} = fakeDeps({
 		respond: (command, args) =>
 			command === 'codex' && args[2] === 'remove' ? {status: 1} : undefined,
 	});
-	t.is(installPlugin(deps), 0);
-	t.true(
+	expect(installPlugin(deps)).toBe(0);
+	expect(
 		calls.includes('codex plugin add pappardelle@pappardelle-marketplace'),
-	);
+	).toBe(true);
 });
 
 const sessionHook = (script: string) => ({
@@ -135,15 +137,19 @@ const codexSessionHooks = {
 	UserPromptSubmit: [{hooks: [{type: 'command', command: CODEX_COMMAND}]}],
 };
 
-test('adds the Codex session hook to hooks.json, pointing at the checkout', t => {
+test('adds the Codex session hook to hooks.json, pointing at the checkout', () => {
 	const {deps, files, printed} = fakeDeps();
-	t.is(installPlugin(deps), 0);
-	t.deepEqual(JSON.parse(files.get(CODEX_HOOKS)!), {hooks: codexSessionHooks});
-	t.false(files.has(`${CODEX_HOOKS}.pappardelle.bak`));
-	t.true(printed.some(line => line.includes('trust the session hook')));
+	expect(installPlugin(deps)).toBe(0);
+	expect(JSON.parse(files.get(CODEX_HOOKS)!)).toStrictEqual({
+		hooks: codexSessionHooks,
+	});
+	expect(files.has(`${CODEX_HOOKS}.pappardelle.bak`)).toBe(false);
+	expect(printed.some(line => line.includes('trust the session hook'))).toBe(
+		true,
+	);
 });
 
-test("replaces session hooks from older installs, keeping the user's hooks and a backup", t => {
+test("replaces session hooks from older installs, keeping the user's hooks and a backup", () => {
 	const original = JSON.stringify({
 		hooks: {
 			SessionStart: [
@@ -161,48 +167,50 @@ test("replaces session hooks from older installs, keeping the user's hooks and a
 		},
 	});
 	const {deps, files, printed} = fakeDeps({codexHooks: original});
-	t.is(installPlugin(deps), 0);
-	t.deepEqual(JSON.parse(files.get(CODEX_HOOKS)!), {
+	expect(installPlugin(deps)).toBe(0);
+	expect(JSON.parse(files.get(CODEX_HOOKS)!)).toStrictEqual({
 		hooks: {
 			SessionStart: [{hooks: [mine]}, ...codexSessionHooks.SessionStart],
 			UserPromptSubmit: codexSessionHooks.UserPromptSubmit,
 		},
 	});
-	t.is(files.get(`${CODEX_HOOKS}.pappardelle.bak`), original);
-	t.true(printed.some(line => line.includes('review your other hooks')));
+	expect(files.get(`${CODEX_HOOKS}.pappardelle.bak`)).toBe(original);
+	expect(printed.some(line => line.includes('review your other hooks'))).toBe(
+		true,
+	);
 });
 
-test('leaves a Codex hooks.json that already has the session hook untouched, so its trust holds', t => {
+test('leaves a Codex hooks.json that already has the session hook untouched, so its trust holds', () => {
 	const original = JSON.stringify({
 		hooks: {...codexSessionHooks, Stop: [{hooks: [mine]}]},
 	});
 	const {deps, files, printed} = fakeDeps({codexHooks: original});
-	t.is(installPlugin(deps), 0);
-	t.is(files.get(CODEX_HOOKS), original);
-	t.false(printed.some(line => line.includes('trust')));
+	expect(installPlugin(deps)).toBe(0);
+	expect(files.get(CODEX_HOOKS)).toBe(original);
+	expect(printed.some(line => line.includes('trust'))).toBe(false);
 });
 
-test('leaves an unparseable Codex hooks.json alone and says what to add', t => {
+test('leaves an unparseable Codex hooks.json alone and says what to add', () => {
 	const {deps, files, printed} = fakeDeps({codexHooks: '{'});
-	t.is(installPlugin(deps), 0);
-	t.is(files.get(CODEX_HOOKS), '{');
-	t.true(printed.some(line => line.includes(CODEX_COMMAND)));
+	expect(installPlugin(deps)).toBe(0);
+	expect(files.get(CODEX_HOOKS)).toBe('{');
+	expect(printed.some(line => line.includes(CODEX_COMMAND))).toBe(true);
 });
 
-test('links the plugin into agy in place', t => {
+test('links the plugin into agy in place', () => {
 	const {deps, links} = fakeDeps({agy: true});
-	t.is(installPlugin(deps), 0);
-	t.is(links.get(AGY_LINK), PLUGIN_DIR);
+	expect(installPlugin(deps)).toBe(0);
+	expect(links.get(AGY_LINK)).toBe(PLUGIN_DIR);
 });
 
-test('repoints an agy link left by another checkout', t => {
+test('repoints an agy link left by another checkout', () => {
 	const {deps, links} = fakeDeps({agy: true});
 	links.set(AGY_LINK, '/old/checkout/plugins/pappardelle');
-	t.is(installPlugin(deps), 0);
-	t.is(links.get(AGY_LINK), PLUGIN_DIR);
+	expect(installPlugin(deps)).toBe(0);
+	expect(links.get(AGY_LINK)).toBe(PLUGIN_DIR);
 });
 
-test('removes the session hook install-agy-hooks.sh merged into agy hooks.json, keeping a backup', t => {
+test('removes the session hook install-agy-hooks.sh merged into agy hooks.json, keeping a backup', () => {
 	const lint = {PostToolUse: [{type: 'command', command: 'lint.sh'}]};
 	const original = JSON.stringify({
 		'pappardelle-session': {
@@ -217,37 +225,41 @@ test('removes the session hook install-agy-hooks.sh merged into agy hooks.json, 
 	});
 	const {deps, files} = fakeDeps({agy: true});
 	files.set(`${AGY}/hooks.json`, original);
-	t.is(installPlugin(deps), 0);
-	t.deepEqual(JSON.parse(files.get(`${AGY}/hooks.json`)!), {lint});
-	t.is(files.get(`${AGY}/hooks.json.pappardelle.bak`), original);
+	expect(installPlugin(deps)).toBe(0);
+	expect(JSON.parse(files.get(`${AGY}/hooks.json`)!)).toStrictEqual({lint});
+	expect(files.get(`${AGY}/hooks.json.pappardelle.bak`)).toBe(original);
 });
 
-test('warns when agy has the plugin disabled', t => {
+test('warns when agy has the plugin disabled', () => {
 	const {deps, files, printed} = fakeDeps({agy: true});
 	files.set(
 		`${AGY}/config.json`,
 		JSON.stringify({plugins: {pappardelle: {enabled: false}}}),
 	);
-	t.is(installPlugin(deps), 0);
-	t.true(printed.some(line => line.includes('agy plugin enable pappardelle')));
+	expect(installPlugin(deps)).toBe(0);
+	expect(
+		printed.some(line => line.includes('agy plugin enable pappardelle')),
+	).toBe(true);
 });
 
-test('skips agy until it has been set up', t => {
+test('skips agy until it has been set up', () => {
 	const {deps, links, printed} = fakeDeps();
-	t.is(installPlugin(deps), 0);
-	t.is(links.size, 0);
-	t.true(printed.some(line => line.includes('agy is not set up')));
+	expect(installPlugin(deps)).toBe(0);
+	expect(links.size).toBe(0);
+	expect(printed.some(line => line.includes('agy is not set up'))).toBe(true);
 });
 
-test('leaves a copy agy installed itself and fails with how to replace it', t => {
+test('leaves a copy agy installed itself and fails with how to replace it', () => {
 	const {deps, links, dirs, printed} = fakeDeps({agy: true});
 	dirs.add(AGY_LINK);
-	t.is(installPlugin(deps), 1);
-	t.false(links.has(AGY_LINK));
-	t.true(printed.some(line => line.includes('agy plugin uninstall')));
+	expect(installPlugin(deps)).toBe(1);
+	expect(links.has(AGY_LINK)).toBe(false);
+	expect(printed.some(line => line.includes('agy plugin uninstall'))).toBe(
+		true,
+	);
 });
 
-test('removes only the old Pappardelle hooks from settings, keeping a backup', t => {
+test('removes only the old Pappardelle hooks from settings, keeping a backup', () => {
 	const original = JSON.stringify({
 		model: 'opus',
 		hooks: {
@@ -260,18 +272,18 @@ test('removes only the old Pappardelle hooks from settings, keeping a backup', t
 		},
 	});
 	const {deps, files} = fakeDeps({settings: original});
-	t.is(installPlugin(deps), 0);
-	t.deepEqual(JSON.parse(files.get(SETTINGS)!), {
+	expect(installPlugin(deps)).toBe(0);
+	expect(JSON.parse(files.get(SETTINGS)!)).toStrictEqual({
 		model: 'opus',
 		hooks: {
 			PreCompact: [{matcher: 'manual', hooks: [mine]}],
 			SessionStart: [{hooks: [mine]}],
 		},
 	});
-	t.is(files.get(`${SETTINGS}.pappardelle.bak`), original);
+	expect(files.get(`${SETTINGS}.pappardelle.bak`)).toBe(original);
 });
 
-test('backs up settings as they were before claude rewrote them', t => {
+test('backs up settings as they were before claude rewrote them', () => {
 	const original = JSON.stringify({hooks: {Stop: [{hooks: [legacy('x.py')]}]}});
 	const {deps, files} = fakeDeps({settings: original});
 	const {run} = deps;
@@ -287,12 +299,14 @@ test('backs up settings as they were before claude rewrote them', t => {
 		return run(command, args);
 	};
 
-	t.is(installPlugin(deps), 0);
-	t.is(files.get(`${SETTINGS}.pappardelle.bak`), original);
-	t.deepEqual(JSON.parse(files.get(SETTINGS)!), {extraKnownMarketplaces: {}});
+	expect(installPlugin(deps)).toBe(0);
+	expect(files.get(`${SETTINGS}.pappardelle.bak`)).toBe(original);
+	expect(JSON.parse(files.get(SETTINGS)!)).toStrictEqual({
+		extraKnownMarketplaces: {},
+	});
 });
 
-test('drops the hooks key when only Pappardelle hooks were configured', t => {
+test('drops the hooks key when only Pappardelle hooks were configured', () => {
 	const {deps, files} = fakeDeps({
 		settings: JSON.stringify({
 			model: 'opus',
@@ -300,40 +314,46 @@ test('drops the hooks key when only Pappardelle hooks were configured', t => {
 		}),
 	});
 	installPlugin(deps);
-	t.deepEqual(JSON.parse(files.get(SETTINGS)!), {model: 'opus'});
+	expect(JSON.parse(files.get(SETTINGS)!)).toStrictEqual({model: 'opus'});
 });
 
-test('leaves settings without old hooks untouched', t => {
+test('leaves settings without old hooks untouched', () => {
 	const settings = JSON.stringify({hooks: {SessionStart: [{hooks: [mine]}]}});
 	const {deps, files} = fakeDeps({settings});
-	t.is(installPlugin(deps), 0);
-	t.is(files.get(SETTINGS), settings);
-	t.false(files.has(`${SETTINGS}.pappardelle.bak`));
+	expect(installPlugin(deps)).toBe(0);
+	expect(files.get(SETTINGS)).toBe(settings);
+	expect(files.has(`${SETTINGS}.pappardelle.bak`)).toBe(false);
 });
 
-test('keeps hook groups it does not recognise', t => {
+test('keeps hook groups it does not recognise', () => {
 	const {deps, files} = fakeDeps({
 		settings: JSON.stringify({
 			hooks: {Stop: [null, {hooks: [legacy('update-status.py')]}]},
 		}),
 	});
-	t.is(installPlugin(deps), 0);
-	t.deepEqual(JSON.parse(files.get(SETTINGS)!), {hooks: {Stop: [null]}});
+	expect(installPlugin(deps)).toBe(0);
+	expect(JSON.parse(files.get(SETTINGS)!)).toStrictEqual({
+		hooks: {Stop: [null]},
+	});
 });
 
-test('leaves unparseable settings alone and still succeeds', t => {
+test('leaves unparseable settings alone and still succeeds', () => {
 	const {deps, files, printed} = fakeDeps({settings: '{not json'});
-	t.is(installPlugin(deps), 0);
-	t.is(files.get(SETTINGS), '{not json');
-	t.true(printed.some(line => line.includes('by hand')));
+	expect(installPlugin(deps)).toBe(0);
+	expect(files.get(SETTINGS)).toBe('{not json');
+	expect(printed.some(line => line.includes('by hand'))).toBe(true);
 });
 
-test('warns that removing the worktree it installed from drops the plugin', t => {
+test('warns that removing the worktree it installed from drops the plugin', () => {
 	const fromWorktree = fakeDeps({worktree: true});
 	installPlugin(fromWorktree.deps);
-	t.true(fromWorktree.printed.some(line => line.includes('git worktree')));
+	expect(fromWorktree.printed.some(line => line.includes('git worktree'))).toBe(
+		true,
+	);
 
 	const fromMain = fakeDeps();
 	installPlugin(fromMain.deps);
-	t.false(fromMain.printed.some(line => line.includes('git worktree')));
+	expect(fromMain.printed.some(line => line.includes('git worktree'))).toBe(
+		false,
+	);
 });

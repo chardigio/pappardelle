@@ -1,18 +1,18 @@
 // Reading a space's agent against a real tmux server. The servers run on their
 // own sockets in a short temp directory, never the user's servers, and are
 // killed through those sockets only.
+import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect, afterAll, beforeEach} from 'bun:test';
 import {captureAgentScreen, READ_WINDOW} from './agent-state.ts';
 import {idowIdentities} from '../test/helpers/state.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
-const tmuxTest =
-	spawnSync('tmux', ['-V']).status === 0 ? test.serial : test.serial.skip;
+const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
-const dir = realpathSync(mkdtempSync('/tmp/pw-'));
+const dir = realpathSync(mkdtempSync(`${tmpdir()}/pw-`));
 const inner = `${dir}/i`;
 const viewer = `${dir}/o`;
 const env = {...process.env};
@@ -61,13 +61,13 @@ async function waitFor(check: () => boolean): Promise<boolean> {
 	return false;
 }
 
-test.after.always(() => {
+afterAll(() => {
 	runner(['kill-server']);
 	on(viewer)(['kill-server']);
 	rmSync(dir, {recursive: true, force: true});
 });
 
-test.beforeEach(() => {
+beforeEach(() => {
 	runner(['kill-server']);
 	on(viewer)(['kill-server']);
 	runner(['-f', '/dev/null', 'new-session', '-d', '-s', AGENT, SHOW_SIZE]);
@@ -75,12 +75,11 @@ test.beforeEach(() => {
 
 tmuxTest(
 	'a window no client shows grows before it is read, then follows the next client',
-	async t => {
-		t.is(sizeOf(), '80x24');
+	async () => {
+		expect(sizeOf()).toBe('80x24');
 		const screen = await captureAgentScreen('KEY-1', 60, deps);
-		t.is(sizeOf(), `${READ_WINDOW.columns}x${READ_WINDOW.rows}`);
-		t.regex(
-			screen ?? '',
+		expect(sizeOf()).toBe(`${READ_WINDOW.columns}x${READ_WINDOW.rows}`);
+		expect(screen ?? '').toMatch(
 			new RegExp(`^${READ_WINDOW.rows} ${READ_WINDOW.columns}$`, 'm'),
 		);
 
@@ -96,11 +95,11 @@ tmuxTest(
 			`env -u TMUX tmux -S ${inner} attach -t '=${AGENT}'`,
 		]);
 		// The viewer's status line takes a row of its 20.
-		t.true(await waitFor(() => sizeOf() === '70x19'), sizeOf());
+		expect(await waitFor(() => sizeOf() === '70x19'), sizeOf()).toBe(true);
 	},
 );
 
-tmuxTest('a window a client shows keeps its size', async t => {
+tmuxTest('a window a client shows keeps its size', async () => {
 	on(viewer)([
 		'-f',
 		'/dev/null',
@@ -112,7 +111,7 @@ tmuxTest('a window a client shows keeps its size', async t => {
 		'22',
 		`env -u TMUX tmux -S ${inner} attach -t '=${AGENT}'`,
 	]);
-	t.true(await waitFor(() => sizeOf() === '61x21'), sizeOf());
+	expect(await waitFor(() => sizeOf() === '61x21'), sizeOf()).toBe(true);
 	await captureAgentScreen('KEY-1', 60, deps);
-	t.is(sizeOf(), '61x21');
+	expect(sizeOf()).toBe('61x21');
 });

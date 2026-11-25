@@ -4,7 +4,8 @@ import {existsSync, mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import test from 'ava';
+import {test, expect} from 'bun:test';
+import {teardown} from '../../test/helpers/teardown.ts';
 import {until} from '../../test/helpers/render.ts';
 import {buildDisplayPopupArgs, popupClient} from './terminal.ts';
 
@@ -12,12 +13,9 @@ import {buildDisplayPopupArgs, popupClient} from './terminal.ts';
  * Run the popup's command the way tmux does: through a shell with `-c`, in a
  * session of its own. With stdin not a terminal, `tty` reports "not a tty".
  */
-function runPopupCommand(
-	t: {teardown: (fn: () => void) => void},
-	ownerPid: number,
-) {
+function runPopupCommand(ownerPid: number) {
 	const dir = mkdtempSync(path.join(tmpdir(), 'popup-terminal-test-'));
-	t.teardown(() => {
+	teardown(() => {
 		rmSync(dir, {recursive: true, force: true});
 	});
 	const readyPath = path.join(dir, 'ready');
@@ -38,33 +36,33 @@ function isRunning(shell: ChildProcess) {
 	return shell.exitCode === null && shell.signalCode === null;
 }
 
-test('the popup shell reports the pid tmux started and waits while the TUI lives', async t => {
-	const {shell, exited, readyPath} = runPopupCommand(t, process.pid);
-	t.teardown(() => {
+test('the popup shell reports the pid tmux started and waits while the TUI lives', async () => {
+	const {shell, exited, readyPath} = runPopupCommand(process.pid);
+	teardown(() => {
 		if (isRunning(shell)) process.kill(-shell.pid!, 'SIGKILL');
 	});
 
 	await until(() => existsSync(readyPath));
-	t.is(readFileSync(readyPath, 'utf8').trim(), `${shell.pid} not a tty`);
+	expect(readFileSync(readyPath, 'utf8').trim()).toBe(`${shell.pid} not a tty`);
 	await delay(200);
-	t.true(isRunning(shell));
+	expect(isRunning(shell)).toBe(true);
 
 	// Closing the popup kills the shell's process group, sleep included.
 	process.kill(-shell.pid!, 'SIGTERM');
 	await exited;
-	t.false(isRunning(shell));
+	expect(isRunning(shell)).toBe(false);
 });
 
-test('the popup shell exits once the TUI is gone', async t => {
+test('the popup shell exits once the TUI is gone', async () => {
 	const owner = spawn('/bin/sh', ['-c', 'exit 0']);
 	await once(owner, 'exit');
-	const {exited, readyPath} = runPopupCommand(t, owner.pid!);
+	const {exited, readyPath} = runPopupCommand(owner.pid!);
 
 	await exited;
-	t.true(existsSync(readyPath));
+	expect(existsSync(readyPath)).toBe(true);
 });
 
-test('a popup is left to tmux unless tmux would pick the control-mode client', t => {
+test('a popup is left to tmux unless tmux would pick the control-mode client', () => {
 	const fallback = {cols: 20, rows: 10};
 	const clients = [
 		'0\t1794332400\t/dev/pts/3\t120\t40',
@@ -72,15 +70,19 @@ test('a popup is left to tmux unless tmux would pick the control-mode client', t
 		'1\t1794332492\t\t\t',
 		'',
 	];
-	t.deepEqual(popupClient(['0\t120\t40', ...clients].join('\n'), fallback), {
+	expect(
+		popupClient(['0\t120\t40', ...clients].join('\n'), fallback),
+	).toStrictEqual({
 		args: [],
 		size: {cols: 120, rows: 40},
 	});
-	t.deepEqual(popupClient(['1\t\t', ...clients].join('\n'), fallback), {
-		args: ['-c', '/dev/pts/31'],
-		size: {cols: 160, rows: 52},
-	});
-	t.deepEqual(popupClient('1\t\t\n1\t1794332492\t\t\t\n', fallback), {
+	expect(popupClient(['1\t\t', ...clients].join('\n'), fallback)).toStrictEqual(
+		{
+			args: ['-c', '/dev/pts/31'],
+			size: {cols: 160, rows: 52},
+		},
+	);
+	expect(popupClient('1\t\t\n1\t1794332492\t\t\t\n', fallback)).toStrictEqual({
 		args: [],
 		size: fallback,
 	});
