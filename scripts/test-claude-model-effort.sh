@@ -6,8 +6,9 @@
 # layer/profile permutation:
 #   home config → project config → local config, then profile → top-level.
 #
-# The TS side resolves the same fields via getClaudeModel()/getClaudeEffort()
-# in source/config.ts, and source/claude-launch-config.test.ts pins that half.
+# The TS side resolves the same fields in resolveAgentLaunchField() in
+# source/config.ts (the model and effort getAgentProfile() returns), and
+# source/claude-launch-config.test.ts pins that half.
 # The two resolvers run in different languages and must agree, so this file
 # pins the bash half — most importantly the empty-string semantics, where a
 # profile-level "" means "clear the inherited value" rather than "no opinion".
