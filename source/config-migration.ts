@@ -19,12 +19,15 @@ import {
 	getAgentProfile,
 	getInitializationCommand,
 	getNamedAgentProfile,
+	layerErrors,
+	layerOf,
 	mergeConfigLayers,
 	mergedAgentProfiles,
 	parseConfigLayer,
+	parsedLayers,
 	readConfigLayers,
 	resolveAgentProfileName,
-	type ConfigLayerRead,
+	type ConfigLayerFile,
 	type ConfigPaths,
 	type PappardelleConfig,
 } from './config.ts';
@@ -551,9 +554,10 @@ function changedProfile(
 export function planConfigMigrations(
 	paths: ConfigPaths = defaultConfigPaths(),
 ): ConfigMigrationPlan {
-	const layers = readConfigLayers(paths);
+	const files = readConfigLayers(paths);
 	// Loading reports a broken config on its own.
-	if (layers.some(({errors}) => errors)) return {kind: 'none'};
+	if (layerErrors(files).length > 0) return {kind: 'none'};
+	const layers = parsedLayers(files);
 	let whole: PappardelleConfig;
 	try {
 		whole = buildConfigFromLayers(
@@ -575,7 +579,7 @@ export function planConfigMigrations(
 	}
 
 	try {
-		return planRewrite(layers, whole);
+		return planRewrite(files, whole);
 	} catch (error) {
 		return {
 			kind: 'unsupported',
@@ -585,13 +589,12 @@ export function planConfigMigrations(
 }
 
 function planRewrite(
-	layers: ConfigLayerRead[],
+	layers: ConfigLayerFile[],
 	whole: PappardelleConfig,
 ): ConfigMigrationPlan {
-	const files = layers.flatMap(({label, path: filePath, content, layer}) =>
-		filePath && content !== undefined
-			? [{label, path: filePath, content, layer}]
-			: [],
+	const files = layers.filter(
+		(file): file is Extract<ConfigLayerFile, {kind: 'read'}> =>
+			file.kind === 'read',
 	);
 	const multiLine = multiLineExtraArg(files);
 	if (multiLine) return {kind: 'unsupported', reason: multiLine};
@@ -790,9 +793,10 @@ export async function confirmConfigMigrations(
 export function dismissResolvedDeprecationWarnings(
 	paths: ConfigPaths = defaultConfigPaths(),
 ): boolean {
-	const layers = readConfigLayers(paths);
+	const files = readConfigLayers(paths);
 	// A file that no longer parses: nothing is known to be resolved.
-	if (layers.some(({errors}) => errors)) return false;
+	if (layerErrors(files).length > 0) return false;
+	const layers = parsedLayers(files);
 	const agentProfiles = mergedAgentProfiles(layers.map(({layer}) => layer));
 	const remaining = layers.flatMap(({label, layer}) =>
 		layer ? deprecationWarnings(layer, label, agentProfiles) : [],
@@ -851,12 +855,14 @@ export function buildConfigFixPrompt(
 	paths: ConfigPaths = defaultConfigPaths(),
 ): string {
 	const files = readConfigLayers(paths).filter(
-		(file): file is ConfigLayerRead & {path: string} => Boolean(file.path),
+		(file): file is Exclude<ConfigLayerFile, {kind: 'missing'}> =>
+			file.kind !== 'missing',
 	);
-	const agentProfiles = mergedAgentProfiles(files.map(({layer}) => layer));
-	const warnings = files.flatMap(({label, layer}) =>
-		layer ? deprecationWarnings(layer, label, agentProfiles) : [],
-	);
+	const agentProfiles = mergedAgentProfiles(files.map(file => layerOf(file)));
+	const warnings = files.flatMap(file => {
+		const layer = layerOf(file);
+		return layer ? deprecationWarnings(layer, file.label, agentProfiles) : [];
+	});
 	return [
 		`My pappardelle config still uses deprecated settings, and pappardelle couldn't rewrite it automatically: ${reason}.`,
 		'',

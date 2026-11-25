@@ -698,12 +698,13 @@ export function getDefaultHomeConfigDir(): string {
  * At least one layer must provide a config file, otherwise throws ConfigNotFoundError.
  */
 export function loadConfigFromPaths(opts: ConfigPaths): PappardelleConfig {
-	const layers = readConfigLayers(opts);
-	const errors = layers.flatMap(({errors}) => errors ?? []);
+	const files = readConfigLayers(opts);
+	const errors = layerErrors(files);
 	if (errors.length > 0) {
 		throw new ConfigValidationError(errors);
 	}
 
+	const layers = parsedLayers(files);
 	if (layers.every(({layer}) => !layer)) {
 		throw new ConfigNotFoundError(opts.projectDir ?? '(no project dir)');
 	}
@@ -1005,28 +1006,35 @@ export function defaultConfigPaths(): ConfigPaths {
 	};
 }
 
-export type ConfigLayerRead = {
-	label: string;
-	path: string | undefined;
-	content?: string;
-	layer: Record<string, unknown> | null;
-	errors?: string[];
-};
+/**
+ * One config file as read. A read file's layer is null when it holds no
+ * document; an invalid one exists but can't be read or parsed, or its top
+ * level isn't a map.
+ */
+export type ConfigLayerFile =
+	| {kind: 'missing'; label: string}
+	| {
+			kind: 'read';
+			label: string;
+			path: string;
+			content: string;
+			layer: Record<string, unknown> | null;
+	  }
+	| {kind: 'invalid'; label: string; path: string; errors: string[]};
 
 /**
- * The raw config layers, always home, project and local in that order,
- * labeled the way config errors name them. A layer that is missing or fails
- * to parse is null, so callers that only need part of the config keep working
- * while another section is broken; `errors` says why a file that exists was
- * left out.
+ * The config files, always home, project and local in that order, labeled
+ * the way config errors name them. An invalid file is reported rather than
+ * thrown, so callers that only need part of the config keep working while
+ * another section is broken.
  */
-export function readConfigLayers(paths: ConfigPaths): ConfigLayerRead[] {
+export function readConfigLayers(paths: ConfigPaths): ConfigLayerFile[] {
 	return configLayerFiles(paths).map(({label, path: filePath}) => {
-		if (!filePath) return {label, path: filePath, layer: null};
-		let content: string | undefined;
+		if (!filePath) return {kind: 'missing', label};
 		try {
-			content = fs.readFileSync(filePath, 'utf8');
+			const content = fs.readFileSync(filePath, 'utf8');
 			return {
+				kind: 'read',
 				label,
 				path: filePath,
 				content,
@@ -1034,10 +1042,9 @@ export function readConfigLayers(paths: ConfigPaths): ConfigLayerRead[] {
 			};
 		} catch (error) {
 			return {
+				kind: 'invalid',
 				label,
 				path: filePath,
-				content,
-				layer: null,
 				errors:
 					error instanceof ConfigValidationError
 						? error.errors
@@ -1049,6 +1056,31 @@ export function readConfigLayers(paths: ConfigPaths): ConfigLayerRead[] {
 	});
 }
 
+/** What a file adds to the merge: nothing unless it was read and holds a document. */
+export function layerOf(file: ConfigLayerFile): Record<string, unknown> | null {
+	switch (file.kind) {
+		case 'read': {
+			return file.layer;
+		}
+
+		case 'missing':
+		case 'invalid': {
+			return null;
+		}
+	}
+}
+
+/** Why each invalid file was left out of the merge. */
+export function layerErrors(files: ConfigLayerFile[]): string[] {
+	return files.flatMap(file => (file.kind === 'invalid' ? file.errors : []));
+}
+
+export function parsedLayers(
+	files: ConfigLayerFile[],
+): Array<{label: string; layer: Record<string, unknown> | null}> {
+	return files.map(file => ({label: file.label, layer: layerOf(file)}));
+}
+
 /**
  * Reject `experimental.sqliteState` in project or local config without
  * validating unrelated config sections, so CLI commands and the TUI still run
@@ -1057,7 +1089,9 @@ export function readConfigLayers(paths: ConfigPaths): ConfigLayerRead[] {
 export function validateHomeOnlySqliteState(
 	opts: ConfigPaths = defaultConfigPaths(),
 ): void {
-	const errors = misplacedSqliteStateErrors(readConfigLayers(opts));
+	const errors = misplacedSqliteStateErrors(
+		parsedLayers(readConfigLayers(opts)),
+	);
 	if (errors.length > 0) {
 		throw new ConfigValidationError(errors);
 	}
@@ -1077,12 +1111,12 @@ export function loadProviderConfigs(opts?: ConfigPaths): {
 	/** Why a layer that exists was skipped; its providers are missing from the result. */
 	unparsable: string[];
 } {
-	const layers = readConfigLayers(opts ?? defaultConfigPaths());
-	const merged = mergeConfigLayers(layers.map(({layer}) => layer));
+	const files = readConfigLayers(opts ?? defaultConfigPaths());
+	const merged = mergeConfigLayers(files.map(file => layerOf(file)));
 	return {
 		issue_tracker: merged['issue_tracker'] as IssueTrackerConfig | undefined,
 		vcs_host: merged['vcs_host'] as VcsHostConfig | undefined,
-		unparsable: layers.flatMap(({errors}) => errors ?? []),
+		unparsable: layerErrors(files),
 	};
 }
 
@@ -1096,11 +1130,11 @@ export function loadAgentProfileSources(
 	opts?: ConfigPaths,
 ): Record<string, string[]> {
 	const sources: Record<string, string[]> = {};
-	for (const {label, layer} of readConfigLayers(opts ?? defaultConfigPaths())) {
-		const agentProfiles = layer?.['agent_profiles'];
+	for (const file of readConfigLayers(opts ?? defaultConfigPaths())) {
+		const agentProfiles = layerOf(file)?.['agent_profiles'];
 		if (!agentProfiles || typeof agentProfiles !== 'object') continue;
 		for (const name of Object.keys(agentProfiles)) {
-			(sources[name] ??= []).unshift(label);
+			(sources[name] ??= []).unshift(file.label);
 		}
 	}
 
