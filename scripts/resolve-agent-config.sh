@@ -61,10 +61,11 @@
 # layers like every other map; idow hands it to start-agent-session.sh.
 #
 # model and effort are the agent profile's own values, else (claude agent
-# profiles only) the deprecated claude.model / claude.effort. They are rendered
-# into agent_launch_flags through the agent profile's model_args / effort_args
-# or the built-in ones, quoting values the way renderAgentLaunchFlags() does so
-# TUI and idow launch lines match. Claude agent
+# profiles only) the deprecated claude.model / claude.effort. mode is an
+# agent-profile-only launch field (no claude.* fallback). They are rendered
+# into agent_launch_flags through the agent profile's model_args / effort_args /
+# mode_args or the built-in ones, quoting values the way
+# renderAgentLaunchFlags() does so TUI and idow launch lines match. Claude agent
 # profiles then get the deprecated claude.extra_args, profile list over
 # top-level list, one quoted word each.
 #
@@ -79,7 +80,7 @@
 #
 # Output: JSON object with resolved values:
 #   {"init_cmd": "...", "profile_init_cmd_set": true|false, "profile_init_cmd": "...",
-#    "skip_permissions": "true|false", "model": "...", "effort": "...",
+#    "skip_permissions": "true|false", "model": "...", "effort": "...", "mode": "...",
 #    "companion_command": "...",
 #    "agent_profile": "...", "agent_command": "...", "agent_args": "...",
 #    "agent_resume_args": "...", "agent_prompt_args": "...",
@@ -170,7 +171,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
     ((.agent_profiles // {}) | keys) as $agent_profile_names |
     (.profiles[strenv(PROFILE)] // {}) as $selected |
     ((strenv(AGENT_PROFILE_OVERRIDE) | select(. != "")) // $selected.agent_profile // .agent_profile // "claude") as $agent_profile_ref |
-    ["command", "args", "resume_args", "is_claude", "model", "effort", "model_args", "effort_args", "prompt_args", "skill_prefix", "env"] as $fields |
+    ["command", "args", "resume_args", "is_claude", "model", "effort", "mode", "model_args", "effort_args", "mode_args", "prompt_args", "skill_prefix", "env"] as $fields |
     {
         "workspace_aware_agents": .workspace_aware_agents,
         "initialization_command": .initialization_command,
@@ -215,13 +216,13 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
      else ($def_resolved.command | basename) as $name
           | if $name == "claude" then {} else ($builtin_agents[0][$name] // {}) end
      end) as $builtin_agent |
-    ({model: $builtin_agent.model_args, effort: $builtin_agent.effort_args}
+    ({model: $builtin_agent.model_args, effort: $builtin_agent.effort_args, mode: $builtin_agent.mode_args}
      | with_entries(select(.value != null))) as $builtin |
-    ([("model", "effort") as $f | {
+    ([("model", "effort", "mode") as $f | {
         key: $f,
         value: {
             value: (if $def_resolved | has($f) then ($def_resolved[$f] // "")
-                    elif $is_claude then ($selected.claude[$f] // $claude[$f] // "" | tostring | sub("\n+$"; ""))
+                    elif $is_claude and $f != "mode" then ($selected.claude[$f] // $claude[$f] // "" | tostring | sub("\n+$"; ""))
                     else "" end),
             template: (if $def_resolved | has($f + "_args") then ($def_resolved[$f + "_args"] // "")
                        else ($builtin[$f] // "") end),
@@ -238,6 +239,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         skip_permissions: (.claude.dangerously_skip_permissions // false),
         model: $launch.model.value,
         effort: $launch.effort.value,
+        mode: $launch.mode.value,
         companion_command: ($selected.companion_command // .companion_command // "GIT_OPTIONAL_LOCKS=0 gitui" | sub("\n+$"; "")),
         agent_profile: $agent_profile,
         agent_command: $def_resolved.command,
@@ -250,6 +252,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
                              else ($builtin_agent.skill_prefix // "/") end),
         agent_launch_flags: ([render($launch.model.template; "{model}"; $launch.model.value),
                               render($launch.effort.template; "{effort}"; $launch.effort.value),
+                              render($launch.mode.template; "{mode}"; $launch.mode.value),
                               ($extra_args[] | tostring | quote_value)] | join(" ")),
         agent_env: ($def_resolved.env // {} | tojson),
         workspace_aware: (.workspace_aware_agents == true),

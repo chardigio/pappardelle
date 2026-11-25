@@ -9,7 +9,12 @@ import builtinAgents from '../scripts/builtin-agents.json';
  */
 export type BuiltinAgentDefaults = Pick<
 	AgentProfileConfig,
-	'model_args' | 'effort_args' | 'prompt_args' | 'resume_args' | 'skill_prefix'
+	| 'model_args'
+	| 'effort_args'
+	| 'mode_args'
+	| 'prompt_args'
+	| 'resume_args'
+	| 'skill_prefix'
 > & {rules_args?: string[]};
 
 /**

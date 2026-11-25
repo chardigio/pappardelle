@@ -78,6 +78,7 @@ function runResolver(
 	workspace_aware: string;
 	model: string;
 	effort: string;
+	mode: string;
 	deprecation_warnings: string;
 } {
 	let cmd = `bash "${SCRIPT_PATH}" --config "${configPath}" --local-config "${localConfigPath}"`;
@@ -1106,10 +1107,12 @@ const AGENT_DEFAULTS_CASES: Record<string, AgentDefaultsCase> = {
 					command: name,
 					...(builtin.model_args && {model: 'm1'}),
 					...(builtin.effort_args && {effort: 'e1'}),
+					...(builtin.mode_args && {mode: 'plan'}),
 				},
 				launchFlags: [
 					builtin.model_args?.replace('{model}', 'm1'),
 					builtin.effort_args?.replace('{effort}', 'e1'),
+					builtin.mode_args?.replace('{mode}', 'plan'),
 				]
 					.filter(Boolean)
 					.join(' '),
@@ -1182,10 +1185,73 @@ for (const [name, expected] of Object.entries(AGENT_DEFAULTS_CASES)) {
 			expect(result.agent_resume_args).toBe(expected.resumeArgs);
 			expect(agentProfile.skillPrefix).toBe(expected.skillPrefix);
 			expect(result.agent_skill_prefix).toBe(expected.skillPrefix);
+			expect(agentProfile.promptArgs ?? '').toBe(expected.promptArgs);
 			expect(result.agent_prompt_args).toBe(expected.promptArgs);
+			expect(agentProfile.mode).toBe(result.mode);
 		},
 	);
 }
+
+maybeMacro(
+	'agy mode passes --mode only when set on the agent profile in both TS and bash',
+	() => {
+		const fixture = setupConfigFiles(
+			`version: 1
+claude:
+  mode: plan
+agent_profiles:
+  agy-unset:
+    command: agy
+    model: gemini-4-hydrogen-medium
+  agy-plan:
+    command: agy
+    model: gemini-4-hydrogen
+    effort: high
+    mode: plan
+  agy-cleared:
+    command: agy
+    mode: plan
+  claude-with-template:
+    command: claude
+    mode_args: '--permission-mode {mode}'
+profiles:
+  unset: {display_name: Unset, agent_profile: agy-unset}
+  plan: {display_name: Plan, agent_profile: agy-plan}
+  cleared: {display_name: Cleared, agent_profile: agy-cleared}
+  claude-template: {display_name: ClaudeTemplate, agent_profile: claude-with-template}
+`,
+			`agent_profiles:
+  agy-cleared:
+    mode: ""
+`,
+		);
+		teardown(fixture.cleanup);
+		const config = loadConfigFromPaths({
+			projectDir: path.dirname(fixture.configPath),
+		});
+
+		const checks: Array<[string, string, string]> = [
+			['unset', '', '--model gemini-4-hydrogen-medium'],
+			['plan', 'plan', '--model gemini-4-hydrogen --effort high --mode plan'],
+			['cleared', '', ''],
+			['claude-template', '', ''],
+		];
+		for (const [profile, expectedMode, expectedFlags] of checks) {
+			const agentProfile = getAgentProfile(config, undefined, profile);
+			const tsFlags = renderAgentLaunchFlags(agentProfile).trim();
+			const resolved = runResolver(
+				fixture.configPath,
+				fixture.localConfigPath,
+				undefined,
+				profile,
+			);
+			expect(agentProfile.mode).toBe(expectedMode);
+			expect(resolved.mode).toBe(expectedMode);
+			expect(tsFlags).toBe(expectedFlags);
+			expect(resolved.agent_launch_flags).toBe(expectedFlags);
+		}
+	},
+);
 
 maybeMacro(
 	'agent_env is the agent profile env, merged per variable across layers',

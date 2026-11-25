@@ -33,6 +33,7 @@ import {
 import {
 	builtinAgentDefaults,
 	isClaudeAgentProfile,
+	supportsSousChefPrompt,
 	type LaunchField,
 } from './config-launch-flags.ts';
 import {configErrors} from './config-validation.ts';
@@ -145,6 +146,8 @@ export interface AgentProfileConfig {
 	model?: string;
 	/** Reasoning effort to launch the agent with, substituted into `effort_args`. */
 	effort?: string;
+	/** Execution mode to launch the agent with, substituted into `mode_args`. */
+	mode?: string;
 	/**
 	 * How `model` reaches the CLI, with `{model}` standing in for the value.
 	 * Built in where the agent's entry in scripts/builtin-agents.json has one;
@@ -156,6 +159,11 @@ export interface AgentProfileConfig {
 	 * Built in where the agent's entry in scripts/builtin-agents.json has one.
 	 */
 	effort_args?: string;
+	/**
+	 * How `mode` reaches the CLI, with `{mode}` standing in for the value.
+	 * Built in for agy (`--mode {mode}`).
+	 */
+	mode_args?: string;
 	/**
 	 * How the launch prompt reaches the CLI, with `{prompt}` standing in for
 	 * it exactly once, e.g. `-i {prompt}` for a CLI that won't take a bare
@@ -1870,7 +1878,7 @@ export const SOUS_CHEF_NAME = 'sous-chef';
 /** The user's own instructions for the sous-chef, at the main checkout's root. */
 export const SOUS_CHEF_FILE = 'SOUS-CHEF.md';
 
-export type SousChefLaunch = {name: string; prompt: string};
+export type SousChefLaunch = {name: string; prompt?: string};
 
 /** How the TUI launches a space's agent, beyond its agent profile. */
 export type AgentLaunch = Partial<SousChefLaunch> & {
@@ -1887,14 +1895,22 @@ export function workspaceAwareAgents(
 /**
  * How the main checkout's agent launches in sous-chef mode: under the
  * coordinator's name, which other agents address with SendMessage, and with
- * the skill as its first prompt, so every launch opens on the board.
+ * the skill as its first prompt for CLIs that accept it, so every launch opens
+ * on the board.
  */
 export function sousChefLaunch(
 	config: PappardelleConfig | null,
+	agentProfile?: Pick<
+		ResolvedAgentProfile,
+		'skillPrefix' | 'supportsSousChefPrompt'
+	>,
 ): SousChefLaunch | undefined {
-	return config?.sous_chef === true
-		? {name: SOUS_CHEF_NAME, prompt: `/${SOUS_CHEF_NAME}`}
-		: undefined;
+	if (config?.sous_chef !== true) return undefined;
+	if (agentProfile && !agentProfile.supportsSousChefPrompt) {
+		return {name: SOUS_CHEF_NAME};
+	}
+	const prefix = agentProfile?.skillPrefix ?? '/';
+	return {name: SOUS_CHEF_NAME, prompt: `${prefix}${SOUS_CHEF_NAME}`};
 }
 
 /**
@@ -2045,16 +2061,20 @@ export interface ResolvedAgentProfile {
 	isClaude: boolean;
 	/**
 	 * Values to launch with. `''` passes no flag, which keeps the launch
-	 * byte-identical for configs that never mention model or effort.
+	 * byte-identical for configs that never mention model, effort, or mode.
 	 */
 	model: string;
 	effort: string;
-	/** Flag templates for model/effort; undefined means the CLI gets none. */
+	mode: string;
+	/** Flag templates for model/effort/mode; undefined means the CLI gets none. */
 	modelArgs?: string;
 	effortArgs?: string;
-	/** The deprecated `claude.extra_args`, rendered after model/effort. */
+	modeArgs?: string;
+	promptArgs?: string;
+	/** The deprecated `claude.extra_args`, rendered after model/effort/mode. */
 	extraArgs: string[];
 	skillPrefix: string;
+	supportsSousChefPrompt: boolean;
 	/** How the agent takes the companion rules at launch; see agentRulesFlags. */
 	rulesArgs: string[];
 	env: Record<string, string>;
@@ -2083,10 +2103,14 @@ function resolveAgentProfile(
 		isClaude,
 		model: definition.model ?? '',
 		effort: definition.effort ?? '',
+		mode: definition.mode ?? '',
 		modelArgs: definition.model_args ?? builtin.model_args,
 		effortArgs: definition.effort_args ?? builtin.effort_args,
+		modeArgs: definition.mode_args ?? builtin.mode_args,
+		promptArgs: definition.prompt_args ?? builtin.prompt_args,
 		extraArgs: [],
 		skillPrefix: definition.skill_prefix ?? builtin.skill_prefix ?? '/',
+		supportsSousChefPrompt: supportsSousChefPrompt(definition),
 		rulesArgs: builtin.rules_args ?? [],
 		env: definition.env ?? {},
 	};

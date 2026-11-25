@@ -597,6 +597,53 @@ assert_eq "a profile's extra_args is reported as deprecated, naming the file" \
 cleanup
 
 # ==========================================================================
+# agy mode: only emitted when set on the agent profile (never reads claude.*)
+
+echo -e "\n${BOLD}Test: agy mode and mode_args${RESET}"
+setup_configs "version: 1
+claude:
+  mode: plan
+agent_profiles:
+  agy-unset:
+    command: agy
+    model: gemini-4-hydrogen-medium
+  agy-plan:
+    command: agy
+    model: gemini-4-hydrogen
+    effort: high
+    mode: plan
+  agy-cleared:
+    command: agy
+    mode: plan
+  claude-with-template:
+    command: claude
+    mode_args: '--permission-mode {mode}'
+profiles:
+  unset:
+    display_name: Unset
+    agent_profile: agy-unset
+  plan:
+    display_name: Plan
+    agent_profile: agy-plan
+  cleared:
+    display_name: Cleared
+    agent_profile: agy-cleared
+  claude-template:
+    display_name: ClaudeTemplate
+    agent_profile: claude-with-template" "version: 1
+agent_profiles:
+  agy-cleared:
+    mode: \"\""
+assert_eq "unset mode emits no --mode" "--model gemini-4-hydrogen-medium" "$(resolve --profile unset | field agent_launch_flags)"
+assert_eq "unset mode reports empty mode" "" "$(resolve --profile unset | field mode)"
+assert_eq "explicit mode emits --mode plan" "--model gemini-4-hydrogen --effort high --mode plan" "$(resolve --profile plan | field agent_launch_flags)"
+assert_eq "explicit mode reports plan" "plan" "$(resolve --profile plan | field mode)"
+assert_eq "empty-string mode clears inherited mode" "" "$(resolve --profile cleared | field agent_launch_flags)"
+assert_eq "claude mode_args never falls back to claude.mode" "" "$(resolve --profile claude-template | field agent_launch_flags)"
+assert_eq "claude mode stays empty despite claude.mode" "" "$(resolve --profile claude-template | field mode)"
+cleanup; unset TMPDIR_ROOT
+
+# ==========================================================================
 
 echo ""
 TOTAL=$((PASS + FAIL))

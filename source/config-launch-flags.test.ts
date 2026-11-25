@@ -2,9 +2,12 @@ import {test, expect} from 'bun:test';
 import {
 	bindResumeArgs,
 	builtinAgentDefaults,
+	isAgyAgentProfile,
 	isAgyCommand,
 	isClaudeCommand,
 	renderAgentLaunchFlags,
+	renderAgentPrompt,
+	supportsSousChefPrompt,
 	unwrapCommand,
 } from './config-launch-flags.ts';
 
@@ -95,6 +98,41 @@ test('renderAgentLaunchFlags inserts $ sequences in a value literally', () => {
 test('renderAgentLaunchFlags passes no flag without a value or a template', () => {
 	expect(renderAgentLaunchFlags({modelArgs: '-m {model}', model: ''})).toBe('');
 	expect(renderAgentLaunchFlags({model: 'gpt-5.5', effort: 'high'})).toBe('');
+	expect(renderAgentLaunchFlags({modeArgs: '--mode {mode}', mode: ''})).toBe(
+		'',
+	);
+	expect(renderAgentLaunchFlags({mode: 'plan'})).toBe('');
+});
+
+test('renderAgentLaunchFlags renders mode through modeArgs after model and effort', () => {
+	expect(
+		renderAgentLaunchFlags({
+			modelArgs: '--model {model}',
+			effortArgs: '--effort {effort}',
+			modeArgs: '--mode {mode}',
+			model: 'gemini-4-hydrogen',
+			effort: 'high',
+			mode: 'plan',
+		}),
+	).toBe(' --model gemini-4-hydrogen --effort high --mode plan');
+	expect(
+		renderAgentLaunchFlags({
+			modeArgs: '--mode={mode}',
+			mode: 'a b',
+		}),
+	).toBe(` --mode='a b'`);
+});
+
+test('renderAgentPrompt wraps prompt in promptArgs when present and quotes for the shell', () => {
+	expect(renderAgentPrompt('/sous-chef')).toBe(` '/sous-chef'`);
+	expect(renderAgentPrompt('/sous-chef', '')).toBe(` '/sous-chef'`);
+	expect(renderAgentPrompt('/sous-chef', '-i {prompt}')).toBe(
+		` -i '/sous-chef'`,
+	);
+	expect(renderAgentPrompt('$sous-chef')).toBe(` '$sous-chef'`);
+	expect(renderAgentPrompt("a'b", '--prompt={prompt}')).toBe(
+		` --prompt='a'\\''b'`,
+	);
 });
 
 test('isClaudeCommand matches bare names and paths, not wrappers', () => {
@@ -128,4 +166,33 @@ test('unwrapCommand, isAgyCommand, and builtinAgentDefaults handle env wrappers'
 	});
 	expect(wrapped).toStrictEqual(bare);
 	expect(wrapped.prompt_args).toBeTruthy();
+});
+
+test('isAgyAgentProfile matches bare agy and paths unless gated as claude', () => {
+	expect(isAgyAgentProfile({command: 'agy'})).toBe(true);
+	expect(isAgyAgentProfile({command: '/usr/local/bin/agy --flag'})).toBe(true);
+	expect(isAgyAgentProfile({command: 'agy', is_claude: true})).toBe(false);
+	expect(isAgyAgentProfile({command: 'claude'})).toBe(false);
+	expect(isAgyAgentProfile({command: 'codex'})).toBe(false);
+});
+
+test('supportsSousChefPrompt gates prompt to claude, codex, agy, or explicit prompt_args', () => {
+	expect(supportsSousChefPrompt({command: 'claude'})).toBe(true);
+	expect(
+		supportsSousChefPrompt({command: 'claude-local', is_claude: true}),
+	).toBe(true);
+	expect(supportsSousChefPrompt({command: '/opt/bin/codex'})).toBe(true);
+	expect(supportsSousChefPrompt({command: 'agy'})).toBe(true);
+	expect(
+		supportsSousChefPrompt({command: 'custom', prompt_args: '-i {prompt}'}),
+	).toBe(true);
+	expect(supportsSousChefPrompt({command: 'opencode', skill_prefix: '/'})).toBe(
+		false,
+	);
+	expect(supportsSousChefPrompt({command: 'pi'})).toBe(false);
+	expect(supportsSousChefPrompt({command: 'opencode'})).toBe(false);
+	expect(supportsSousChefPrompt({command: 'env FOO=1 agy'})).toBe(false);
+	expect(supportsSousChefPrompt({command: 'claude', is_claude: false})).toBe(
+		false,
+	);
 });

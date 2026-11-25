@@ -15,6 +15,7 @@
 	"agy": {
 		"model_args": "--model {model}",
 		"effort_args": "--effort {effort}",
+		"mode_args": "--mode {mode}",
 		"prompt_args": "-i {prompt}",
 		"resume_args": "--conversation {session_id}",
 		"skill_prefix": "/"

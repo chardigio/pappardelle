@@ -952,3 +952,27 @@ test('the config fix removes the prompt when running claude fails', async () => 
 	});
 	expect(fs.existsSync(promptDir!)).toBe(false);
 });
+
+test('mode on an agy profile never triggers deprecation or rewrites and drops redundant mode_args', () => {
+	const paths = setup({
+		version: 1,
+		agent_profiles: {
+			agy: {command: 'agy', mode: 'plan'},
+		},
+		profiles: {main: {display_name: 'Main', agent_profile: 'agy'}},
+	});
+	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
+
+	const withRedundantTemplate = setup({
+		version: 1,
+		claude: {model: 'opus'},
+		agent_profiles: {
+			agy: {command: 'agy', mode: 'plan', mode_args: '--mode {mode}'},
+		},
+		profiles: {main: {display_name: 'Main'}},
+	});
+	migrate(withRedundantTemplate);
+	const migrated = loadConfigFromPaths(withRedundantTemplate);
+	expect(migrated.agent_profiles?.['agy']?.mode).toBe('plan');
+	expect(migrated.agent_profiles?.['agy']?.mode_args).toBe(undefined);
+});
