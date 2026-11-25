@@ -309,6 +309,14 @@ test('idow creates and reopens real worktrees in the main repository namespace',
 	t.false(reopened.includes('Created worktree:'));
 });
 
+test("a new worktree links the main checkout's CLAUDE.local.md", async t => {
+	const fixture = setup(t, true);
+	const notes = path.join(fixture.main, 'CLAUDE.local.md');
+	fs.writeFileSync(notes, '# notes\n');
+	await fixture.run();
+	t.is(fs.readlinkSync(path.join(fixture.workspace, 'CLAUDE.local.md')), notes);
+});
+
 test('idow creates a session using main config and worktree-local overrides', async t => {
 	const fixture = setup(t);
 	fs.writeFileSync(

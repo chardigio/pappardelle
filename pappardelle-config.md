@@ -1433,7 +1433,9 @@ When creating a new worktree, `idow` automatically copies these gitignored files
 
 Both use `cp -n` (no-clobber), so existing files in the worktree are never overwritten. If the source file doesn't exist, it's silently skipped.
 
-These copies are built into the `idow` script itself — you don't need to configure them in `post_workspace_init`.
+`CLAUDE.local.md` is linked rather than copied: the new worktree gets a symlink to the main checkout's file, so notes an agent adds from any worktree land in that one file. An existing `CLAUDE.local.md` in the worktree is left alone.
+
+These copies and the link are built into the `idow` script itself — you don't need to configure them in `post_workspace_init`.
 
 ## Post-Workspace-Init Commands
 
