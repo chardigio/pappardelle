@@ -17,6 +17,7 @@ import {
 	configLayerFiles,
 	defaultConfigPaths,
 	getAgentProfile,
+	getDefaultHomeConfigDir,
 	getInitializationCommand,
 	getNamedAgentProfile,
 	layerErrors,
@@ -901,10 +902,9 @@ export function buildConfigFixPrompt(
  */
 function buildConfigFixCommand(
 	promptFile: string,
-	homeConfigDir: string | undefined,
+	homeConfigDir: string,
 ): string {
-	const addDir = homeConfigDir ? ` --add-dir ${shellQuote(homeConfigDir)}` : '';
-	return `claude${addDir} "$(cat ${shellQuote(promptFile)})"`;
+	return `claude --add-dir ${shellQuote(homeConfigDir)} "$(cat ${shellQuote(promptFile)})"`;
 }
 
 /** Hand a failed rewrite to Claude through `run`, which runs a shell command and resolves its exit code. */
@@ -917,7 +917,12 @@ export async function runConfigFix(
 	try {
 		const promptFile = path.join(dir, 'prompt.md');
 		fs.writeFileSync(promptFile, buildConfigFixPrompt(reason, paths));
-		return await run(buildConfigFixCommand(promptFile, paths.homeConfigDir));
+		return await run(
+			buildConfigFixCommand(
+				promptFile,
+				paths.homeConfigDir ?? getDefaultHomeConfigDir(),
+			),
+		);
 	} finally {
 		fs.rmSync(dir, {recursive: true, force: true});
 	}
