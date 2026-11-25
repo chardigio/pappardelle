@@ -63,9 +63,7 @@ if [[ -z "$PROMPT" ]]; then
     exit 1
 fi
 
-# Build the description with better formatting
-# Convert prompt to blockquote by adding > to each line
-QUOTED_PROMPT=$(echo "$PROMPT" | sed 's/^/> /')
+QUOTED_PROMPT=$(printf '%s\n' "$PROMPT" | sed 's/^/> /')
 
 DESCRIPTION="👨‍🍳🍝 More details coming soon...
 

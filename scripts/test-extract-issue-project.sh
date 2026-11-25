@@ -329,7 +329,8 @@ assert_eq "create_issue emits the new key" '{"issue_key":"pap-a1b2","issue_url":
 
 argv=$(cat "$TMPDIR_ROOT/bd-argv.txt" 2>/dev/null || echo "MISSING")
 assert_contains "bd argv uses create" "create" "$argv"
-assert_contains "bd argv passes the title" "Add dark mode" "$argv"
+assert_eq "bd argv passes the title as --title's value" "Add dark mode" \
+    "$(grep -A1 -x -e '--title' <<<"$argv" | tail -n 1)"
 assert_contains "bd argv passes --json" "--json" "$argv"
 # Beads spells its types lowercase and rejects Jira's "Task".
 assert_contains "bd argv lowercases the issue type" "task" "$argv"
@@ -338,6 +339,19 @@ assert_contains "bd argv sends the description via a file" "--body-file" "$argv"
 body=$(cat "$TMPDIR_ROOT/bd-body.txt" 2>/dev/null || echo "MISSING")
 assert_contains "description body quotes the original prompt" \
     "> add dark mode to settings" "$body"
+
+# Derived titles carry no prefix, so a title can start with "-"; bd would read a
+# positional one as flags.
+PATH="$FAKE_BIN:$PATH" create_issue \
+    --title "-n" \
+    --prompt "-n" \
+    --config "$BEADS_CONFIG" \
+    --profile by-prefix >/dev/null
+argv=$(cat "$TMPDIR_ROOT/bd-argv.txt" 2>/dev/null || echo "MISSING")
+assert_eq "a title starting with - is --title's value" "-n" \
+    "$(grep -A1 -x -e '--title' <<<"$argv" | tail -n 1)"
+body=$(cat "$TMPDIR_ROOT/bd-body.txt" 2>/dev/null || echo "MISSING")
+assert_contains "a prompt of -n is quoted in the body" "> -n" "$body"
 
 # stderr advisories must not leak into the parsed issue key.
 assert_eq "warning on stderr stays out of the key" \
