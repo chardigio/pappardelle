@@ -867,10 +867,14 @@ export function buildConfigFromLayers(
 
 /**
  * Name the file an error comes from: the one file whose absence from the
- * merge makes the error go away. An error that no single file explains, like
- * a duplicate spread over two files, or one whose wording depends on another
- * file (a keybinding's index), keeps no file name. A single-file config's
- * errors are already about that file.
+ * merge makes the error go away, when that file's value is also the one the
+ * merged config holds at the error's key, or at the nearest key around it
+ * when the key itself is missing (a jira tracker with no base_url). An error
+ * that no single file explains, like a duplicate spread over two files, one
+ * whose wording depends on another file (a keybinding's index), or one that
+ * only goes away because a file holds what the key is checked against (the
+ * profiles a default_profile names), keeps no file name. A single-file
+ * config's errors are already about that file.
  */
 function labelErrorsByLayer(
 	errors: string[],
@@ -878,25 +882,49 @@ function labelErrorsByLayer(
 ): string[] {
 	const files = layers.filter(({layer}) => layer);
 	if (files.length < 2) return errors;
+	// configErrors fills in defaults, so each merge gets its own copies.
+	const mergeCopies = (without?: string) =>
+		mergeConfigLayers(
+			layers.map(other =>
+				other.label === without || !other.layer
+					? null
+					: structuredClone(other.layer),
+			),
+		);
+	const merged = mergeCopies();
 	const errorsWithout = files.map(({label}) => ({
 		label,
-		// configErrors fills in defaults, so each merge gets its own copies.
-		errors: new Set(
-			configErrors(
-				mergeConfigLayers(
-					layers.map(other =>
-						other.label === label || !other.layer
-							? null
-							: structuredClone(other.layer),
-					),
-				),
-			),
-		),
+		errors: new Set(configErrors(mergeCopies(label))),
 	}));
 	return errors.map(error => {
 		const sources = errorsWithout.filter(({errors}) => !errors.has(error));
-		return sources.length === 1 ? `${sources[0]!.label}: ${error}` : error;
+		// The merged keybindings list is re-indexed, so its indexes name no file's entries.
+		if (sources.length !== 1 || error.startsWith('keybindings[')) return error;
+		const keys = error
+			.split(': ', 1)[0]!
+			.replaceAll(/\[(\d+)]/g, '.$1')
+			.split('.');
+		let depth = keys.length;
+		while (depth > 0 && !hasKeyPath(merged, keys.slice(0, depth))) depth--;
+		if (depth === 0) return error;
+		const winner = files.findLast(({layer}) =>
+			hasKeyPath(layer, keys.slice(0, depth)),
+		);
+		return winner?.label === sources[0]!.label
+			? `${winner.label}: ${error}`
+			: error;
 	});
+}
+
+function hasKeyPath(value: unknown, keys: string[]): boolean {
+	let node = value;
+	for (const key of keys) {
+		if (!node || typeof node !== 'object' || !Object.hasOwn(node, key))
+			return false;
+		node = (node as Record<string, unknown>)[key];
+	}
+
+	return true;
 }
 
 /** The agent_profiles of raw layers, merged as the config merges them. */

@@ -1553,9 +1553,66 @@ test('a bad value shadowed by a good one in a higher file is no error', t => {
 	);
 });
 
-// Leaving the project file out moves the local binding from index 1 to 0, so
-// the message differs in both leave-one-out merges and no file is named.
-test('a bad keybinding in a higher file stays unlabelled, a known gap', t => {
+// Leaving the home file out removes the profiles default_profile is checked
+// against, but home sets no default_profile, so it is not the file to fix.
+test('an error is not labelled with a file that does not set its key', t => {
+	t.deepEqual(
+		schemaErrors({
+			'home/.pappardelle.yml':
+				'version: 1\nprofiles:\n  main:\n    display_name: Main\n',
+			'project/.pappardelle.yml': 'default_profile: nope\n',
+			'project/.pappardelle.local.yml': 'default_profile: nope\n',
+		}),
+		['default_profile: profile "nope" not found in profiles'],
+	);
+	t.deepEqual(
+		schemaErrors({
+			'home/.pappardelle.yml': 'version: 1\ndefault_profile: nope\n',
+			'project/.pappardelle.yml':
+				'profiles:\n  main:\n    display_name: Main\n',
+			'project/.pappardelle.local.yml': 'default_profile: nope\n',
+		}),
+		['default_profile: profile "nope" not found in profiles'],
+	);
+});
+
+test('an error is not labelled with a file whose value a higher file overrides', t => {
+	t.deepEqual(
+		schemaErrors({
+			'home/.pappardelle.yml':
+				'version: 1\ndefault_profile: main\nprofiles:\n  main:\n    display_name: Main\n',
+			'project/.pappardelle.yml': 'default_profile: nope\n',
+			'project/.pappardelle.local.yml': 'default_profile: nope\n',
+		}),
+		['default_profile: profile "nope" not found in profiles'],
+	);
+});
+
+// The key the error names is missing everywhere, so the file to fix is the
+// one that sets the nearest key around it.
+test('an error about a missing key is labelled with the file that sets its parent', t => {
+	t.deepEqual(
+		schemaErrors({
+			'project/.pappardelle.yml': opusProfile,
+			'project/.pappardelle.local.yml': 'issue_tracker:\n  provider: jira\n',
+		}),
+		[
+			'.pappardelle.local.yml: issue_tracker.base_url: required when provider is "jira"',
+		],
+	);
+	t.deepEqual(
+		schemaErrors({
+			'project/.pappardelle.yml': opusProfile,
+			'project/.pappardelle.local.yml':
+				'agent_profiles:\n  foo:\n    model: opus\n',
+		}),
+		[
+			'.pappardelle.local.yml: agent_profiles.foo.command: required non-empty string',
+		],
+	);
+});
+
+test('a bad keybinding in a higher file stays unlabelled', t => {
 	t.deepEqual(
 		schemaErrors({
 			'project/.pappardelle.yml': `${opusProfile}keybindings:
@@ -1570,6 +1627,32 @@ test('a bad keybinding in a higher file stays unlabelled, a known gap', t => {
 `,
 		}),
 		['keybindings[1].key: "q" conflicts with built-in shortcut'],
+	);
+});
+
+test('a keybinding error names no file, since merging re-indexes the bindings', t => {
+	t.deepEqual(
+		schemaErrors({
+			'home/.pappardelle.yml': `keybindings:
+  - key: a
+    name: A
+    run: echo a
+  - key: b
+    run: echo b
+`,
+			'project/.pappardelle.yml': `${opusProfile}keybindings:
+  - key: b
+    run: echo b
+`,
+			'project/.pappardelle.local.yml': `keybindings:
+  - key: a
+    disabled: true
+  - key: x
+    name: X
+    run: echo x
+`,
+		}),
+		['keybindings[0].name: required string field'],
 	);
 });
 
