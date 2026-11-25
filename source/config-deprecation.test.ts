@@ -101,3 +101,29 @@ profiles:
 		cleanup();
 	}
 });
+
+// An alias is a copy in YAML, so renaming the old spelling where the anchor
+// sits must leave every alias of it with the old spelling to rename.
+test('a deprecated claude map shared through an alias renames for every profile', t => {
+	const {dir, cleanup} = setupTempDir({
+		'project/.pappardelle.yml': `version: 1
+team_prefix: BASE
+default_profile: b
+initialization_command: top
+issue_tracker: {provider: beads}
+profiles:
+  a: {display_name: A, claude: &c {initialization_command: legacy}}
+  b: {display_name: B, claude: *c}
+`,
+	});
+	try {
+		const config = loadConfigFromPaths({
+			homeConfigDir: path.join(dir, 'home'),
+			projectDir: path.join(dir, 'project'),
+		});
+		t.is(config.profiles['a']?.initialization_command, 'legacy');
+		t.is(config.profiles['b']?.initialization_command, 'legacy');
+	} finally {
+		cleanup();
+	}
+});

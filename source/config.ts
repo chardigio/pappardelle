@@ -798,7 +798,9 @@ export function parseConfigLayer(
 
 	let parsed: unknown;
 	try {
-		parsed = document.toJS();
+		// `yaml` hands back one object for an anchor and its aliases, but in
+		// YAML an alias is a copy: rewriting one place must leave the others.
+		parsed = unshareAliases(document.toJS());
 	} catch (error) {
 		const msg = error instanceof Error ? error.message : String(error);
 		throw new ConfigValidationError([`${label}: ${msg}`]);
@@ -809,6 +811,17 @@ export function parseConfigLayer(
 	}
 
 	return parsed as Record<string, unknown>;
+}
+
+function unshareAliases(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(item => unshareAliases(item));
+	if (value && typeof value === 'object') {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [key, unshareAliases(item)]),
+		);
+	}
+
+	return value;
 }
 
 function misplacedSqliteStateErrors(
