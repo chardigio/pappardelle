@@ -1,7 +1,8 @@
 import test from 'ava';
 import path from 'node:path';
 import type {PappardelleConfig} from './config.ts';
-import {setupTempDir} from '../test/helpers/config-fixtures.ts';
+import {setupTempDir, writeFiles} from '../test/helpers/config-fixtures.ts';
+import {tempDir, type Teardown} from '../test/helpers/temp-dir.ts';
 import {
 	deepMerge,
 	mergeConfigLayers,
@@ -1478,8 +1479,9 @@ profiles:
     display_name: Test
 `;
 
-function schemaErrors(files: Record<string, string>): string[] {
-	const {dir, cleanup} = setupTempDir(files);
+function schemaErrors(t: Teardown, files: Record<string, string>): string[] {
+	const dir = tempDir(t, 'pappardelle-merge-');
+	writeFiles(dir, files);
 	try {
 		loadConfigFromPaths({
 			homeConfigDir: path.join(dir, 'home'),
@@ -1489,14 +1491,12 @@ function schemaErrors(files: Record<string, string>): string[] {
 	} catch (error) {
 		if (error instanceof ConfigValidationError) return error.errors;
 		throw error;
-	} finally {
-		cleanup();
 	}
 }
 
 test('a single-file config reports its schema errors without a file name', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'project/.pappardelle.yml': opusProfile.replace(
 				'    command: claude\n',
 				'    command: claude\n    model: 5\n',
@@ -1508,7 +1508,7 @@ test('a single-file config reports its schema errors without a file name', t => 
 
 test('a schema error from the local file is labelled with it', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'project/.pappardelle.yml': opusProfile,
 			'project/.pappardelle.local.yml':
 				'agent_profiles:\n  opus:\n    model: 5\n',
@@ -1519,7 +1519,7 @@ test('a schema error from the local file is labelled with it', t => {
 
 test('a schema error from the home file is labelled with it', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'home/.pappardelle.yml': 'agent_profiles:\n  opus:\n    model: 5\n',
 			'project/.pappardelle.yml': opusProfile,
 		}),
@@ -1531,7 +1531,7 @@ test('a schema error from the home file is labelled with it', t => {
 
 test('an error no single file causes stays unlabelled', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'home/.pappardelle.yml': 'team_prefix: ABC\n',
 			'project/.pappardelle.yml': 'profiles: {}\n',
 		}),
@@ -1541,7 +1541,7 @@ test('an error no single file causes stays unlabelled', t => {
 
 test('a bad value shadowed by a good one in a higher file is no error', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'project/.pappardelle.yml': opusProfile.replace(
 				'    command: claude\n',
 				'    command: claude\n    model: 5\n',
@@ -1557,7 +1557,7 @@ test('a bad value shadowed by a good one in a higher file is no error', t => {
 // against, but home sets no default_profile, so it is not the file to fix.
 test('an error is not labelled with a file that does not set its key', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'home/.pappardelle.yml':
 				'version: 1\nprofiles:\n  main:\n    display_name: Main\n',
 			'project/.pappardelle.yml': 'default_profile: nope\n',
@@ -1566,7 +1566,7 @@ test('an error is not labelled with a file that does not set its key', t => {
 		['default_profile: profile "nope" not found in profiles'],
 	);
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'home/.pappardelle.yml': 'version: 1\ndefault_profile: nope\n',
 			'project/.pappardelle.yml':
 				'profiles:\n  main:\n    display_name: Main\n',
@@ -1578,7 +1578,7 @@ test('an error is not labelled with a file that does not set its key', t => {
 
 test('an error is not labelled with a file whose value a higher file overrides', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'home/.pappardelle.yml':
 				'version: 1\ndefault_profile: main\nprofiles:\n  main:\n    display_name: Main\n',
 			'project/.pappardelle.yml': 'default_profile: nope\n',
@@ -1592,7 +1592,7 @@ test('an error is not labelled with a file whose value a higher file overrides',
 // one that sets the nearest key around it.
 test('an error about a missing key is labelled with the file that sets its parent', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'project/.pappardelle.yml': opusProfile,
 			'project/.pappardelle.local.yml': 'issue_tracker:\n  provider: jira\n',
 		}),
@@ -1601,7 +1601,7 @@ test('an error about a missing key is labelled with the file that sets its paren
 		],
 	);
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'project/.pappardelle.yml': opusProfile,
 			'project/.pappardelle.local.yml':
 				'agent_profiles:\n  foo:\n    model: opus\n',
@@ -1614,7 +1614,7 @@ test('an error about a missing key is labelled with the file that sets its paren
 
 test('an error under a name with a dot is labelled with its file', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'home/.pappardelle.yml': 'agent_profiles:\n  gpt-4.1:\n    command: 1\n',
 			'project/.pappardelle.yml': opusProfile,
 			'project/.pappardelle.local.yml':
@@ -1625,7 +1625,7 @@ test('an error under a name with a dot is labelled with its file', t => {
 		],
 	);
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'project/.pappardelle.yml': opusProfile.replace(
 				'    command: claude\n',
 				'    command: claude\n  gpt-4:\n    command: codex\n',
@@ -1639,7 +1639,7 @@ test('an error under a name with a dot is labelled with its file', t => {
 
 test('a bad keybinding in a higher file stays unlabelled', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'project/.pappardelle.yml': `${opusProfile}keybindings:
   - key: x
     name: X
@@ -1657,7 +1657,7 @@ test('a bad keybinding in a higher file stays unlabelled', t => {
 
 test('a keybinding error names no file, since merging re-indexes the bindings', t => {
 	t.deepEqual(
-		schemaErrors({
+		schemaErrors(t, {
 			'home/.pappardelle.yml': `keybindings:
   - key: a
     name: A

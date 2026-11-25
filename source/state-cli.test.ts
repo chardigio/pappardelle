@@ -2,10 +2,10 @@ import test from 'ava';
 import {Database} from 'bun:sqlite';
 import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {sqliteRun, testState} from '../test/helpers/state.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 
 const helper = fileURLToPath(
 	new URL('../scripts/state-cli.sh', import.meta.url),
@@ -25,8 +25,7 @@ function pappardelleState(args: string[], home: string) {
 }
 
 test('a script can ask the binary to create the database', t => {
-	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
-	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const home = tempDir(t, 'papp-state-cli-');
 	const dbPath = path.join(home, 'state.db');
 	const result = pappardelleState(['migrate', dbPath], home);
 	t.is(result.status, 0, `stderr: ${result.stderr}`);
@@ -38,8 +37,7 @@ test('a script can ask the binary to create the database', t => {
 });
 
 test('an unknown verb fails without starting anything else', t => {
-	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
-	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const home = tempDir(t, 'papp-state-cli-');
 	const result = pappardelleState(['open-a-space', 'KEY-1'], home);
 	t.is(result.status, 2);
 	t.regex(result.stderr, /unknown verb open-a-space/);
@@ -48,8 +46,7 @@ test('an unknown verb fails without starting anything else', t => {
 
 // idow reads 1 from `space get` as "no such space" and goes on with defaults.
 test('a verb that fails exits 3, never the not-found 1', t => {
-	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
-	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const home = tempDir(t, 'papp-state-cli-');
 	const notADir = path.join(home, 'file');
 	fs.writeFileSync(notADir, '');
 	const result = pappardelleState(
@@ -61,8 +58,7 @@ test('a verb that fails exits 3, never the not-found 1', t => {
 
 // idow reads 3 as a verb that ran and failed; a mistyped flag never ran it.
 test('a bad flag on a verb is a usage error naming the verb and the flag', t => {
-	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
-	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const home = tempDir(t, 'papp-state-cli-');
 	const cases: Array<[string[], RegExp]> = [
 		[
 			['check-config', '--project-root', home, '--main-root', home, '--bogus'],
@@ -85,10 +81,7 @@ test('a bad flag on a verb is a usage error naming the verb and the flag', t => 
 });
 
 test('check-agent-profile reads the layers idow reads, from the roots it is given', t => {
-	const home = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
-	);
-	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const home = tempDir(t, 'papp-state-cli-');
 	const project = path.join(home, 'linked');
 	const main = path.join(home, 'main');
 	fs.mkdirSync(project);
@@ -127,12 +120,7 @@ test('check-agent-profile reads the layers idow reads, from the roots it is give
 });
 
 test('prepare-space stores an issue title that starts with a dash', t => {
-	const home = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
-	);
-	t.teardown(() => {
-		fs.rmSync(home, {recursive: true, force: true});
-	});
+	const home = tempDir(t, 'papp-state-cli-');
 	const stateDir = path.join(home, '.pappardelle');
 	const result = spawnSync(
 		process.execPath,
@@ -163,12 +151,7 @@ test('prepare-space stores an issue title that starts with a dash', t => {
 });
 
 test("launch-agent records the agent profile a space's agent session starts with", t => {
-	const home = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
-	);
-	t.teardown(() => {
-		fs.rmSync(home, {recursive: true, force: true});
-	});
+	const home = tempDir(t, 'papp-state-cli-');
 	const stateDir = path.join(home, '.pappardelle');
 	const launch = (...args: string[]) =>
 		spawnSync(
@@ -205,8 +188,7 @@ test("launch-agent records the agent profile a space's agent session starts with
 });
 
 test('check-config passes a valid or missing config and fails an invalid one with its errors', t => {
-	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
-	t.teardown(() => fs.rmSync(home, {recursive: true, force: true}));
+	const home = tempDir(t, 'papp-state-cli-');
 	const project = path.join(home, 'project');
 	fs.mkdirSync(project);
 	const check = () =>
@@ -236,8 +218,7 @@ test('check-config passes a valid or missing config and fails an invalid one wit
 });
 
 test('migrate takes one database path and nothing else', t => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-'));
-	t.teardown(() => fs.rmSync(dir, {recursive: true, force: true}));
+	const dir = tempDir(t, 'papp-state-cli-');
 	const migrate = (...args: string[]) =>
 		spawnSync(
 			process.execPath,
@@ -261,12 +242,7 @@ test('migrate takes one database path and nothing else', t => {
 // idow takes a recorded identity as the space's: a registration that is
 // refused must not leave one behind.
 test('prepare-space --register without an owner records nothing', t => {
-	const home = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), 'papp-state-cli-')),
-	);
-	t.teardown(() => {
-		fs.rmSync(home, {recursive: true, force: true});
-	});
+	const home = tempDir(t, 'papp-state-cli-');
 	const stateDir = path.join(home, '.pappardelle');
 	const result = spawnSync(
 		process.execPath,
