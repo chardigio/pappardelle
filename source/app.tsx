@@ -226,8 +226,9 @@ import {listOpenSpaces} from './space-registry.ts';
 import type {StateDaos} from './state-daos.ts';
 import {
 	type RailStatusPatch,
-	findLatestSessionJsonl,
+	findSpaceTranscript,
 	extractRecapFromJsonl,
+	resolveSpaceAgentKind,
 } from './space-state.ts';
 import {useRailStatusPolling} from './use-rail-status-polling.ts';
 import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
@@ -2412,10 +2413,18 @@ export default function App({
 			const entries: Array<{key: string; patch: RailStatusPatch}> = [];
 			for (const [name, rail] of lookup) {
 				const worktreePath = getWorktreePath(name);
-				const jsonl = worktreePath
-					? await findLatestSessionJsonl(worktreePath)
+				const state = spaceState.read(name);
+				const {kind} = resolveSpaceAgentKind(state, configMemo);
+				const transcript = await findSpaceTranscript({
+					issueKey: name,
+					worktreePath,
+					state,
+					agentSessions,
+					config: configMemo,
+				});
+				const recap = transcript
+					? await extractRecapFromJsonl(transcript.file, transcript.format)
 					: null;
-				const recap = jsonl ? await extractRecapFromJsonl(jsonl) : null;
 				entries.push({
 					key: name,
 					patch: {
@@ -2423,7 +2432,7 @@ export default function App({
 						unresolvedCommentCount: rail.unresolvedCommentCount,
 						prNumber: rail.prNumber,
 						hasConflict: rail.hasConflict ?? false,
-						...(recap ? {recap} : {}),
+						...(recap ? {recap} : kind !== 'claude' ? {recap: undefined} : {}),
 					},
 				});
 			}

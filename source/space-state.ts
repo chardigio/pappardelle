@@ -15,6 +15,8 @@ import fs from 'node:fs';
 import {setImmediate as yieldToInput} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {resolveAgentProfileName, type PappardelleConfig} from './config.ts';
+import {isClaudeCommand} from './config-launch-flags.ts';
 import {PIPELINE_STATUSES, type PipelineStatus} from './providers/types.ts';
 import type {Unreadable} from './state-db.ts';
 
@@ -264,6 +266,171 @@ export async function findLatestSessionJsonl(
 	}
 
 	return newest ? newest.file : null;
+}
+
+export type SpaceAgentKind = 'claude' | 'agy' | 'other';
+
+function unwrappedCommandBasename(command: string): string {
+	const tokens = command.trim().split(/\s+/).filter(Boolean);
+	let i = 0;
+	while (i < tokens.length) {
+		const token = tokens[i]!;
+		if (path.basename(token) === 'env') {
+			i++;
+			while (i < tokens.length && tokens[i]!.startsWith('-')) {
+				const flag = tokens[i]!;
+				i++;
+				if (
+					(flag === '-u' ||
+						flag === '--unset' ||
+						flag === '-C' ||
+						flag === '--chdir' ||
+						flag === '-S' ||
+						flag === '--split-string') &&
+					i < tokens.length
+				) {
+					i++;
+				}
+			}
+
+			continue;
+		}
+
+		if (/^[A-Za-z_]\w*=/.test(token)) {
+			i++;
+			continue;
+		}
+
+		return path.basename(token);
+	}
+
+	return '';
+}
+
+export function resolveSpaceAgentKind(
+	state: SpaceState | null,
+	config?: PappardelleConfig | null,
+): {kind: SpaceAgentKind; agentProfileName: string} {
+	const launched = state?.agentProfile;
+	const agentProfileName =
+		launched?.name ??
+		(config
+			? resolveAgentProfileName(config, state?.issueTitle, state?.profile)
+			: 'claude');
+	if (launched?.isClaude === true) {
+		return {kind: 'claude', agentProfileName};
+	}
+
+	const defined = config?.agent_profiles?.[agentProfileName];
+	if (launched?.isClaude === false) {
+		const isAgy = defined
+			? unwrappedCommandBasename(defined.command) === 'agy'
+			: agentProfileName === 'agy';
+		return {kind: isAgy ? 'agy' : 'other', agentProfileName};
+	}
+
+	if (defined) {
+		const isClaude = defined.is_claude ?? isClaudeCommand(defined.command);
+		if (isClaude) return {kind: 'claude', agentProfileName};
+		return {
+			kind:
+				unwrappedCommandBasename(defined.command) === 'agy' ? 'agy' : 'other',
+			agentProfileName,
+		};
+	}
+
+	if (agentProfileName === 'claude') return {kind: 'claude', agentProfileName};
+	return {
+		kind: agentProfileName === 'agy' ? 'agy' : 'other',
+		agentProfileName,
+	};
+}
+
+/** Where agy stores the plain JSONL transcript for `conversationId`. */
+export function agyTranscriptPath(
+	conversationId: string,
+	home = homedir(),
+): string | null {
+	if (
+		!conversationId ||
+		conversationId === '.' ||
+		conversationId === '..' ||
+		conversationId.includes('/') ||
+		conversationId.includes('\\')
+	) {
+		return null;
+	}
+
+	return path.join(
+		home,
+		'.gemini',
+		'antigravity-cli',
+		'brain',
+		conversationId,
+		'.system_generated',
+		'logs',
+		'transcript.jsonl',
+	);
+}
+
+export type TranscriptFormat = 'claude' | 'agy';
+
+export interface SpaceTranscript {
+	file: string;
+	format: TranscriptFormat;
+	mtimeMs: number;
+}
+
+/**
+ * Locate the transcript for a space based on its active agent profile.
+ * Non-Claude spaces never fall back to stale Claude logs under `~/.claude/projects`.
+ */
+export async function findSpaceTranscript(options: {
+	issueKey: string;
+	worktreePath: string | null;
+	state?: SpaceState | null;
+	spaceState?: Pick<SpaceStateDao, 'read'>;
+	agentSessions?: Pick<AgentSessionsDao, 'read'>;
+	config?: PappardelleConfig | null;
+	home?: string;
+	claudeProjectsDir?: string;
+}): Promise<SpaceTranscript | null> {
+	const state =
+		options.state === undefined
+			? (options.spaceState?.read(options.issueKey) ?? null)
+			: options.state;
+	const {kind, agentProfileName} = resolveSpaceAgentKind(state, options.config);
+	if (kind === 'other') return null;
+
+	let file: string | null = null;
+	let format: TranscriptFormat;
+	if (kind === 'agy') {
+		const conversationId = options.agentSessions?.read(
+			options.issueKey,
+			agentProfileName,
+		);
+		file = conversationId
+			? agyTranscriptPath(conversationId, options.home)
+			: null;
+		format = 'agy';
+	} else {
+		if (!options.worktreePath) return null;
+		const projectsDir =
+			options.claudeProjectsDir ??
+			(options.home
+				? path.join(options.home, '.claude', 'projects')
+				: undefined);
+		file = await findLatestSessionJsonl(options.worktreePath, projectsDir);
+		format = 'claude';
+	}
+
+	if (!file) return null;
+	try {
+		const stat = await fs.promises.stat(file);
+		return stat.isFile() ? {file, format, mtimeMs: stat.mtimeMs} : null;
+	} catch {
+		return null;
+	}
 }
 
 export function getSpaceStateDir(repoName: string, baseDir?: string): string {
@@ -574,21 +741,27 @@ function fileSignature(stat: fs.Stats): string {
 	return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':');
 }
 
+export function extractAgyUserText(content: unknown): string | undefined {
+	if (typeof content !== 'string') return undefined;
+	const match = /<USER_REQUEST>\s*([\s\S]*?)(?:<\/USER_REQUEST>|$)/.exec(
+		content,
+	);
+	const text = (match ? match[1]! : content).trim();
+	return text || undefined;
+}
+
 /**
- * Pull a lightweight recap out of a Claude Code session jsonl file.
+ * Pull a lightweight recap out of a Claude Code or agy transcript jsonl file.
  *
- * We look for three Claude-emitted line types:
- *  - `custom-title` — auto-generated short session label (3-6 words)
- *  - `last-prompt` — most recent user prompt text
- *  - `assistant` — most recent assistant message with non-empty text content
- *
- * Returns `null` when none of these are present or the file can't be read.
+ * Returns `null` when none of the expected entries are present or the file
+ * can't be read.
  */
 export async function extractRecapFromJsonl(
 	jsonlPath: string,
+	format: TranscriptFormat = 'claude',
 ): Promise<SpaceRecap | null> {
 	try {
-		const signature = fileSignature(await fs.promises.stat(jsonlPath));
+		const signature = `${format}:${fileSignature(await fs.promises.stat(jsonlPath))}`;
 		const cached = recapCache.get(jsonlPath);
 		if (cached?.signature === signature) {
 			recapCache.delete(jsonlPath);
@@ -610,6 +783,7 @@ export async function extractRecapFromJsonl(
 					applyRecapLine(
 						recap,
 						pending.length ? pending.join('') + line : line,
+						format,
 					);
 					pending = [];
 					start = end + 1;
@@ -621,14 +795,17 @@ export async function extractRecapFromJsonl(
 				}
 				if (start < contents.length) pending.push(contents.slice(start));
 			}
-			if (pending.length) applyRecapLine(recap, pending.join(''));
+			if (pending.length) applyRecapLine(recap, pending.join(''), format);
 		} finally {
 			stream.destroy();
 		}
 		const result = Object.keys(recap).length ? recap : null;
 		// A writer may append or replace the transcript while it is being read.
 		// Only reuse snapshots that were stable for the entire read.
-		if (fileSignature(await fs.promises.stat(jsonlPath)) === signature) {
+		if (
+			`${format}:${fileSignature(await fs.promises.stat(jsonlPath))}` ===
+			signature
+		) {
 			recapCache.delete(jsonlPath);
 			recapCache.set(jsonlPath, {signature, recap: result});
 			if (recapCache.size > MAX_CACHED_RECAPS) {
@@ -642,7 +819,11 @@ export async function extractRecapFromJsonl(
 	}
 }
 
-function applyRecapLine(recap: SpaceRecap, line: string): void {
+function applyRecapLine(
+	recap: SpaceRecap,
+	line: string,
+	format: TranscriptFormat,
+): void {
 	let entry: any;
 	try {
 		entry = JSON.parse(line);
@@ -650,6 +831,19 @@ function applyRecapLine(recap: SpaceRecap, line: string): void {
 		return;
 	}
 	if (!entry || typeof entry !== 'object') return;
+	if (format === 'agy') {
+		if (entry.type === 'USER_INPUT') {
+			const prompt = extractAgyUserText(entry.content);
+			if (prompt) recap.lastPrompt = prompt;
+		} else if (entry.type === 'PLANNER_RESPONSE') {
+			const text =
+				typeof entry.content === 'string' ? entry.content.trim() : '';
+			if (text) recap.lastAssistantExcerpt = text.slice(0, MAX_EXCERPT_LEN);
+		}
+
+		return;
+	}
+
 	switch (entry.type) {
 		case 'custom-title': {
 			if (typeof entry.customTitle === 'string' && entry.customTitle) {

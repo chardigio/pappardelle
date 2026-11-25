@@ -792,12 +792,25 @@ def test_agy_records_its_conversation(sessions_file: Path):
     assert entries(sessions_file)["argon"]["pid"] == 99
 
 
-def test_an_agy_subagent_does_not_replace_the_conversation(sessions_file: Path):
-    # agy's subagents fire hooks from the agy process with their own id.
+def test_agy_updates_conversation_after_clear_for_same_live_pid(sessions_file: Path):
     launch(agent_profile="argon")
-    record(agy_payload("first"), False, env_for(), lambda: TOP_LEVEL_AGY)
-    assert not record(agy_payload("subagent"), False, env_for(), no_process_walk)
-    assert recorded(sessions_file) == {"argon": "first"}
+    assert record(agy_payload("first"), False, env_for(), lambda: TOP_LEVEL_AGY)
+    assert record(agy_payload("second"), False, env_for(), lambda: TOP_LEVEL_AGY)
+    assert recorded(sessions_file) == {"argon": "second"}
+    assert not record(agy_payload("second"), False, env_for(), no_process_walk)
+
+
+def test_another_live_agy_cannot_overwrite_the_conversation(sessions_file: Path):
+    launch(agent_profile="argon")
+    assert record(agy_payload("first"), False, env_for(), lambda: TOP_LEVEL_AGY)
+    assert not record(
+        agy_payload("second"),
+        False,
+        env_for(),
+        lambda: RELAUNCHED_AGY,
+        started=lambda _pid: STARTED,
+    )
+    assert entries(sessions_file)["argon"] == {"session_id": "first", "pid": 99, "started": STARTED}
 
 
 def test_agy_outside_pappardelle_skips_the_process_walk():

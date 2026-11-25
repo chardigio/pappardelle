@@ -127,6 +127,19 @@ function tmuxOut(runner: OuterTmuxRunner, args: string[]): string | null {
  */
 export const AGENT_PANE_FORMAT = `#{window_active}#{pane_active}\t#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`;
 
+function selectedStatusPaneRow(lines: string[]): string | undefined {
+	const rows = lines.map(line => {
+		const [active = '', pinned = '', ...pane] = line.split('\t');
+		return {current: active === '11', pinned, pane: pane.join('\t')};
+	});
+	const pinned = rows.find(row => row.pinned)?.pinned;
+	return (
+		pinned
+			? rows.find(each => each.pane.startsWith(`${pinned}\t`))
+			: rows.find(each => each.current)
+	)?.pane;
+}
+
 /**
  * The pane the TUI's status monitor pinned, else the session's current pane,
  * from one session's `AGENT_PANE_FORMAT` lines.
@@ -135,15 +148,8 @@ export function statusPaneOf(
 	lines: string[],
 	socket: string,
 ): StatusPane | null {
-	const rows = lines.map(line => {
-		const [active = '', pinned = '', ...pane] = line.split('\t');
-		return {current: active === '11', pinned, pane: pane.join('\t')};
-	});
-	const pinned = rows.find(row => row.pinned)?.pinned;
-	const row = pinned
-		? rows.find(each => each.pane.startsWith(`${pinned}\t`))
-		: rows.find(each => each.current);
-	return row ? parseStatusPane(row.pane, socket) : null;
+	const pane = selectedStatusPaneRow(lines);
+	return pane ? parseStatusPane(pane, socket) : null;
 }
 
 /**
@@ -153,6 +159,7 @@ export function statusPaneOf(
 function pinnedStatusPane(
 	session: string,
 	runner: OuterTmuxRunner,
+	socket = statusSocket(),
 ): StatusPane | null {
 	const listing = tmuxOut(runner, [
 		'list-panes',
@@ -163,8 +170,30 @@ function pinnedStatusPane(
 		AGENT_PANE_FORMAT,
 	]);
 	return listing
-		? statusPaneOf(listing.split('\n').filter(Boolean), statusSocket())
+		? statusPaneOf(listing.split('\n').filter(Boolean), socket)
 		: null;
+}
+
+export function pinnedStatusPaneInfo(
+	session: string,
+	runner: OuterTmuxRunner,
+	socket = statusSocket(),
+): {pane: StatusPane; currentCommand: string | undefined} | null {
+	const listing = tmuxOut(runner, [
+		'list-panes',
+		'-s',
+		'-t',
+		exactSessionTarget(session),
+		'-F',
+		`${AGENT_PANE_FORMAT}\t#{pane_current_command}`,
+	]);
+	if (!listing) return null;
+	const row = selectedStatusPaneRow(listing.split('\n').filter(Boolean));
+	if (!row) return null;
+	const pane = parseStatusPane(row, socket);
+	if (!pane) return null;
+	const currentCommand = row.split('\t')[5] || undefined;
+	return {pane, currentCommand};
 }
 
 /**

@@ -1,4 +1,4 @@
-// `pappardelle spaces`: every open space with its Claude status, cached rail
+// `pappardelle spaces`: every open space with its agent status, cached rail
 // state and recap, issue title, PR link and branch summary. The JSON keeps
 // the shape of the sous-chef's old gather-spaces.sh, which the board reads,
 // and adds title, prUrl and git.
@@ -7,12 +7,25 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import type {ClaudeStatusDao} from './claude-status.ts';
+import {statusInfo, type ClaudeStatusDao} from './claude-status.ts';
+import type {PappardelleConfig} from './config.ts';
 import type {IssueMetaDao} from './issue-meta.ts';
+import {
+	listStatusPanes,
+	type LocatedStatusPane,
+	type ProgramStatusDao,
+} from './program-status-monitor.ts';
+import type {ProgramStatusInfo} from './program-status.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
-import {claudeProjectDir, type SpaceStateDao} from './space-state.ts';
+import {
+	findSpaceTranscript,
+	resolveSpaceAgentKind,
+	type AgentSessionsDao,
+	type SpaceStateDao,
+} from './space-state.ts';
 import type {SpaceIdentity, SpaceIdentityDao} from './space-identity.ts';
 import {getIssues} from './tracker.ts';
+import {mergeProgramStatus} from './workspace-status.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -59,12 +72,16 @@ export interface SpacesDeps {
 	registry: Pick<SpaceRegistryDao, 'openSpaces'>;
 	spaceIdentities: Pick<SpaceIdentityDao, 'get'>;
 	claudeStatus: Pick<ClaudeStatusDao, 'readableKey' | 'readState'>;
+	programStatus?: Pick<ProgramStatusDao, 'read'>;
 	spaceState: Pick<SpaceStateDao, 'read'>;
 	issueMeta: Pick<IssueMetaDao, 'read'>;
+	agentSessions?: Pick<AgentSessionsDao, 'read'>;
+	config?: PappardelleConfig | null;
 	home: string;
 	now?: number;
 	fetchTitles: (keys: string[]) => Promise<Map<string, string | null>>;
 	gitSummary: (worktreePath: string) => Promise<GitSummary | null>;
+	listStatusPanes?: (socket: string) => Promise<Map<string, LocatedStatusPane>>;
 	titleTimeoutMs?: number;
 }
 
@@ -132,29 +149,26 @@ function spaceHolding(
 	return found?.key;
 }
 
-function newestJsonl(
-	projectDir: string,
-): {file: string; mtimeMs: number} | null {
-	let newest: {file: string; mtimeMs: number} | null = null;
-	let entries: string[];
-	try {
-		entries = fs.readdirSync(projectDir);
-	} catch {
-		return null;
-	}
+function oscStatusLabel(info: ProgramStatusInfo): string {
+	switch (info.status) {
+		case 'blocked': {
+			return 'waiting_for_approval';
+		}
 
-	for (const name of entries) {
-		if (!name.endsWith('.jsonl')) continue;
-		const file = path.join(projectDir, name);
-		try {
-			const {mtimeMs} = fs.statSync(file);
-			if (!newest || mtimeMs > newest.mtimeMs) newest = {file, mtimeMs};
-		} catch {
-			// Removed between readdir and stat
+		case 'done':
+		case 'idle': {
+			return 'waiting_for_input';
+		}
+
+		case 'working': {
+			return info.tool ? 'running_tool' : 'processing';
+		}
+
+		case 'error':
+		case 'unknown': {
+			return info.status;
 		}
 	}
-
-	return newest;
 }
 
 async function withTimeout<T>(
@@ -214,24 +228,71 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 		new Map<string, string | null>(),
 	);
 
+	const paneReader = deps.listStatusPanes ?? listStatusPanes;
+	const panesBySocket = new Map<string, Map<string, LocatedStatusPane>>();
+	if (deps.programStatus) {
+		const sockets = new Set(
+			[...identities.values()].map(identity => identity.tmux.socket),
+		);
+		await Promise.all(
+			[...sockets].map(async socket => {
+				panesBySocket.set(socket, await paneReader(socket));
+			}),
+		);
+	}
+
 	const entries = await Promise.all(
 		keys.map(async (name): Promise<SpaceEntry> => {
 			const entry: Partial<SpaceEntry> & {name: string} = {name};
+			const identity = identities.get(name);
+			const state = deps.spaceState.read(name);
+			const {kind} = resolveSpaceAgentKind(state, deps.config);
+			const pane = identity
+				? (panesBySocket
+						.get(identity.tmux.socket)
+						?.get(identity.tmux.agentSession)?.pane ?? null)
+				: null;
 
-			const stored = await deps.claudeStatus.readState(
-				await deps.claudeStatus.readableKey(repoName, name),
-			);
-			if (stored.kind === 'state') {
-				const {state} = stored;
-				entry.status = state.status;
-				entry.currentTool = state.currentTool ?? null;
-				entry.lastUpdate = state.lastUpdate;
-				if (entry.lastUpdate)
-					entry.minutesAgo = roundTenth((now - entry.lastUpdate) / 60_000);
-				entry.sessionId = state.sessionId;
+			const [stored, snapshot] = await Promise.all([
+				kind === 'claude'
+					? deps.claudeStatus.readState(
+							await deps.claudeStatus.readableKey(repoName, name),
+						)
+					: Promise.resolve({kind: 'none'} as const),
+				deps.programStatus && pane
+					? deps.programStatus.read(name, pane)
+					: Promise.resolve(null),
+			]);
+			const hookState = stored.kind === 'state' ? stored.state : null;
+			const hookInfo = hookState ? statusInfo(hookState) : null;
+			if (snapshot?.authoritative && pane) {
+				const merged = mergeProgramStatus(hookInfo, snapshot, pane);
+				const hookStatus = kind === 'claude' ? hookState?.status : undefined;
+				if (snapshot.exited || pane.dead) {
+					entry.status = 'ended';
+				} else if (hookStatus === 'ended' || hookStatus === 'compacting') {
+					entry.status = hookStatus;
+				} else {
+					entry.status = merged ? oscStatusLabel(merged) : 'unknown';
+				}
+
+				entry.currentTool =
+					entry.status === 'ended' ? null : (merged?.tool ?? null);
+				entry.lastUpdate = hookState
+					? Math.max(snapshot.updatedAt, hookState.lastUpdate)
+					: snapshot.updatedAt;
+				if (hookState) entry.sessionId = hookState.sessionId;
+			} else if (hookState) {
+				entry.status = hookState.status;
+				entry.currentTool = hookState.currentTool ?? null;
+				entry.lastUpdate = hookState.lastUpdate;
+				entry.sessionId = hookState.sessionId;
 			} else {
 				entry.status = stored.kind === 'unreadable' ? 'unknown' : 'no_status';
 			}
+
+			if (entry.lastUpdate)
+				entry.minutesAgo = roundTenth((now - entry.lastUpdate) / 60_000);
 
 			const meta = deps.issueMeta.read(name);
 			if (meta) {
@@ -241,7 +302,6 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 				};
 			}
 
-			const state = deps.spaceState.read(name);
 			if (state) {
 				for (const field of [
 					'pipeline',
@@ -257,19 +317,23 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 
 			const prUrl = state?.prLinks?.at(-1)?.url ?? null;
 
-			const session = sessions.get(name);
-			if (session) {
-				entry.pid = session['pid'];
-				entry.worktreePath = session['cwd'];
+			if (kind === 'claude') {
+				const session = sessions.get(name);
+				if (session) {
+					entry.pid = session['pid'];
+					entry.worktreePath = session['cwd'];
+				}
 			}
 
-			const identity = identities.get(name);
 			const worktree = identity?.worktreePath ?? null;
-			const log =
-				worktree &&
-				newestJsonl(
-					claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
-				);
+			const log = await findSpaceTranscript({
+				issueKey: name,
+				worktreePath: worktree,
+				state,
+				agentSessions: deps.agentSessions,
+				config: deps.config,
+				home,
+			});
 			if (log) {
 				entry.conversationLog = log.file;
 				entry.logModified = log.mtimeMs / 1000;
@@ -395,8 +459,11 @@ export async function runSpacesCommand(options: {
 	registry: SpacesDeps['registry'];
 	spaceIdentities: SpacesDeps['spaceIdentities'];
 	claudeStatus: SpacesDeps['claudeStatus'];
+	programStatus?: SpacesDeps['programStatus'];
 	spaceState: SpacesDeps['spaceState'];
 	issueMeta: SpacesDeps['issueMeta'];
+	agentSessions?: SpacesDeps['agentSessions'];
+	config?: SpacesDeps['config'];
 	home: string;
 	json: boolean;
 	out: (text: string) => void;
@@ -406,8 +473,11 @@ export async function runSpacesCommand(options: {
 		registry: options.registry,
 		spaceIdentities: options.spaceIdentities,
 		claudeStatus: options.claudeStatus,
+		programStatus: options.programStatus,
 		spaceState: options.spaceState,
 		issueMeta: options.issueMeta,
+		agentSessions: options.agentSessions,
+		config: options.config,
 		home: options.home,
 		async fetchTitles(keys) {
 			const issues = await getIssues(keys);

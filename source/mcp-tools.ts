@@ -621,7 +621,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				.boolean()
 				.optional()
 				.describe(
-					"Wait up to 60s for the space's agent to start, and fail if it isn't confirmed. Set it before space_send to a space you just reopened: a failed launch leaves a shell in the pane, which would run the text as a command. Spaces running Codex never confirm, since Codex doesn't report its status",
+					"Wait up to 60s for the space's agent to start, and fail if it isn't confirmed. Set it before space_send to a space you just reopened: a failed launch leaves a shell in the pane, which would run the text as a command. Confirmations come from Claude hooks or native OSC program status (Codex, agy, Pi); agents without either never confirm",
 				),
 		},
 		toCli: ({input, resume, profile, agent_profile, wait}) => ({
