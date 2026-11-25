@@ -633,7 +633,10 @@ function planRewrite(
 		after = buildConfigFromLayers(
 			layers.map(({label}) => ({
 				label,
-				layer: rewritten.find(file => file.label === label)?.layer ?? null,
+				// The build renames in place, which would hide a leftover from the check below.
+				layer: structuredClone(
+					rewritten.find(file => file.label === label)?.layer ?? null,
+				),
 			})),
 		);
 	} catch (error) {
