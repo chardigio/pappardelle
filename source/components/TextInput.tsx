@@ -92,6 +92,44 @@ export default function TextInput({
 			});
 		}
 	}, [value, highlight, syntaxStyle, isMultiline]);
+	// The textarea announces an edit on a microtask, after every key of the same
+	// input write has been dispatched, so the next key would act on the text
+	// from before the edit. Reporting as each key or paste is handled puts the
+	// text in that key's commit. Unchanged text is not reported: a submit that
+	// clears the prompt has not rendered yet when its Enter is reported, and
+	// would get the submitted text back.
+	const onChangeNow = useRef(onChange);
+	const reported = useRef(value);
+	useLayoutEffect(() => {
+		onChangeNow.current = onChange;
+		reported.current = value;
+	});
+	useLayoutEffect(() => {
+		const input = ref.current;
+		if (!isMultiline || !input) return;
+		const {handleKeyPress, handlePaste} = input;
+		const report = () => {
+			if (input.plainText === reported.current) return;
+			reported.current = input.plainText;
+			onChangeNow.current(input.plainText);
+		};
+
+		input.handleKeyPress = key => {
+			const isHandled = handleKeyPress.call(input, key);
+			report();
+			return isHandled;
+		};
+
+		input.handlePaste = event => {
+			handlePaste.call(input, event);
+			report();
+		};
+
+		return () => {
+			input.handleKeyPress = handleKeyPress;
+			input.handlePaste = handlePaste;
+		};
+	}, [isMultiline]);
 	useKeyboard(key => {
 		if (isFocused && !isShowingCursor && key.name === 'return')
 			onSubmit?.(value);
@@ -140,7 +178,6 @@ export default function TextInput({
 				keyBindings={multilineKeyBindings}
 				onKeyDown={onKeyDown}
 				onSubmit={submit}
-				onContentChange={() => onChange(ref.current?.plainText ?? value)}
 			/>
 		);
 	return (

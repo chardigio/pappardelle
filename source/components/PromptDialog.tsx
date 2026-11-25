@@ -452,10 +452,6 @@ export default function PromptDialog({
 			}
 
 			case 'pick': {
-				// The textarea reports its text after the keys that typed it, so
-				// keys in one write can reach Enter first; the picker spawns with
-				// the text Enter submitted.
-				setPrompt(value);
 				setIsPicking(true);
 				setPickerState({query: null, index: 0});
 				break;
