@@ -399,9 +399,10 @@ export default function App({
 	const [recentErrors, setRecentErrors] = useState<LogEntry[]>([]);
 	const errorCount = recentErrors.length;
 	const [runningCommand, setRunningCommand] = useState<string | null>(null);
-	// Several keys can arrive in one input write, and their handlers all run
-	// before the next render. Search keys read the ref so each acts on what
-	// the previous one left; the state copy is for drawing.
+	// One key reaches the rail's key handler and then the search input's
+	// onChange before it is committed, and a click is not committed before a
+	// key that follows it. Search handlers read the ref so each acts on what
+	// the one before left; the state copy is for drawing.
 	const searchNow = useRef<RailSearch | null>(null);
 	const [search, setSearch] = useState<RailSearch | null>(null);
 	// Until the search row is drawn there is no input to take typed text.

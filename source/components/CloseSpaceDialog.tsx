@@ -115,7 +115,6 @@ export default function CloseSpaceDialog({
 		if (!pickable) return;
 		if (event.name !== 'left' && event.name !== 'right') return;
 		const direction = event.name;
-		// Several arrows can arrive before the next render.
 		setSelectedKey(current => {
 			const from =
 				current !== null && keys.includes(current)

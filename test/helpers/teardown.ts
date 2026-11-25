@@ -2,6 +2,9 @@ import {onTestFinished} from 'bun:test';
 
 type Step = () => unknown;
 
+/** Registers what to undo when a test, or a file's tests, end. */
+export type Cleanup = (step: Step) => void;
+
 let steps: Step[] | undefined;
 
 /**

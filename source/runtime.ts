@@ -15,7 +15,7 @@ export const installationRoot = path.resolve(
 	'..',
 );
 export const scriptsDir = path.join(installationRoot, 'scripts');
-export const packageModuleUrl = pathToFileURL(
+export const packageJsonUrl = pathToFileURL(
 	path.join(installationRoot, 'package.json'),
 ).href;
 export function cliFilePath(): string {

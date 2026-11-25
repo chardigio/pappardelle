@@ -6,6 +6,8 @@ import {isHostPappardelleEnv} from '../test/helpers/env.ts';
 import {
 	TEST_HOME,
 	TEST_TMPDIR,
+	TEST_TMUX_GUARD,
+	TEST_TMUX_REFUSALS,
 	TEST_TMUX_TMPDIR,
 } from '../test/helpers/test-run-env.ts';
 import {processesNaming} from '../test/helpers/processes.ts';
@@ -13,16 +15,16 @@ import {processesNaming} from '../test/helpers/processes.ts';
 const TEST_TIMEOUT_MS = 120_000;
 const repoRoot = path.resolve(import.meta.dir, '..');
 
-// The test tmux guard: tests and everything they start get
-// a tmux that refuses the user's own servers, a private TMUX_TMPDIR and no
-// TMUX. A test that reached the inner server once ended every agent session
-// the user had open. The script reads the TMUX_TMPDIR this run was started
-// with to learn which directory is live.
 // A version manager's bun shim finds its config through HOME, so under the
 // throwaway HOME it would fail; tests that run bun get this one.
 const pathWithBun = [path.dirname(process.execPath), process.env['PATH']].join(
 	path.delimiter,
 );
+// The test tmux guard: tests and everything they start get a tmux that
+// refuses the user's own servers, a private TMUX_TMPDIR and no TMUX. A test
+// that reached the inner server once ended every agent session the user had
+// open. The script reads the TMUX_TMPDIR this run was started with to learn
+// which directory is live.
 const guardSetup = Bun.spawnSync(
 	[path.join(repoRoot, 'test/helpers/tmux-guard-env.sh')],
 	{env: {...process.env, PATH: pathWithBun}, stderr: 'inherit'},
@@ -40,7 +42,7 @@ for (const line of guardSetup.stdout.toString().split('\n')) {
 }
 
 // Without tmux the guard sets nothing up and the tmux tests skip themselves.
-const guardRefusals = guardExports['PAPPARDELLE_TEST_TMUX_REFUSALS'];
+const guardRefusals = guardExports[TEST_TMUX_REFUSALS];
 
 // Under /tmp rather than os.tmpdir(): on macOS that is a long /var/folders
 // path, and the sockets tests create under it would pass the ~104-byte unix
@@ -111,7 +113,7 @@ const env: Record<string, string | undefined> = {
 		),
 };
 const sharedRefusals = path.join(
-	guardExports['PAPPARDELLE_TEST_TMUX_GUARD'] ?? '',
+	guardExports[TEST_TMUX_GUARD] ?? '',
 	'refusals.log',
 );
 const sharedRefusalsStart =

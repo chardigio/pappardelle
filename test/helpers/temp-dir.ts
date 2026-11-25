@@ -3,9 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import {teardown} from './teardown.ts';
 
-/** Registers what to undo when a test, or a file's tests, end. */
-export type Cleanup = (step: () => unknown) => void;
-
 /**
  * Resolved through symlinks, since on macOS the temp dir is reached through
  * one and paths a subprocess reports back come out resolved.

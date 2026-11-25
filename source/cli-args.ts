@@ -1,5 +1,5 @@
 import meow from 'meow';
-import {packageModuleUrl} from './runtime.ts';
+import {packageJsonUrl} from './runtime.ts';
 
 const helpText = `
 	Usage
@@ -175,7 +175,7 @@ export const AGENT_PROFILE_HELP = `
 
 export function parseCli(argv: readonly string[] = process.argv.slice(2)) {
 	return meow(helpText, {
-		importMeta: {...import.meta, url: packageModuleUrl},
+		importMeta: {...import.meta, url: packageJsonUrl},
 		// `send` reads its key and text from raw argv (parseSendArgs).
 		argv: argv[0] === 'send' ? ['send'] : [...argv],
 		// `update` asks on a TTY only when neither --restart-tuis nor

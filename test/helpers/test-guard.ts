@@ -5,7 +5,13 @@
 import os from 'node:os';
 import path from 'node:path';
 import {isHostPappardelleEnv} from './env.ts';
-import {TEST_HOME, TEST_TMPDIR, TEST_TMUX_TMPDIR} from './test-run-env.ts';
+import {
+	TEST_HOME,
+	TEST_TMPDIR,
+	TEST_TMUX_GUARD,
+	TEST_TMUX_REFUSALS,
+	TEST_TMUX_TMPDIR,
+} from './test-run-env.ts';
 
 const {env} = process;
 const repoRoot = path.resolve(import.meta.dir, '../..');
@@ -18,11 +24,10 @@ const problems = [
 	// whatever a test starts, not only for the test's own code.
 	Bun.which('tmux') !== null &&
 		Bun.which('tmux') !==
-			path.join(env['PAPPARDELLE_TEST_TMUX_GUARD'] ?? '', 'bin', 'tmux') &&
+			path.join(env[TEST_TMUX_GUARD] ?? '', 'bin', 'tmux') &&
 		`tmux on PATH is ${Bun.which('tmux')}, not the test tmux guard`,
 	Bun.which('tmux') !== null &&
-		path.dirname(env['PAPPARDELLE_TEST_TMUX_REFUSALS'] ?? '') !==
-			env['TMUX_TMPDIR'] &&
+		path.dirname(env[TEST_TMUX_REFUSALS] ?? '') !== env['TMUX_TMPDIR'] &&
 		'the test tmux guard logs refusals outside this run',
 	(env['TMUX_TMPDIR'] === undefined ||
 		env['TMUX_TMPDIR'] !== env[TEST_TMUX_TMPDIR]) &&

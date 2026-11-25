@@ -4,6 +4,10 @@ import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {
+	TEST_TMUX_GUARD,
+	TEST_TMUX_REFUSALS,
+} from '../test/helpers/test-run-env.ts';
 
 const guardScript = path.resolve('test/helpers/tmux-guard.sh');
 const setupScript = path.resolve('test/helpers/tmux-guard-env.sh');
@@ -67,7 +71,7 @@ function setup() {
 			encoding: 'utf8',
 			env: {
 				PATH: process.env['PATH'],
-				PAPPARDELLE_TEST_TMUX_REFUSALS: refusalsFile,
+				[TEST_TMUX_REFUSALS]: refusalsFile,
 				...env,
 			},
 		});
@@ -233,16 +237,12 @@ test('runs the real tmux with argv intact for sockets outside the live directory
 	for (const [args, env] of cases) assertPassed(run(args, {env}), args);
 });
 
-const guarded = Boolean(process.env['PAPPARDELLE_TEST_TMUX_REFUSALS']);
+const guarded = Boolean(process.env[TEST_TMUX_REFUSALS]);
 
 (guarded ? test : test.skip)(
 	'a run started inside a test run keeps the outer wrapper',
 	() => {
-		const wrapper = path.join(
-			process.env['PAPPARDELLE_TEST_TMUX_GUARD']!,
-			'bin',
-			'tmux',
-		);
+		const wrapper = path.join(process.env[TEST_TMUX_GUARD]!, 'bin', 'tmux');
 		const before = fs.readFileSync(wrapper, 'utf8');
 		const result = spawnSync(setupScript, {encoding: 'utf8'});
 		expect(result.status, result.stderr).toBe(0);
@@ -262,7 +262,7 @@ const guarded = Boolean(process.env['PAPPARDELLE_TEST_TMUX_REFUSALS']);
 (guarded ? test : test.skip)(
 	"the run's own wrapper refuses every live directory setup recorded",
 	() => {
-		const guardHome = process.env['PAPPARDELLE_TEST_TMUX_GUARD']!;
+		const guardHome = process.env[TEST_TMUX_GUARD]!;
 		const refusals = path.join(tempDir('tmux-guard-run-'), 'refusals.log');
 		const liveBases = fs
 			.readFileSync(path.join(guardHome, 'live-dirs'), 'utf8')
@@ -282,7 +282,7 @@ const guarded = Boolean(process.env['PAPPARDELLE_TEST_TMUX_REFUSALS']);
 					env: {
 						...process.env,
 						TMUX_TMPDIR: base,
-						PAPPARDELLE_TEST_TMUX_REFUSALS: refusals,
+						[TEST_TMUX_REFUSALS]: refusals,
 					},
 				},
 			);

@@ -19,8 +19,7 @@ import {
 } from '../../source/state-db.ts';
 import {initTmuxState} from '../../source/tmux.ts';
 import {sendHookEvent, serveTestHub} from './status-daemon.ts';
-import {teardown} from './teardown.ts';
-import type {Cleanup} from './temp-dir.ts';
+import {teardown, type Cleanup} from './teardown.ts';
 
 /** Whether this test run keeps state in SQLite (PAPPARDELLE_SQLITE_STATE=1). */
 export const sqliteRun = process.env['PAPPARDELLE_SQLITE_STATE'] === '1';

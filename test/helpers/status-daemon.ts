@@ -21,9 +21,9 @@ import {
 	type DaemonMessage,
 	type StatusTimers,
 } from '../../source/status-protocol.ts';
-import {tempDir, type Cleanup} from './temp-dir.ts';
+import {tempDir} from './temp-dir.ts';
 import {waitUntil} from './wait.ts';
-import {teardown} from './teardown.ts';
+import {teardown, type Cleanup} from './teardown.ts';
 
 /** Timers that run only when a test fires them. */
 export function manualTimers(): {

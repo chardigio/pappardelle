@@ -151,14 +151,9 @@ function SpaceListItem({
 	// far left, rail icons right-aligned. They reserve space by shrinking
 	// the title budget.
 	// A hand-narrowed rail (STA-2040) can leave fewer columns than the key
-	// needs. Clip it there, because an unclipped key wraps onto a second line
-	// and breaks the one-row-per-space alignment. At every ordinary width the
-	// clip is a no-op and the row is identical to master.
-	//
-	// `prefixCells` comes out of the budget too. Those rail icons are
-	// right-aligned in a flex box after the title, so a key that consumed the
-	// columns they need would push them off the row and wrap it again, which is
-	// the very thing the clip exists to prevent.
+	// needs. The key is clipped to what is left after the emoji, the status
+	// icon and the rail icons, so it ends where the icons begin instead of
+	// running under them. At ordinary widths the clip changes nothing.
 	const issueKey = clipIssueKey(
 		label ?? space.name,
 		contentWidth - keyLineEmojiCells - ROW_ICON_CELLS - prefixCells,
