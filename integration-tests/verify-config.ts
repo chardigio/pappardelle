@@ -83,13 +83,13 @@ function main() {
 	info('vcs_host', providerConfigs.vcs_host);
 
 	if (providerConfigs.issue_tracker) {
-		pass(`Issue tracker configured: ${providerConfigs.issue_tracker.type}`);
+		pass(`Issue tracker configured: ${providerConfigs.issue_tracker.provider}`);
 	} else {
 		pass('No issue tracker configured (optional)');
 	}
 
 	if (providerConfigs.vcs_host) {
-		pass(`VCS host configured: ${providerConfigs.vcs_host.type}`);
+		pass(`VCS host configured: ${providerConfigs.vcs_host.provider}`);
 	} else {
 		pass('No VCS host configured (optional)');
 	}
@@ -180,7 +180,7 @@ function main() {
 	if (keybindings.length > 0) {
 		pass(`${keybindings.length} keybindings configured`);
 		for (const kb of keybindings.slice(0, 5)) {
-			console.log(`    ${kb.key} → ${kb.command ?? kb.action ?? '(custom)'}`);
+			console.log(`    ${kb.key} → ${kb.name}`);
 		}
 
 		if (keybindings.length > 5) {
