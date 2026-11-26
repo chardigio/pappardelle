@@ -5,7 +5,11 @@ import {existsSync, readFileSync, readdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {shellQuoteStatus} from '../source/program-status-monitor.ts';
-import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
+import {
+	StatusHarness,
+	projectRoot,
+	untilSeen,
+} from './program-status-harness.ts';
 
 assert.ok(
 	process.argv.includes('--live'),
@@ -94,7 +98,7 @@ async function launch(resume = false) {
 		args.map(value => shellQuoteStatus(value)).join(' '),
 	);
 	// Startup prompts are inspected before choosing their displayed default.
-	await until(
+	await untilSeen(
 		async () => {
 			const screen = await harness.screen(session);
 			if (
@@ -138,7 +142,7 @@ async function turn(text: string, label: string) {
 
 async function leave() {
 	await prompt('/exit');
-	await until(
+	await untilSeen(
 		async () => harness.claudeStatus.readState(key),
 		stored => stored.kind === 'state' && stored.state.event === 'SessionEnd',
 		'SessionEnd hook records shell return',
@@ -230,7 +234,7 @@ try {
 		60000,
 	);
 	await keys('Escape');
-	await until(
+	await untilSeen(
 		async () => harness.screen(session),
 		screen => screen.includes('Interrupted'),
 		'Escape cancels the pending action',
@@ -254,13 +258,13 @@ try {
 		60000,
 	);
 	await keys('Enter');
-	await until(
+	await untilSeen(
 		() => existsSync(path.join(harness.root, 'interruption-marker.txt')),
 		Boolean,
 		'tool execution starts before interruption',
 	);
 	await keys('C-c');
-	await until(
+	await untilSeen(
 		async () => harness.screen(session),
 		screen => interruptedCount(screen) > previousInterruptions,
 		'keyboard interruption reaches Claude',

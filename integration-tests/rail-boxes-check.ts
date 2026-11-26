@@ -16,7 +16,7 @@ import {
 	resetProviders,
 } from '../source/providers/index.ts';
 import type {TrackerIssue} from '../source/providers/types.ts';
-import {StatusHarness, until} from './program-status-harness.ts';
+import {StatusHarness, untilSeen} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
 const originalDirectory = process.cwd();
@@ -66,7 +66,7 @@ async function expectFrame(
 	scenario: string,
 	check: (lines: string[]) => boolean,
 ) {
-	const frame = await until(
+	const frame = await untilSeen(
 		() => view?.lastFrame() ?? '',
 		current => check(current.split('\n')),
 		scenario,
