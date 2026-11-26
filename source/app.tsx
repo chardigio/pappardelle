@@ -480,22 +480,13 @@ export default function App({
 	const openPRRequest = useRef(0);
 
 	// Load config once at startup. Used for keybindings, emoji lookup, etc.
-	const configMemo = React.useMemo(() => {
+	const {configMemo, configLoad} = React.useMemo(() => {
 		const load = readReportedConfig();
-		switch (load.kind) {
-			case 'valid': {
-				return load.config;
-			}
-
-			case 'missing': {
-				return null;
-			}
-
-			case 'invalid': {
-				reportStartedWithInvalidConfig();
-				return null;
-			}
-		}
+		if (load.kind === 'invalid') reportStartedWithInvalidConfig();
+		return {
+			configMemo: load.kind === 'valid' ? load.config : null,
+			configLoad: load,
+		};
 	}, []);
 
 	const railGrouped = isRailGroupedByStatus(configMemo);
@@ -1173,6 +1164,7 @@ export default function App({
 					{
 						signal,
 						label: selectedSpace?.isMainWorktree ? mainLabel : undefined,
+						configLoad,
 					},
 				);
 				if (success && !signal.aborted) {

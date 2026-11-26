@@ -1,5 +1,6 @@
 import {test, expect} from 'bun:test';
 import {
+	agentDisplayName,
 	bindResumeArgs,
 	builtinAgentDefaults,
 	isAgyCommand,
@@ -200,5 +201,25 @@ test('supportsSousChefPrompt gates prompt to claude, codex, or profiles with pro
 	).toBe(false);
 	expect(supportsSousChefPrompt({command: 'claude', isClaude: false})).toBe(
 		false,
+	);
+});
+
+test('an agent is named by the program its command runs', () => {
+	expect(agentDisplayName({command: 'codex --yolo', isClaude: false})).toBe(
+		'codex',
+	);
+	expect(
+		agentDisplayName({
+			command: 'env -u FOO BAR=1 /opt/bin/opencode',
+			isClaude: false,
+		}),
+	).toBe('opencode');
+	expect(agentDisplayName({command: 'claude', isClaude: false})).toBe('claude');
+	expect(agentDisplayName({command: 'env', isClaude: false})).toBe('agent');
+});
+
+test('an agent with claude treatment is claude whatever launches it', () => {
+	expect(agentDisplayName({command: '~/bin/cc --x', isClaude: true})).toBe(
+		'claude',
 	);
 });
