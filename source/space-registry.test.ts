@@ -1,4 +1,5 @@
 import {test, expect} from 'bun:test';
+import {registryAs} from '../test/helpers/registry.ts';
 import {storeTest} from '../test/helpers/store-test.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {listOpenSpaces} from './space-registry.ts';
@@ -80,7 +81,9 @@ test('each repo has a registry of its own', async () => {
 const ME = 1000;
 const OTHER = 2000;
 const DEAD = 3000;
-const isPidAlive = (pid: number) => pid !== DEAD;
+/** The registry as process `pid` sees it, where only DEAD has exited. */
+const as = (s: TestState, pid: number) =>
+	registryAs(stateDbPath(s.stateDir), s.repo, pid, owner => owner !== DEAD);
 const reservations = (s: TestState) =>
 	Object.fromEntries(
 		openStateDb(stateDbPath(s.stateDir))
@@ -96,11 +99,10 @@ storeTest(
 	'a watchlist reserves at most its cap, in candidate order',
 	async s => {
 		expect(
-			await s.daos.registry.tryReserveWatchlistSlots(
+			await as(s, ME).tryReserveWatchlistSlots(
 				'top-level',
 				['STE-1', 'STE-2', 'STE-3'],
 				2,
-				{pid: ME, isPidAlive},
 			),
 		).toStrictEqual({
 			reserved: ['STE-1', 'STE-2'],
@@ -115,16 +117,12 @@ storeTest(
 );
 
 storeTest('a second instance only gets the slots the first left', async s => {
-	await s.daos.registry.tryReserveWatchlistSlots('top-level', ['STE-1'], 2, {
-		pid: ME,
-		isPidAlive,
-	});
+	await as(s, ME).tryReserveWatchlistSlots('top-level', ['STE-1'], 2);
 	expect(
-		await s.daos.registry.tryReserveWatchlistSlots(
+		await as(s, OTHER).tryReserveWatchlistSlots(
 			'top-level',
 			['STE-5', 'STE-6', 'STE-7'],
 			2,
-			{pid: OTHER, isPidAlive},
 		),
 	).toStrictEqual({reserved: ['STE-5'], occupied: 1, claimedElsewhere: []});
 });
@@ -132,21 +130,10 @@ storeTest('a second instance only gets the slots the first left', async s => {
 storeTest(
 	'a reservation still holds its slot once its space is open',
 	async s => {
-		await s.daos.registry.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
-			pid: ME,
-			isPidAlive,
-		});
+		await as(s, ME).tryReserveWatchlistSlots('top-level', ['STE-1'], 1);
 		await s.daos.registry.add('STE-1');
 		expect(
-			await s.daos.registry.tryReserveWatchlistSlots(
-				'top-level',
-				['STE-2'],
-				1,
-				{
-					pid: ME,
-					isPidAlive,
-				},
-			),
+			await as(s, ME).tryReserveWatchlistSlots('top-level', ['STE-2'], 1),
 		).toStrictEqual({reserved: [], occupied: 1, claimedElsewhere: []});
 	},
 );
@@ -154,20 +141,9 @@ storeTest(
 storeTest(
 	'a dead owner frees a reservation whose space never opened',
 	async s => {
-		await s.daos.registry.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
-			pid: DEAD,
-			isPidAlive,
-		});
+		await as(s, DEAD).tryReserveWatchlistSlots('top-level', ['STE-1'], 1);
 		expect(
-			await s.daos.registry.tryReserveWatchlistSlots(
-				'top-level',
-				['STE-2'],
-				1,
-				{
-					pid: ME,
-					isPidAlive,
-				},
-			),
+			await as(s, ME).tryReserveWatchlistSlots('top-level', ['STE-2'], 1),
 		).toStrictEqual({reserved: ['STE-2'], occupied: 0, claimedElsewhere: []});
 		expect(Object.keys(reservations(s))).toStrictEqual(['STE-2']);
 	},
@@ -176,21 +152,10 @@ storeTest(
 storeTest(
 	'an open space still counts after the process that reserved it dies',
 	async s => {
-		await s.daos.registry.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
-			pid: DEAD,
-			isPidAlive,
-		});
+		await as(s, DEAD).tryReserveWatchlistSlots('top-level', ['STE-1'], 1);
 		await s.daos.registry.add('STE-1');
 		expect(
-			await s.daos.registry.tryReserveWatchlistSlots(
-				'top-level',
-				['STE-2'],
-				1,
-				{
-					pid: ME,
-					isPidAlive,
-				},
-			),
+			await as(s, ME).tryReserveWatchlistSlots('top-level', ['STE-2'], 1),
 		).toStrictEqual({reserved: [], occupied: 1, claimedElsewhere: []});
 	},
 );
@@ -199,21 +164,12 @@ storeTest(
 	'keys that are open or reserved elsewhere are reported as claimed',
 	async s => {
 		await s.daos.registry.add('STE-1');
-		await s.daos.registry.tryReserveWatchlistSlots(
-			'profile:chaz',
-			['STE-2'],
-			5,
-			{
-				pid: OTHER,
-				isPidAlive,
-			},
-		);
+		await as(s, OTHER).tryReserveWatchlistSlots('profile:chaz', ['STE-2'], 5);
 		expect(
-			await s.daos.registry.tryReserveWatchlistSlots(
+			await as(s, ME).tryReserveWatchlistSlots(
 				'top-level',
 				['STE-1', 'STE-2', 'STE-3'],
 				5,
-				{pid: ME, isPidAlive},
 			),
 		).toStrictEqual({
 			reserved: ['STE-3'],
@@ -224,31 +180,19 @@ storeTest(
 );
 
 storeTest('each watchlist counts its own slots', async s => {
-	await s.daos.registry.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
-		pid: ME,
-		isPidAlive,
-	});
+	await as(s, ME).tryReserveWatchlistSlots('top-level', ['STE-1'], 1);
 	expect(
-		await s.daos.registry.tryReserveWatchlistSlots(
-			'profile:chaz',
-			['CHAZ-1'],
-			1,
-			{
-				pid: ME,
-				isPidAlive,
-			},
-		),
+		await as(s, ME).tryReserveWatchlistSlots('profile:chaz', ['CHAZ-1'], 1),
 	).toStrictEqual({reserved: ['CHAZ-1'], occupied: 0, claimedElsewhere: []});
 });
 
 storeTest(
 	'releasing drops a reservation whose space never opened, and keeps one that did',
 	async s => {
-		await s.daos.registry.tryReserveWatchlistSlots(
+		await as(s, ME).tryReserveWatchlistSlots(
 			'top-level',
 			['STE-1', 'STE-2'],
 			2,
-			{pid: ME, isPidAlive},
 		);
 		await s.daos.registry.add('STE-2');
 		await s.daos.registry.releaseWatchlistReservation('STE-1');
@@ -258,18 +202,12 @@ storeTest(
 );
 
 storeTest('closing a space frees its watchlist slot', async s => {
-	await s.daos.registry.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
-		pid: ME,
-		isPidAlive,
-	});
+	await as(s, ME).tryReserveWatchlistSlots('top-level', ['STE-1'], 1);
 	await s.daos.registry.add('STE-1');
 	await s.daos.registry.remove('STE-1');
 	expect(reservations(s)).toStrictEqual({});
 	expect(
-		await s.daos.registry.tryReserveWatchlistSlots('top-level', ['STE-2'], 1, {
-			pid: ME,
-			isPidAlive,
-		}),
+		await as(s, ME).tryReserveWatchlistSlots('top-level', ['STE-2'], 1),
 	).toStrictEqual({reserved: ['STE-2'], occupied: 0, claimedElsewhere: []});
 });
 
@@ -278,16 +216,12 @@ storeTest('closing a space frees its watchlist slot', async s => {
 storeTest(
 	'a key another instance holds is claimed even when the cap is reached',
 	async s => {
-		await s.daos.registry.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
-			pid: OTHER,
-			isPidAlive,
-		});
+		await as(s, OTHER).tryReserveWatchlistSlots('top-level', ['STE-1'], 1);
 		expect(
-			await s.daos.registry.tryReserveWatchlistSlots(
+			await as(s, ME).tryReserveWatchlistSlots(
 				'top-level',
 				['STE-1', 'STE-2'],
 				1,
-				{pid: ME, isPidAlive},
 			),
 		).toStrictEqual({reserved: [], occupied: 1, claimedElsewhere: ['STE-1']});
 	},

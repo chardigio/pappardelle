@@ -17,7 +17,6 @@ import {
 	type SpacePhaseLookup,
 	type SpaceRegistryDao,
 	type WatchlistReservation,
-	type WatchlistReserveOptions,
 	type WatchlistSlots,
 } from './space-registry.ts';
 import type {SpaceIdentity, SpaceIdentityDao} from './space-identity.ts';
@@ -159,7 +158,6 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		source: string,
 		candidateKeys: string[],
 		max: number,
-		options: WatchlistReserveOptions = {},
 	): Promise<WatchlistSlots> {
 		return this.openDb().write(() => {
 			const reservations = this.reservations();
@@ -169,7 +167,8 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 				source,
 				candidateKeys,
 				max,
-				options,
+				this.pid,
+				this.isPidAlive,
 			);
 			if (changed) this.replaceReservations(reservations);
 			return slots;

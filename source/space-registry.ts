@@ -5,7 +5,6 @@
 // that drops another's space destroys work. Each change is its own write
 // transaction in the state database (space-registry-sqlite.ts).
 
-import {isPidAlive as defaultIsPidAlive} from './file-lock.ts';
 import type {Unreadable} from './state-db.ts';
 
 export type SpacePhase = 'starting' | 'open' | 'closing';
@@ -20,11 +19,6 @@ export type WatchlistSlots = {
 	reserved: string[];
 	occupied: number;
 	claimedElsewhere: string[];
-};
-
-export type WatchlistReserveOptions = {
-	pid?: number;
-	isPidAlive?: (pid: number) => boolean;
 };
 
 /** What the reaper may rely on: every space whose sessions have an owner. */
@@ -74,7 +68,6 @@ export interface SpaceRegistryDao {
 		source: string,
 		candidateKeys: string[],
 		max: number,
-		options?: WatchlistReserveOptions,
 	): Promise<WatchlistSlots>;
 	releaseWatchlistReservation(key: string): Promise<void>;
 }
@@ -107,7 +100,8 @@ export type WatchlistReservation = {source: string; ownerPid: number};
  * `candidateKeys` in order. Keys that are already registered or reserved are
  * returned in `claimedElsewhere` instead: the caller should treat them as
  * spawned, since another instance or watchlist owns them. `occupied` is how
- * many slots `source` held before this call.
+ * many slots `source` held before this call. New reservations belong to
+ * `pid`.
  *
  * `reservations` is changed in place, and `changed` says whether it was.
  */
@@ -117,10 +111,9 @@ export function reserveWatchlistSlots(
 	source: string,
 	candidateKeys: string[],
 	max: number,
-	options: WatchlistReserveOptions,
+	pid: number,
+	isPidAlive: (pid: number) => boolean,
 ): {slots: WatchlistSlots; changed: boolean} {
-	const pid = options.pid ?? process.pid;
-	const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
 	let changed = false;
 
 	for (const [key, entry] of reservations) {

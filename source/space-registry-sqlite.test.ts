@@ -7,29 +7,17 @@ import {test, expect} from 'bun:test';
 import {unreachable} from '../test/helpers/unreachable.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {rejectionOf, thrownBy} from '../test/helpers/thrown.ts';
+import {everyKeyNamed, registryAs} from '../test/helpers/registry.ts';
 import {testState} from '../test/helpers/state.ts';
 import {listOpenSpaces, type SettleDeps} from './space-registry.ts';
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
-import {newSpaceIdentity} from './space-identity.ts';
 import {tearDownSpace} from './space-utils.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
 import {WorkspaceCloseTasks} from './workspace-close.ts';
 
 const run = promisify(execFile);
 
-/** Identities for registries built by hand: every key named as idow names it. */
-const named = {
-	get: (key: string) =>
-		({
-			kind: 'identity',
-			identity: newSpaceIdentity({
-				repo: 'repo',
-				key,
-				worktreePath: `/w/${key}`,
-				socket: 'pappardelle_inner',
-			}),
-		}) as const,
-};
+const named = everyKeyNamed('repo');
 const ME = 111;
 const ALIVE = 222;
 const DEAD = 333;
@@ -39,13 +27,7 @@ function fixture() {
 	const {stateDir} = testState();
 	const dbPath = stateDbPath(stateDir);
 	const registry = (pid: number) =>
-		new SqliteSpaceRegistryDao(
-			() => openStateDb(dbPath),
-			'repo',
-			named,
-			pid,
-			owner => owner !== DEAD,
-		);
+		registryAs(dbPath, 'repo', pid, owner => owner !== DEAD);
 	const states = () =>
 		Object.fromEntries(
 			openStateDb(dbPath)
@@ -58,6 +40,7 @@ function fixture() {
 	return {
 		stateDir,
 		dbPath,
+		registry,
 		mine: registry(ME),
 		theirs: registry(ALIVE),
 		states,
@@ -149,12 +132,7 @@ test('a start or close whose owner died follows its sessions: alive is open, gon
 		await f.mine.add(key);
 	}
 
-	const dead = new SqliteSpaceRegistryDao(
-		() => openStateDb(f.dbPath),
-		'repo',
-		named,
-		DEAD,
-	);
+	const dead = f.registry(DEAD);
 	await dead.markClosing('KILLED');
 	await dead.markClosing('NOT-KILLED');
 
@@ -286,8 +264,6 @@ test('nothing is settled when tmux cannot say which sessions are alive', async (
 // Watchlist reservations: rows, changed with the spaces they count against
 // ============================================================================
 
-const isPidAlive = (pid: number) => pid !== DEAD;
-
 function reservationFixture() {
 	const f = fixture();
 	return {
@@ -309,10 +285,7 @@ function reservationFixture() {
 // between the count and the reservation, two instances could pass the cap.
 test('no other connection can change the registry while slots are being decided', async () => {
 	const f = reservationFixture();
-	await f.mine.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
-		pid: DEAD,
-		isPidAlive,
-	});
+	await f.registry(DEAD).tryReserveWatchlistSlots('top-level', ['STE-1'], 1);
 	const other = new Database(f.dbPath);
 	teardown(() => {
 		other.close();
@@ -323,19 +296,16 @@ test('no other connection can change the registry while slots are being decided'
 			"INSERT INTO spaces (repo, key, state) VALUES ('repo', 'STE-1', 'open')",
 		);
 	let refused: unknown;
-	const slots = await f.mine.tryReserveWatchlistSlots(
+	// Asked about STE-1's owner after the spaces were read and before the
+	// reservations are written.
+	const asking = registryAs(f.dbPath, 'repo', ME, () => {
+		refused = thrownBy(addSpace);
+		return false;
+	});
+	const slots = await asking.tryReserveWatchlistSlots(
 		'top-level',
 		['STE-2'],
 		1,
-		{
-			pid: ME,
-			// Asked about STE-1's owner after the spaces were read and before
-			// the reservations are written.
-			isPidAlive(pid) {
-				refused = thrownBy(addSpace);
-				return isPidAlive(pid);
-			},
-		},
 	);
 	expect(refused).toMatchObject({code: 'SQLITE_BUSY'});
 	expect(slots).toStrictEqual({
@@ -348,29 +318,22 @@ test('no other connection can change the registry while slots are being decided'
 
 test('a space settled away frees the watchlist slot it reserved', async () => {
 	const f = reservationFixture();
-	await f.mine.tryReserveWatchlistSlots('top-level', ['GONE', 'KEPT'], 2, {
-		pid: ME,
-		isPidAlive,
-	});
+	await f
+		.registry(ME)
+		.tryReserveWatchlistSlots('top-level', ['GONE', 'KEPT'], 2);
 	await f.mine.reserveStart('GONE', DEAD);
 	await f.mine.reserveStart('KEPT', DEAD);
 	await f.mine.settle(settle(['KEPT']));
 	expect(f.states()).toStrictEqual({KEPT: 'open'});
 	expect(f.reservations()).toStrictEqual({KEPT: `top-level:${ME}`});
 	expect(
-		await f.mine.tryReserveWatchlistSlots('top-level', ['NEXT'], 2, {
-			pid: ME,
-			isPidAlive,
-		}),
+		await f.registry(ME).tryReserveWatchlistSlots('top-level', ['NEXT'], 2),
 	).toStrictEqual({reserved: ['NEXT'], occupied: 1, claimedElsewhere: []});
 });
 
 test('a space whose reservation cannot be released stays registered', async () => {
 	const f = reservationFixture();
-	await f.mine.tryReserveWatchlistSlots('top-level', ['STE-1'], 1, {
-		pid: ME,
-		isPidAlive,
-	});
+	await f.registry(ME).tryReserveWatchlistSlots('top-level', ['STE-1'], 1);
 	await f.mine.add('STE-1');
 	openStateDb(f.dbPath).db.run(
 		`CREATE TRIGGER reservations_are_stuck BEFORE DELETE ON watchlist_reservations

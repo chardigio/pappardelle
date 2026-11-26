@@ -8,7 +8,8 @@ import {StartupQueue} from './startup-queue.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
 
 const exec = promisify(execFile);
-const daosUrl = new URL('state-daos.ts', import.meta.url).href;
+const registryUrl = new URL('../test/helpers/registry.ts', import.meta.url)
+	.href;
 
 // The registry is shared by every Pappardelle running against a repo, and
 // each of them opens and closes spaces by itself.
@@ -21,17 +22,19 @@ test('two processes add, remove and reserve without losing updates or exceeding 
 				'--input-type=module',
 				'-e',
 				`
-import {createStateDaos} from ${JSON.stringify(daosUrl)};
-const {registry} = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(stateDir)}});
+import {registryAs} from ${JSON.stringify(registryUrl)};
+const registry = registryAs(${JSON.stringify(stateDbPath(stateDir))}, 'repo', ${process.pid}, () => true);
 const keys = Array.from({length:30}, (_, i) => ${JSON.stringify(prefix)} + i);
 await Promise.all(keys.map(key => registry.add(key)));
 await Promise.all(keys.filter((_, i) => i % 2 === 0).map(key => registry.remove(key)));
-const slots = await registry.tryReserveWatchlistSlots('shared', keys.map(key => 'watch-' + key), 3, {pid:${process.pid}});
+const slots = await registry.tryReserveWatchlistSlots('shared', keys.map(key => 'watch-' + key), 3);
 console.log(JSON.stringify(slots));
 `,
 			],
 			{timeout: 30_000},
 		);
+	// Both workers reserve as this process, so neither sees the other's
+	// reservations as abandoned when it exits first.
 	const results = await Promise.all([worker('A-'), worker('B-')]);
 	const keys = daos.registry.openSpaces();
 	expect(keys.length).toBe(30);
