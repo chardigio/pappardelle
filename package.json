@@ -16,7 +16,8 @@
 		"test": "bun --bun prettier --check . && bun --bun xo && bun run typecheck:test && bun run test:unit",
 		"typecheck": "bun --bun tsc --noEmit",
 		"typecheck:test": "bun --bun tsc -p tsconfig.test.json",
-		"test:unit": "bun scripts/unit-tests.ts"
+		"test:unit": "bun scripts/unit-tests.ts",
+		"test:integration": "bun scripts/integration-tests.ts"
 	},
 	"files": [
 		"dist"
