@@ -52,6 +52,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		return [
 			{
 				file: this.files.registry,
+				required: true,
 				importRows: content => {
 					// A registry file that is gone says nothing about the rows.
 					if (content !== null) this.replaceOpen(parseRegistry(content));
@@ -99,20 +100,20 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	}
 
 	async add(key: string): Promise<void> {
-		await this.change(() => {
+		await this.openDb().write(() => {
 			this.setOpen(key);
 		});
 	}
 
 	async remove(key: string): Promise<void> {
-		await this.change(() => {
+		await this.openDb().write(() => {
 			this.delete(key);
 			this.dropReservation(key);
 		});
 	}
 
 	async reserveStart(key: string, ownerPid: number): Promise<void> {
-		await this.change(() => {
+		await this.openDb().write(() => {
 			this.openDb()
 				.db.query(
 					`INSERT INTO spaces (repo, key, state, owner_pid)
@@ -124,7 +125,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	}
 
 	async markClosing(key: string): Promise<void> {
-		await this.change(() => {
+		await this.openDb().write(() => {
 			this.openDb()
 				.db.query(
 					`UPDATE spaces SET state = 'closing', owner_pid = ?
@@ -169,7 +170,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 					live.has(identity.tmux.companionSession))
 			);
 		};
-		await this.change(() => {
+		await this.openDb().write(() => {
 			for (const row of unsettled()) {
 				// What the owner meant to do no longer matters; what exists does.
 				if (running(row.key)) {
@@ -188,7 +189,7 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 		max: number,
 		options: WatchlistReserveOptions = {},
 	): Promise<WatchlistSlots> {
-		return this.change(() => {
+		return this.openDb().write(() => {
 			const reservations = this.reservations();
 			const {slots, changed} = reserveWatchlistSlots(
 				reservations,
@@ -204,14 +205,10 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	}
 
 	async releaseWatchlistReservation(key: string): Promise<void> {
-		await this.change(() => {
+		await this.openDb().write(() => {
 			if (this.row(key)?.state === 'open') return;
 			this.dropReservation(key);
 		});
-	}
-
-	private async change<T>(body: () => T): Promise<T> {
-		return this.openDb().write(body);
 	}
 
 	private reservations(): Map<string, WatchlistReservation> {

@@ -33,9 +33,14 @@ export class SqliteTuiMarkerDao implements TuiMarkerDao {
 			{
 				file: this.jsonFile,
 				importRows: content => {
-					const marker = content === null ? null : parseTuiMarker(content);
-					if (marker) this.put(marker);
-					else this.delete();
+					if (content === null) {
+						this.delete();
+						return;
+					}
+
+					const marker = parseTuiMarker(content);
+					if (!marker) throw new Error('Not a TUI marker');
+					this.put(marker);
 				},
 			},
 		];

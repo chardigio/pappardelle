@@ -70,7 +70,7 @@ export class SqliteScheduleDao implements ScheduleDao {
 				.map(id => this.jobMirror(id)),
 			...db
 				.jsonKeysIn(this.jsonDirs.queue, '.txt')
-				.map(name => this.queueMirror(decodeURIComponent(name))),
+				.map(name => this.queueMirror(name)),
 		];
 	}
 
@@ -139,10 +139,12 @@ export class SqliteScheduleDao implements ScheduleDao {
 		};
 	}
 
-	private queueMirror(key: string): JsonMirror {
+	/** `name` is the file's name without `.txt`: the space key, URI-encoded. */
+	private queueMirror(name: string): JsonMirror {
 		return {
-			file: path.join(this.jsonDirs.queue, `${encodeURIComponent(key)}.txt`),
+			file: path.join(this.jsonDirs.queue, `${name}.txt`),
 			importRows: content => {
+				const key = decodeURIComponent(name);
 				// The file is removed once its message is sent.
 				if (content === null) this.deleteQueued(key);
 				else this.putQueued(key, content);

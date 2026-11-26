@@ -1,3 +1,4 @@
+import {stateDbPath} from './state-db.ts';
 import {execFile, spawn} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -87,11 +88,15 @@ async function fixture() {
 
 	const repoName = 'fixture-repo';
 	const request = {issueKey: 'main', focus: true};
-	const command = highlightShellCommand(repoName, request);
 	const state = testState({
 		repo: repoName,
 		stateDir: path.join(dir, '.pappardelle'),
 	});
+	const command = highlightShellCommand(
+		repoName,
+		stateDbPath(state.stateDir),
+		request,
+	);
 	const requests: HighlightRequest[] = [];
 	teardown(state.daos.highlight.watch(made => requests.push(made)));
 	await watcherReady();

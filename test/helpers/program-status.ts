@@ -95,8 +95,8 @@ export function grantLease(
 
 /**
  * Publish `snapshot` as the monitor of a leased pane does: a line to the
- * status daemon. Returns where the pane's lease is named after, once the
- * state's stores read what was published.
+ * status daemon. Returns the path the pane's lease file is named from, once
+ * the state's stores read what was published.
  */
 export async function publishSnapshot(
 	state: TestState,

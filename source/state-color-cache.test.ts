@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState} from '../test/helpers/state.ts';
 import {StateColorCache} from './providers/state-color-cache.ts';
 import {createStateDaos} from './state-daos.ts';

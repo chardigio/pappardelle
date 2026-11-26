@@ -311,6 +311,13 @@ export type JsonMirror = {
 	 * the file is gone. Throws when the content is not what the store wrote.
 	 */
 	importRows(content: string | null): void;
+	/**
+	 * A file whose rows must never look empty, such as the registry: the
+	 * reaper ends the sessions of every space it does not list. One that
+	 * can't be imported stops the import, and the database stays unreadable
+	 * until the file is fixed or removed.
+	 */
+	required?: boolean;
 };
 
 type SyncRow = {ino: string; size: number; mtime_ns: string};
@@ -420,7 +427,13 @@ export class StateDb {
 	 * as state is kept, and its rows stay as they were.
 	 */
 	private importMirror(mirror: JsonMirror): boolean {
-		const read = readWithSignature(mirror.file);
+		let read: ReturnType<typeof readWithSignature>;
+		try {
+			read = readWithSignature(mirror.file);
+		} catch (error) {
+			return this.notImported(mirror, error);
+		}
+
 		const row = this.db
 			.query<
 				SyncRow,
@@ -441,15 +454,24 @@ export class StateDb {
 				mirror.importRows(read?.content ?? null);
 			})();
 		} catch (error) {
-			log.warn(
-				`Kept ${mirror.file}: it is not readable as state, so its rows stay as they were`,
-				error instanceof Error ? error : undefined,
-			);
-			return false;
+			return this.notImported(mirror, error);
 		}
 
 		if (read) log.info(`Imported ${mirror.file} into the state database`);
 		return read !== null;
+	}
+
+	private notImported(mirror: JsonMirror, error: unknown): false {
+		const cause = error instanceof Error ? error.message : String(error);
+		if (mirror.required)
+			throw new Error(
+				`Could not import ${mirror.file} (${cause}). Fix or remove it, and Pappardelle imports the rest of its state`,
+			);
+		log.warn(
+			`Kept ${mirror.file}: it is not readable as state, so its rows stay as they were`,
+			error instanceof Error ? error : undefined,
+		);
+		return false;
 	}
 }
 
@@ -590,7 +612,13 @@ export function listKnownRepos(
 			withFileTypes: true,
 		}))
 			if (entry.isDirectory()) repos.add(entry.name);
-	} catch {}
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+			log.warn(
+				`Could not list the repos in ${stateDir}`,
+				error instanceof Error ? error : undefined,
+			);
+	}
 
 	try {
 		for (const {repo} of openStateDb(dbPath)
@@ -600,7 +628,12 @@ export function listKnownRepos(
 			)
 			.all())
 			repos.add(repo);
-	} catch {}
+	} catch (error) {
+		log.warn(
+			'Could not read the repos the state database knows',
+			error instanceof Error ? error : undefined,
+		);
+	}
 
 	return [...repos].sort();
 }

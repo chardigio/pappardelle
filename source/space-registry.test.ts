@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {getRegistryPathForRepo, listOpenSpaces} from './space-registry.ts';
 import {createStateDaos} from './state-daos.ts';

@@ -3,7 +3,7 @@ import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {thrownBy} from '../test/helpers/thrown.ts';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState} from '../test/helpers/state.ts';
 import {
 	agyTranscriptPath,

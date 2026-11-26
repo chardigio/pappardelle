@@ -4,7 +4,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {spaceData} from '../test/helpers/space-fixtures.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
@@ -47,18 +47,32 @@ storeTest('a focus request reaches a listener as one', async s => {
 	expect(requests[0]).toStrictEqual({issueKey: 'main', focus: true});
 });
 
-// The sous-chef key runs this line from tmux, in a shell whose HOME names
-// the state directory.
+// The sous-chef key runs this line from tmux, whose environment is not the
+// TUI's: HOME and PAPPARDELLE_STATE_DB there name another database.
 test('the shell form of a request reaches a watching listener', async () => {
 	const home = tempDir('papp-highlight-home-');
 	const s = testState({stateDir: path.join(home, '.pappardelle')});
+	const elsewhere = tempDir('papp-highlight-other-');
 	const requests: HighlightRequest[] = [];
 	teardown(s.daos.highlight.watch(request => requests.push(request)));
 	await watcherReady();
 	await exec(
 		'sh',
-		['-c', highlightShellCommand('repo', {issueKey: 'main', focus: true})],
-		{env: {...process.env, HOME: home}, timeout: 30_000},
+		[
+			'-c',
+			highlightShellCommand('repo', stateDbPath(s.stateDir), {
+				issueKey: 'main',
+				focus: true,
+			}),
+		],
+		{
+			env: {
+				...process.env,
+				HOME: elsewhere,
+				PAPPARDELLE_STATE_DB: path.join(elsewhere, 'state.db'),
+			},
+			timeout: 30_000,
+		},
 	);
 	await until(() => requests.length > 0, {what: 'a highlight request'});
 	expect(requests[0]).toStrictEqual({issueKey: 'main', focus: true});

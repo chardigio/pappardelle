@@ -2,11 +2,7 @@
 // a watcher tells a second request for the same key from one it has already
 // acted on.
 
-import {
-	parseHighlightTarget,
-	type HighlightDao,
-	type HighlightRequest,
-} from './highlight.ts';
+import type {HighlightDao, HighlightRequest} from './highlight.ts';
 import {createLogger} from './logger.ts';
 import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 import {onStateDbChange} from './state-db-watch.ts';
@@ -31,11 +27,9 @@ export class SqliteHighlightDao implements HighlightDao {
 		return [
 			{
 				file: this.jsonFile,
-				importRows: content => {
-					const request = content ? parseHighlightTarget(content) : null;
-					if (request) this.put(request);
-					else this.delete();
-				},
+				// A request left in the file was meant for a TUI that has since
+				// stopped, so it is dropped rather than shown on the next start.
+				importRows() {},
 			},
 		];
 	}

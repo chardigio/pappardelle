@@ -2,7 +2,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {watcherReady} from '../test/helpers/wait.ts';
 import {

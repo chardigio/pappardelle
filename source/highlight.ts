@@ -7,16 +7,7 @@ import {internalEntryCommand} from './runtime.ts';
 import {shellQuote} from './shell-quote.ts';
 import type {SpaceData} from './types.ts';
 
-const FOCUS_MARKER = 'focus';
-
 export type HighlightRequest = {issueKey: string; focus: boolean};
-
-/** The request a highlight target file asked for, for the one-time import. */
-export function parseHighlightTarget(content: string): HighlightRequest | null {
-	const [issueKey, marker] = content.trim().split('\t');
-	if (!issueKey) return null;
-	return {issueKey, focus: marker === FOCUS_MARKER};
-}
 
 /** Where a repo's highlight target file was, for the one-time import. */
 export function getHighlightFilePath(
@@ -27,12 +18,15 @@ export function getHighlightFilePath(
 }
 
 /**
- * A shell line that makes `request` in `repo`, for the sous-chef key binding
- * to run from tmux. Its output and failures are dropped: either would put the
- * pane the key was pressed in into view mode.
+ * A shell line that makes `request` in `repo`'s stores in the database at
+ * `dbPath`, for the sous-chef key binding to run from tmux. The tmux server's
+ * environment is not the TUI's, so the database is named. Its output and
+ * failures are dropped: either would put the pane the key was pressed in into
+ * view mode.
  */
 export function highlightShellCommand(
 	repo: string,
+	dbPath: string,
 	{issueKey, focus}: HighlightRequest,
 ): string {
 	const command = [
@@ -43,7 +37,7 @@ export function highlightShellCommand(
 		issueKey,
 		...(focus ? ['--focus'] : []),
 	];
-	return `${command.map(word => shellQuote(word)).join(' ')} >/dev/null 2>&1 || true`;
+	return `PAPPARDELLE_STATE_DB=${shellQuote(dbPath)} ${command.map(word => shellQuote(word)).join(' ')} >/dev/null 2>&1 || true`;
 }
 
 /** The space one repo's running TUI has been asked to select. */

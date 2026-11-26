@@ -4,7 +4,7 @@ import {promisify} from 'node:util';
 import {Database} from 'bun:sqlite';
 import {test, expect} from 'bun:test';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';

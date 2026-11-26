@@ -2,7 +2,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {unreachable} from '../test/helpers/unreachable.ts';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState} from '../test/helpers/state.ts';
 import {StartupQueue} from './startup-queue.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';

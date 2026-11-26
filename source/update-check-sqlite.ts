@@ -24,9 +24,14 @@ export class SqliteUpdateCheckDao implements UpdateCheckDao {
 			{
 				file: this.jsonFile,
 				importRows: content => {
-					const entry = content === null ? null : parseCachedCheck(content);
-					if (entry) this.put(entry);
-					else this.openDb().db.run('DELETE FROM update_check');
+					if (content === null) {
+						this.openDb().db.run('DELETE FROM update_check');
+						return;
+					}
+
+					const entry = parseCachedCheck(content);
+					if (!entry) throw new Error('Not an update check');
+					this.put(entry);
 				},
 			},
 		];

@@ -1,7 +1,7 @@
 import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {writeClaudeStatus} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {until} from '../test/helpers/wait.ts';

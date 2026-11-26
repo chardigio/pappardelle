@@ -53,6 +53,8 @@ export function idowState(fixture: {home: string; main: string}): IdowState {
 		dbPath,
 		db,
 		recordSessions(key, sessions) {
+			// Creates the database through the import, as the fixture's runs
+			// open it, before rows are written to it directly.
 			db();
 			recordAgentSessions(dbPath, IDOW_REPO, key, sessions);
 		},

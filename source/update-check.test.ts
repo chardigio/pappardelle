@@ -4,7 +4,7 @@ import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {

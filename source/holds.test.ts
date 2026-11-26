@@ -1,5 +1,5 @@
 import {test, expect} from 'bun:test';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {holdFor, type Hold, type HeldPrompt} from './holds.ts';
 
 const prompt: HeldPrompt = {

@@ -113,7 +113,7 @@ def get_workspace_name(cwd: Optional[str] = None) -> Optional[str]:
 
 def hook_scratch_dir() -> Path:
     """Where the hook keeps what it needs between events of one agent."""
-    return Path.home() / ".pappardelle" / "hook-scratch"
+    return _state_db_mod.state_dir() / "hook-scratch"
 
 
 def update_status(

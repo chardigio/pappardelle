@@ -233,6 +233,7 @@ import {
 import {useRailStatusPolling} from './use-rail-status-polling.ts';
 import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
 import {findSpaceIndexByIssueKey, highlightShellCommand} from './highlight.ts';
+import {stateDbPath} from './state-db.ts';
 import {skillRoots, skillSnapshot} from './skill-completion.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
@@ -814,7 +815,7 @@ export default function App({
 		void installSousChefKey(
 			listPaneId,
 			getSousChefKey(configMemo),
-			highlightShellCommand(repoName, {
+			highlightShellCommand(repoName, stateDbPath(), {
 				issueKey: MAIN_WORKTREE_KEY,
 				focus: true,
 			}),

@@ -193,13 +193,12 @@ test('a stored record whose file a process without the database removed stays re
 	expect(daos(stateDir, 'repo').schedules.list()).toEqual([]);
 });
 
-test('a file that is not state is kept, and the rest is imported', () => {
+test('a file that is not state, or cannot be read, is kept, and the rest is imported', () => {
 	const stateDir = fileHome();
-	const broken = write(
-		stateDir,
-		'repos/repo/open-spaces.json',
-		'{"not": "a list"',
-	);
+	const broken = write(stateDir, 'repos/repo/space-state/A-1.json', '{"pro');
+	const marker = write(stateDir, 'repos/repo/tui.json', {pid: 'x'});
+	const unreadable = path.join(stateDir, 'repos/repo/space-state/A-2.json');
+	fs.mkdirSync(unreadable, {recursive: true});
 	const sessions = write(
 		stateDir,
 		'repos/repo/space-state/A-1.agent-sessions.json',
@@ -207,10 +206,45 @@ test('a file that is not state is kept, and the rest is imported', () => {
 	);
 
 	const stores = daos(stateDir, 'repo');
-	expect(stores.registry.openSpaces()).toEqual([]);
+	expect(stores.spaceState.read('A-1')).toBeNull();
 	expect(stores.agentSessions.read('A-1', 'claude')).toBe('kept');
-	expect(fs.existsSync(broken)).toBe(true);
+	expect([broken, marker, unreadable].map(file => fs.existsSync(file))).toEqual(
+		[true, true, true],
+	);
 	expect(fs.existsSync(sessions)).toBe(false);
+});
+
+// The reaper ends the sessions of every space the registry does not list, so
+// a registry file the import could not read must not become an empty list.
+test('a registry file that is not a registry stops the import until it is fixed', () => {
+	const stateDir = fileHome();
+	const registry = write(stateDir, 'repos/repo/open-spaces.json', '["A-1"');
+
+	expect(() => daos(stateDir, 'repo').registry.openSpaces()).toThrow(
+		'open-spaces.json',
+	);
+	expect(fs.existsSync(registry)).toBe(true);
+
+	fs.writeFileSync(registry, '["A-1"]');
+	expect(daos(stateDir, 'repo').registry.openSpaces()).toEqual(['A-1']);
+});
+
+test('a highlight request, hook statuses and the flag left in files are deleted, not imported', () => {
+	const stateDir = fileHome();
+	const target = write(stateDir, 'repos/repo/highlight-target', 'A-1\tfocus\n');
+	const left = [
+		write(stateDir, 'claude-status/repo-A-1.json', {status: 'working'}),
+		write(stateDir, 'state-flag.json', {sqliteState: true}),
+		write(stateDir, 'pr-link.stamp', ''),
+	];
+
+	const stores = daos(stateDir, 'repo');
+	const requests: string[] = [];
+	stores.highlight.watch(request => requests.push(request.issueKey))();
+	expect(stores.registry.openSpaces()).toEqual([]);
+	expect(requests).toEqual([]);
+	expect([target, ...left].filter(file => fs.existsSync(file))).toEqual([]);
+	expect(fs.existsSync(path.join(stateDir, 'claude-status'))).toBe(false);
 });
 
 test('a file written after the import is never read', () => {
@@ -274,6 +308,15 @@ test('processes that open a database with files to import at once import them on
 		runs.map(run => ({...run, exitCode: 0, stdout: String(keys.length)})),
 	);
 	expect(daos(stateDir, 'repo').registry.openSpaces()).toEqual(keys);
+	// Each import marks itself done, so one mark means one import.
+	expect(
+		openStateDb(path.join(stateDir, 'state.db'))
+			.db.query<
+				{marks: number},
+				[]
+			>('SELECT COUNT(*) AS marks FROM json_import')
+			.get(),
+	).toEqual({marks: 1});
 });
 
 test('an import that cannot take the write lock fails the open instead of serving rows that may be behind the files', () => {

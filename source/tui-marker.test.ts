@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState} from '../test/helpers/state.ts';
 import {
 	clearDeadRestartLock,

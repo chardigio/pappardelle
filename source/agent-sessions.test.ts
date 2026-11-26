@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {storeTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {
 	recordAgentSessions,
 	testState,

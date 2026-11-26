@@ -266,9 +266,16 @@ function importJsonState(
 				}),
 			];
 		});
-		for (const file of files) {
+		// What no store imports: hook status and its pending-files scratch,
+		// the flag the hooks read, and the pr-link stamp's file.
+		const obsolete = ownsFiles
+			? ['claude-status', 'state-flag.json', 'pr-link.stamp'].map(name =>
+					path.join(stateDir, name),
+				)
+			: [];
+		for (const file of [...files, ...obsolete]) {
 			try {
-				fs.rmSync(file, {force: true});
+				fs.rmSync(file, {force: true, recursive: true});
 			} catch (error) {
 				log.warn(
 					`Could not delete ${file} after importing it`,
