@@ -390,6 +390,12 @@ function finishablePrivateDir(): string {
 		const sharedLog = path.join(guardHome, 'refusals.log');
 		fs.writeFileSync(sharedLog, 'refusal from an earlier run\n');
 		const start = String(fs.statSync(sharedLog).size);
+		// --finish sweeps only with the guard home's own wrapper first on PATH.
+		fs.mkdirSync(path.join(guardHome, 'bin'));
+		fs.copyFileSync(
+			path.join(process.env[TEST_TMUX_GUARD]!, 'bin', 'tmux'),
+			path.join(guardHome, 'bin', 'tmux'),
+		);
 		const finish = () =>
 			spawnSync(
 				setupScript,
@@ -398,6 +404,7 @@ function finishablePrivateDir(): string {
 					encoding: 'utf8',
 					env: {
 						...process.env,
+						PATH: `${path.join(guardHome, 'bin')}:${process.env['PATH']}`,
 						[TEST_TMUX_GUARD]: guardHome,
 						[TEST_TMUX_SHARED_START]: start,
 					},
@@ -445,6 +452,46 @@ function finishablePrivateDir(): string {
 		);
 		expect(tmux('has-session').status).not.toBe(0);
 		expect(fs.existsSync(extra)).toBe(true);
+	},
+);
+
+(guarded ? test : test.skip)(
+	'finishing a run sweeps nothing when the tmux on PATH is not the guard',
+	() => {
+		const extra = tempDir('finish-unguarded-');
+		const socket = path.join(extra, 's');
+		teardown(() => {
+			spawnSync('tmux', ['-S', socket, 'kill-server']);
+		});
+		expect(
+			spawnSync('tmux', [
+				'-f',
+				'/dev/null',
+				'-S',
+				socket,
+				'new-session',
+				'-d',
+				'sleep 60',
+			]).status,
+		).toBe(0);
+		const stubDir = tempDir('finish-stub-');
+		const calls = path.join(stubDir, 'calls');
+		fs.writeFileSync(
+			path.join(stubDir, 'tmux'),
+			`#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n`,
+			{mode: 0o755},
+		);
+		const result = spawnSync(
+			setupScript,
+			['--finish', path.join(finishablePrivateDir(), 'refusals.log'), extra],
+			{
+				encoding: 'utf8',
+				env: {...process.env, PATH: `${stubDir}:${process.env['PATH']}`},
+			},
+		);
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain('not the test tmux guard');
+		expect(fs.existsSync(calls)).toBe(false);
 	},
 );
 

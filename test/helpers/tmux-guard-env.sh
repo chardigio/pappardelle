@@ -34,6 +34,13 @@ if [[ ${1:-} == --finish ]]; then
 		fail_on_leaks=1
 		shift
 	fi
+	# The extra dirs can be anything a caller names, /tmp included, so only the
+	# guard may stop what is under them: the real tmux would reach the live
+	# tmux directory.
+	if [[ -z ${PAPPARDELLE_TEST_TMUX_GUARD:-} || ! $(type -P tmux) -ef $PAPPARDELLE_TEST_TMUX_GUARD/bin/tmux ]]; then
+		echo "tmux-guard-env.sh --finish: the tmux on PATH ($(type -P tmux)) is not the test tmux guard (${PAPPARDELLE_TEST_TMUX_GUARD:-unset}/bin/tmux); put the run's PATH back" >&2
+		exit 1
+	fi
 	status=0
 	# Removing the private directory would leave such a server running with no
 	# socket to reach it by.
