@@ -11,11 +11,14 @@
 # getSessionNames in source/tmux-sessions.test.ts.
 #
 # The command lines are assembled inside open-iterm-agent.sh's AppleScript, so
-# this runs that AppleScript directly. Its `tell application "iTerm"` block is
-# stripped first: AppleScript resolves an application's dictionary at compile
-# time, so on a machine without iTerm2 installed the whole script fails to
-# compile and even --print-command (which returns well before iTerm) cannot run.
-# Everything this test cares about lives above that block.
+# this runs the launcher with --print-command, and an osascript shim strips the
+# script's `tell application "iTerm"` block before the real osascript runs it
+# with the launcher's own arguments: AppleScript resolves an application's
+# dictionary at compile time, so on a machine without iTerm2 installed the whole
+# script fails to compile and even --print-command (which returns well before
+# iTerm) cannot run. Everything this test cares about lives above that block.
+# test-workspace-launchers.sh checks the companion name too, but only where
+# iTerm is installed.
 #
 # Usage: ./test-session-name-encoding.sh
 
@@ -47,16 +50,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
-HARNESS="$TMPDIR_ROOT/assemble.applescript"
-awk '/^cat > "\$APPLESCRIPT" << .APPLESCRIPT_END.$/{f=1;next} /^APPLESCRIPT_END$/{f=0} f' \
-    "$SCRIPT_DIR/open-iterm-agent.sh" \
-    | awk '/^    tell application "iTerm"$/{skip=1} skip && /^end run$/{skip=0} !skip' \
-    > "$HARNESS"
-
-if ! grep -q '^end run$' "$HARNESS"; then
-    echo -e "${RED}Could not extract the AppleScript from open-iterm-agent.sh${RESET}" >&2
+REAL_OSASCRIPT=$(command -v osascript)
+STRIPPED="$TMPDIR_ROOT/stripped.applescript"
+mkdir -p "$TMPDIR_ROOT/bin"
+cat > "$TMPDIR_ROOT/bin/osascript" <<SHIM
+#!/bin/bash
+if ! grep -q '^    tell application "iTerm"\$' "\$1"; then
+    echo "osascript shim: no tell application \"iTerm\" block in the launcher's AppleScript" >&2
     exit 1
 fi
+awk '/^    tell application "iTerm"\$/{skip=1} skip && /^end run\$/{skip=0} !skip' "\$1" > "$STRIPPED"
+if ! grep -q '^end run\$' "$STRIPPED"; then
+    echo "osascript shim: no end run after the tell application \"iTerm\" block" >&2
+    exit 1
+fi
+shift
+exec "$REAL_OSASCRIPT" "$STRIPPED" "\$@"
+SHIM
+chmod +x "$TMPDIR_ROOT/bin/osascript"
 
 # Pull the session name out of a `tmux ... -s 'NAME'` or `-t 'NAME'` command line.
 session_from() {
@@ -67,8 +78,9 @@ assert_sessions() {
     local test_name="$1" expected_agent="$2" expected_companion="$3"
 
     local out agent_line companion_line actual_agent actual_companion
-    out=$(osascript "$HARNESS" \
-        QA-1 /tmp/wt "$expected_agent" '' testrepo '' sock 'gitui' true /bin/zsh claude '' ' --continue' claude /tmp/state.json true '' "$expected_companion")
+    out=$(PATH="$TMPDIR_ROOT/bin:$PATH" PAPPARDELLE_TMUX_SOCKET=sock "$SCRIPT_DIR/open-iterm-agent.sh" \
+        --worktree /tmp/wt --issue-key QA-1 --repo-name testrepo \
+        --agent-session "$expected_agent" --companion-session "$expected_companion" --prompt '' --print-command)
     agent_line=$(sed -n '1p' <<< "$out")
     companion_line=$(sed -n '2p' <<< "$out")
     actual_agent=$(session_from '-s' "$agent_line")

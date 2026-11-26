@@ -81,6 +81,11 @@ jobs:
           PAPPARDELLE_TEST_STANDALONE: '1'
         run: bun run test:unit source/open-space-command.test.ts
 
+      # The shell-tests job runs on Linux, which has no osascript.
+      - name: Launcher session names through osascript (macOS)
+        if: runner.os == 'macOS'
+        run: ./scripts/test-session-name-encoding.sh
+
       - name: Verify program status transport, lifecycle, cleanup and app
         run: |
           bun integration-tests/verify-program-status.ts
