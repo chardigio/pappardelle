@@ -7,7 +7,6 @@ import os
 import shutil
 import sqlite3
 import subprocess
-import tempfile
 import uuid
 from pathlib import Path
 
@@ -368,11 +367,20 @@ def test_with_the_database_only_the_stored_agent_session_is_the_spaces(state_db:
     assert not sessions_file.exists()
 
 
+def guarded_tmux_tmpdir() -> str:
+    """The test tmux guard's private TMUX_TMPDIR. It keeps a test's servers off
+    the user's, and the run fails when one is left running there."""
+    if not os.environ.get("PAPPARDELLE_TEST_TMUX_REFUSALS"):
+        pytest.fail(
+            "this test starts tmux: run through test/helpers/tmux-guard-run.sh"
+            " (test/helpers/tmux-guard-run.sh pytest plugins/pappardelle/hooks/ -v)"
+        )
+    return os.environ["TMUX_TMPDIR"]
+
+
 @pytest.mark.skipif(not shutil.which("tmux"), reason="tmux not installed")
 def test_the_hooks_pane_is_found_in_its_session():
-    # tmux sockets must fit a short path, which pytest's tmp_path doesn't.
-    socket_dir = tempfile.mkdtemp(dir="/tmp")
-    socket = os.path.join(socket_dir, "s")
+    socket = os.path.join(guarded_tmux_tmpdir(), f"hooks-pane-{uuid.uuid4().hex[:8]}")
 
     def tmux(*args: str) -> str:
         return subprocess.run(
@@ -388,7 +396,6 @@ def test_the_hooks_pane_is_found_in_its_session():
         assert tmux_pane_session({"TMUX_PANE": split}) is None
     finally:
         subprocess.run(["tmux", "-S", socket, "kill-server"], capture_output=True)
-        shutil.rmtree(socket_dir, ignore_errors=True)
 
 
 def test_the_agent_process_is_recorded_with_its_id(sessions_file: Path):
@@ -720,13 +727,7 @@ def test_a_hook_outside_tmux_and_any_space_is_not_recorded(sessions_file: Path):
 def tmux_server(monkeypatch: pytest.MonkeyPatch):
     if not shutil.which("tmux"):
         pytest.skip("tmux not installed")
-    # The guard's private TMUX_TMPDIR keeps the -L server below off the
-    # user's, and it fails the run when the server is left running.
-    if not os.environ.get("PAPPARDELLE_TEST_TMUX_REFUSALS"):
-        pytest.fail(
-            "this test starts tmux: run through test/helpers/tmux-guard-run.sh"
-            " (test/helpers/tmux-guard-run.sh pytest plugins/pappardelle/hooks/ -v)"
-        )
+    guarded_tmux_tmpdir()
     # A server of its own per test: kill-server returns before the server has
     # exited, and the next test's tmux could reach the one shutting down.
     name = f"agent-session-test-{uuid.uuid4().hex[:8]}"
