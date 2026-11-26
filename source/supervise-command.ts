@@ -6,6 +6,7 @@ import {readFileSync} from 'node:fs';
 import {stripVTControlCharacters} from 'node:util';
 import {
 	captureAgentScreen,
+	isEndedAgentState,
 	listAgentKeys,
 	readAgentState,
 	WAIT_TARGETS,
@@ -24,6 +25,7 @@ import {
 } from './space-watch.ts';
 import {
 	parseAgentScreen,
+	type AgyDialogKind,
 	type AgyQuotaParseResult,
 	type PermissionPrompt,
 	type PromptOption,
@@ -152,7 +154,7 @@ async function readState(
 	if (
 		quota === 'never' ||
 		!deps.readAgyQuota ||
-		report.state === 'no_session'
+		isEndedAgentState(report.state)
 	) {
 		return report;
 	}
@@ -187,6 +189,12 @@ function permissionTitle(permission: PermissionPrompt): string {
 	return `${tool}${subagent ? ` from ${subagent}` : ''}${description ? `: ${description}` : ''}`;
 }
 
+const AGY_DIALOG_LABELS: Record<AgyDialogKind, string> = {
+	trust: 'Trust this folder?',
+	artifact_review: 'Artifact review (/artifact)',
+	subagent_manage: 'Subagent approval manage view',
+};
+
 export function formatState(report: AgentStateReport): string {
 	const lines = [
 		`${report.key}: ${report.state}${report.app ? ` (${report.app})` : ''}`,
@@ -209,6 +217,13 @@ export function formatState(report: AgentStateReport): string {
 
 	if (report.codexDialog)
 		lines.push(`Codex dialog: ${report.codexDialog.title}`);
+	else if (report.agyDialog)
+		lines.push(`Dialog: ${AGY_DIALOG_LABELS[report.agyDialog]}`);
+	else if (
+		report.status?.status === 'blocked' &&
+		report.status.message === 'Approve plan'
+	)
+		lines.push('Pending artifact review (/artifact)');
 	// Shown under a limit too, since a draft there stops the wake-up.
 	if (report.composer) lines.push(`Composer: ${report.composer}`);
 	return lines.join('\n');
@@ -304,10 +319,10 @@ async function waitFor(
 		command.until === 'changed'
 			? report.state !== first.state
 			: WAIT_TARGETS[command.until].includes(report.state);
-	// Nothing will change in a space with no agent, so don't wait it out.
+	// Nothing will change in a space whose agent has exited or closed, so don't wait it out.
 	if (
 		(command.until !== 'changed' && matches(first)) ||
-		first.state === 'no_session'
+		isEndedAgentState(first.state)
 	) {
 		return {...first, timedOut: false};
 	}
@@ -320,7 +335,8 @@ async function waitFor(
 			Math.min(SCREEN_POLL_MS, deadline - deps.now().getTime()),
 		);
 		report = await readState(key, deps, {quota: 'never'});
-		if (matches(report)) return {...report, timedOut: false};
+		if (matches(report) || isEndedAgentState(report.state))
+			return {...report, timedOut: false};
 	}
 
 	return {...report, timedOut: true};
@@ -334,7 +350,12 @@ export type SpaceChange = {
 } & Partial<
 	Pick<
 		AgentStateReport,
-		'permission' | 'question' | 'codexDialog' | 'usageLimit' | 'composer'
+		| 'permission'
+		| 'question'
+		| 'codexDialog'
+		| 'agyDialog'
+		| 'usageLimit'
+		| 'composer'
 	>
 >;
 
@@ -348,6 +369,7 @@ function describeChange(report: AgentStateReport, from: AgentState | null) {
 		'permission',
 		'question',
 		'codexDialog',
+		'agyDialog',
 		'usageLimit',
 		'composer',
 	] as const) {
@@ -475,6 +497,8 @@ function formatChange(change: SpaceChange): string {
 
 	if (change.codexDialog)
 		lines.push(`  Codex dialog: ${change.codexDialog.title}`);
+	if (change.agyDialog)
+		lines.push(`  Dialog: ${AGY_DIALOG_LABELS[change.agyDialog]}`);
 	if (change.composer) lines.push(`  Composer: ${change.composer}`);
 	return lines.join('\n');
 }
@@ -499,6 +523,7 @@ function promptShown(report: AgentStateReport): string {
 		report.question?.textOption,
 		report.codexDialog?.title,
 		report.codexDialog?.selected,
+		report.agyDialog,
 	]);
 }
 

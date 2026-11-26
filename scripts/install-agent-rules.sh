@@ -10,34 +10,9 @@
 
 set -euo pipefail
 
-is_agy_command() {
-    local -a tokens
-    local i=0 in_env=0 token base
-    read -ra tokens <<< "$1"
-    while ((i < ${#tokens[@]})); do
-        token="${tokens[$i]}"
-        if [[ "$token" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-            i=$((i + 1))
-            continue
-        fi
-        if ((in_env)) && [[ "$token" == -* ]]; then
-            case "$token" in
-                -u|--unset|-C|--chdir|-S|--split-string) i=$((i + 2)) ;;
-                *) i=$((i + 1)) ;;
-            esac
-            continue
-        fi
-        base="$(basename "$token")"
-        if [[ "$base" == "env" ]]; then
-            in_env=1
-            i=$((i + 1))
-            continue
-        fi
-        [[ "$base" == "agy" ]]
-        return
-    done
-    return 1
-}
+rules_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/agent-helpers.sh
+source "$rules_dir/agent-helpers.sh"
 
 [[ $# -ge 1 ]] || {
     echo "Usage: install-agent-rules.sh <agent command> <worktree> [--space KEY] [--repo NAME] [--role sous-chef|worker]" >&2
@@ -84,7 +59,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-rules_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rule=".agents/rules/pappardelle.md"
 repo_note=""
 if [[ -n "$repo" ]]; then

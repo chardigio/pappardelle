@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import {
 	AGENT_STATES,
 	BLOCKED,
+	isEndedAgentState,
 	type AgentState,
 	type AgentStateReport,
 } from './agent-state.ts';
@@ -74,6 +75,7 @@ function seenAs(report: AgentStateReport): string {
 				]
 			: null,
 		report.codexDialog?.title ?? null,
+		report.agyDialog ?? null,
 	].filter(part => part !== null);
 	if (prompt.length === 0) return report.state;
 	const hash = createHash('sha256')
@@ -100,8 +102,9 @@ export function snapshot(reports: readonly AgentStateReport[]): WatchCursor {
 
 /**
  * The spaces to report: each one that shows something other than `baseline`
- * and, when there are targets, is in one of them. A space with no session is
- * always news, so a mistyped key doesn't wait out the timeout.
+ * and, when there are targets, is in one of them. A space with no session or
+ * an exited agent is always news, so a mistyped key or crashed agent doesn't
+ * wait out the timeout.
  */
 export function changesSince(
 	baseline: WatchCursor,
@@ -113,6 +116,6 @@ export function changesSince(
 			seenAs(report) !== baseline[report.key] &&
 			(targets === null ||
 				targets.has(report.state) ||
-				report.state === 'no_session'),
+				isEndedAgentState(report.state)),
 	);
 }

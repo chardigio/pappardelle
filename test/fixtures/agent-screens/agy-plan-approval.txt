@@ -1,0 +1,60 @@
+
+      [38;5;179m▄[38;5;208m[48;5;208m▀[38;5;203m[48;5;209m▀[49m▄[39m        [1m[94mAntigravity CLI 1.5.16
+[0m     [38;5;149m[48;5;113m▀[38;5;143m[48;5;107m▀[38;5;173m[48;5;173m▀[38;5;209m[48;5;209m▀[38;5;203m[48;5;167m▀▀[39m[49m       [90mqa-user@example.co (Google AI Pro)
+[39m    [38;5;107m[48;5;113m▀[38;5;71m[48;5;72m▀[38;5;72m[48;5;68m▀[38;5;67m[49m▀[38;5;103m▀[38;5;98m[48;5;68m▀[38;5;97m[48;5;62m▀[38;5;132m[48;5;97m▀[39m[49m      [90mGemini 4 Hydrogen (Medium)
+[39m   [38;5;78m▄[48;5;74m▀[38;5;73m▀[39m[49m    [38;5;68m[48;5;69m▀▀[49m▄[39m     [90m~/.worktrees/qagy-d/qa-c3
+[39m  [38;5;75m▄[38;5;79m[48;5;75m▀[38;5;75m[49m▀[39m      [38;5;69m▀[48;5;69m▀[49m▄
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> /plan Plan how to create a file plan.txt containing the word hi. Keep the plan to two steps, then ask me to approve
+  it.[0m                                          
+
+[1m[33m12.0k in | 729 out | 433 thinking
+[0m[32m●[39m [1m[33mCreate[0m[37m(~/.gemini/antigravity-cli/brain/d007048b-a7...7a-8f2a-b6ad88701aa9/implementation_plan.md)[39m [37m(ctrl+o to expand)
+
+[39m  I have created the two-step implementation plan in                                                         
+  ~/.gemini/antigravity-cli/brain/d007048b-a71e-437a-8f2a-b6ad88701aa9/implementation_plan.md. Please review and  
+  approve it to proceed.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                        [1m[33m1 artifact · /artifact to review
+[0m[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[94m>
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m-- INSERT --[0m [90m? for shortcuts[39m                                                           [94mplan[2m[39m · Gemini 4 Hydrogen · medium

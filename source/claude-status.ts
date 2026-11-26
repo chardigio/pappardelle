@@ -76,6 +76,7 @@ export async function spaceStatusKey(
 export interface ClaudeStatusInfo {
 	status: ClaudeStatus;
 	tool?: string;
+	lastUpdate?: number;
 }
 
 /** What is stored under a status key, as the hook wrote it. */
@@ -121,7 +122,11 @@ export function statusInfo(state: ClaudeSessionState): ClaudeStatusInfo {
 		return {status: 'unknown'};
 	}
 
-	return {status: state.status, tool: state.currentTool};
+	return {
+		status: state.status,
+		tool: state.currentTool,
+		lastUpdate: state.lastUpdate,
+	};
 }
 
 function parseStatus(content: string): ClaudeStatusInfo {

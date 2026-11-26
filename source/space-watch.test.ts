@@ -5,6 +5,7 @@ import {superviseDeps} from '../test/helpers/supervise-deps.ts';
 import {test, expect} from 'bun:test';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
 import {runSuperviseCommand, type WatchResult} from './supervise-command.ts';
+import type {ClaudeStatusInfo} from './claude-status.ts';
 import {decodeCursor, encodeCursor} from './space-watch.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
@@ -45,8 +46,12 @@ function spaces(
 	initial: Record<string, string>,
 	/** The spaces with an identity; by default every one with a screen. */
 	identified?: string[],
+	initialPanes: Record<string, string> = {},
+	initialHooks: Record<string, ClaudeStatusInfo> = {},
 ) {
 	const screens = {...initial};
+	const paneListings = {...initialPanes};
+	const hooks = {...initialHooks};
 	let clock = new Date(2026, 10, 9, 12, 0).getTime();
 	let between: Array<() => void> = [];
 	const runner: OuterTmuxRunner = args => {
@@ -68,6 +73,15 @@ function spaces(
 				: {status: 0, stdout: screen};
 		}
 
+		if (args[0] === 'list-panes') {
+			const target = args[args.indexOf('-t') + 1] ?? '';
+			const key = /^=agent-repo-(.*):$/.exec(target)?.[1] ?? '';
+			const listing = paneListings[key];
+			return listing === undefined
+				? {status: 1, stdout: ''}
+				: {status: 0, stdout: listing};
+		}
+
 		return {status: 1, stdout: ''};
 	};
 
@@ -77,6 +91,8 @@ function spaces(
 			() => identified ?? Object.keys(screens),
 		),
 		resolveKey: raw => (/^\d+$/.test(raw) ? `STA-${raw}` : raw),
+		readHook: async key => hooks[key] ?? {status: 'unknown'},
+		readSnapshot: async () => null,
 		runner,
 		now: () => new Date(clock),
 		async sleep(ms) {
@@ -90,6 +106,8 @@ function spaces(
 	});
 	return {
 		screens,
+		paneListings,
+		hooks,
 		logged,
 		onWait(...steps: Array<() => void>) {
 			between = steps;
@@ -97,6 +115,10 @@ function spaces(
 		async watch(...argv: string[]): Promise<WatchResult> {
 			await runSuperviseCommand(['watch', ...argv, '--json'], deps);
 			return JSON.parse(out.at(-1)!) as WatchResult;
+		},
+		async watchText(...argv: string[]): Promise<string> {
+			await runSuperviseCommand(['watch', ...argv], deps);
+			return out.at(-1)!;
 		},
 	};
 }
@@ -253,4 +275,60 @@ test('a closed space leaves the cursor once reported, and junk after a cursor is
 	const closed = await h.watch('--since', first.cursor);
 	expect(Object.keys(decodeCursor(closed.cursor)!)).toStrictEqual(['STA-1']);
 	expect(decodeCursor(`${first.cursor}!!`)).toBe(null);
+});
+
+test('a space whose agent exited wakes a blocked watch once and stays in the cursor', async () => {
+	const h = spaces(
+		{'STA-1': fixture('claude-working')},
+		['STA-1'],
+		{'STA-1': '11\t%1\t%1\t42\t0\t1\t42.marker\tclaude\n'},
+		{'STA-1': {status: 'processing'}},
+	);
+	h.onWait(() => {
+		h.screens['STA-1'] = '[user@host STA-1]$ ';
+		h.paneListings['STA-1'] = '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n';
+		h.hooks['STA-1'] = {status: 'ended'};
+	});
+	const first = await h.watch('--until', 'blocked');
+	expect(first.result).toBe('changed');
+	expect(
+		first.changes.map(change => [change.key, change.from, change.to]),
+	).toStrictEqual([['STA-1', 'working', 'exited']]);
+	expect(decodeCursor(first.cursor)).toStrictEqual({'STA-1': 'exited'});
+
+	const next = await h.watch(
+		'--until',
+		'blocked',
+		'--since',
+		first.cursor,
+		'--timeout',
+		'1',
+	);
+	expect(next.result).toBe('timed_out');
+	expect(next.changes).toStrictEqual([]);
+});
+
+test('watch labels agy dialogs in text and treats a new agy dialog as a change', async () => {
+	const h = spaces({'STA-1': fixture('agy-trust')}, ['STA-1']);
+	const text = await h.watchText('--until', 'blocked');
+	expect(text).toContain('STA-1: new -> dialog');
+	expect(text).toContain('  Dialog: Trust this folder?');
+
+	const first = await h.watch('--until', 'blocked');
+	expect(first.changes[0]).toMatchObject({
+		key: 'STA-1',
+		to: 'dialog',
+		agyDialog: 'trust',
+	});
+
+	// Transitioning directly to a different agy dialog still wakes watch.
+	h.screens['STA-1'] = fixture('agy-subagent-manage');
+	const next = await h.watch('--until', 'blocked', '--since', first.cursor);
+	expect(next.result).toBe('changed');
+	expect(next.changes[0]).toMatchObject({
+		key: 'STA-1',
+		from: 'dialog',
+		to: 'dialog',
+		agyDialog: 'subagent_manage',
+	});
 });

@@ -255,6 +255,64 @@ if not projects[path].get('hasTrustDialogAccepted'):
 " "$WORKTREE_PATH" 2>/dev/null || true
 fi
 
+# shellcheck source=scripts/agent-helpers.sh
+source "$SCRIPT_DIR/agent-helpers.sh"
+
+# Pre-trust the worktree directory for Antigravity CLI (agy).
+# agy stores workspace trust in ~/.gemini/antigravity-cli/settings.json under trustedWorkspaces.
+if is_agy_command "$AGENT_COMMAND"; then
+    python3 -c '
+import json, os, stat, sys, tempfile
+
+settings_path = os.environ.get(
+    "PAPPARDELLE_AGY_SETTINGS_PATH",
+    os.path.expanduser("~/.gemini/antigravity-cli/settings.json"),
+)
+worktree = sys.argv[1]
+target_path = settings_path
+file_mode = 0o600
+settings = {}
+if os.path.exists(settings_path) or os.path.islink(settings_path):
+    target_path = os.path.realpath(settings_path)
+if os.path.exists(target_path):
+    try:
+        file_mode = stat.S_IMODE(os.stat(target_path).st_mode)
+        with open(target_path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        sys.exit(0)
+    if not isinstance(loaded, dict):
+        sys.exit(0)
+    settings = loaded
+
+trusted = settings.get("trustedWorkspaces")
+if trusted is None:
+    trusted = []
+elif not isinstance(trusted, list):
+    sys.exit(0)
+if worktree in trusted:
+    sys.exit(0)
+trusted.append(worktree)
+settings["trustedWorkspaces"] = trusted
+
+parent = os.path.dirname(os.path.abspath(target_path))
+os.makedirs(parent, exist_ok=True)
+fd, tmp_path = tempfile.mkstemp(prefix=".settings.", suffix=".tmp", dir=parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2)
+        f.write("\n")
+    os.chmod(tmp_path, file_mode)
+    os.replace(tmp_path, target_path)
+except Exception:
+    try:
+        os.unlink(tmp_path)
+    except OSError:
+        pass
+    raise
+' "$WORKTREE_PATH" 2>/dev/null || true
+fi
+
 # Launches are handed to tmux as the pane's command rather than typed at a
 # prompt, so they never land in the user's shell history (pappardelle-2i0).
 # The trailing `:` stops the interactive shell from exec'ing its last command

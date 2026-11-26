@@ -8,6 +8,7 @@ import {
 	defaultServerTmuxRunner,
 	OUTER_SESSION_PREFIX,
 	outerSessionName,
+	sleepSync,
 	tmuxFailure,
 	type OuterTmuxRunner,
 } from './tmux.ts';
@@ -390,10 +391,6 @@ export function installedLaunchCommand(options: {
 	return exists(shim)
 		? shellQuote(shim)
 		: tuiLaunchCommand({...options, args: []});
-}
-
-function sleepSync(ms: number): void {
-	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 export type CloseLayoutDeps = {

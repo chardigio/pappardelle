@@ -3,11 +3,16 @@ import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
 import type {AgyQuotaResult} from './supervise-command.ts';
-import {runSuperviseCommand, type SuperviseDeps} from './supervise-command.ts';
+import {
+	formatState,
+	runSuperviseCommand,
+	type SuperviseDeps,
+} from './supervise-command.ts';
 import {POLICY_REFUSED_EXIT} from './answer-decision.ts';
+import type {AgentStateReport} from './agent-state.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 import type {ClassifierVerdict} from './approve-classifier.ts';
-import type {ClaudeSessionState} from './claude-status.ts';
+import type {ClaudeSessionState, ClaudeStatusInfo} from './claude-status.ts';
 import type {Hold} from './holds.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 import {testState} from '../test/helpers/state.ts';
@@ -59,10 +64,14 @@ function harness(
 		ignoresKeys = false,
 		caller = 'main',
 		readAgyQuota,
+		paneListings,
+		hookStatus = {status: 'unknown'},
 	}: {
 		ignoresKeys?: boolean;
 		caller?: string;
 		readAgyQuota?: SuperviseDeps['readAgyQuota'];
+		paneListings?: string[];
+		hookStatus?: ClaudeStatusInfo;
 	} = {},
 ) {
 	const {schedules, holds} = testState().daos;
@@ -77,6 +86,7 @@ function harness(
 	const start = new Date(2026, 10, 9, 12, 0).getTime();
 	let clock = start;
 	let reads = 0;
+	let paneReads = 0;
 	let redraws = 0;
 	let live = true;
 	const runner: OuterTmuxRunner = args => {
@@ -95,10 +105,18 @@ function harness(
 			return {status: 0, stdout: screen};
 		}
 
+		if (args[0] === 'list-panes' && paneListings) {
+			const listing =
+				paneListings[Math.min(paneReads++, paneListings.length - 1)]!;
+			return {status: 0, stdout: listing};
+		}
+
 		return {status: 1, stdout: ''};
 	};
 
 	const {deps, logged, out, err} = superviseDeps({
+		readHook: async () => hookStatus,
+		readSnapshot: async () => null,
 		readHookState: async () =>
 			hook ? {kind: 'state', state: hook} : {kind: 'none'},
 		...(readAgyQuota ? {readAgyQuota} : {}),
@@ -1025,4 +1043,109 @@ test('schedule --after-limit, state clearing, wait/watch isolation, and schedule
 		state: 'idle',
 		usageLimit: null,
 	});
+});
+
+test('agy trust dialog refuses answer without --force and formats as dialog', async () => {
+	const h = harness([fixture('agy-trust')]);
+	expect(await h.run('state', 'STA-1')).toBe(0);
+	expect(h.out[0]!).toBe('STA-1: dialog\nDialog: Trust this folder?');
+
+	expect(await h.run('answer', 'STA-1', '--option', '1')).toBe(
+		POLICY_REFUSED_EXIT,
+	);
+	expect(await h.run('answer', 'STA-1', '--keys', 'Enter')).toBe(
+		POLICY_REFUSED_EXIT,
+	);
+	expect(h.pressed).toStrictEqual([]);
+	expect(h.err[0]!).toMatch(/shows an agy dialog; a person answers it/);
+
+	const stateReport = (
+		overrides: Partial<AgentStateReport>,
+	): AgentStateReport => ({
+		key: 'STA-1',
+		state: 'dialog',
+		app: 'antigravity',
+		status: null,
+		permission: null,
+		question: null,
+		usageLimit: null,
+		codexDialog: null,
+		agyDialog: null,
+		composer: null,
+		screen: '',
+		...overrides,
+	});
+	const approvePlanStatus = {
+		status: 'blocked' as const,
+		kind: 'permission' as const,
+		message: 'Approve plan',
+		app: 'antigravity',
+		source: 'osc' as const,
+	};
+	expect(
+		formatState(
+			stateReport({state: 'idle', status: approvePlanStatus, composer: ''}),
+		),
+	).toBe('STA-1: idle (antigravity)\nPending artifact review (/artifact)');
+
+	// Parsed agyDialog wins over any stale earlier OSC status message.
+	expect(
+		formatState(
+			stateReport({status: approvePlanStatus, agyDialog: 'subagent_manage'}),
+		),
+	).toBe('STA-1: dialog (antigravity)\nDialog: Subagent approval manage view');
+
+	expect(formatState(stateReport({agyDialog: 'artifact_review'}))).toBe(
+		'STA-1: dialog (antigravity)\nDialog: Artifact review (/artifact)',
+	);
+});
+
+test('wait returns immediately when the agent has exited or exits mid-wait', async () => {
+	const alreadyExited = harness(['[user@host STA-1]$ '], {
+		paneListings: ['11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n'],
+		hookStatus: {status: 'ended'},
+	});
+	expect(
+		await alreadyExited.run(
+			'wait',
+			'STA-1',
+			'--until',
+			'idle',
+			'--timeout',
+			'30',
+			'--json',
+		),
+	).toBe(0);
+	expect(JSON.parse(alreadyExited.out[0]!)).toMatchObject({
+		state: 'exited',
+		timedOut: false,
+	});
+	expect(alreadyExited.elapsed()).toBe(0);
+
+	const exitsMidWait = harness(
+		[fixture('claude-working'), '[user@host STA-1]$ '],
+		{
+			paneListings: [
+				'11\t%1\t%1\t42\t0\t1\t42.marker\tclaude\n',
+				'11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n',
+			],
+			hookStatus: {status: 'ended'},
+		},
+	);
+	expect(
+		await exitsMidWait.run(
+			'wait',
+			'STA-1',
+			'--until',
+			'blocked',
+			'--timeout',
+			'30',
+			'--json',
+		),
+	).toBe(0);
+	expect(JSON.parse(exitsMidWait.out[0]!)).toMatchObject({
+		state: 'exited',
+		timedOut: false,
+	});
+	expect(exitsMidWait.elapsed()).toBeLessThan(30_000);
 });

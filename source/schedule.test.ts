@@ -46,6 +46,7 @@ function report(
 			? {resetText: '', resetAt, passed: resetAt <= NOW}
 			: null,
 		codexDialog: null,
+		agyDialog: null,
 		composer: null,
 		screen: '',
 	};
@@ -283,6 +284,27 @@ contractTest(
 		expect(await h.fire(afterLimit)).toBe('no_session');
 		expect(h.sent).toStrictEqual([]);
 		expect(h.store.list()).toStrictEqual([]);
+	},
+);
+
+contractTest(
+	'schedules never send into an exited pane: keep_going waits and one-shots drop',
+	async state => {
+		const kg = harness(state, [report('exited')]);
+		await kg.store.save({...keepGoing(), idleChecks: 1});
+		expect(await kg.fire(keepGoing())).toBe('waiting');
+		expect(kg.sent).toStrictEqual([]);
+		expect(kg.store.load('kg')).toMatchObject({
+			kind: 'keep_going',
+			idleChecks: 0,
+		});
+
+		const oneShot = harness(state, [report('exited')]);
+		await oneShot.store.save(atJob);
+		expect(await oneShot.fire(atJob)).toBe('exited');
+		expect(oneShot.sent).toStrictEqual([]);
+		expect(oneShot.store.load('at1')).toBe(null);
+		expect(oneShot.removed).toStrictEqual(['at1']);
 	},
 );
 

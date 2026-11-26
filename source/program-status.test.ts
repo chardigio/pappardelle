@@ -140,7 +140,7 @@ test('blocked outranks error and working; ties prefer root then latest update', 
 	expect(store.status().id).toBe('');
 });
 
-test('prompt and process exit drop active records, not completion; no clock expiry', () => {
+test('prompt and process exit drop active and idle records, not completion; no clock expiry', () => {
 	const store = new ProgramStatusStore();
 	for (const body of [
 		'state=working',
@@ -151,11 +151,16 @@ test('prompt and process exit drop active records, not completion; no clock expi
 	])
 		store.apply(parseProgramReport(body)!);
 	store.processExit();
-	expect(store.records().map(r => r.id)).toStrictEqual(['b', 'c', 'd']);
+	expect(store.records().map(r => r.id)).toStrictEqual(['b', 'c']);
 	expect(store.status().status).toBe('error');
 	store.reset();
 	expect(store.authoritative).toBe(true);
 	expect(store.status().status).toBe('unknown');
+
+	// Agy emits idle on /exit; returning to the shell prompt must clear it.
+	store.apply(parseProgramReport('state=idle:app=antigravity')!);
+	store.processExit();
+	expect(store.status()).toStrictEqual({status: 'unknown'});
 });
 
 test('record cap evicts the least recently updated record', () => {
