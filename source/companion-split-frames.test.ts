@@ -300,22 +300,20 @@ tmuxTest(
 
 		// A split client that left forces new split panes only.
 		const logsTty = await display(settled[1]!, '#{@pappardelle_client_tty}');
-		const clients = await innerTmux(
-			'list-clients',
-			'-F',
-			'#{client_tty} #{client_pid}',
+		const logsClientPid = Number(
+			await innerTmux(
+				'list-clients',
+				'-f',
+				`#{==:#{client_tty},${logsTty}}`,
+				'-F',
+				'#{client_pid}',
+			),
 		);
-		const logsClient = Number(
-			clients
-				.split('\n')
-				.find(row => row.startsWith(`${logsTty} `))
-				?.split(' ')[1],
-		);
-		expect(logsClient).toBeGreaterThan(0);
+		expect(logsClientPid).toBeGreaterThan(0);
 		// tmux 3.6 to 3.8 crash the server when a client that is detaching gets a
-		// resize (tmux issue 5723), and this pane's frame can still be passing one
-		// on. A killed client never detaches.
-		process.kill(logsClient, 'SIGKILL');
+		// resize (tmux issue 5723), and this pane's frame may still be forwarding a
+		// resize to its client. A killed client never detaches.
+		process.kill(logsClientPid, 'SIGKILL');
 		// Until the server reads the closed connection, switch-client still finds it.
 		expect(
 			await waitFor(async () => {
