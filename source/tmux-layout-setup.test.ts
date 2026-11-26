@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {test, expect} from 'bun:test';
+import {expect} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {PANE_FRAME_SIZE, PANE_TITLE_OPTION} from './pane-frame-options.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
@@ -121,92 +122,80 @@ async function viewerInnerSize(
 	return `${cols! - PANE_FRAME_SIZE}x${rows! - PANE_FRAME_SIZE}`;
 }
 
-async function tmuxAvailable() {
-	try {
-		await exec('tmux', ['-V']);
-		return true;
-	} catch {
-		return false;
-	}
-}
+tmuxTest(
+	'a wide window is split into rail, agent and companion from left to right',
+	async () => {
+		const {run, listPaneId} = await isolatedPane(200);
+		const layout = await setupPappardellLayout();
+		expect(layout).toBeTruthy();
+		const {agentViewerPaneId, companionViewerPaneId} = layout!;
+		const panes = await run([
+			'list-panes',
+			'-t',
+			listPaneId,
+			'-F',
+			`#{pane_id} #{pane_width} #{pane_active} #{${PANE_TITLE_OPTION}}`,
+		]);
+		const rows = panes.split('\n').map(line => line.split(' '));
+		expect(
+			rows.map(([id, , active, title]) => [id, active, title]),
+		).toStrictEqual([
+			[listPaneId, '1', 'rail'],
+			[agentViewerPaneId, '0', 'agent'],
+			[companionViewerPaneId, '0', 'companion'],
+		]);
+		// Two dividers separate the three panes.
+		expect(rows.reduce((total, [, width]) => total + Number(width), 0)).toBe(
+			198,
+		);
+		expect(
+			await run([
+				'show-options',
+				'-wv',
+				'-t',
+				listPaneId,
+				'pane-border-status',
+			]),
+		).toBe('off');
+		expect(await run(['show-options', '-gv', 'focus-events'])).toBe('on');
+		const features = await run(['show-options', '-gqv', 'terminal-features']);
+		expect(features.split('\n').includes(SYNC_TERMINAL_FEATURE)).toBe(true);
+	},
+);
 
-test('a wide window is split into rail, agent and companion from left to right', async () => {
-	if (!(await tmuxAvailable())) {
-		expect().pass('tmux unavailable');
-		return;
-	}
+tmuxTest(
+	'a narrow window puts the agent below the rail with no companion',
+	async () => {
+		const {run, listPaneId} = await isolatedPane(80);
+		const layout = await setupPappardellLayout();
+		expect(layout?.companionViewerPaneId).toBe('');
+		const panes = await run([
+			'list-panes',
+			'-t',
+			listPaneId,
+			'-F',
+			`#{pane_id} #{pane_width} #{pane_active} #{${PANE_TITLE_OPTION}}`,
+		]);
+		expect(panes.split('\n')).toStrictEqual([
+			`${listPaneId} 80 1 rail`,
+			`${layout!.agentViewerPaneId} 80 0 agent`,
+		]);
+	},
+);
 
-	const {run, listPaneId} = await isolatedPane(200);
-	const layout = await setupPappardellLayout();
-	expect(layout).toBeTruthy();
-	const {agentViewerPaneId, companionViewerPaneId} = layout!;
-	const panes = await run([
-		'list-panes',
-		'-t',
-		listPaneId,
-		'-F',
-		`#{pane_id} #{pane_width} #{pane_active} #{${PANE_TITLE_OPTION}}`,
-	]);
-	const rows = panes.split('\n').map(line => line.split(' '));
-	expect(
-		rows.map(([id, , active, title]) => [id, active, title]),
-	).toStrictEqual([
-		[listPaneId, '1', 'rail'],
-		[agentViewerPaneId, '0', 'agent'],
-		[companionViewerPaneId, '0', 'companion'],
-	]);
-	// Two dividers separate the three panes.
-	expect(rows.reduce((total, [, width]) => total + Number(width), 0)).toBe(198);
-	expect(
-		await run(['show-options', '-wv', '-t', listPaneId, 'pane-border-status']),
-	).toBe('off');
-	expect(await run(['show-options', '-gv', 'focus-events'])).toBe('on');
-	const features = await run(['show-options', '-gqv', 'terminal-features']);
-	expect(features.split('\n').includes(SYNC_TERMINAL_FEATURE)).toBe(true);
-});
+tmuxTest(
+	"a session created after layout while not viewed starts at the agent viewer's inner size",
+	async () => {
+		const {run, tmuxTmpdir} = await isolatedPane(200);
+		const sizeOfNewSession = await innerServer(tmuxTmpdir);
+		const layout = await setupPappardellLayout();
+		expect(await sizeOfNewSession('unviewed')).toBe(
+			await viewerInnerSize(run, layout!.agentViewerPaneId),
+		);
+	},
+);
 
-test('a narrow window puts the agent below the rail with no companion', async () => {
-	if (!(await tmuxAvailable())) {
-		expect().pass('tmux unavailable');
-		return;
-	}
-
-	const {run, listPaneId} = await isolatedPane(80);
-	const layout = await setupPappardellLayout();
-	expect(layout?.companionViewerPaneId).toBe('');
-	const panes = await run([
-		'list-panes',
-		'-t',
-		listPaneId,
-		'-F',
-		`#{pane_id} #{pane_width} #{pane_active} #{${PANE_TITLE_OPTION}}`,
-	]);
-	expect(panes.split('\n')).toStrictEqual([
-		`${listPaneId} 80 1 rail`,
-		`${layout!.agentViewerPaneId} 80 0 agent`,
-	]);
-});
-
-test("a session created after layout while not viewed starts at the agent viewer's inner size", async () => {
-	if (!(await tmuxAvailable())) {
-		expect().pass('tmux unavailable');
-		return;
-	}
-
-	const {run, tmuxTmpdir} = await isolatedPane(200);
-	const sizeOfNewSession = await innerServer(tmuxTmpdir);
-	const layout = await setupPappardellLayout();
-	expect(await sizeOfNewSession('unviewed')).toBe(
-		await viewerInnerSize(run, layout!.agentViewerPaneId),
-	);
-});
-
-test('a relayout moves later sessions to the new viewer size', async () => {
-	if (!(await tmuxAvailable())) {
-		expect().pass('tmux unavailable');
-		return;
-	}
-
+tmuxTest('a relayout moves later sessions to the new viewer size', async () => {
 	const {run, tmuxTmpdir} = await isolatedPane(200);
 	const sizeOfNewSession = await innerServer(tmuxTmpdir);
 	const layout = await setupPappardellLayout();
