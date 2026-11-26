@@ -3,40 +3,25 @@ import {buildSessionEnvArgs, buildSpawnEnv} from './spawn-env.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 test('buildSpawnEnv includes PAPPARDELLE_PROJECT_ROOT', () => {
-	const env = buildSpawnEnv('/tmp/fake-project');
+	const env = buildSpawnEnv('/tmp/fake-project', '/tmp/fake-main');
 	expect(env['PAPPARDELLE_PROJECT_ROOT']).toBe('/tmp/fake-project');
 });
 
 test('buildSpawnEnv preserves existing env vars', () => {
-	const env = buildSpawnEnv('/tmp/fake-project');
+	const env = buildSpawnEnv('/tmp/fake-project', '/tmp/fake-main');
 	// Should still have PATH from process.env
 	expect(env['PATH']).toBeTruthy();
 });
 
 test('buildSpawnEnv does not mutate process.env', () => {
 	const before = process.env['PAPPARDELLE_PROJECT_ROOT'];
-	buildSpawnEnv('/tmp/fake-project');
+	buildSpawnEnv('/tmp/fake-project', '/tmp/fake-main');
 	expect(process.env['PAPPARDELLE_PROJECT_ROOT']).toBe(before);
 });
 
-test('buildSpawnEnv passes the main repo root when given one', () => {
-	const env = buildSpawnEnv('/tmp/fake-project', {
-		mainRepoRoot: '/tmp/fake-main',
-	});
+test('buildSpawnEnv passes the main repo root', () => {
+	const env = buildSpawnEnv('/tmp/fake-project', '/tmp/fake-main');
 	expect(env['PAPPARDELLE_MAIN_REPO_ROOT']).toBe('/tmp/fake-main');
-});
-
-test('buildSpawnEnv omits the main repo root when there is none', () => {
-	const before = process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
-	delete process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
-	try {
-		expect(
-			'PAPPARDELLE_MAIN_REPO_ROOT' in buildSpawnEnv('/tmp/fake-project'),
-		).toBe(false);
-	} finally {
-		if (before !== undefined)
-			process.env['PAPPARDELLE_MAIN_REPO_ROOT'] = before;
-	}
 });
 
 // idow records the space before it starts any session only when it is told
@@ -46,7 +31,9 @@ test('buildSpawnEnv tells idow to record the space', () => {
 	delete process.env['PAPPARDELLE_REGISTER_SPACE'];
 	try {
 		expect(
-			buildSpawnEnv('/tmp/fake-project')['PAPPARDELLE_REGISTER_SPACE'],
+			buildSpawnEnv('/tmp/fake-project', '/tmp/fake-main')[
+				'PAPPARDELLE_REGISTER_SPACE'
+			],
 		).toBe('1');
 	} finally {
 		if (before !== undefined)

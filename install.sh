@@ -471,14 +471,11 @@ install_skill_scripts
 
 # Before the plugin install: its hooks only write to a database that exists.
 # State an older build kept in files is imported once, and the files deleted.
-# PAPPARDELLE_STATE_DB moves the database the app opens, so it is the one set
-# up here too.
-STATE_DB="${PAPPARDELLE_STATE_DB:-$PAPPARDELLE_DIR/state.db}"
-if "$LOCAL_BIN/pappardelle" --internal-state migrate "$STATE_DB"; then
+if "$LOCAL_BIN/pappardelle" --internal-state migrate; then
     print_status "State database ready"
     print_info "Restart any running Pappardelle TUI: one on an older build no longer sees its spaces' state"
 else
-    print_error "Could not set up the state database at $STATE_DB"
+    print_error "Could not set up the state database"
     exit 1
 fi
 

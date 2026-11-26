@@ -14,7 +14,11 @@ const helper = fileURLToPath(
 	new URL('../scripts/state-cli.sh', import.meta.url),
 );
 
-function pappardelleState(args: string[], home: string) {
+function pappardelleState(
+	args: string[],
+	home: string,
+	env: Record<string, string> = {},
+) {
 	return spawnSync(
 		'bash',
 		['-c', 'source "$0"; pappardelle_state "$@"', helper, ...args],
@@ -26,6 +30,7 @@ function pappardelleState(args: string[], home: string) {
 				PATH: process.env['PATH'],
 				TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
 				HOME: home,
+				...env,
 			},
 		},
 	);
@@ -41,6 +46,33 @@ test('a script can ask the binary to create the database', () => {
 		db.query("SELECT name FROM sqlite_master WHERE name = 'json_import'").get(),
 	).toBeTruthy();
 	db.close();
+});
+
+// install.sh passes no path, so it sets up whichever database the app opens.
+test('migrate without a path creates the database PAPPARDELLE_STATE_DB names', () => {
+	const home = tempDir('papp-state-cli-');
+	const dbPath = path.join(home, 'moved', 'state.db');
+	const result = pappardelleState(['migrate'], home, {
+		PAPPARDELLE_STATE_DB: dbPath,
+	});
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	expect(fs.existsSync(dbPath)).toBe(true);
+	expect(fs.existsSync(path.join(home, '.pappardelle', 'state.db'))).toBe(
+		false,
+	);
+});
+
+// install.sh's own message does not name the database it could not set up.
+test('a migrate that fails names the database', () => {
+	const home = tempDir('papp-state-cli-');
+	const notADir = path.join(home, 'file');
+	fs.writeFileSync(notADir, '');
+	const dbPath = path.join(notADir, 'state.db');
+	const result = pappardelleState(['migrate'], home, {
+		PAPPARDELLE_STATE_DB: dbPath,
+	});
+	expect(result.status).toBe(3);
+	expect(result.stderr).toContain(dbPath);
 });
 
 test('an unknown verb fails without starting anything else', () => {
@@ -260,7 +292,7 @@ test('check-config passes a valid or missing config and fails an invalid one wit
 	);
 });
 
-test('migrate takes one database path and nothing else', () => {
+test('migrate takes at most one database path', () => {
 	const dir = tempDir('papp-state-cli-');
 	const migrate = (...args: string[]) =>
 		spawnSync(
@@ -278,7 +310,7 @@ test('migrate takes one database path and nothing else', () => {
 	expect(flag.stderr).toMatch(/migrate: Unknown option '--bogus'/);
 	const extra = migrate('a.db', 'b.db');
 	expect(extra.status, `stderr: ${extra.stderr}`).toBe(2);
-	expect(extra.stderr).toMatch(/migrate needs one database path/);
+	expect(extra.stderr).toMatch(/migrate takes at most one database path/);
 	expect(fs.readdirSync(dir)).toStrictEqual([]);
 });
 

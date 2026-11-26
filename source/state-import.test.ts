@@ -396,13 +396,15 @@ test('a database moved away from the state directory imports and deletes none of
 	const stateDir = fileHome();
 	const elsewhere = fileHome();
 	const registry = write(stateDir, 'repos/repo/open-spaces.json', ['A-1']);
-	const stores = createStateDaos({
-		repo: 'repo',
-		stateDir,
-		dbPath: path.join(elsewhere, 'state.db'),
+	openImportedStateDb(path.join(elsewhere, 'state.db'), stateDir, {
+		home: stateDir,
+		socket: 'pappardelle_inner',
+		mainRoot() {
+			throw new Error('not in a checkout');
+		},
 	});
 
-	expect(stores.registry.openSpaces()).toEqual([]);
+	expect(daos(elsewhere, 'repo').registry.openSpaces()).toEqual([]);
 	expect(fs.existsSync(registry)).toBe(true);
 	closeStateDb(path.join(elsewhere, 'state.db'));
 });

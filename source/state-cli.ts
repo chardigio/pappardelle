@@ -20,7 +20,7 @@ import {
 } from './config.ts';
 import {formatConfigErrors} from './config-errors.ts';
 import {createStateDaos} from './state-daos.ts';
-import {DEFAULT_STATE_DIR} from './state-db.ts';
+import {DEFAULT_STATE_DIR, stateDbPath} from './state-db.ts';
 import {openImportedStateDb} from './state-import.ts';
 
 type Verb = (args: string[]) => number | Promise<number>;
@@ -270,19 +270,29 @@ const verbs: Record<string, Verb> = {
 	},
 
 	/**
-	 * Create or upgrade the database at a path, importing the JSON state
-	 * beside the default one the first time. For install.sh and the hooks' tests.
+	 * Create or upgrade the database at a path, or the one the app opens,
+	 * importing the JSON state beside the default one the first time. For
+	 * install.sh and the hooks' tests.
 	 */
 	migrate(args) {
 		const {positionals} = parseArgs({args, allowPositionals: true});
-		const [dbPath] = positionals;
-		if (!dbPath || positionals.length !== 1)
-			return usage('migrate needs one database path');
-		openImportedStateDb(dbPath, DEFAULT_STATE_DIR, {
-			home: homedir(),
-			socket: statusSocket(),
-			mainRoot: getMainRepoRoot,
-		});
+		if (positionals.length > 1)
+			return usage('migrate takes at most one database path');
+		const dbPath = positionals[0] ?? stateDbPath();
+		try {
+			openImportedStateDb(dbPath, DEFAULT_STATE_DIR, {
+				home: homedir(),
+				socket: statusSocket(),
+				mainRoot: getMainRepoRoot,
+			});
+		} catch (error) {
+			// SQLite's errors leave out the path, and install.sh no longer knows it.
+			throw new Error(
+				`${dbPath}: ${error instanceof Error ? error.message : String(error)}`,
+				{cause: error},
+			);
+		}
+
 		return 0;
 	},
 };

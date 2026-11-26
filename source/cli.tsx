@@ -588,9 +588,7 @@ if (cli.input.length > 0) {
 		agentProfileName: agentProfile,
 		resume: cli.flags.resume ?? worktreeOnDisk(normalizedIssueKey),
 		cwd: getRepoRoot(),
-		env: buildSpawnEnv(getRepoRoot(), {
-			mainRepoRoot: getMainRepoRoot(),
-		}),
+		env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 		registry: daos.registry,
 		waitForAgent: cli.flags.wait
 			? async (issueKey, since) => {

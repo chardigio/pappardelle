@@ -419,8 +419,6 @@ export interface PappardelleConfig {
 	 * instructions, and the companion rules at launch. Off by default.
 	 */
 	workspace_aware_agents?: boolean;
-	/** Opt-in features that are not yet the default. */
-	experimental?: Record<string, unknown>;
 	/**
 	 * Optional per-status color overrides for the ticket rail, keyed by issue
 	 * status name (case-insensitive, surrounding space ignored). A listed status

@@ -1920,9 +1920,7 @@ export default function App({
 						}),
 						{
 							cwd: getRepoRoot(),
-							env: buildSpawnEnv(getRepoRoot(), {
-								mainRepoRoot: getMainRepoRoot(),
-							}),
+							env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 						},
 					);
 					if (result.code !== 0) {
@@ -2463,9 +2461,7 @@ export default function App({
 			{
 				detached: true,
 				cwd: getRepoRoot(),
-				env: buildSpawnEnv(getRepoRoot(), {
-					mainRepoRoot: getMainRepoRoot(),
-				}),
+				env: buildSpawnEnv(getRepoRoot(), getMainRepoRoot()),
 			},
 		);
 

@@ -85,9 +85,8 @@ export type StateDaos = {
 
 export type StateDaoOptions = {
 	repo: string;
-	/** Where the state files live, and the database unless `dbPath` says otherwise. */
+	/** Where the state files and the database live. */
 	stateDir?: string;
-	dbPath?: string;
 	/** The time recorded on a write. */
 	clock?: () => Date;
 	/** The home whose `~/.worktrees` holds the spaces idow creates. */
@@ -108,7 +107,7 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		mainRoot: options.mainRoot ?? getMainRepoRoot,
 	};
 	const clock = options.clock ?? (() => new Date());
-	const dbPath = options.dbPath ?? stateDbPath(options.stateDir);
+	const dbPath = stateDbPath(options.stateDir);
 	// Applied when a store first opens the connection, so that asking for it
 	// does not open a database nothing has used yet.
 	let checkpointsDeferred = false;

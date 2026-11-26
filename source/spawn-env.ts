@@ -14,16 +14,15 @@ import {MAIN_WORKTREE_KEY} from './space-utils.ts';
  */
 export function buildSpawnEnv(
 	repoRoot: string,
-	options: {mainRepoRoot?: string} = {},
+	mainRepoRoot: string,
 ): NodeJS.ProcessEnv {
-	const {mainRepoRoot} = options;
 	return {
 		...process.env,
 		PAPPARDELLE_BUN: bunForChildren(),
 		PAPPARDELLE_EXECUTABLE: isStandalone ? process.execPath : undefined,
 		PAPPARDELLE_PROJECT_ROOT: repoRoot,
 		PAPPARDELLE_REGISTER_SPACE: '1',
-		...(mainRepoRoot ? {PAPPARDELLE_MAIN_REPO_ROOT: mainRepoRoot} : {}),
+		PAPPARDELLE_MAIN_REPO_ROOT: mainRepoRoot,
 	};
 }
 
