@@ -87,6 +87,7 @@ test('the label lands in the same column for every emoji', async () => {
 	const columns = new Set<number>();
 	for (const emoji of RAIL_EMOJI) {
 		const line = await renderPickerRow(emoji, 'Fanx AI');
+		expect(line).toContain('Fanx AI');
 		columns.add(stringWidth(line.slice(0, line.indexOf('Fanx AI'))));
 	}
 
