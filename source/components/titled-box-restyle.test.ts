@@ -4,17 +4,15 @@ import {render} from '../../test/helpers/render.ts';
 import TitledBox from './TitledBox.tsx';
 
 const box = (borderStyle: 'double' | 'round') =>
-	React.createElement(
-		TitledBox,
-		{
-			title: 'Profile',
-			borderColor: 'cyan',
-			titleColor: 'yellow',
-			borderStyle,
-			paddingY: 0,
-		},
-		React.createElement('text', null, 'row one'),
-	);
+	// eslint-disable-next-line react/no-children-prop -- createElement's types take a required children prop only in the props object
+	React.createElement(TitledBox, {
+		title: 'Profile',
+		borderColor: 'cyan',
+		titleColor: 'yellow',
+		borderStyle,
+		paddingY: 0,
+		children: React.createElement('text', null, 'row one'),
+	});
 
 test('changing focus borders preserves the content directly below the title', async () => {
 	const view = await render(box('round'));
