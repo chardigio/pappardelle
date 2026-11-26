@@ -22,18 +22,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/provider-helpers.sh"
 
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
-
 setup_config() {
-    TMPDIR_ROOT=$(mktemp -d)
+    test_tmpdir TMPDIR_ROOT
     cat > "$TMPDIR_ROOT/.pappardelle.yml" <<'EOF'
 version: 1
 team_prefix: STA
@@ -107,8 +102,6 @@ assert_eq "missing profile arg" "" "$result"
 result=$(get_profile_default_project_name "ghost" "$TMPDIR_ROOT/.pappardelle.yml")
 assert_eq "unknown profile name" "" "$result"
 
-cleanup; unset TMPDIR_ROOT
-
 # ==========================================================================
 
 echo -e "\n${BOLD}Test: resolve_linear_project_uuid finds exact match${RESET}"
@@ -130,12 +123,7 @@ echo -e "\n${BOLD}Test: resolve_linear_project_uuid warns + returns empty on no 
 warn_output=$(resolve_linear_project_uuid "Project That Does Not Exist" 2>&1 1>/dev/null)
 result=$(resolve_linear_project_uuid "Project That Does Not Exist" 2>/dev/null)
 assert_eq "no match → empty stdout" "" "$result"
-case "$warn_output" in
-    *"not found"*) pass "no match → warning on stderr" ;;
-    *) fail "no match → warning on stderr" \
-           "Expected stderr to contain: \"not found\"" \
-           "Actual stderr: \"$warn_output\"" ;;
-esac
+assert_contains "no match → warning on stderr" "not found" "$warn_output"
 
 # ==========================================================================
 

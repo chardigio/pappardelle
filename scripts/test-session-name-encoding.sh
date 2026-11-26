@@ -27,22 +27,17 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 
 # osascript is macOS-only; the whole test is an AppleScript harness, so there is
 # nothing left to exercise elsewhere.
 if ! command -v osascript >/dev/null 2>&1; then
-    echo "SKIP: test-session-name-encoding (no osascript — macOS only)"
-    exit 0
+    skip "test-session-name-encoding (no osascript — macOS only)"
+    summarize
 fi
 
-TMPDIR_ROOT=$(mktemp -d)
-# shellcheck disable=SC2329  # invoked via trap
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
+test_tmpdir TMPDIR_ROOT
 
 REAL_OSASCRIPT=$(command -v osascript)
 STRIPPED="$TMPDIR_ROOT/stripped.applescript"

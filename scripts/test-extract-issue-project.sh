@@ -25,29 +25,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/provider-helpers.sh"
 
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
-
-assert_contains() {
-    local test_name="$1"
-    local needle="$2"
-    local haystack="$3"
-
-    if [[ "$haystack" == *"$needle"* ]]; then
-        pass "$test_name"
-    else
-        fail "$test_name" "Expected to contain: \"$needle\"" "Actual:              \"$haystack\""
-    fi
-}
-
-TMPDIR_ROOT=$(mktemp -d)
+test_tmpdir TMPDIR_ROOT
 
 setup_configs() {
     cat > "$TMPDIR_ROOT/.pappardelle-linear.yml" <<'EOF'
@@ -338,11 +321,6 @@ echo -e "\n${BOLD}Test: ISSUE_NUMBER derivation from an issue key${RESET}"
 # run instead turns the Jira key A1B-234 into "1", and emits one line per digit
 # run for a beads content hash, which makes any ${ISSUE_NUMBER} template it
 # feeds a broken multi-line command.
-issue_number_for() {
-    local key="$1"
-    echo "${key##*-}"
-}
-
 assert_eq "classic key → its number" "595" "$(issue_number_for STA-595)"
 assert_eq "Jira key with digits in the project" "234" "$(issue_number_for A1B-234)"
 assert_eq "beads hash ID → its hash" "a1b2" "$(issue_number_for bd-a1b2)"
