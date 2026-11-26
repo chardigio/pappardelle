@@ -1,4 +1,3 @@
-import {setTimeout as delay} from 'node:timers/promises';
 import type {KeyEvent} from '@opentui/core';
 import {useKeyboard} from '@opentui/react';
 import {afterAll} from 'bun:test';
@@ -34,25 +33,5 @@ export async function keysFromStdin(bytes: string): Promise<KeyEvent[]> {
 		return received;
 	} finally {
 		await view.unmount();
-	}
-}
-
-/** Polls until `check` holds; `frame` is printed when it never does. */
-export async function until(
-	check: () => boolean,
-	frame?: () => string | undefined,
-) {
-	const deadline = Date.now() + 5000;
-	while (!check()) {
-		if (Date.now() > deadline) {
-			const dump = frame?.();
-			throw new Error(
-				dump === undefined
-					? 'condition never held'
-					: `condition never held\n${dump}`,
-			);
-		}
-
-		await delay(10);
 	}
 }

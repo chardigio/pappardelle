@@ -1,7 +1,8 @@
 import React from 'react';
 import {test, expect} from 'bun:test';
 import {RGBA} from '@opentui/core';
-import {render, until} from '../../test/helpers/render.ts';
+import {render} from '../../test/helpers/render.ts';
+import {until} from '../../test/helpers/wait.ts';
 import TuiErrorBoundary from './TuiErrorBoundary.tsx';
 
 function Broken(): React.ReactNode {

@@ -1,7 +1,8 @@
 import {Buffer} from 'node:buffer';
 import {test, expect} from 'bun:test';
 import React from 'react';
-import {render, until} from '../../test/helpers/render.ts';
+import {render} from '../../test/helpers/render.ts';
+import {until} from '../../test/helpers/wait.ts';
 import ConfirmDialog from './ConfirmDialog.tsx';
 
 // STA-1373: closing a space runs synchronous setup before its first await, so

@@ -18,6 +18,7 @@ import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {killProcessesNaming} from '../test/helpers/processes.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
+import {waitUntil} from '../test/helpers/wait.ts';
 import {
 	serveTestHub,
 	subscribeRaw,
@@ -241,14 +242,13 @@ exec ${shellQuoteStatus(realTmux)} "$@"
 }
 
 async function until(read: () => boolean, label: string) {
-	const deadline = Date.now() + 5000;
-	while (Date.now() < deadline) {
+	await waitUntil(() => {
 		try {
-			if (read()) return;
-		} catch {}
-		await delay(20);
-	}
-	throw new Error(`Timed out: ${label}`);
+			return read();
+		} catch {
+			return false;
+		}
+	}, label);
 }
 
 for (const launcher of ['tui', 'shell'] as const) {

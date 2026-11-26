@@ -3,6 +3,7 @@ import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
+import {until} from '../test/helpers/wait.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {useSpaceSelection} from './use-space-selection.ts';
 import type {SpaceData} from './types.ts';
@@ -58,12 +59,7 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	});
 	teardown(() => refresh.stop());
 	async function waitFor(check: () => boolean) {
-		const deadline = Date.now() + 3000;
-		while (!check()) {
-			if (Date.now() > deadline)
-				throw new Error('Workspace view did not commit');
-			await delay(10);
-		}
+		await until(check, () => view.lastFrame());
 		await delay(30);
 	}
 	await refresh.refresh();
