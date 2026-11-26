@@ -28,14 +28,13 @@ import {
 	parseAgentScreen,
 	parseAgySubagentManageApproval,
 	type AgyQuotaParseResult,
-	type AgySubagentManageApproval,
-	type PermissionPrompt,
 	type QuestionDialog,
 } from './agent-screen.ts';
 import {
 	arrowKeys,
 	decideAnswer,
 	holdPlan,
+	matchesSubagentManage,
 	optionKeys,
 	POLICY_REFUSED_EXIT,
 	type CheckRequest,
@@ -477,11 +476,9 @@ async function answerTaken(
 	key: string,
 	before: AgentStateReport,
 	deps: SuperviseDeps,
-): Promise<boolean> {
+): Promise<AgentStateReport | null> {
 	const shown = promptShown(before);
-	return Boolean(
-		await settlesOn(key, report => promptShown(report) !== shown, deps),
-	);
+	return settlesOn(key, report => promptShown(report) !== shown, deps);
 }
 
 /**
@@ -494,15 +491,16 @@ async function answerSettled(
 	before: AgentStateReport,
 	option: number | undefined,
 	deps: SuperviseDeps,
-): Promise<boolean> {
-	if (await answerTaken(key, before, deps)) return true;
+): Promise<AgentStateReport | null> {
+	const taken = await answerTaken(key, before, deps);
+	if (taken) return taken;
 	const {permission} = before;
 	if (
 		option === undefined ||
 		permission?.choose !== 'digit' ||
 		permission.source === 'agy'
 	)
-		return false;
+		return null;
 	const now = await readState(key, deps);
 	const selected = now.permission?.options.find(
 		candidate => candidate.selected,
@@ -517,8 +515,8 @@ async function answerSettled(
 			prompt?.command,
 		]);
 	if (call(now.permission) !== call(permission) || selected?.number !== option)
-		return false;
-	if ((await deps.sendKeys(key, ['Enter'])) !== 'sent') return false;
+		return null;
+	if ((await deps.sendKeys(key, ['Enter'])) !== 'sent') return null;
 	return answerTaken(key, before, deps);
 }
 
@@ -737,29 +735,6 @@ async function promptHook(
 	}
 }
 
-function matchesSubagentManage(
-	permission: PermissionPrompt | null,
-	approval: AgySubagentManageApproval,
-): boolean {
-	if (!permission) return false;
-	if (approval.tool !== permission.tool && approval.rawTool !== permission.tool)
-		return false;
-	if (!approval.command || !permission.command) return true;
-	const clean = (text: string) =>
-		text
-			.replace(/\s+/g, ' ')
-			.replace(/(?:\.{3}|…)$/, '')
-			.trim();
-	const shown = clean(approval.command);
-	const expected = clean(permission.command);
-	if (!shown || !expected) return true;
-	return (
-		shown === expected ||
-		shown.startsWith(expected) ||
-		expected.startsWith(shown)
-	);
-}
-
 /**
  * Agy's inline subagent banner offers `ctrl+k approve · alt+j manage` with no
  * direct deny key. Denying opens the manage view (`openKeys`), verifies both
@@ -771,9 +746,9 @@ async function denyAgySubagentBanner(
 	before: AgentStateReport,
 	openKeys: string[],
 	deps: SuperviseDeps,
-): Promise<string | null> {
+): Promise<{ok: true; after: AgentStateReport} | {ok: false; stuck: string}> {
 	if ((await deps.sendKeys(key, openKeys)) !== 'sent') {
-		return 'the subagent manage view';
+		return {ok: false, stuck: 'the subagent manage view'};
 	}
 
 	const managed = await settlesOn(
@@ -781,21 +756,21 @@ async function denyAgySubagentBanner(
 		report => report.agyDialog === 'subagent_manage',
 		deps,
 	);
-	if (!managed) return 'the subagent manage view';
+	if (!managed) return {ok: false, stuck: 'the subagent manage view'};
 	const approval = parseAgySubagentManageApproval(managed.screen);
 	if (!approval) {
 		await deps.sendKeys(key, ['Escape']);
-		return 'the No, deny option in subagent manage';
+		return {ok: false, stuck: 'the No, deny option in subagent manage'};
 	}
 
 	if (!matchesSubagentManage(before.permission, approval)) {
 		await deps.sendKeys(key, ['Escape']);
-		return 'the matching approval in subagent manage';
+		return {ok: false, stuck: 'the matching approval in subagent manage'};
 	}
 
 	const denyKeys = arrowKeys(approval.cursor, approval.denyNumber);
 	if ((await deps.sendKeys(key, denyKeys)) !== 'sent') {
-		return 'the subagent action denied';
+		return {ok: false, stuck: 'the subagent action denied'};
 	}
 
 	let after = await settlesOn(
@@ -805,10 +780,10 @@ async function denyAgySubagentBanner(
 			!report.screen.includes('Approval Required'),
 		deps,
 	);
-	if (!after) return 'the subagent action denied';
+	if (!after) return {ok: false, stuck: 'the subagent action denied'};
 	if (after.agyDialog === 'subagent_manage') {
 		if ((await deps.sendKeys(key, ['Escape'])) !== 'sent') {
-			return 'closing the subagent manage view';
+			return {ok: false, stuck: 'closing the subagent manage view'};
 		}
 
 		const closed = await settlesOn(
@@ -816,13 +791,13 @@ async function denyAgySubagentBanner(
 			report => report.agyDialog !== 'subagent_manage',
 			deps,
 		);
-		if (!closed) return 'closing the subagent manage view';
+		if (!closed) return {ok: false, stuck: 'closing the subagent manage view'};
 		after = closed;
 	}
 
 	return promptShown(after) === promptShown(before)
-		? 'the subagent banner cleared'
-		: null;
+		? {ok: false, stuck: 'the subagent banner cleared'}
+		: {ok: true, after};
 }
 
 async function pressAndSettle(
@@ -835,26 +810,28 @@ async function pressAndSettle(
 	}: {keys: string[]; option: number | undefined; denyingSubagent: boolean},
 	deps: SuperviseDeps,
 ): Promise<
-	{ok: true} | {ok: false; detail?: string; message: string; sent: string}
+	| {ok: true; after: AgentStateReport}
+	| {ok: false; detail?: string; message: string; sent: string}
 > {
 	const sent = keys.join(' ');
 	if (denyingSubagent) {
-		const stuck = await denyAgySubagentBanner(key, before, keys, deps);
-		return stuck
-			? {
+		const denied = await denyAgySubagentBanner(key, before, keys, deps);
+		return denied.ok
+			? denied
+			: {
 					ok: false,
 					sent,
-					detail: `stuck: ${stuck}`,
-					message: `Answering ${key} stopped: ${stuck} didn't show on screen. Check it with \`pappardelle screen ${key}\``,
-				}
-			: {ok: true};
+					detail: `stuck: ${denied.stuck}`,
+					message: `Answering ${key} stopped: ${denied.stuck} didn't show on screen. Check it with \`pappardelle screen ${key}\``,
+				};
 	}
 
 	if ((await deps.sendKeys(key, keys)) !== 'sent') {
 		return {ok: false, sent, message: `Could not press ${sent} in ${key}`};
 	}
 
-	if (!(await answerSettled(key, before, option, deps))) {
+	const after = await answerSettled(key, before, option, deps);
+	if (!after) {
 		return {
 			ok: false,
 			sent,
@@ -863,8 +840,17 @@ async function pressAndSettle(
 		};
 	}
 
-	return {ok: true};
+	return {ok: true, after};
 }
+
+const isPromptlessBlocked = (report: AgentStateReport): boolean =>
+	!report.permission &&
+	!report.question &&
+	!report.codexDialog &&
+	!report.agyDialog &&
+	(report.state === 'permission' ||
+		report.state === 'question' ||
+		report.state === 'auth');
 
 /**
  * Declines a prompt for the chef: presses its No (or Escape), tells the
@@ -907,6 +893,12 @@ async function holdPrompt(
 			log({...entry, sent: outcome.sent, detail: outcome.detail});
 		deps.err(outcome.message);
 		return 1;
+	}
+
+	// Screen clears before some agents drop OSC `blocked`; wait for a promptless
+	// stale blocked status to clear so `send` does not refuse with `'prompt'`.
+	if (isPromptlessBlocked(outcome.after)) {
+		await settlesOn(key, report => !isPromptlessBlocked(report), deps);
 	}
 
 	const store = deps.holds();

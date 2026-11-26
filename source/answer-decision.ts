@@ -3,7 +3,11 @@
 // an error.
 
 import path from 'node:path';
-import type {CodexDialog, PermissionPrompt} from './agent-screen.ts';
+import type {
+	AgySubagentManageApproval,
+	CodexDialog,
+	PermissionPrompt,
+} from './agent-screen.ts';
 import type {AgentStateReport} from './agent-state.ts';
 import {checkApproval, placeOf, type ApprovalPolicy} from './approve-policy.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
@@ -66,6 +70,37 @@ export function arrowKeys(selected: number, option: number): string[] {
 		...Array.from({length: Math.abs(steps)}, () => (steps > 0 ? 'Down' : 'Up')),
 		'Enter',
 	];
+}
+
+const TRAILING_ELLIPSIS = /(?:\.{3}|…)$/;
+
+/** Verify that agy's `subagent_manage` approval matches the banner being denied. */
+export function matchesSubagentManage(
+	permission: PermissionPrompt | null,
+	approval: AgySubagentManageApproval,
+): boolean {
+	if (!permission) return false;
+	if (approval.tool !== permission.tool && approval.rawTool !== permission.tool)
+		return false;
+	const normalize = (text: string | null) => {
+		const collapsed = (text ?? '').replace(/\s+/g, ' ').trim();
+		const truncated = TRAILING_ELLIPSIS.test(collapsed);
+		return {
+			text: truncated
+				? collapsed.replace(TRAILING_ELLIPSIS, '').trim()
+				: collapsed,
+			truncated,
+		};
+	};
+
+	const shown = normalize(approval.command);
+	const expected = normalize(permission.command);
+	if (!shown.text && !expected.text) return true;
+	if (!shown.text || !expected.text) return false;
+	if (shown.text === expected.text) return true;
+	if (expected.truncated && shown.text.startsWith(expected.text)) return true;
+	if (shown.truncated && expected.text.startsWith(shown.text)) return true;
+	return false;
 }
 
 /**

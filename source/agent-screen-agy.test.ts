@@ -522,4 +522,49 @@ test('agy Models & Quota panel, Refreshes in durations, and AI credits exhaustio
 		resetAt: null,
 		passed: false,
 	});
+
+	// A 0% bar at EOL without the literal "Quota exhausted" text still parses usageLimit.
+	const bareZeroPercent = parseAgentScreen(
+		[
+			'└ Models & Quota',
+			'GEMINI MODELS',
+			'  Five Hour Limit Remaining',
+			'    [░░░░░░░░░░] 0%',
+			'    Refreshes in 1h 20m',
+			'  ↑/↓ Scroll · esc Close',
+			'auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(bareZeroPercent.usageLimit).toStrictEqual({
+		resetText: 'Refreshes in 1h 20m',
+		resetAt: new Date(NOW.getTime() + 80 * 60_000),
+		passed: false,
+	});
+
+	// Indented reply text mentioning `Error: ... rate limit` must NOT trigger usage_limit;
+	// column-0 `Error: rate limit exceeded` still does.
+	const composerLines = [
+		'────────────────────────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────────────────────────',
+		'? for shortcuts    auto · Gemini 4 Hydrogen · medium',
+	];
+	const indentedReply = parseAgentScreen(
+		['  Error: GitHub API rate limit exceeded', ...composerLines].join('\n'),
+		NOW,
+	);
+	expect(indentedReply.usageLimit).toBe(null);
+	expect(classifyAgent(null, indentedReply)).toBe('idle');
+
+	const col0Error = parseAgentScreen(
+		['Error: rate limit exceeded', ...composerLines].join('\n'),
+		NOW,
+	);
+	expect(col0Error.usageLimit).toStrictEqual({
+		resetText: '',
+		resetAt: null,
+		passed: false,
+	});
+	expect(classifyAgent(null, col0Error)).toBe('usage_limit');
 });

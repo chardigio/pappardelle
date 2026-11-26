@@ -5,21 +5,23 @@ import {idowIdentities} from '../test/helpers/state.ts';
 import {superviseDeps} from '../test/helpers/supervise-deps.ts';
 import {unreachable} from '../test/helpers/unreachable.ts';
 import type {ClaudeStatusInfo} from './claude-status.ts';
-import type {ScheduleDao} from './schedule.ts';
+import type {Job, ScheduleDao} from './schedule.ts';
 import {decodeCursor, encodeCursor} from './space-watch.ts';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
 import {runSuperviseCommand, type WatchResult} from './supervise-command.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
-const emptySchedules: ScheduleDao = {
-	save: () => unreachable('save is not stubbed'),
-	load: () => unreachable('load is not stubbed'),
-	list: () => [],
-	delete: () => unreachable('delete is not stubbed'),
-	queue: () => unreachable('queue is not stubbed'),
-	queued: () => unreachable('queued is not stubbed'),
-	clearQueued: () => unreachable('clearQueued is not stubbed'),
-};
+function stubSchedules(jobs: Job[]): ScheduleDao {
+	return {
+		save: () => unreachable('save is not stubbed'),
+		load: () => unreachable('load is not stubbed'),
+		list: () => jobs,
+		delete: () => unreachable('delete is not stubbed'),
+		queue: () => unreachable('queue is not stubbed'),
+		queued: () => unreachable('queued is not stubbed'),
+		clearQueued: () => unreachable('clearQueued is not stubbed'),
+	};
+}
 
 const fixture = (name: string) =>
 	fs.readFileSync(
@@ -64,6 +66,7 @@ function spaces(
 	const screens = {...initial};
 	const paneListings = {...initialPanes};
 	const hooks = {...initialHooks};
+	const jobs: Job[] = [];
 	let clock = new Date(2026, 10, 9, 12, 0).getTime();
 	let between: Array<() => void> = [];
 	const runner: OuterTmuxRunner = args => {
@@ -114,13 +117,14 @@ function spaces(
 			clock += ms;
 			between.shift()?.();
 		},
-		store: () => emptySchedules,
+		store: () => stubSchedules(jobs),
 		caller: '9',
 	});
 	return {
 		screens,
 		paneListings,
 		hooks,
+		jobs,
 		logged,
 		onWait(...steps: Array<() => void>) {
 			between = steps;
@@ -344,4 +348,90 @@ test('watch labels agy dialogs in text and treats a new agy dialog as a change',
 		to: 'dialog',
 		agyDialog: 'subagent_manage',
 	});
+});
+
+test('watch --until blocked ignores working/idle transitions with an unchanged deferred schedule, and wakes when deferred schedules change', async () => {
+	const h = spaces({'STA-1': fixture('claude-working')}, ['STA-1']);
+	h.jobs.push({
+		kind: 'at',
+		id: 'job-1',
+		key: 'STA-1',
+		at: '2026-11-09T12:05:00.000Z',
+		message: 'ping',
+		arm: 1,
+		deferReason: 'draft',
+		deferCount: 1,
+	});
+
+	// Initial watch reports the deferred schedule.
+	const first = await h.watch('--until', 'blocked');
+	expect(first.result).toBe('changed');
+	expect(first.changes[0]).toMatchObject({
+		key: 'STA-1',
+		to: 'working',
+		deferredSchedules: [{id: 'job-1', reason: 'draft', count: 1}],
+	});
+
+	// Transitioning working -> idle with the exact same deferred schedule must NOT wake `--until blocked`.
+	h.screens['STA-1'] = idle;
+	const unchanged = await h.watch(
+		'--until',
+		'blocked',
+		'--since',
+		first.cursor,
+		'--timeout',
+		'1',
+	);
+	expect(unchanged.result).toBe('timed_out');
+	expect(unchanged.changes).toStrictEqual([]);
+
+	// Changing the deferred reason wakes `--until blocked` even while staying idle.
+	h.jobs[0] = {
+		...h.jobs[0]!,
+		kind: 'at',
+		at: '2026-11-09T12:10:00.000Z',
+		message: 'ping',
+		arm: 2,
+		deferReason: 'prompt',
+		deferCount: 2,
+	};
+	const changedReason = await h.watch(
+		'--until',
+		'blocked',
+		'--since',
+		unchanged.cursor,
+		'--timeout',
+		'1',
+	);
+	expect(changedReason.result).toBe('changed');
+	expect(changedReason.changes[0]).toMatchObject({
+		key: 'STA-1',
+		from: 'idle',
+		to: 'idle',
+		deferredSchedules: [{id: 'job-1', reason: 'prompt', count: 2}],
+	});
+
+	// Adding a second deferred schedule also wakes `--until blocked`.
+	h.jobs.push({
+		kind: 'at',
+		id: 'job-2',
+		key: 'STA-1',
+		at: '2026-11-09T12:15:00.000Z',
+		message: 'follow-up',
+		arm: 1,
+		deferReason: 'draft',
+		deferCount: 1,
+	});
+	const added = await h.watch(
+		'--until',
+		'blocked',
+		'--since',
+		changedReason.cursor,
+		'--timeout',
+		'1',
+	);
+	expect(added.result).toBe('changed');
+	expect(added.changes[0]?.deferredSchedules?.map(job => job.id)).toStrictEqual(
+		['job-1', 'job-2'],
+	);
 });

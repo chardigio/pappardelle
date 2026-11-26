@@ -15,6 +15,7 @@ import type {ClassifierVerdict} from './approve-classifier.ts';
 import type {ClaudeSessionState, ClaudeStatusInfo} from './claude-status.ts';
 import type {Hold} from './holds.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
+import {agyBlockedSnapshot} from '../test/helpers/program-status.ts';
 import {testState} from '../test/helpers/state.ts';
 import {superviseDeps} from '../test/helpers/supervise-deps.ts';
 import {unreachable} from '../test/helpers/unreachable.ts';
@@ -64,12 +65,14 @@ function harness(
 		ignoresKeys = false,
 		caller = 'main',
 		readAgyQuota,
+		readSnapshot,
 		paneListings,
 		hookStatus = {status: 'unknown'},
 	}: {
 		ignoresKeys?: boolean;
 		caller?: string;
 		readAgyQuota?: SuperviseDeps['readAgyQuota'];
+		readSnapshot?: SuperviseDeps['readSnapshot'];
 		paneListings?: string[];
 		hookStatus?: ClaudeStatusInfo;
 	} = {},
@@ -116,7 +119,7 @@ function harness(
 
 	const {deps, logged, out, err} = superviseDeps({
 		readHook: async () => hookStatus,
-		readSnapshot: async () => null,
+		readSnapshot: readSnapshot ?? (async () => null),
 		readHookState: async () =>
 			hook ? {kind: 'state', state: hook} : {kind: 'none'},
 		...(readAgyQuota ? {readAgyQuota} : {}),
@@ -1389,6 +1392,99 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 	);
 	expect(await cutSub.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(cutSub.holds.load('h1')).toMatchObject({approvable: false});
+
+	// Non-truncated prefix mismatch (`rm -rf /home/u/a` vs `rm -rf /home/u/ab`) must NOT match;
+	// truncated ellipsis (`rm -rf /home/u/a…`) DOES match `rm -rf /home/u/ab`.
+	const exactPrefixBanner = fixture('agy-subagent-banner-1').replace(
+		'printf a > sub-1.txt',
+		'rm -rf /home/u/a',
+	);
+	const mismatchPrefixSub = harness(
+		[
+			exactPrefixBanner,
+			exactPrefixBanner,
+			manageFor('Bash', 'rm -rf /home/u/ab'),
+		],
+		{ignoresKeys: true},
+	);
+	expect(await mismatchPrefixSub.run('answer', 'STA-1', '--option', '1')).toBe(
+		1,
+	);
+	expect(mismatchPrefixSub.pressed).toStrictEqual([
+		['Escape', 'M-j'],
+		['Escape'],
+	]);
+	expect(mismatchPrefixSub.holds.list()).toStrictEqual([]);
+
+	const truncatedPrefixBanner = fixture('agy-subagent-banner-1').replace(
+		'printf a > sub-1.txt',
+		'rm -rf /home/u/a…',
+	);
+	const matchedTruncatedSub = harness(
+		[
+			truncatedPrefixBanner,
+			truncatedPrefixBanner,
+			manageFor('Bash', 'rm -rf /home/u/ab'),
+			fixture('agy-idle'),
+		],
+		{ignoresKeys: true},
+	);
+	expect(
+		await matchedTruncatedSub.run('answer', 'STA-1', '--option', '1'),
+	).toBe(0);
+	expect(matchedTruncatedSub.pressed).toStrictEqual([
+		['Escape', 'M-j'],
+		['Down', 'Enter'],
+	]);
+	expect(matchedTruncatedSub.holds.load('h1')).toMatchObject({
+		tool: 'Bash command',
+		approvable: false,
+	});
+});
+
+test('holdPrompt waits for promptless stale OSC blocked to clear before sending, without stalling on a real new screen prompt', async () => {
+	const paneListing = '11\t%1\t%1\t42\t0\t1\t42.marker\tclaude\t1700000000\n';
+	const disallowed = fixture('agy-permission-shell').replaceAll(
+		'printf qa > qa.txt',
+		'doctl account get',
+	);
+
+	// After deny clears the screen to blank/idle, OSC stays blocked for 2 polls
+	// before clearing; holdPrompt waits for OSC to clear before calling send.
+	let snapshotReads = 0;
+	const staleOsc = harness(
+		[disallowed, disallowed, 'processing...', 'processing...', 'processing...'],
+		{
+			ignoresKeys: true,
+			paneListings: [paneListing],
+			async readSnapshot() {
+				snapshotReads++;
+				// Polls 1 & 2 are initial + pre-hold check; polls 3 & 4 are stale OSC blocked after deny; poll 5 clears.
+				return snapshotReads <= 4 ? agyBlockedSnapshot('Approve Bash') : null;
+			},
+		},
+	);
+	expect(await staleOsc.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(staleOsc.pressed).toStrictEqual([['2']]);
+	expect(snapshotReads).toBe(5);
+	expect(staleOsc.sent).toHaveLength(1);
+	expect(staleOsc.elapsed()).toBe(750);
+
+	// When a real new screen prompt appears immediately after deny (with OSC still blocked),
+	// holdPrompt does NOT wait out ANSWER_SETTLE_MS before calling send.
+	const secondPrompt = fixture('agy-permission-shell').replaceAll(
+		'printf qa > qa.txt',
+		'git status',
+	);
+	const immediateNext = harness([disallowed, disallowed, secondPrompt], {
+		ignoresKeys: true,
+		paneListings: [paneListing],
+		readSnapshot: async () => agyBlockedSnapshot('Approve Bash'),
+	});
+	expect(await immediateNext.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(immediateNext.pressed).toStrictEqual([['2']]);
+	expect(immediateNext.sent).toHaveLength(1);
+	expect(immediateNext.elapsed()).toBe(250);
 });
 
 test('agy /config, /model and /quota dialogs format as dialog and refuse answer without --force', async () => {

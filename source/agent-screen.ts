@@ -1261,9 +1261,10 @@ export function parseAgyQuota(
 }
 
 const AGY_LIMIT_NOTICE =
-	/^\s*(?:(?:[✕✖■⚠!]\s+|Error:\s+).*?(?:usage limit|quota (?:exceeded|exhausted|reached)|rate limit|ai credits balance is too low)|your ai credits balance is too low to continue\b)/i;
+	/^(?:(?:[✕✖■⚠!]\s+|Error:\s+).*?(?:usage limit|quota (?:exceeded|exhausted|reached)|rate limit|ai credits balance is too low)|\s*your ai credits balance is too low to continue\b)/i;
 const AGY_REFRESHES_IN = /\b(Refreshes in\s+(?:\d+\s*[dhms]\s*)+)/i;
-const AGY_QUOTA_DEPLETED_LINE = /(?:\]\s*0(?:\.0+)?%\b|\bquota exhausted\b)/i;
+const AGY_QUOTA_DEPLETED_LINE =
+	/(?:\]\s*0(?:\.0+)?%(?=\s|$)|\bquota exhausted\b)/i;
 const AGY_QUOTA_GROUP_LINE = /^\s*(GEMINI MODELS|CLAUDE AND GPT MODELS)\s*$/i;
 const AGY_QUOTA_BUCKET_BOUNDARY =
 	/(?:\bLimit Remaining\b|\]\s*\d+(?:\.\d+)?%)/i;
