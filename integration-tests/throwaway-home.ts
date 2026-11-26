@@ -6,10 +6,10 @@ import {fileURLToPath} from 'node:url';
 import {stripHostPappardelleEnv} from '../test/helpers/env.ts';
 
 /**
- * Run a check that mounts the real App in a process of its own under a
- * throwaway HOME. The App merges ~/.pappardelle/.pappardelle.yml, so a
- * developer's global config can open dialogs over the rail, and Bun fixes
- * homedir() at startup.
+ * Run a check in a process of its own under a throwaway HOME. The App merges
+ * ~/.pappardelle/.pappardelle.yml, so a developer's global config can open
+ * dialogs over the rail, and a check's panes and logs write under HOME. Bun
+ * fixes homedir() at startup.
  */
 export function runUnderThrowawayHome(check: URL): void {
 	const home = mkdtempSync(path.join(tmpdir(), 'pappa-app-home-'));

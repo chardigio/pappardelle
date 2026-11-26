@@ -114,6 +114,10 @@ export class StatusHarness {
 			// the developer's own.
 			PAPPARDELLE_STATE_DB: path.join(this.stateDir, 'state.db'),
 			PAPPARDELLE_STATUS_SOCKET: this.statusSocket,
+			// The monitors in the harness's panes otherwise follow the
+			// state-flag.json the developer's CLI records under HOME, and publish
+			// where the harness does not read.
+			PAPPARDELLE_SQLITE_STATE: this.sqlite ? '1' : '0',
 			PAPPARDELLE_PROGRAM_STATUS_DIR: path.join(this.root, 'status'),
 			PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR: path.join(this.root, 'trace'),
 			PAPPARDELLE_CLAUDE_CONFIG_PATH: path.join(
