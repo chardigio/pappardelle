@@ -47,7 +47,7 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 		readWorktreePath: async key => `/worktrees/${key}`,
 		readMainWorktree: async () => ({path: '/repo', branch: 'main'}),
 		readDirty: async () => dirty,
-		statusKey: name => `repo-${name}`,
+		statusKey: async name => `repo-${name}`,
 		getCachedIssue: () => null,
 		async fetchIssues() {},
 		readEmoji: async () => undefined,

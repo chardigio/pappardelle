@@ -4,6 +4,7 @@ import {
 	promptDialogLayout,
 	promptDialogRows,
 	READY_MAX_VISIBLE,
+	type PromptDialogLayout,
 } from './prompt-dialog-layout.ts';
 
 const busy = {
@@ -20,7 +21,7 @@ test('a list longer than its window reserves both "more" rows', () => {
 });
 
 test('nothing is given up without a height or when the dialog fits', () => {
-	const full = {
+	const full: PromptDialogLayout = {
 		showInstructions: true,
 		paddingY: 1,
 		readyMaxVisible: READY_MAX_VISIBLE,

@@ -14,10 +14,14 @@ function Harness(props: {isEnabled: boolean; poll: () => Promise<void>}) {
 test('polls on readiness, retains cadence across renders, and cleans up', async () => {
 	const intervals: Array<{tick: () => Promise<void>; delay: number}> = [];
 	const timer = {ref() {}, unref() {}};
-	mock.method(globalThis, 'setInterval', (tick, delay) => {
-		intervals.push({tick, delay});
-		return timer;
-	});
+	mock.method(
+		globalThis,
+		'setInterval',
+		(tick: () => Promise<void>, delay: number) => {
+			intervals.push({tick, delay});
+			return timer;
+		},
+	);
 	const clear = mock.method(globalThis, 'clearInterval', () => {});
 	teardown(() => mock.restoreAll());
 	let calls = 0;

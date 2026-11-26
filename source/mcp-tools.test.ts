@@ -353,7 +353,8 @@ const ASKS_FIRST = new Set([
 ]);
 
 test('every tool but the ones that ask first is auto-approved', () => {
-	expect([...AUTO_APPROVED_TOOLS].sort()).toStrictEqual(
+	const approved: string[] = [...AUTO_APPROVED_TOOLS].sort();
+	expect(approved).toStrictEqual(
 		MCP_TOOLS.map(tool => tool.name)
 			.filter(name => !ASKS_FIRST.has(name))
 			.sort(),

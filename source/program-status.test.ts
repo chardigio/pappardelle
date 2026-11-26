@@ -4,6 +4,7 @@ import {
 	parseProgramReport,
 	ProgramStatusStore,
 	TerminalStatusParser,
+	type TerminalStatusEvent,
 } from './program-status.ts';
 
 const osc = (body: string, end = '\x1b\\') =>
