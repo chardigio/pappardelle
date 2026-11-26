@@ -304,7 +304,8 @@ const subcommands = {
 	    Removes the hooks older installs merged into ~/.claude/settings.json.
 	  Codex: installs the plugin's skills, and points the session hook in
 	    ~/.codex/hooks.json at the install.
-	  agy: links ~/.gemini/config/plugins/pappardelle to the install.
+	  agy: links ~/.gemini/config/plugins/pappardelle to the install. Restart
+	    open agy sessions to load it (agy has no /reload-plugins).
 	Files it changes are backed up to <file>.pappardelle.bak first.
 `,
 	},

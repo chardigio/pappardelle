@@ -2,8 +2,8 @@
 name: sous-chef
 description: >-
   Kitchen-style coordinator for managing Pappardelle worktree spaces. Use when you want a quick
-  overview of active Claude sessions, need to check on a specific space, want to open or
-  reopen a space, close a space, relay instructions to a running Claude session, or update or restart Pappardelle.
+  overview of active agent sessions, need to check on a specific space, want to open or
+  reopen a space, close a space, relay instructions to a running agent session, or update or restart Pappardelle.
 disable-model-invocation: true
 model: opus
 effort: low
@@ -42,7 +42,7 @@ Follow it for the rest of the session. Where it differs from this skill, it wins
 
 Call `spaces_list`. Each space entry has:
 
-- `status`, `currentTool`, `minutesAgo` — the Claude session's state and how long since it changed
+- `status`, `currentTool`, `minutesAgo` — the agent session's state and how long since it changed
 - `title` — the issue title from the repo's tracker; null when the tracker didn't answer
 - `recap.customTitle` — Claude Code's 3-6 word session label; `recap.lastPrompt` and `recap.lastAssistantExcerpt` — the latest exchange
 - `pipeline` — `passing` / `failing` / `progressing_clean` / `progressing_dirty` / `null`
@@ -135,7 +135,7 @@ If `space_send` fails with "No active session", reopen the space and send again 
 `wait` holds until the reopened agent starts, up to 60 seconds. Never drop it and send anyway: if the agent failed to launch, the pane holds a shell, and the instruction would run as a shell command.
 
 - Sent: "696, USB protocol, back on the line. Sent: refactor the auth middleware"
-- "agent was not confirmed to start": "696, USB protocol, back on the line, agent not confirmed. Not sent. Send now?" Send only on a yes. Claude confirms via hooks and Codex, agy and Pi confirm via native OSC program status; agents without either always land here
+- "agent was not confirmed to start": "696, USB protocol, back on the line, agent not confirmed. Not sent. Send now?" Send only on a yes. Claude confirms via hooks and Codex, OpenCode, agy and Pi confirm via native OSC program status; agents without either always land here
 - `space_send` says the space is showing a prompt: "696, USB protocol, is waiting on a prompt." Read it with `space_state`. Answer a permission prompt as in Answering Permission Prompts. Relay a question dialog as in Relaying a Space's Question, and answer it with `space_answer` only on the chef's word
 - `space_send` says Not submitted: your text is in that space's input box but didn't send. Check `space_screen`; if it's still there, `space_press_keys` with `Enter` submits it. Don't resend: the resend sees your own text as a draft
 - `space_send` says the composer has text: someone is typing in that space. "696, USB protocol, has an unsent draft, chef. Send over it?" Resend with `force` only on a yes
@@ -147,7 +147,7 @@ Every companion pane, yours in the main space and each space's, is an open termi
 
 ## Talking to an Agent Yourself
 
-`space_send` types the chef's words into the space's TUI, as if the chef typed them. When the message is yours, not the chef's, such as a heads-up about another space or a question back, use SendMessage with the full key as `to` (ListAgents lists them). The agent sees it came from you and can reply. Codex, Pi and agy agents can't receive SendMessage; use `space_send` for them.
+`space_send` types into the space's TUI. When you are running in Claude Code and the message is yours, not the chef's, such as a heads-up about another space or a question back, use SendMessage with the full key as `to` (ListAgents lists them) for another Claude space: the agent sees it came from you and can reply. When either you or the target isn't Claude Code, use `space_send` instead (never SendMessage); it prepends `[from main]` on non-command prompts.
 
 ## Relaying a Space's Question
 
@@ -178,7 +178,7 @@ When the chef says "watch the line", "keep it moving" or "babysit 696", loop on 
 
 1. Answer each permission prompt as in Answering Permission Prompts. Relay a question dialog as in Relaying a Space's Question
 2. Answer a question with `space_answer` on the chef's word, once it's still up (The Chef Answers Wherever They Like)
-3. At `usage_limit`, set `space_schedule` with `after_limit` and say so: "699, newsletter enrichment, at the limit, continue set for 4:10pm"
+3. At `usage_limit`, set `space_schedule` with `after_limit` and say so: "699, newsletter enrichment, at the limit, continue set for 4:10pm". If a space reports a deferred wake-up (`deferredSchedules`), clear or relay whatever is blocking it (prompt, dialog or draft) so the retry lands
 4. For each space that went idle, decide whether it needs a nudge, as in Keeping the Line Moving
 5. Call `space_watch` again with the `cursor` it returned. `result: timed_out` means nothing changed; call again with the same cursor and say nothing
 
@@ -196,7 +196,7 @@ Read its last turn with `space_read`. Nudge it when the turn ended with work the
 
 Leave it alone when it asked the chef a question or for a decision (relay that instead, as in Relaying a Space's Question), reported the work done or ready for review, has a draft in its input box, has a `space_schedules` entry that will wake it, or the chef said to leave it.
 
-Send the nudge with SendMessage to the space's key, since it's your message, not the chef's; for Codex, Pi and agy agents use `space_send`. Say what it was waiting on or meant to do next and tell it to check and carry on: "Sous-chef here. You were waiting on CI for your push; check it now and carry on. If you need the chef, say what for." Call it out in one line: "Nudged 696, waiting on CI."
+Send the nudge with SendMessage to the space's key when both you and the target run Claude Code; otherwise use `space_send`. Say what it was waiting on or meant to do next and tell it to check and carry on: "Sous-chef here. You were waiting on CI for your push; check it now and carry on. If you need the chef, say what for." Call it out in one line: "Nudged 696, waiting on CI."
 
 Nudge a space once per idle stretch. If it goes idle again without progress on the same thing, bring it to the chef instead: "696, USB protocol, stuck waiting on CI after a nudge. Look?"
 
@@ -276,7 +276,7 @@ To request a Claude code review on a PR, use the `r` Pappardelle shortcut. This 
 PR_NUM=<prNumber> && gh pr edit "$PR_NUM" --remove-label claude-reviewed 2>/dev/null; gh workflow run claude-code-review.yml -f pr_number="$PR_NUM" && gh pr comment "$PR_NUM" --body '> Code review requested. Workflow triggered.'
 ```
 
-When the user asks to trigger or request a review on a space, run this directly. No need to relay to the space's Claude session. If `prNumber` is missing, the space has no PR to review.
+When the user asks to trigger or request a review on a space, run this directly. No need to relay to the space's agent session. If `prNumber` is missing, the space has no PR to review.
 
 ## Scheduling a Wakeup
 

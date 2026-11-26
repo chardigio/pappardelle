@@ -132,7 +132,7 @@ keybindings:
           end tell
         end tell'
 
-  # send_to_claude — send a slash command to the active Claude session
+  # send_skill / send_to_claude — send a skill or command to the active agent session
   - key: 'a'
     name: 'Address PR feedback'
     send_skill: address-pr-feedback
@@ -145,8 +145,7 @@ keybindings:
 
 profiles:
   # Codex experiments — runs the OpenAI Codex CLI in the agent pane instead of
-  # Claude Code. Codex sessions show an `unknown` status icon in the rail (the
-  # status hooks are Claude-only).
+  # Claude Code.
   codex-experiments:
     keywords:
       - codex

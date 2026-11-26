@@ -914,8 +914,9 @@ profiles:
 - Wrappers with other names (`claude-local`, `my-claude-wrapper`) don't auto-detect — they opt in with `is_claude: true`. Without it they're generic agents: the `claude:` block silently no-ops for them, and `model`/`effort` need templates.
 - `is_claude: false` works in reverse: a binary that happens to be named `claude` can opt out of the injections
 - Not gated: `initialization_command` (the launch prompt — every agent gets it, through `prompt_args` where set) and the companion pane
+- `agy` profiles also pre-trust each worktree in `~/.gemini/antigravity-cli/settings.json` (`trustedWorkspaces`) on launch so agy does not stop on a folder-trust dialog
 
-**Sessions and status.** The agent pane's tmux sessions are named `agent-{repo}-{key}` (renamed from the old `claude-{repo}-{key}`; live legacy sessions are automatically renamed in place at startup and on attach). The profile a space was created or last picked with is persisted. When the TUI recreates a dead session, or `idow` reopens an existing space without `--profile`, it resolves the agent profile (and model/effort/companion) from that profile. Spaces that predate profile persistence fall back to issue-title keyword matching in the TUI and to `default_profile` in `idow`. The TUI's status rail is fed by Claude Code hooks, so non-claude agents show an `unknown` status icon.
+**Sessions and status.** The agent pane's tmux sessions are named `agent-{repo}-{key}` (renamed from the old `claude-{repo}-{key}`; live legacy sessions are automatically renamed in place at startup and on attach). The profile a space was created or last picked with is persisted. When the TUI recreates a dead session, or `idow` reopens an existing space without `--profile`, it resolves the agent profile (and model/effort/mode/companion) from that profile. Spaces that predate profile persistence fall back to issue-title keyword matching in the TUI and to `default_profile` in `idow`. Claude Code reports rail status through its hooks, and Codex, OpenCode, Pi and agy report natively via OSC 7501 program status (Pappardelle sets `PI_PROGRAM_STATUS=1` and `AGY_CLI_OSC7501=on` on agent sessions automatically). Other CLIs without OSC 7501 show an `unknown` status icon.
 
 Example codex and agy launches, given the config above and issue STA-123:
 
@@ -1144,7 +1145,7 @@ workspace_aware_agents?: boolean;
 - **On:**
   - the pappardelle MCP server serves its tools (`companion_*`, `space_*`, `spaces_list`, `link_pr` and the rest) in this repo
   - the server's instructions tell each agent which space it's in, to keep the companion showing its work, and how to message other spaces
-  - Codex and Pi get the same companion rules at launch, and agy gets them in a rule file in its worktree
+  - Codex and Pi get the companion rules at launch, and agy gets a git-excluded rule file (`.agents/rules/pappardelle.md`) in its worktree with its space identity, messaging rules (`space_send`), companion rules and, for `main` with `sous_chef: true`, the sous-chef routine
 - **Off:** the server serves nothing in this repo, as if it weren't a Pappardelle repo, and agents launch without the rules. The `pappardelle` CLI verbs work either way
 - The MCP server reads the flag when an agent starts, and the rules go in at launch, so a running agent keeps what it started with
 
@@ -1163,7 +1164,7 @@ sous_chef?: boolean;
 - The main checkout's agent launches with `<skill_prefix>sous-chef` as its first prompt when it is Claude, Codex (`$sous-chef`), agy (`-i '/sous-chef'`), or a profile that sets `prompt_args`, so it opens on the board. A resumed conversation gets the prompt too. Claude agents also get `--name sous-chef`
 - The rail and the agent pane's frame show the main space as `sous-chef`. The CLI and MCP tools still take the key `main`
 - The pappardelle MCP server tells a session in the repo but outside any space to keep the other spaces moving: watch them with `space_watch`, bring each prompt and question to you, and answer on your word
-- It tells agents inside a space they can reach the coordinator with SendMessage to `sous-chef`
+- It tells Claude agents inside a space they can reach the coordinator with SendMessage to `sous-chef`, and tells agy spaces to reach `main` with `space_send`
 - The launch applies when the TUI next starts the main checkout's agent session. To apply it now, end that session (`/exit`, then `exit` in the shell left behind) and select the main row again
 - Put your own instructions for the sous-chef in `SOUS-CHEF.md` at the main checkout's root, such as which spaces to prioritize, what it may approve without asking, or how to report. `/sous-chef` reads it first and follows it over its own routine, and the MCP instructions point the sous-chef at it so it still applies after the conversation is compacted. Commit it to share it, or leave it untracked to keep it to yourself
 - A main checkout running Pi or another unregistered CLI without `prompt_args` gets the MCP instructions and the rail label, without a rename or bare `/sous-chef` prompt
@@ -1682,7 +1683,7 @@ Additionally, `Enter` and `Delete` are reserved but use special key codes (not s
 ### Behavior
 
 - **`run` keybindings**: Commands run with `cwd` set to the selected workspace's worktree path. Status is shown in the header: "Running: {name}..." then "✓ {name} ({time})" or "✗ {name} failed". Only one custom command can run at a time. Template variables are expanded using the selected workspace's context.
-- **`send_to_claude` keybindings**: Text is sent directly to the Claude viewer pane (with Enter). Any partial input in the Claude prompt is cleared first. Useful for an agent's own commands like `/compact`.
+- **`send_to_claude` keybindings**: Text is sent directly to the agent pane (with Enter). Any partial input in the agent prompt is cleared first. Useful for an agent's own commands like `/compact`.
 - **`send_skill` keybindings**: Like `send_to_claude`, with the skill prefix of the agent running in the space, so `address-pr-feedback` reaches claude as `/address-pr-feedback` and codex as `$address-pr-feedback`. The running agent is the one whose session the hook recorded last (see [Session resume](#session-resume)), which covers a one-launch override from the picker; with none recorded, the space's profile decides.
 - Custom keybindings appear in the help overlay (`?`) under a "Custom Commands" section. `send_to_claude` and `send_skill` keybindings show "→ agent" to indicate they target the agent pane.
 
