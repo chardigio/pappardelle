@@ -371,3 +371,38 @@ function runGuarded(script: string) {
 		expect(fs.existsSync(outside)).toBe(true);
 	},
 );
+
+(guarded ? test : test.skip)(
+	'finishing a run stops what a pane left behind when its shell exits on the hangup',
+	() => {
+		const priv = fs.mkdtempSync('/tmp/pt-');
+		const left = `${6000 + (process.pid % 1000)}.5`;
+		// The tmux server's own command line names the sleep too.
+		const orphans = () =>
+			spawnSync('pgrep', ['-fx', `sleep ${left}`], {encoding: 'utf8'})
+				.stdout.split('\n')
+				.filter(Boolean);
+		teardown(() => {
+			killProcessesNaming(`sleep ${left}`);
+			fs.rmSync(priv, {recursive: true, force: true});
+		});
+		const start = spawnSync(
+			'tmux',
+			[
+				'-f',
+				'/dev/null',
+				'-S',
+				path.join(priv, 's'),
+				'new-session',
+				'-d',
+				`nohup sleep ${left} >/dev/null 2>&1 & exec sleep 600`,
+			],
+			{encoding: 'utf8'},
+		);
+		expect(start.status, start.stderr).toBe(0);
+		Bun.sleepSync(300);
+		expect(orphans()).toHaveLength(1);
+		spawnSync(setupScript, ['--finish', path.join(priv, 'refusals.log')]);
+		expect(orphans()).toEqual([]);
+	},
+);
