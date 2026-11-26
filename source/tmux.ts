@@ -2649,8 +2649,8 @@ type AttachOptions = {
 	run?: AsyncTmuxRunner;
 	/** Titles the agent frame in place of the key. */
 	label?: string;
-	/** The agent's name in the frame on a fast switch; see spaceAgentName. */
-	agentName: string;
+	/** The config the caller loaded, which names the agent on a fast switch. */
+	configLoad: ConfigLoad;
 };
 
 /**
@@ -2689,10 +2689,9 @@ const PANE_GONE = /^(?:can't find pane|no such pane):/m;
 // rebuilt, and a workspace then has only its agent to show.
 const closedCompanionPanes = new Set<string>();
 
-// The startup config the TUI hands fast switches can be older than the one a
-// space's last slow attach read, so that name wins. An invalid config's
-// `agent` is not kept: it names no agent.
-const slowAttachAgentNames = new Map<string, string>();
+// Fast switches read no config of their own. The TUI hands over the one it
+// started with, so a newer one a slow attach read wins.
+let latestConfigLoad: ConfigLoad | undefined;
 
 async function attachViewers(
 	agentViewerPaneId: string,
@@ -2779,7 +2778,11 @@ async function attachViewers(
 		(!companionViewerPaneId || (companionViewerHasClient && companionViewerTty))
 	) {
 		const fastAgentTitle = agentFrameTitle(
-			slowAttachAgentNames.get(issueKey) ?? options.agentName,
+			spaceAgentName(
+				latestConfigLoad ?? options.configLoad,
+				issueKey,
+				issueTitle,
+			),
 			name,
 		);
 		try {
@@ -2849,6 +2852,7 @@ async function attachViewers(
 	// Without a config there is no agent profile to lose, so the built-in one
 	// is right. A broken config would replace the space's own.
 	const load = readReportedConfig();
+	latestConfigLoad = load;
 	const invalidConfig = load.kind === 'invalid';
 	if (load.kind === 'valid') {
 		const {config} = load;
@@ -2910,9 +2914,10 @@ async function attachViewers(
 		const hasAgentSession = agent.value;
 		const hasCompanionSession = companion.value;
 		// After the launch, which records the profile it started.
-		const agentName = spaceAgentName(load, issueKey, issueTitle);
-		if (!invalidConfig) slowAttachAgentNames.set(issueKey, agentName);
-		const agentTitle = agentFrameTitle(agentName, name);
+		const agentTitle = agentFrameTitle(
+			spaceAgentName(load, issueKey, issueTitle),
+			name,
+		);
 
 		const viewersDone = startupTrace.current?.begin('viewer-attachment');
 		try {

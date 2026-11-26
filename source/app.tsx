@@ -198,7 +198,6 @@ import {
 	displayMessageInPaneAsync,
 	reconcilePaneLayout,
 	runningAgentProfile,
-	spaceAgentName,
 	storeLaunchedAgentProfiles,
 	installSousChefKey,
 	measureCompanionColumnWidth,
@@ -1165,11 +1164,7 @@ export default function App({
 					{
 						signal,
 						label: selectedSpace?.isMainWorktree ? mainLabel : undefined,
-						agentName: spaceAgentName(
-							configLoad,
-							selectedSpaceName,
-							selectedIssueTitle,
-						),
+						configLoad,
 					},
 				);
 				if (success && !signal.aborted) {

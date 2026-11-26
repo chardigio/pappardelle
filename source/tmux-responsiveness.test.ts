@@ -29,7 +29,7 @@ import {createStateDaos} from ${JSON.stringify(new URL('state-daos.ts', import.m
 initTmuxState(createStateDaos({repo: getRepoName(), stateDir: ${JSON.stringify(path.join(dir, 'state'))}, sqlite: false}));
 let ticks = 0;
 const timer = setInterval(() => ticks++, 10);
-const success = await attachToSpace('%1', '%2', 'TEST-SLOW', '%0', undefined, undefined, {agentName: 'claude'});
+const success = await attachToSpace('%1', '%2', 'TEST-SLOW', '%0', undefined, undefined, {configLoad: {kind: 'missing'}});
 clearInterval(timer);
 console.log(JSON.stringify({success, ticks}));
 `;

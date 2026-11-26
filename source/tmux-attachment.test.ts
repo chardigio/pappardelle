@@ -178,7 +178,7 @@ for (const delayed of ['agent-gate', 'companion-create']) {
 		const select = async (key: string) =>
 			queue.run(async signal => {
 				await attachToSpace('%1', '%2', key, '%0', home, undefined, {
-					agentName: 'claude',
+					configLoad: {kind: 'missing'},
 					run,
 					signal,
 				});
@@ -255,7 +255,7 @@ for (const delayed of ['%1', '%2']) {
 						'%0',
 						undefined,
 						undefined,
-						{agentName: 'claude', run, signal},
+						{configLoad: {kind: 'missing'}, run, signal},
 					),
 				).toBe(false);
 				finished = true;
@@ -273,7 +273,7 @@ for (const delayed of ['%1', '%2']) {
 						'%0',
 						undefined,
 						undefined,
-						{agentName: 'claude', run},
+						{configLoad: {kind: 'missing'}, run},
 					),
 				).toBe(true);
 			});
@@ -320,7 +320,7 @@ for (const delayed of ['agent', 'companion']) {
 		const select = async (key: string) =>
 			task.run(async signal => {
 				await attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
-					agentName: 'claude',
+					configLoad: {kind: 'missing'},
 					run,
 					signal,
 				});
@@ -394,7 +394,7 @@ for (const {delayed, cancel} of [
 			'%0',
 			undefined,
 			undefined,
-			{agentName: 'claude', run, signal: controller.signal},
+			{configLoad: {kind: 'missing'}, run, signal: controller.signal},
 		).then(result => {
 			finished = true;
 			return result;
@@ -418,7 +418,7 @@ for (const {delayed, cancel} of [
 				'%0',
 				undefined,
 				undefined,
-				{agentName: 'claude', run: fake.run},
+				{configLoad: {kind: 'missing'}, run: fake.run},
 			),
 		).toBe(true);
 		expect(fake.calls.some(args => isSwitchBatch(args))).toBe(false);
@@ -462,7 +462,7 @@ test('failed cold respawn discards cached ttys before a recycled pty can target 
 	};
 	const attach = async (key: string) =>
 		attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		});
 	expect(await attach('TEST-EMPTY')).toBe(true);
@@ -501,7 +501,7 @@ for (const selected of ['qa-custom', "/tmp/socket with ' quotes"]) {
 				'%0',
 				undefined,
 				undefined,
-				{agentName: 'claude', run},
+				{configLoad: {kind: 'missing'}, run},
 			),
 		).toBe(true);
 		const commands = fake.calls
@@ -538,7 +538,7 @@ test('switching yields to input and sends both clients to the selected inner ses
 		'%0',
 		undefined,
 		undefined,
-		{agentName: 'claude', run},
+		{configLoad: {kind: 'missing'}, run},
 	).then(result => {
 		finished = true;
 		return result;
@@ -561,7 +561,7 @@ test('a superseded partial switch can return to the previously viewed space', as
 	const fake = fakeTmux();
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -574,7 +574,7 @@ test('a superseded partial switch can return to the previously viewed space', as
 	};
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 			signal: controller.signal,
 		}),
@@ -586,7 +586,7 @@ test('a superseded partial switch can return to the previously viewed space', as
 	fake.calls.length = 0;
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -601,13 +601,13 @@ test('a superseded partial switch can return to the previously viewed space', as
 test('a label titles the agent frame in place of the key', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	fake.calls.length = 0;
 	expect(
 		await attachToSpace('%1', '%2', 'main', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run: fake.run,
 			label: 'sous-chef',
 		}),
@@ -622,13 +622,13 @@ test('a label titles the agent frame in place of the key', async () => {
 test('warm switches move both viewers in one request without setup probes', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	fake.calls.length = 0;
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-WARM-B', '%0', undefined, undefined, {
-			agentName: 'codex',
+			configLoad: {kind: 'missing'},
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -659,8 +659,8 @@ test('warm switches move both viewers in one request without setup probes', asyn
 	const titles = commands
 		.filter(command => command[3] === 'set-titles-string')
 		.map(command => command[4]);
-	expect(titles).toStrictEqual(['codex · TEST-WARM-B', 'companion']);
-	expect(fake.calls[1]).toStrictEqual(titleAndFocus('TEST-WARM-B', 'codex'));
+	expect(titles).toStrictEqual(['claude · TEST-WARM-B', 'companion']);
+	expect(fake.calls[1]).toStrictEqual(titleAndFocus('TEST-WARM-B'));
 });
 
 test('a switch and a session start use the names stored for the space', async () => {
@@ -685,13 +685,13 @@ test('a switch and a session start use the names stored for the space', async ()
 	});
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	fake.calls.length = 0;
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-HAND', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -725,7 +725,7 @@ test('a switch and a session start use the names stored for the space', async ()
 test("a warm switch finds the space's splits in its own request's listing", async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	fake.calls.length = 0;
@@ -743,7 +743,7 @@ test("a warm switch finds the space's splits in its own request's listing", asyn
 
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		}),
 	).toBe(true);
@@ -755,7 +755,7 @@ test("a warm switch finds the space's splits in its own request's listing", asyn
 test('an invalid warm cache falls back and retries both viewers after a partial batch', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	fake.calls.length = 0;
@@ -775,7 +775,7 @@ test('an invalid warm cache falls back and retries both viewers after a partial 
 	clearRecentErrors();
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		}),
 	).toBe(true);
@@ -799,7 +799,7 @@ test('an invalid warm cache falls back and retries both viewers after a partial 
 test('a first switch to a workspace without sessions falls back without reporting an error', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	const run: AsyncTmuxRunner = async args => {
@@ -816,7 +816,7 @@ test('a first switch to a workspace without sessions falls back without reportin
 	clearRecentErrors();
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		}),
 	).toBe(true);
@@ -827,7 +827,7 @@ test('a first switch to a workspace without sessions falls back without reportin
 test('a switch whose viewer client left with its ended session falls back without reporting an error', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	const run: AsyncTmuxRunner = async args => {
@@ -844,7 +844,7 @@ test('a switch whose viewer client left with its ended session falls back withou
 	clearRecentErrors();
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		}),
 	).toBe(true);
@@ -864,7 +864,7 @@ test('a missing companion session says the companion, not the agent, is not runn
 	};
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-C', '%0', '/tmp', undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	const respawned = (paneId: string) =>
@@ -898,7 +898,7 @@ test('an absent inner server displays no-session state without hiding real clien
 		'%0',
 		undefined,
 		undefined,
-		{agentName: 'claude', run},
+		{configLoad: {kind: 'missing'}, run},
 	);
 	expect(
 		fake.calls.some(args =>
@@ -923,7 +923,7 @@ test('an absent inner server displays no-session state without hiding real clien
 	};
 	expect(
 		await attachToSpace('%1', '', 'TEST-DENIED', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run: denied,
 		}),
 	).toBe(false);
@@ -935,7 +935,7 @@ test('an absent inner server displays no-session state without hiding real clien
 test('companion teardown failure leaves Claude alive and reattachment sends no launch command', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	fake.calls.length = 0;
@@ -957,7 +957,7 @@ test('companion teardown failure leaves Claude alive and reattachment sends no l
 		),
 	).toBe(false);
 	await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	expect(
@@ -972,13 +972,13 @@ test('companion teardown failure leaves Claude alive and reattachment sends no l
 test('replaced viewer panes invalidate TTYs even for the same selected workspace', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run: fake.run,
 	});
 	fake.calls.length = 0;
 	expect(
 		await attachToSpace('%3', '', 'TEST-A', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -1000,7 +1000,7 @@ test('rapid navigation skips stale selections while tmux is still responding', a
 	const select = async (key: string) =>
 		task.run(async signal => {
 			await attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
-				agentName: 'claude',
+				configLoad: {kind: 'missing'},
 				run,
 				signal,
 			});
@@ -1030,14 +1030,14 @@ test('a failed tmux switch is reported as failure and can be retried', async () 
 	};
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-FAIL', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		}),
 	).toBe(false);
 	expect(getCurrentlyViewingSpace()).toBe(null);
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-FAIL', '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -1162,7 +1162,7 @@ test('a frame started with its pane is handed its program, and a later start res
 	};
 	const attach = async (key: string) =>
 		attachToSpace('%7', '', key, '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		});
 
@@ -1197,7 +1197,7 @@ test('a started signal left by an earlier start does not stand in for the new fr
 	};
 	const attach = async (key: string) =>
 		attachToSpace('%8', '', key, '%0', undefined, undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		});
 
@@ -1278,7 +1278,7 @@ test('an invalid config holds back dead sessions and says why, once', async () =
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	expect(createsSession(calls, agent)).toBe(false);
@@ -1299,7 +1299,7 @@ test('an invalid config holds back dead sessions and says why, once', async () =
 
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	expect(invalidConfigErrors('TEST-INVALID').length).toBe(1);
@@ -1327,14 +1327,14 @@ test('an invalid config titles a cold agent frame agent, whatever name the calle
 		'/tmp',
 		undefined,
 		{
-			agentName: 'codex',
+			configLoad: {kind: 'missing'},
 			run,
 		},
 	);
 	expect(agentFrameTitles(calls)).toStrictEqual(['agent · TEST-INVALID-NAME']);
 });
 
-test('a recreated agent session is titled with the agent it was started with, not the one stored', async () => {
+test('a recreated agent session is titled with the configured agent it was started with, not the stored one', async () => {
 	isolatedHome();
 	writeFileSync(
 		projectConfig(),
@@ -1350,14 +1350,14 @@ test('a recreated agent session is titled with the agent it was started with, no
 	const {calls, run} = tmuxMissingSessions(agent);
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-RELAUNCH', '%0', '/tmp', undefined, {
-		agentName: 'codex',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	expect(createsSession(calls, agent)).toBe(true);
 	expect(agentFrameTitles(calls)).toStrictEqual(['claude · TEST-RELAUNCH']);
 });
 
-test('a fast switch keeps the name the last slow attach found over the startup one', async () => {
+test('a fast switch names the agent from the newest config read and the space as stored now', async () => {
 	isolatedHome();
 	writeFileSync(
 		projectConfig(),
@@ -1370,33 +1370,31 @@ test('a fast switch keeps the name the last slow attach found over the startup o
 	const cold = tmuxMissingSessions(agent, companion);
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-SLOW-NAME', '%0', '/tmp', undefined, {
-		agentName: 'agent',
+		configLoad: {kind: 'invalid', errors: []},
 		run: cold.run,
 	});
 	expect(agentFrameTitles(cold.calls)).toStrictEqual([
 		'codex · TEST-SLOW-NAME',
 	]);
 	const fake = fakeTmux();
-	await attachToSpace('%1', '%2', 'TEST-OTHER', '%0', undefined, undefined, {
-		agentName: 'claude',
-		run: fake.run,
-	});
-	fake.calls.length = 0;
-	await attachToSpace(
-		'%1',
-		'%2',
-		'TEST-SLOW-NAME',
-		'%0',
-		undefined,
-		undefined,
-		{
-			agentName: 'agent',
+	const fastSwitch = async (issueKey: string) => {
+		fake.calls.length = 0;
+		await attachToSpace('%1', '%2', issueKey, '%0', undefined, undefined, {
+			configLoad: {kind: 'invalid', errors: []},
 			run: fake.run,
-		},
-	);
-	expect(fake.calls.some(args => args.includes('switch-client'))).toBe(true);
-	expect(agentFrameTitles(fake.calls)).toStrictEqual([
-		'codex · TEST-SLOW-NAME',
+		});
+		expect(fake.calls.some(args => args.includes('switch-client'))).toBe(true);
+		return agentFrameTitles(fake.calls);
+	};
+
+	expect(await fastSwitch('TEST-FAST-NAME')).toStrictEqual([
+		'codex · TEST-FAST-NAME',
+	]);
+	await derived.daos.spaceState.write('TEST-SLOW-NAME', {
+		agentProfile: {name: 'claude', isClaude: true},
+	});
+	expect(await fastSwitch('TEST-SLOW-NAME')).toStrictEqual([
+		'claude · TEST-SLOW-NAME',
 	]);
 });
 
@@ -1407,13 +1405,13 @@ test('an invalid config reports again once the rail has dropped the error', asyn
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	expect(invalidConfigErrors('TEST-AGAIN').length).toBe(1);
@@ -1427,7 +1425,7 @@ test('an invalid config still attaches sessions that are running', async () => {
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-LIVE', '%0', '/tmp', undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	expect(createsSession(calls, agent)).toBe(false);
@@ -1448,7 +1446,7 @@ for (const [recovery, recover] of [
 		clearRecentErrors();
 		clearCurrentlyViewingSpace();
 		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		});
 		expect(invalidConfigErrors('TEST-FIXED').length).toBe(1);
@@ -1456,7 +1454,7 @@ for (const [recovery, recover] of [
 		recover();
 		clearCurrentlyViewingSpace();
 		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
-			agentName: 'claude',
+			configLoad: {kind: 'missing'},
 			run,
 		});
 		expect(createsSession(calls, agent)).toBe(true);
@@ -1474,7 +1472,7 @@ test('an invalid config explains a held-back companion whose agent is running', 
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-COMPANION', '%0', '/tmp', undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	expect(createsSession(calls, companion)).toBe(false);
@@ -1489,7 +1487,7 @@ test('a config that is still invalid in another way replaces the earlier report'
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	writeFileSync(
@@ -1498,7 +1496,7 @@ test('a config that is still invalid in another way replaces the earlier report'
 	);
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
-		agentName: 'claude',
+		configLoad: {kind: 'missing'},
 		run,
 	});
 	expect(invalidConfigErrors('TEST-EDITED').length).toBe(1);
