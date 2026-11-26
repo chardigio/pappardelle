@@ -2,13 +2,17 @@
 
 # Test: start-agent-session.sh creates repo-qualified tmux sessions
 #
-# Usage: ./test-start-agent-session.sh
+# Usage: ./scripts/test-start-agent-session.sh (it puts itself under
+# test/helpers/tmux-guard-run.sh)
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
+run_under_tmux_guard "$0" "$@"
 
 # A run inside a space inherits that space's PAPPARDELLE_*, and the state ones
 # (PAPPARDELLE_STATE_DB, PAPPARDELLE_STATUS_SOCKET, PAPPARDELLE_STATUS_DIR)
@@ -25,51 +29,7 @@ TEST_REPO="testrepo-$$"
 PAPPARDELLE_TMUX_SOCKET="pappardelle_inner_test_$$"
 export PAPPARDELLE_TMUX_SOCKET
 
-# The traps go in before the first mktemp so a signal at any point removes what
-# the run made. Both dirs start empty here, never inherited from the caller.
-TMUX_TMPDIR=""
-TMPDIR_ROOT=""
-TMUX_REFUSALS=""
-# shellcheck disable=SC2329  # invoked via trap
-cleanup() {
-    local status=$? socket pids pid
-    "$SCRIPT_DIR/../test/helpers/tmux-guard-env.sh" --finish "$TMUX_REFUSALS" || status=1
-    if [[ -z "$TMUX_TMPDIR" ]]; then
-        exit "$status"
-    fi
-    for socket in "$TMUX_TMPDIR"/tmux-*/*; do
-        [[ -S "$socket" ]] || continue
-        pids=$(tmux -S "$socket" list-panes -a -F '#{pane_pid}' 2>/dev/null || true)
-        tmux -S "$socket" kill-server 2>/dev/null || true
-        # A pane shell that never got the terminal ignores the SIGHUP from
-        # kill-server and keeps running as an orphan, so make sure.
-        for pid in $pids; do
-            pkill -9 -P "$pid" 2>/dev/null || true
-            kill -9 "$pid" 2>/dev/null || true
-        done
-    done
-    rm -rf "$TMUX_TMPDIR"
-    if [[ -n "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-    exit "$status"
-}
-trap cleanup EXIT
-# bash skips the EXIT trap when a signal kills it.
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-TMUX_GUARD_ENV=$("$SCRIPT_DIR/../test/helpers/tmux-guard-env.sh") || exit 1
-eval "$TMUX_GUARD_ENV"
-TMUX_REFUSALS=${PAPPARDELLE_TEST_TMUX_REFUSALS:-}
-
-# Every server the run starts, on any -L name, lands in this directory, so the
-# exit trap can find them all: a test that aborts under `set -e` skips its own
-# kill-server. Kept short because tmux socket paths are limited to ~104 bytes.
-TMUX_TMPDIR=$(mktemp -d /tmp/pappardelle-test-tmux.XXXXXX)
-export TMUX_TMPDIR
-
-TMPDIR_ROOT=$(mktemp -d)
+test_tmpdir TMPDIR_ROOT
 
 # The sessions' hooks and the pre-trust step write under HOME
 # (~/.pappardelle/repos, ~/.claude.json), so the run gets a HOME of its own.
@@ -97,16 +57,24 @@ SHIM
 chmod +x "$CLAUDE_SHIM_DIR/claude"
 export PATH="$CLAUDE_SHIM_DIR:$PATH"
 
-# Poll for a shim argv log to appear. The command send-keys types runs in an
-# interactive shell that sources the user's rc files first, so a fixed sleep
-# is flaky under load — wait up to 15s instead.
-wait_for_file() {
-    local file="$1"
-    for _ in $(seq 1 150); do
-        [[ -s "$file" ]] && return 0
-        sleep 0.1
-    done
-    return 1
+# assert_session <name> <session> [socket]: the session exists on the socket,
+# the run's inner socket when none is given. assert_no_session: it does not.
+assert_session() {
+    local socket="${3:-$PAPPARDELLE_TMUX_SOCKET}"
+    if tmux -L "$socket" has-session -t "$2" 2>/dev/null; then
+        pass "$1"
+    else
+        fail "$1" "Expected session $2 on socket $socket"
+    fi
+}
+
+assert_no_session() {
+    local socket="${3:-$PAPPARDELLE_TMUX_SOCKET}"
+    if tmux -L "$socket" has-session -t "$2" 2>/dev/null; then
+        fail "$1" "Expected no session $2 on socket $socket"
+    else
+        pass "$1"
+    fi
 }
 
 # start-agent-session.sh with the names idow passes it, the ones `pappardelle
@@ -139,12 +107,7 @@ mkdir -p "$WORKTREE_PATH"
 CLAUDE_SESSION="agent-${TEST_REPO}-${ISSUE_KEY}"
 COMPANION_SESSION="companion-${TEST_REPO}-${ISSUE_KEY}"
 
-# Precondition: no session
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
-    fail "precondition: session should not exist"
-else
-    pass "precondition: no existing session"
-fi
+assert_no_session "precondition: no existing session" "$CLAUDE_SESSION"
 
 # Run the script
 start_session --issue-key "$ISSUE_KEY" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH" --no-agent \
@@ -153,11 +116,7 @@ EXIT_CODE=$?
 
 assert_eq "exits 0" "0" "$EXIT_CODE"
 
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
-    pass "claude session created with repo-qualified name"
-else
-    fail "claude session created with repo-qualified name ($CLAUDE_SESSION)"
-fi
+assert_session "claude session created with repo-qualified name" "$CLAUDE_SESSION"
 
 # The session environment names the space, for a Claude started later in the pane
 MAIN_PANE=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "=$COMPANION_SESSION:" '#{@pappa_pane}' 2>/dev/null)
@@ -197,11 +156,7 @@ EXIT_CODE=$?
 
 assert_eq "exits 0 when session already exists" "0" "$EXIT_CODE"
 
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
-    pass "session still exists (idempotent)"
-else
-    fail "session still exists (idempotent)"
-fi
+assert_session "session still exists (idempotent)" "$CLAUDE_SESSION"
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$CLAUDE_SESSION" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$COMPANION_SESSION" 2>/dev/null || true
@@ -216,11 +171,7 @@ mkdir -p "$WORKTREE_PATH2"
 start_session --issue-key "$ISSUE_KEY2" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH2" --no-agent 2>/dev/null
 
 COMPANION_SESSION2="companion-${TEST_REPO}-${ISSUE_KEY2}"
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$COMPANION_SESSION2" 2>/dev/null; then
-    pass "companion session created with repo-qualified name"
-else
-    fail "companion session created with repo-qualified name ($COMPANION_SESSION2)"
-fi
+assert_session "companion session created with repo-qualified name" "$COMPANION_SESSION2"
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "agent-${TEST_REPO}-${ISSUE_KEY2}" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$COMPANION_SESSION2" 2>/dev/null || true
@@ -240,12 +191,8 @@ start_session --issue-key "$ISSUE_LONG" --repo-name "$TEST_REPO" --worktree "$WO
 start_session --issue-key "$ISSUE_SHORT" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PREFIX" --no-agent 2>/dev/null
 
 for kind in agent companion; do
-    SHORT_SESSION="${kind}-${TEST_REPO}-${ISSUE_SHORT}"
-    if tmux -L "$PAPPARDELLE_TMUX_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null | grep -qx "$SHORT_SESSION"; then
-        pass "$kind session created despite a longer session sharing its prefix"
-    else
-        fail "$kind session created despite a longer session sharing its prefix ($SHORT_SESSION)"
-    fi
+    assert_session "$kind session created despite a longer session sharing its prefix" \
+        "=${kind}-${TEST_REPO}-${ISSUE_SHORT}:"
 done
 
 for key in "$ISSUE_LONG" "$ISSUE_SHORT"; do
@@ -283,21 +230,14 @@ assert_eq "errors without PAPPARDELLE_TMUX_SOCKET" \
 
 echo -e "\n${BOLD}Test: the session names are required${RESET}"
 OUTPUT=$("$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --repo-name "$TEST_REPO" --worktree "/tmp" 2>&1 || true)
-if echo "$OUTPUT" | grep -q -- "--agent-session, --companion-session and --legacy-agent-session are required"; then
-    pass "errors when the session names are missing"
-else
-    fail "errors when the session names are missing"
-fi
+assert_contains "errors when the session names are missing" \
+    "--agent-session, --companion-session and --legacy-agent-session are required" "$OUTPUT"
 
 # ==========================================================================
 
 echo -e "\n${BOLD}Test: --repo-name is required${RESET}"
 OUTPUT=$(start_session --issue-key "X-1" --worktree "/tmp" 2>&1 || true)
-if echo "$OUTPUT" | grep -q "repo-name is required"; then
-    pass "errors when --repo-name is missing"
-else
-    fail "errors when --repo-name is missing"
-fi
+assert_contains "errors when --repo-name is missing" "repo-name is required" "$OUTPUT"
 
 # ==========================================================================
 
@@ -311,16 +251,8 @@ mkdir -p "$WORKTREE_PATH3"
 # Run WITHOUT --no-agent so the session is started with the claude command
 start_session --issue-key "$ISSUE_KEY3" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH3" 2>/dev/null
 
-sleep 0.3
-
 PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "agent-${TEST_REPO}-${ISSUE_KEY3}" '#{pane_start_command}' 2>/dev/null || echo "")
-if echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY3"; then
-    pass "issue key included in claude command"
-else
-    fail "issue key included in claude command" \
-        "Expected start command to contain: $ISSUE_KEY3" \
-        "Start command: $(echo "$PANE_CONTENT" | head -5)"
-fi
+assert_contains "issue key included in claude command" "$ISSUE_KEY3" "$PANE_CONTENT"
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "agent-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
@@ -333,8 +265,6 @@ WORKTREE_PATH4="$TMPDIR_ROOT/worktree4"
 mkdir -p "$WORKTREE_PATH4"
 
 start_session --issue-key "$ISSUE_KEY4" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH4" --init-cmd "/test-skill" 2>/dev/null
-
-sleep 0.3
 
 PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "agent-${TEST_REPO}-${ISSUE_KEY4}" '#{pane_start_command}' 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "/test-skill" && echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY4"; then
@@ -361,10 +291,8 @@ start_session --issue-key "$ISSUE_KEY5" --repo-name "$TEST_REPO" --worktree "$WO
 
 # The fresh launch runs only after --continue failed and the erase ran.
 shim_calls_for_key5() { grep -F -- "$ISSUE_KEY5" "$CLAUDE_SHIM_LOG" 2>/dev/null || true; }
-for _ in $(seq 1 150); do
-    shim_calls_for_key5 | grep -qv -- '--continue' && break
-    sleep 0.1
-done
+fresh_launch_ran5() { shim_calls_for_key5 | grep -qv -- '--continue'; }
+wait_until fresh_launch_ran5 || true
 # The erase was printed before the fresh launch; give tmux time to draw it.
 sleep 0.3
 RESUME_CALL5=$(shim_calls_for_key5 | tail -2 | head -1)
@@ -377,12 +305,7 @@ else
 fi
 
 PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -t "agent-${TEST_REPO}-${ISSUE_KEY5}" -p -S - 2>/dev/null || echo "")
-if echo "$PANE_CONTENT" | grep -qF "No conversation found to continue"; then
-    fail "error message should be suppressed" \
-        "Pane contains: $(echo "$PANE_CONTENT" | grep 'No conversation')"
-else
-    pass "error message suppressed"
-fi
+assert_not_contains "error message suppressed" "No conversation found to continue" "$PANE_CONTENT"
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "agent-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
@@ -396,21 +319,12 @@ mkdir -p "$WORKTREE_PATH6"
 
 start_session --issue-key "$ISSUE_KEY6" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH6" --no-agent 2>/dev/null
 
-# Must exist on the inner socket
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "agent-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null; then
-    pass "claude session is on the inner socket"
-else
-    fail "claude session is on the inner socket"
-fi
+assert_session "claude session is on the inner socket" "agent-${TEST_REPO}-${ISSUE_KEY6}"
 
 # Must NOT exist on the default socket (STA-860: the whole point of the fix
 # is that inner sessions move off the default socket so the viewer-pane
 # attach doesn't collide with tmux's nesting check).
-if tmux has-session -t "agent-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null; then
-    fail "claude session leaked onto the default socket"
-else
-    pass "claude session did not leak onto the default socket"
-fi
+assert_no_session "claude session did not leak onto the default socket" "agent-${TEST_REPO}-${ISSUE_KEY6}" default
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "agent-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null || true
@@ -450,20 +364,11 @@ PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET" 
     --issue-key "$ISSUE_KEY7" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH7" \
     --agent-launch-flags "--model sonnet --effort high" 2>/dev/null
 
-wait_for_file "$ARGV_LOG" || true
+wait_until test -s "$ARGV_LOG" || true
 ARGV=$(head -1 "$ARGV_LOG" 2>/dev/null || echo "")
 
-if [[ "$ARGV" == *"--model sonnet"* ]]; then
-    pass "--model reached claude ($ARGV)"
-else
-    fail "--model reached claude" "argv: $ARGV"
-fi
-
-if [[ "$ARGV" == *"--effort high"* ]]; then
-    pass "--effort reached claude"
-else
-    fail "--effort reached claude" "argv: $ARGV"
-fi
+assert_contains "--model reached claude" "--model sonnet" "$ARGV"
+assert_contains "--effort reached claude" "--effort high" "$ARGV"
 
 assert_eq "exact flag order: model → effort → name" "--model sonnet --effort high --name $ISSUE_KEY7 --continue" "$ARGV"
 
@@ -491,7 +396,7 @@ PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET8"
     --issue-key "$ISSUE_KEY8" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH8" \
     2>/dev/null
 
-wait_for_file "$ARGV_LOG8" || true
+wait_until test -s "$ARGV_LOG8" || true
 ARGV8=$(head -1 "$ARGV_LOG8" 2>/dev/null || echo "")
 assert_eq "bare launch is --name + --continue only" "--name $ISSUE_KEY8 --continue" "$ARGV8"
 
@@ -522,7 +427,7 @@ PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET9"
     --issue-key "$ISSUE_KEY9" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH9" \
     --agent-launch-flags "--effort high --strict-mcp-config --tools 'Bash,Read' '{\"mcpServers\": {}}'" 2>/dev/null
 
-sleep 1
+wait_until test -s "$ARGV_LOG9" || true
 ARGV9=$(head -1 "$ARGV_LOG9" 2>/dev/null || echo "")
 assert_eq "extra args keep their boundaries and order" \
     "[--effort][high][--strict-mcp-config][--tools][Bash,Read][--mcpServers-placeholder]" \
@@ -551,7 +456,7 @@ PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET10
     --issue-key "$ISSUE_KEY10" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH10" \
     --init-cmd '/test-skill --mode "strict"' --companion-command "" 2>/dev/null
 
-sleep 1
+wait_until test -s "$ARGV_LOG10" || true
 ARGV10=$(cat "$ARGV_LOG10" 2>/dev/null || echo "")
 assert_eq "continued conversation receives initialization as one argument without a fresh fallback" \
     "[--name][$ISSUE_KEY10][--continue][/test-skill --mode \"strict\" $ISSUE_KEY10]" "$ARGV10"
@@ -566,7 +471,7 @@ tmux -L "$SHIM_SOCKET10" kill-server 2>/dev/null || true
 # straight to disk, so a typed launch would show up there immediately.
 echo -e "\n${BOLD}Test: launches leave no trace in shell history${RESET}"
 if ! ZSH_BIN=$(command -v zsh); then
-    echo "  SKIP (zsh not installed)"
+    skip "launches leave no trace in shell history (zsh not installed)"
 else
     HIST_ZDOTDIR="$TMPDIR_ROOT/zdotdir"
     HIST_FILE="$TMPDIR_ROOT/zsh_history"
@@ -600,17 +505,13 @@ ZSHRC
     KEY9="${TEST_PREFIX}-900"
     start_hist_session "$HIST_SOCKET" "$KEY9" "GIT_OPTIONAL_LOCKS=0 gitui"
 
-    if [[ -f "$HIST_FILE" ]] && grep -qE 'claude|gitui' "$HIST_FILE"; then
-        fail "history file has no launch entries" "History: $(cat "$HIST_FILE")"
-    else
-        pass "history file has no launch entries"
-    fi
+    assert_eq "history file has no launch entries" "" "$(grep -E 'claude|gitui' "$HIST_FILE" 2>/dev/null || true)"
 
     SHELL_RESULT="$TMPDIR_ROOT/shell-result"
     tmux -L "$HIST_SOCKET" send-keys -t "agent-${TEST_REPO}-${KEY9}" -l \
         "printf '%s' \"\${ZSH_VERSION:+zsh}\" > $(printf '%q' "$SHELL_RESULT")"
     tmux -L "$HIST_SOCKET" send-keys -t "agent-${TEST_REPO}-${KEY9}" Enter
-    sleep 1
+    wait_until test -s "$SHELL_RESULT" || true
     assert_eq "agent session leaves a responsive login shell after claude exits" "zsh" \
         "$(cat "$SHELL_RESULT" 2>/dev/null)"
     assert_eq "companion session leaves a shell after the command exits" "zsh" \
@@ -670,7 +571,7 @@ PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET9
     --agent-command codex --agent-args "--yolo" --agent-resume-args "resume --last" --agent-is-claude false \
     2>/dev/null
 
-wait_for_file "$ARGV_LOG9" || true
+wait_until test -s "$ARGV_LOG9" || true
 ARGV9=$(head -1 "$ARGV_LOG9" 2>/dev/null || echo "")
 assert_eq "codex argv is args + resume args only" "--yolo resume --last" "$ARGV9"
 
@@ -708,7 +609,7 @@ PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET1
     --agent-command codex --agent-args "--yolo" --agent-resume-args "" --agent-is-claude false \
     2>/dev/null
 
-wait_for_file "$ARGV_LOG10" || true
+wait_until test -s "$ARGV_LOG10" || true
 ARGV10=$(head -1 "$ARGV_LOG10" 2>/dev/null || echo "")
 assert_eq "codex launch-only argv is args + prompt" "--yolo /idow $ISSUE_KEY10" "$ARGV10"
 
@@ -740,7 +641,7 @@ PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET_
     --agent-launch-flags "-m 'gpt-5.5 [1m]' -c model_reasoning_effort=high" \
     2>/dev/null
 
-wait_for_file "$ARGV_LOG_LF" || true
+wait_until test -s "$ARGV_LOG_LF" || true
 assert_eq "launch flags sit between args and resume args" \
     "<--yolo><-m><gpt-5.5 [1m]><-c><model_reasoning_effort=high><resume><abc>" \
     "$(head -1 "$ARGV_LOG_LF" 2>/dev/null || echo "")"
@@ -771,7 +672,7 @@ PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET11
     --agent-command claude-local --agent-is-claude true --agent-resume-args --continue \
     2>/dev/null
 
-wait_for_file "$ARGV_LOG11" || true
+wait_until test -s "$ARGV_LOG11" || true
 ARGV11=$(head -1 "$ARGV_LOG11" 2>/dev/null || echo "")
 assert_eq "wrapper argv gets model/name/continue" "--model sonnet --name $ISSUE_KEY11 --continue" "$ARGV11"
 
@@ -792,17 +693,8 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$LEGACY_SESSION" -c "$WORK
 
 start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
 
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$RENAMED_SESSION" 2>/dev/null; then
-    pass "legacy session renamed to agent-*"
-else
-    fail "legacy session renamed to agent-*"
-fi
-
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$LEGACY_SESSION" 2>/dev/null; then
-    fail "legacy claude-* name should be gone after rename"
-else
-    pass "legacy claude-* name is gone after rename"
-fi
+assert_session "legacy session renamed to agent-*" "$RENAMED_SESSION"
+assert_no_session "legacy claude-* name is gone after rename" "$LEGACY_SESSION"
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$RENAMED_SESSION" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY12}" 2>/dev/null || true
@@ -826,11 +718,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$RENAMED_SESSION" -c "$WOR
 
 start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
 
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_SESSION:" 2>/dev/null; then
-    fail "legacy session killed"
-else
-    pass "legacy session killed"
-fi
+assert_no_session "legacy session killed" "=$LEGACY_SESSION:"
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$RENAMED_SESSION:" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${ISSUE_KEY12}:" 2>/dev/null || true
@@ -853,23 +741,10 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "companion-${TEST_REPO}-${O
 
 start_session --issue-key "$ISSUE_KEY13" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH13" --no-agent 2>/dev/null
 
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$OTHER_LEGACY13:" 2>/dev/null; then
-    pass "other space's legacy session kept its name"
-else
-    fail "other space's legacy session kept its name"
-fi
-
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=agent-${TEST_REPO}-${ISSUE_KEY13}:" 2>/dev/null; then
-    pass "a fresh agent session was created for the new space"
-else
-    fail "a fresh agent session was created for the new space"
-fi
-
-if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=companion-${TEST_REPO}-${ISSUE_KEY13}:" 2>/dev/null; then
-    pass "a companion session was created despite another space's companion"
-else
-    fail "a companion session was created despite another space's companion"
-fi
+assert_session "other space's legacy session kept its name" "=$OTHER_LEGACY13:"
+assert_session "a fresh agent session was created for the new space" "=agent-${TEST_REPO}-${ISSUE_KEY13}:"
+assert_session "a companion session was created despite another space's companion" \
+    "=companion-${TEST_REPO}-${ISSUE_KEY13}:"
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$OTHER_LEGACY13:" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${OTHER_KEY13}:" 2>/dev/null || true
@@ -890,11 +765,7 @@ if PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET14" start_session \
 else
     pass "script exits non-zero"
 fi
-if tmux -L "$SHIM_SOCKET14" has-session -t "=agent-${TEST_REPO}-${ISSUE_KEY14}:" 2>/dev/null; then
-    fail "no session is created"
-else
-    pass "no session is created"
-fi
+assert_no_session "no session is created" "=agent-${TEST_REPO}-${ISSUE_KEY14}:" "$SHIM_SOCKET14"
 tmux -L "$SHIM_SOCKET14" kill-server 2>/dev/null || true
 
 # ==========================================================================
@@ -923,12 +794,12 @@ SHELL=/bin/bash PATH="$SHIM_DIR:$PATH" HOME="$CODEX_HOME" PAPPARDELLE_TMUX_SOCKE
     --agent-command codex --agent-args "--yolo" --agent-resume-args "" --agent-is-claude false \
     2>/dev/null
 
-wait_for_file "$ARGV_LOG15" || true
+wait_until test -s "$ARGV_LOG15" || true
 for kind in agent companion; do
     REPLY_FILE="$TMPDIR_ROOT/bash-reply-$kind"
     tmux -L "$SHIM_SOCKET15" send-keys -t "=${kind}-${TEST_REPO}-${ISSUE_KEY15}:" -l "echo ok > $(printf '%q' "$REPLY_FILE")"
     tmux -L "$SHIM_SOCKET15" send-keys -t "=${kind}-${TEST_REPO}-${ISSUE_KEY15}:" Enter
-    wait_for_file "$REPLY_FILE" || true
+    wait_until test -s "$REPLY_FILE" || true
     assert_eq "$kind pane answers input" "ok" "$(cat "$REPLY_FILE" 2>/dev/null)"
 done
 
@@ -954,7 +825,7 @@ start_space "${TEST_PREFIX}-1700" "$WORKTREE_PATH17"
 CWD_FILE="$TMPDIR_ROOT/cwd17"
 tmux -L "$SHIM_SOCKET16" send-keys -t "=agent-${TEST_REPO}-${TEST_PREFIX}-1700:" -l "pwd -P > $(printf '%q' "$CWD_FILE")"
 tmux -L "$SHIM_SOCKET16" send-keys -t "=agent-${TEST_REPO}-${TEST_PREFIX}-1700:" Enter
-wait_for_file "$CWD_FILE" || true
+wait_until test -s "$CWD_FILE" || true
 assert_eq "a later space starts in its own worktree" "$(cd "$WORKTREE_PATH17" && pwd -P)" "$(cat "$CWD_FILE" 2>/dev/null)"
 tmux -L "$SHIM_SOCKET16" kill-server 2>/dev/null || true
 
@@ -974,13 +845,9 @@ SHIM
     chmod +x "$SHIM_DIR/$name"
 }
 
-wait_for_lines() {
-    local file="$1" count="$2"
-    for _ in $(seq 1 150); do
-        [[ -f "$file" && $(wc -l < "$file") -ge "$count" ]] && return 0
-        sleep 0.1
-    done
-    return 1
+# has_lines <file> <count>: the file has at least count lines.
+has_lines() {
+    [[ -f "$1" && $(wc -l < "$1") -ge "$2" ]]
 }
 
 # agy refuses a bare prompt; --agent-prompt-args puts it behind -i on both
@@ -999,7 +866,7 @@ PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET_P
     --agent-command agy --agent-is-claude false --agent-launch-flags "--model m1" \
     --agent-resume-args "--conversation RESUME_FAIL" --agent-prompt-args "-i {prompt}" \
     2>/dev/null
-wait_for_lines "$ARGV_LOG_PA" 2 || true
+wait_until has_lines "$ARGV_LOG_PA" 2 || true
 assert_eq "resume attempt: resume args, then -i and the prompt" \
     "<--model><m1><--conversation><RESUME_FAIL><-i></it's & \$HOME $ISSUE_KEY_PA>" \
     "$(sed -n 1p "$ARGV_LOG_PA" 2>/dev/null)"
@@ -1020,7 +887,7 @@ PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET_P
     --issue-key "$ISSUE_KEY_PK" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH_PK" \
     --agent-command agy --agent-is-claude false --agent-prompt-args "-i {prompt}" \
     2>/dev/null
-wait_for_lines "$ARGV_LOG_PK" 1 || true
+wait_until has_lines "$ARGV_LOG_PK" 1 || true
 assert_eq "the key goes behind -i" "<-i><$ISSUE_KEY_PK>" "$(sed -n 1p "$ARGV_LOG_PK" 2>/dev/null)"
 tmux -L "$SHIM_SOCKET_PK" kill-server 2>/dev/null || true
 
@@ -1042,7 +909,7 @@ for np_case in "claude|true|--resume RESUME_FAIL|" "codex|false|resume RESUME_FA
     [[ -n "$np_prompt_args" ]] && np_args+=(--agent-prompt-args "$np_prompt_args")
     PATH="$SHIM_DIR:$PATH" HOME="$SHIM_HOME" PAPPARDELLE_CLAUDE_CONFIG_PATH="$TMPDIR_ROOT/claude-np.json" \
         PAPPARDELLE_TMUX_SOCKET="$np_socket" start_session "${np_args[@]}" 2>/dev/null
-    wait_for_lines "$np_log" 2 || true
+    wait_until has_lines "$np_log" 2 || true
     np_name=""
     [[ "$np_is_claude" == true ]] && np_name="<--name><$np_key>"
     np_resume_words=""
@@ -1105,7 +972,9 @@ assert_eq "companion session starts in the worktree" "$HASH_WORKTREE" \
 
 # ==========================================================================
 
-rm -rf "$TMPDIR_ROOT"
+# The inner server never exits on its own, and a server left running fails
+# the guard's leak check.
+tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-server 2>/dev/null || true
 
 summarize
 
