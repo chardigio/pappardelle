@@ -3,7 +3,8 @@ import {tmpdir} from 'node:os';
 import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
 import path from 'node:path';
 import {sessionNamesFor} from './space-identity.ts';
-import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {expect, beforeAll, afterAll} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {ensureCompanionSession} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
@@ -23,11 +24,9 @@ afterAll(async () => {
 	for (const step of stateTeardowns.reverse()) await step();
 });
 
-const runtimeTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
-
 // The user's own tmux.conf usually turns the status bar on, which would draw a
 // row naming the session inside the viewer pane.
-runtimeTest(
+tmuxTest(
 	'a space session hides the status bar the user config turns on',
 	async () => {
 		const root = realpathSync(mkdtempSync(`${tmpdir()}/status-bar-`));

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {
 	FAKE_CLI_PATH,
@@ -615,41 +616,39 @@ test('a standalone restart invokes the executable once and installed releases us
 // A signal after the pane was respawned (pappardelle restart)
 // ============================================================================
 
-test('a pane counts as respawned only while another process runs in it', () => {
-	if (spawnSync('tmux', ['-V']).status !== 0) {
-		expect().pass('tmux is not installed');
-		return;
-	}
-
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-respawn-'));
-	const tmux = (args: readonly string[]) => {
-		const result = spawnSync(
-			'tmux',
-			['-S', path.join(dir, 'outer'), '-f', '/dev/null', ...args],
-			{encoding: 'utf8', env: {...process.env, TMUX: ''}, timeout: 5000},
-		);
-		return {
-			error: result.error,
-			status: result.status,
-			stdout: result.stdout ?? '',
+tmuxTest(
+	'a pane counts as respawned only while another process runs in it',
+	() => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-respawn-'));
+		const tmux = (args: readonly string[]) => {
+			const result = spawnSync(
+				'tmux',
+				['-S', path.join(dir, 'outer'), '-f', '/dev/null', ...args],
+				{encoding: 'utf8', env: {...process.env, TMUX: ''}, timeout: 5000},
+			);
+			return {
+				error: result.error,
+				status: result.status,
+				stdout: result.stdout ?? '',
+			};
 		};
-	};
 
-	teardown(() => {
-		tmux(['kill-server']);
-		fs.rmSync(dir, {recursive: true, force: true});
-	});
-	tmux(['new-session', '-d', '-s', 'fixture', 'sleep 60']);
-	const read = (format: string) =>
-		tmux(['display-message', '-p', '-t', '=fixture:', format]).stdout.trim();
-	const paneId = read('#{pane_id}');
-	const startedPid = read('#{pane_pid}');
+		teardown(() => {
+			tmux(['kill-server']);
+			fs.rmSync(dir, {recursive: true, force: true});
+		});
+		tmux(['new-session', '-d', '-s', 'fixture', 'sleep 60']);
+		const read = (format: string) =>
+			tmux(['display-message', '-p', '-t', '=fixture:', format]).stdout.trim();
+		const paneId = read('#{pane_id}');
+		const startedPid = read('#{pane_pid}');
 
-	expect(paneRespawned(paneId, startedPid, tmux)).toBe(false);
+		expect(paneRespawned(paneId, startedPid, tmux)).toBe(false);
 
-	tmux(['respawn-pane', '-k', '-t', paneId, 'sleep 60']);
-	expect(paneRespawned(paneId, startedPid, tmux)).toBe(true);
+		tmux(['respawn-pane', '-k', '-t', paneId, 'sleep 60']);
+		expect(paneRespawned(paneId, startedPid, tmux)).toBe(true);
 
-	tmux(['kill-session', '-t', '=fixture']);
-	expect(paneRespawned(paneId, startedPid, tmux)).toBe(false);
-});
+		tmux(['kill-session', '-t', '=fixture']);
+		expect(paneRespawned(paneId, startedPid, tmux)).toBe(false);
+	},
+);

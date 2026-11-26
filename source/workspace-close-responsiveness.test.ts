@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {innerKillSession} from './tmux.ts';
 
@@ -125,63 +126,62 @@ console.log(JSON.stringify({closed, closeMs, closeTicks, cleanupPendingAtClose, 
 	);
 });
 
-test('real isolated tmux session close uses exact targets and tolerates already absent sessions', async () => {
-	try {
-		await execFileAsync('tmux', ['-V']);
-	} catch {
-		expect().pass('tmux unavailable');
-		return;
-	}
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-close-tmux-'));
-	const socket = path.join(dir, 'socket');
-	const run = async (args: string[]) => {
-		const {stdout} = await execFileAsync(
-			'tmux',
-			['-S', socket, ...args.slice(2)],
-			{env: {...process.env, TMUX: ''}, timeout: 5000},
+tmuxTest(
+	'real isolated tmux session close uses exact targets and tolerates already absent sessions',
+	async () => {
+		const dir = fs.mkdtempSync(
+			path.join(os.tmpdir(), 'pappardelle-close-tmux-'),
 		);
-		return stdout;
-	};
-	teardown(async () => {
-		try {
-			await execFileAsync('tmux', ['-S', socket, 'kill-server']);
-		} catch {}
-		fs.rmSync(dir, {recursive: true, force: true});
-	});
-	await execFileAsync(
-		'tmux',
-		[
+		const socket = path.join(dir, 'socket');
+		const run = async (args: string[]) => {
+			const {stdout} = await execFileAsync(
+				'tmux',
+				['-S', socket, ...args.slice(2)],
+				{env: {...process.env, TMUX: ''}, timeout: 5000},
+			);
+			return stdout;
+		};
+		teardown(async () => {
+			try {
+				await execFileAsync('tmux', ['-S', socket, 'kill-server']);
+			} catch {}
+			fs.rmSync(dir, {recursive: true, force: true});
+		});
+		await execFileAsync(
+			'tmux',
+			[
+				'-S',
+				socket,
+				'-f',
+				'/dev/null',
+				'new-session',
+				'-d',
+				'-s',
+				'fixture-A',
+				'sleep 60',
+			],
+			{env: {...process.env, TMUX: ''}},
+		);
+		await execFileAsync('tmux', [
 			'-S',
 			socket,
-			'-f',
-			'/dev/null',
 			'new-session',
 			'-d',
 			'-s',
-			'fixture-A',
+			'fixture-AB',
 			'sleep 60',
-		],
-		{env: {...process.env, TMUX: ''}},
-	);
-	await execFileAsync('tmux', [
-		'-S',
-		socket,
-		'new-session',
-		'-d',
-		'-s',
-		'fixture-AB',
-		'sleep 60',
-	]);
-	expect(await innerKillSession('fixture-A', run)).toBe(true);
-	expect(await innerKillSession('fixture-A', run)).toBe(true);
-	const {stdout} = await execFileAsync('tmux', [
-		'-S',
-		socket,
-		'list-sessions',
-		'-F',
-		'#{session_name}',
-	]);
-	expect(stdout.trim()).toBe('fixture-AB');
-	expect(await innerKillSession('fixture-AB', run)).toBe(true);
-	expect(await innerKillSession('fixture-AB', run)).toBe(true);
-});
+		]);
+		expect(await innerKillSession('fixture-A', run)).toBe(true);
+		expect(await innerKillSession('fixture-A', run)).toBe(true);
+		const {stdout} = await execFileAsync('tmux', [
+			'-S',
+			socket,
+			'list-sessions',
+			'-F',
+			'#{session_name}',
+		]);
+		expect(stdout.trim()).toBe('fixture-AB');
+		expect(await innerKillSession('fixture-AB', run)).toBe(true);
+		expect(await innerKillSession('fixture-AB', run)).toBe(true);
+	},
+);

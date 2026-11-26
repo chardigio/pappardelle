@@ -2,7 +2,8 @@ import {spawnSync} from 'node:child_process';
 import {mkdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {sessionNamesFor} from './space-identity.ts';
-import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {expect, beforeAll, afterAll} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {ensureCompanionSession} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
@@ -22,8 +23,6 @@ beforeAll(() => {
 afterAll(async () => {
 	for (const step of stateTeardowns.reverse()) await step();
 });
-
-const runtimeTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 /**
  * A private inner server for one test: HOME (whose .tmux.conf the server
@@ -54,7 +53,7 @@ function privateInnerServer(tmuxConf = '') {
 	return {root, tmux};
 }
 
-runtimeTest(
+tmuxTest(
 	'space sessions survive a tmux.conf that destroys unattached sessions and exits the unattached server',
 	async () => {
 		const {root, tmux} = privateInnerServer(
@@ -72,7 +71,7 @@ runtimeTest(
 	},
 );
 
-runtimeTest(
+tmuxTest(
 	'a space whose worktree path reads as a tmux format starts in that worktree',
 	async () => {
 		const {root, tmux} = privateInnerServer();
@@ -94,7 +93,7 @@ runtimeTest(
 
 // A space started while the server exits over the last one closing would fail
 // with "server exited unexpectedly".
-runtimeTest(
+tmuxTest(
 	'the inner server outlives its last session, and the next space starts on it',
 	async () => {
 		const {root, tmux} = privateInnerServer();

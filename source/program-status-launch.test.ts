@@ -1,9 +1,7 @@
-import {execFileSync, spawnSync} from 'node:child_process';
-import {tmpdir} from 'node:os';
+import {execFileSync} from 'node:child_process';
 import {
 	existsSync,
 	mkdirSync,
-	mkdtempSync,
 	readFileSync,
 	readdirSync,
 	realpathSync,
@@ -14,11 +12,13 @@ import {
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
-import {test, expect} from 'bun:test';
+import {expect} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
-import {killProcessesNaming} from '../test/helpers/processes.ts';
+import {isAlive, killProcessesNaming} from '../test/helpers/processes.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
-import * as wait from '../test/helpers/wait.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
+import {until} from '../test/helpers/wait.ts';
 import {
 	serveTestHub,
 	subscribeRaw,
@@ -28,19 +28,9 @@ import {shellQuoteStatus} from './program-status-monitor.ts';
 import type {ProgramStatusSnapshot} from './program-status-monitor.ts';
 
 const project = path.resolve(import.meta.dirname, '..');
-const runtimeTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
-
-function isAlive(pid: number) {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-}
 
 function fixture(python: boolean, staleNode = false) {
-	const root = realpathSync(mkdtempSync(`${tmpdir()}/status-launch-`));
+	const root = tempDir('status-launch-');
 	const bin = path.join(root, 'bin');
 	const repo = path.join(root, 'repo');
 	const home = path.join(root, 'home');
@@ -119,12 +109,6 @@ function fixture(python: boolean, staleNode = false) {
 		// A monitor that outlived its pane would start a daemon once the hub
 		// served here is gone.
 		killProcessesNaming(statusSocket);
-		rmSync(root, {
-			recursive: true,
-			force: true,
-			maxRetries: 20,
-			retryDelay: 100,
-		});
 	});
 	execFileSync('git', ['init', '--quiet', repo]);
 	const worker = path.join(root, 'launch.mjs');
@@ -241,22 +225,25 @@ exec ${shellQuoteStatus(realTmux)} "$@"
 	return {root, bin, launch, read, status, tmux, blockedAgent, failRelease};
 }
 
-async function until(read: () => boolean, label: string) {
-	await wait.until(
+/** Waits for read to hold, where read throws while what it reads is not there yet. */
+async function untilUp(read: () => boolean, what: string) {
+	let thrown: unknown;
+	await until(
 		() => {
 			try {
 				return read();
-			} catch {
+			} catch (error) {
+				thrown = error;
 				return false;
 			}
 		},
-		{what: label},
+		{what, frame: () => (thrown === undefined ? undefined : String(thrown))},
 	);
 }
 
 for (const launcher of ['tui', 'shell'] as const) {
 	for (const state of ['working', 'blocked', 'done', 'error']) {
-		runtimeTest(
+		tmuxTest(
 			`${launcher} ${state === 'working' || state === 'blocked' ? 'clears' : 'retains'} ${state} after agent death`,
 			async () => {
 				const h = fixture(false);
@@ -267,21 +254,21 @@ for (const launcher of ['tui', 'shell'] as const) {
 					`import fs from 'node:fs';fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));process.stdout.write('\\x1b]7501;state=${state}:app=fixture\\x07');process.stdin.resume();`,
 				);
 				h.launch(launcher, process.execPath, shellQuoteStatus(agent));
-				await until(
+				await untilUp(
 					() => h.status()?.info.status === state,
 					'initial native report',
 				);
 				process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL');
 				const expected =
 					state === 'working' || state === 'blocked' ? 'unknown' : state;
-				await until(
+				await untilUp(
 					() =>
 						h
 							.tmux('capture-pane', '-p', '-t', '=agent-repo-TEST-1:')
 							.includes('FIXTURE>'),
 					'fallback shell',
 				);
-				await until(
+				await untilUp(
 					() => h.status()?.info.status === expected,
 					'status after agent exit',
 				);
@@ -301,14 +288,14 @@ for (const launcher of ['tui', 'shell'] as const) {
 		);
 	}
 	for (const afterDelivery of [false, true]) {
-		runtimeTest(
+		tmuxTest(
 			`${launcher} recovers startup after a release error ${afterDelivery ? 'after' : 'before'} delivery`,
 			async () => {
 				const h = fixture(false);
 				h.failRelease(afterDelivery);
 				expect(() => h.launch(launcher, h.blockedAgent)).toThrow();
 				if (afterDelivery)
-					await until(
+					await untilUp(
 						() => existsSync(path.join(h.root, 'started')),
 						'delivered gate starts agent',
 					);
@@ -317,7 +304,7 @@ for (const launcher of ['tui', 'shell'] as const) {
 					? readFileSync(path.join(h.root, 'agent-pid'), 'utf8')
 					: undefined;
 				h.launch(launcher, h.blockedAgent);
-				await until(
+				await untilUp(
 					() => h.status()?.info.status === 'blocked',
 					'recovered initial report',
 				);
@@ -340,7 +327,7 @@ for (const launcher of ['tui', 'shell'] as const) {
 		);
 	}
 	for (const isClaude of [true, false]) {
-		runtimeTest(
+		tmuxTest(
 			`${launcher} records the primary session for a ${isClaude ? 'Claude' : 'Codex'} profile and rejects a nested agent`,
 			async () => {
 				const h = fixture(true);
@@ -359,7 +346,7 @@ for (const launcher of ['tui', 'shell'] as const) {
 					.map(value => shellQuoteStatus(value))
 					.join(' ');
 				h.launch(launcher, python, args, isClaude);
-				await until(
+				await untilUp(
 					() => Boolean(h.read('recording.json')),
 					'agent hook results',
 				);
@@ -371,12 +358,12 @@ for (const launcher of ['tui', 'shell'] as const) {
 			},
 		);
 	}
-	runtimeTest(
+	tmuxTest(
 		`${launcher} enables Pi reporting and preserves pipeline signals with Python installed`,
 		async () => {
 			const h = fixture(true);
 			h.launch(launcher, h.blockedAgent);
-			await until(
+			await untilUp(
 				() =>
 					h.status()?.info.status === 'blocked' &&
 					readFileSync(path.join(h.root, 'pi-status'), 'utf8') !== '',
@@ -388,12 +375,12 @@ for (const launcher of ['tui', 'shell'] as const) {
 			);
 		},
 	);
-	runtimeTest(
+	tmuxTest(
 		`${launcher} starts the agent and preserves input and initial status without Python`,
 		async () => {
 			const h = fixture(false);
 			h.launch(launcher, h.blockedAgent);
-			await until(
+			await untilUp(
 				() => h.status()?.info.status === 'blocked',
 				'initial blocked report without Python',
 			);
@@ -402,12 +389,12 @@ for (const launcher of ['tui', 'shell'] as const) {
 			);
 			h.tmux('send-keys', '-t', '=agent-repo-TEST-1:', '-l', 'agent-input');
 			h.tmux('send-keys', '-t', '=agent-repo-TEST-1:', 'Enter');
-			await until(
+			await untilUp(
 				() =>
 					readFileSync(path.join(h.root, 'reply'), 'utf8') === 'agent-input',
 				'agent receives input',
 			);
-			await until(
+			await untilUp(
 				() =>
 					h
 						.tmux('capture-pane', '-p', '-t', '=agent-repo-TEST-1:')
@@ -422,7 +409,7 @@ for (const launcher of ['tui', 'shell'] as const) {
 				`printf shell-ok > ${shellQuoteStatus(path.join(h.root, 'shell-reply'))}`,
 			);
 			h.tmux('send-keys', '-t', '=agent-repo-TEST-1:', 'Enter');
-			await until(
+			await untilUp(
 				() =>
 					readFileSync(path.join(h.root, 'shell-reply'), 'utf8') === 'shell-ok',
 				'responsive login shell',
@@ -432,7 +419,7 @@ for (const launcher of ['tui', 'shell'] as const) {
 	);
 }
 
-runtimeTest(
+tmuxTest(
 	'TUI launch bypasses a default shell that cannot parse its launch syntax',
 	async () => {
 		const h = fixture(false);
@@ -443,7 +430,7 @@ runtimeTest(
 		h.tmux('new-session', '-d', '-s', 'seed', '/bin/sleep', '300');
 		h.tmux('set-option', '-g', 'default-shell', shell);
 		h.launch('tui', h.blockedAgent);
-		await until(
+		await untilUp(
 			() => h.status()?.info.status === 'blocked',
 			'first native report without default-shell parsing',
 		);
@@ -452,12 +439,12 @@ runtimeTest(
 );
 
 for (const staleNode of [false, true]) {
-	runtimeTest(
+	tmuxTest(
 		`shell launch captures its first report using the selected Bun with ${staleNode ? 'a stale' : 'no'} PATH Node`,
 		async () => {
 			const h = fixture(true, staleNode);
 			h.launch('shell', h.blockedAgent);
-			await until(
+			await untilUp(
 				() => h.status()?.info.status === 'blocked',
 				'first blocked report using selected Bun',
 			);
@@ -467,19 +454,19 @@ for (const staleNode of [false, true]) {
 	);
 }
 
-runtimeTest(
+tmuxTest(
 	'compiled monitor captures shell reports without Bun or Node on PATH',
 	async () => {
 		const h = fixture(true, true);
 		h.launch('compiled-shell', h.blockedAgent);
-		await until(
+		await untilUp(
 			() => h.status()?.info.status === 'blocked',
 			'first report through the embedded monitor',
 		);
 		expect(h.status()?.authoritative).toBe(true);
 		expect(h.status()?.info.app).toBe('fixture');
 		h.tmux('kill-session', '-t', '=agent-repo-TEST-1');
-		await until(
+		await untilUp(
 			() => h.status()?.exited === true,
 			'compiled monitor retires after pane exit',
 		);

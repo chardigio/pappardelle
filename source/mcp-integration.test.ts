@@ -11,10 +11,10 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {test, expect} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
-import {until} from '../test/helpers/wait.ts';
+import {until, untilValue} from '../test/helpers/wait.ts';
 
-const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 const entry = path.join(import.meta.dirname, 'mcp-cli.ts');
 
 function fixture(options: {config?: boolean; aware?: boolean} = {}) {
@@ -288,23 +288,21 @@ tmuxTest(
 		});
 		expect(ran.isError, text(ran)).toBeFalsy();
 
-		let shown = '';
-		for (
-			let attempt = 0;
-			attempt < 60 && !shown.includes('from a');
-			attempt++
-		) {
-			// eslint-disable-next-line no-await-in-loop
-			shown = text(
-				// eslint-disable-next-line no-await-in-loop
-				await client.callTool({
-					name: 'companion_read',
-					arguments: {pane: 'side'},
-				}),
-			);
-			// eslint-disable-next-line no-await-in-loop
-			await delay(100);
-		}
+		const shown = await untilValue(
+			async () =>
+				text(
+					await client.callTool({
+						name: 'companion_read',
+						arguments: {pane: 'side'},
+					}),
+				),
+			screen => screen.includes('from a'),
+			{
+				what: 'the side pane to show the command',
+				timeoutMs: 6000,
+				intervalMs: 100,
+			},
+		);
 
 		expect(shown).toMatch(/from a \| pipe/);
 
@@ -318,12 +316,11 @@ tmuxTest(
 			arguments: {key: 'KEY-1', text: tricky},
 		});
 		expect(sent.isError, text(sent)).toBeFalsy();
-		let agent = '';
-		for (let attempt = 0; attempt < 40 && !agent.includes('$HOME'); attempt++) {
-			agent = tmux('capture-pane', '-p', '-t', '=agent-project-KEY-1:');
-			// eslint-disable-next-line no-await-in-loop
-			await delay(50);
-		}
+		const agent = await untilValue(
+			() => tmux('capture-pane', '-p', '-t', '=agent-project-KEY-1:'),
+			screen => screen.includes('$HOME'),
+			{what: 'the sent text in the agent pane', intervalMs: 50},
+		);
 
 		expect(agent.includes(tricky), agent).toBe(true);
 

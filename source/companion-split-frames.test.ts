@@ -7,7 +7,8 @@ import fs from 'node:fs';
 import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import {sessionNamesFor} from './space-identity.ts';
-import {test, expect, afterAll} from 'bun:test';
+import {expect, afterAll} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {LatestTask} from './latest-task.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
@@ -25,7 +26,6 @@ import {
 } from './tmux.ts';
 
 const exec = promisify(execFile);
-const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 const dir = fs.realpathSync(fs.mkdtempSync(`${tmpdir()}/pcs-`));
 const outer = `${dir}/o`;

@@ -7,6 +7,7 @@ import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {rejectionOf} from '../test/helpers/thrown.ts';
+import {until} from '../test/helpers/wait.ts';
 import {stringify} from 'yaml';
 import {repoNameFromGitCommonDir} from './config.ts';
 import {newSpaceIdentity, protectedSessionNames} from './space-identity.ts';
@@ -323,16 +324,10 @@ touch "$IDOW_TEST_WORKSPACE/background-finished"`,
 	});
 	try {
 		await Promise.race([exit, result]);
-		for (
-			let i = 0;
-			i < 100 &&
-			!fs.existsSync(path.join(fixture.workspace, 'background-started'));
-			i++
-		)
-			await delay(10);
-		expect(
-			fs.existsSync(path.join(fixture.workspace, 'background-started')),
-		).toBe(true);
+		await until(
+			() => fs.existsSync(path.join(fixture.workspace, 'background-started')),
+			{what: 'the background hook to start'},
+		);
 		expect(
 			fs.existsSync(path.join(fixture.workspace, 'background-finished')),
 		).toBe(false);

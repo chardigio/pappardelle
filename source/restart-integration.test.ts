@@ -2,17 +2,16 @@ import {execFileSync, spawnSync} from 'node:child_process';
 import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {setTimeout as delay} from 'node:timers/promises';
-import {test, expect} from 'bun:test';
+import {expect} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
+import {until} from '../test/helpers/wait.ts';
 import {restartRepo, type RestartCommandDeps} from './restart-command.ts';
 import {stateDaosByRepo} from './state-daos.ts';
 import {closeStateDb, stateDbPath} from './state-db.ts';
 import {defaultServerTmuxEnv, defaultServerTmuxRunner} from './tmux.ts';
 import {shellQuote} from './shell-quote.ts';
-
-const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 const SESSION = 'pappardelle-itest';
 
@@ -33,21 +32,17 @@ function addViewers(): void {
 }
 
 async function waitForAttachedClient(): Promise<void> {
-	for (let attempt = 0; attempt < 100; attempt++) {
-		if (
+	await until(
+		() =>
 			tmux(
 				'display-message',
 				'-p',
 				'-t',
 				`=${SESSION}:`,
 				'#{session_attached}',
-			) === '1'
-		)
-			return;
-		await delay(50);
-	}
-
-	throw new Error('no client attached to the test session');
+			) === '1',
+		{what: 'a client to attach to the test session', intervalMs: 50},
+	);
 }
 
 // A TUI window as the user has it: three panes on the default server with a

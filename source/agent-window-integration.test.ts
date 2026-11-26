@@ -5,13 +5,12 @@ import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
 import {setTimeout as delay} from 'node:timers/promises';
-import {test, expect, afterAll, beforeEach} from 'bun:test';
+import {expect, afterAll, beforeEach} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {captureAgentScreen, READ_WINDOW} from './agent-state.ts';
 import {idowIdentities} from '../test/helpers/state.ts';
 import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
-
-const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 const dir = realpathSync(mkdtempSync(`${tmpdir()}/pw-`));
 const inner = `${dir}/i`;

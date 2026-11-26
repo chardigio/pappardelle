@@ -4,7 +4,8 @@
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
-import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {expect, beforeAll, afterAll} from 'bun:test';
+import {hasTmux, tmuxTest} from '../test/helpers/tmux-test.ts';
 import {
 	closeCompanionPane,
 	CompanionError,
@@ -17,8 +18,6 @@ import {
 import type {OuterTmuxRunner} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
-
-const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 const dir = realpathSync(mkdtempSync(`${tmpdir()}/pc-`));
 const socket = `${dir}/s`;
@@ -52,7 +51,7 @@ const panesOf = (session: string) =>
 	);
 
 beforeAll(() => {
-	if (spawnSync('tmux', ['-V']).status !== 0) return;
+	if (!hasTmux) return;
 	tmux(
 		'new-session',
 		'-d',
