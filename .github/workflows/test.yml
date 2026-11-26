@@ -173,6 +173,12 @@ jobs:
             https://github.com/mikefarah/yq/releases/download/v4.54.3/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
+      # test-install-shim.sh builds the executable through install.sh.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+
       - name: Beads ID prefix matching
         run: ./scripts/test-beads-id-prefixes.sh
 
@@ -186,11 +192,6 @@ jobs:
         run: ./scripts/test-config-layers.sh
 
       - name: Worktree creation and offline branch reuse
-        env:
-          GIT_AUTHOR_NAME: Test
-          GIT_AUTHOR_EMAIL: test@example.com
-          GIT_COMMITTER_NAME: Test
-          GIT_COMMITTER_EMAIL: test@example.com
         run: ./scripts/test-create-worktree.sh
 
       - name: Claude model and effort resolution
@@ -198,6 +199,12 @@ jobs:
 
       - name: companion_command resolution
         run: ./scripts/test-companion-command.sh
+
+      - name: Linear project auto-assignment
+        run: ./scripts/test-default-project.sh
+
+      - name: Jira issue creation
+        run: ./scripts/test-create-issue-jira.sh
 
       # Skips where the runner has no systemd user manager.
       - name: Scheduled wake-ups on systemd
@@ -210,7 +217,14 @@ jobs:
       # Only the portable quoting and viewer rebuild tests run here; the parity
       # half needs osascript.
       - name: Workspace launcher quoting and viewer rebuild
-        run: test/helpers/tmux-guard-run.sh ./scripts/test-workspace-launchers.sh
+        run: ./scripts/test-workspace-launchers.sh
+
+      # The history case skips where zsh is missing.
+      - name: Agent and companion session start
+        run: ./scripts/test-start-agent-session.sh
+
+      - name: Install snapshot and shim
+        run: ./scripts/test-install-shim.sh
 
   python-tests:
     name: Python Tests (sqliteState ${{ matrix.sqlite_state }})
