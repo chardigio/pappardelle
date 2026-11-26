@@ -135,7 +135,7 @@ If `space_send` fails with "No active session", reopen the space and send again 
 `wait` holds until the reopened agent starts, up to 60 seconds. Never drop it and send anyway: if the agent failed to launch, the pane holds a shell, and the instruction would run as a shell command.
 
 - Sent: "696, USB protocol, back on the line. Sent: refactor the auth middleware"
-- "agent was not confirmed to start": "696, USB protocol, back on the line, agent not confirmed. Not sent. Send now?" Send only on a yes. Spaces whose profile runs Codex always land here, because Codex doesn't report its status
+- "agent was not confirmed to start": "696, USB protocol, back on the line, agent not confirmed. Not sent. Send now?" Send only on a yes. Claude confirms via hooks and Codex, agy and Pi confirm via native OSC program status; agents without either always land here
 - `space_send` says the space is showing a prompt: "696, USB protocol, is waiting on a prompt." Read it with `space_state`. Answer a permission prompt as in Answering Permission Prompts. Relay a question dialog as in Relaying a Space's Question, and answer it with `space_answer` only on the chef's word
 - `space_send` says Not submitted: your text is in that space's input box but didn't send. Check `space_screen`; if it's still there, `space_press_keys` with `Enter` submits it. Don't resend: the resend sees your own text as a draft
 - `space_send` says the composer has text: someone is typing in that space. "696, USB protocol, has an unsent draft, chef. Send over it?" Resend with `force` only on a yes

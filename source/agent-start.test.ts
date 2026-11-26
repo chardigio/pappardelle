@@ -196,11 +196,23 @@ test('an already-running idle OSC pane opened with --resume confirms even when s
 });
 
 test('an agent that reported idle and then exited to a shell with the same generation does not confirm', async () => {
-	for (const shell of ['bash', '-zsh']) {
+	for (const shell of ['bash', '-zsh', 'nu']) {
 		const f = await oscFixture({command: shell});
 		const since = Date.now();
 		const prior = oscSnapshot(f.issueKey, f.pane, {updatedAt: since - 60_000});
 		expect(await f.wait(async () => prior, {since})).toBe(false);
+	}
+
+	const previousShell = process.env['SHELL'];
+	process.env['SHELL'] = '/usr/local/bin/custom-shell';
+	try {
+		const f = await oscFixture({command: '-custom-shell'});
+		const since = Date.now();
+		const prior = oscSnapshot(f.issueKey, f.pane, {updatedAt: since - 60_000});
+		expect(await f.wait(async () => prior, {since})).toBe(false);
+	} finally {
+		if (previousShell === undefined) delete process.env['SHELL'];
+		else process.env['SHELL'] = previousShell;
 	}
 });
 

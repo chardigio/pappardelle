@@ -15,14 +15,28 @@ const SHELLS = new Set([
 	'dash',
 	'fish',
 	'ksh',
+	'mksh',
+	'yash',
 	'tcsh',
 	'csh',
+	'nu',
+	'xonsh',
+	'elvish',
+	'pwsh',
 ]);
+
+function commandName(command: string): string {
+	return path.basename(command.trim()).replace(/^-/, '');
+}
 
 function isShellCommand(command: string | undefined): boolean {
 	if (!command) return true;
-	const base = path.basename(command.trim()).replace(/^-/, '');
-	return !base || SHELLS.has(base);
+	const base = commandName(command);
+	if (!base || SHELLS.has(base)) return true;
+	const loginShell = process.env['SHELL']
+		? commandName(process.env['SHELL'])
+		: '';
+	return Boolean(loginShell) && base === loginShell;
 }
 
 export type OscStartDeps = {
