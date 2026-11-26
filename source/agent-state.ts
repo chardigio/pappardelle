@@ -127,6 +127,19 @@ function tmuxOut(runner: OuterTmuxRunner, args: string[]): string | null {
  */
 export const AGENT_PANE_FORMAT = `#{window_active}#{pane_active}\t#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`;
 
+function selectedStatusPaneRow(lines: string[]): string | undefined {
+	const rows = lines.map(line => {
+		const [active = '', pinned = '', ...pane] = line.split('\t');
+		return {current: active === '11', pinned, pane: pane.join('\t')};
+	});
+	const pinned = rows.find(row => row.pinned)?.pinned;
+	return (
+		pinned
+			? rows.find(each => each.pane.startsWith(`${pinned}\t`))
+			: rows.find(each => each.current)
+	)?.pane;
+}
+
 /**
  * The pane the TUI's status monitor pinned, else the session's current pane,
  * from one session's `AGENT_PANE_FORMAT` lines.
@@ -135,36 +148,36 @@ export function statusPaneOf(
 	lines: string[],
 	socket: string,
 ): StatusPane | null {
-	const rows = lines.map(line => {
-		const [active = '', pinned = '', ...pane] = line.split('\t');
-		return {current: active === '11', pinned, pane: pane.join('\t')};
-	});
-	const pinned = rows.find(row => row.pinned)?.pinned;
-	const row = pinned
-		? rows.find(each => each.pane.startsWith(`${pinned}\t`))
-		: rows.find(each => each.current);
-	return row ? parseStatusPane(row.pane, socket) : null;
+	const pane = selectedStatusPaneRow(lines);
+	return pane ? parseStatusPane(pane, socket) : null;
 }
 
 /**
  * The pane the TUI's status monitor pinned, read without attaching one: that
  * stays the TUI's job, and attaching from here would race it.
  */
-function pinnedStatusPane(
+export function pinnedStatusPaneInfo(
 	session: string,
 	runner: OuterTmuxRunner,
-): StatusPane | null {
+	socket = statusSocket(),
+): {pane: StatusPane; currentCommand: string | undefined} | null {
 	const listing = tmuxOut(runner, [
 		'list-panes',
 		'-s',
 		'-t',
 		exactSessionTarget(session),
 		'-F',
-		AGENT_PANE_FORMAT,
+		`${AGENT_PANE_FORMAT}\t#{pane_current_command}`,
 	]);
-	return listing
-		? statusPaneOf(listing.split('\n').filter(Boolean), statusSocket())
-		: null;
+	if (!listing) return null;
+	const row = selectedStatusPaneRow(listing.split('\n').filter(Boolean));
+	if (!row) return null;
+	const commandSeparator = row.lastIndexOf('\t');
+	if (commandSeparator === -1) return null;
+	const pane = parseStatusPane(row.slice(0, commandSeparator), socket);
+	if (!pane) return null;
+	const currentCommand = row.slice(commandSeparator + 1) || undefined;
+	return {pane, currentCommand};
 }
 
 /**
@@ -292,7 +305,10 @@ export async function readAgentState(
 	const screen =
 		capture === null ? null : parseAgentScreen(capture, deps.now());
 	const session = agentSessionOf(key, deps);
-	const pane = screen && session ? pinnedStatusPane(session, runner) : null;
+	const pane =
+		screen && session
+			? (pinnedStatusPaneInfo(session, runner)?.pane ?? null)
+			: null;
 	const status = await readAgentStatus(key, pane, deps);
 	return {
 		key,

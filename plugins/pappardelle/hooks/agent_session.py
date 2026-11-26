@@ -54,9 +54,11 @@ own. The id is recorded under the pid of the agent running in the agent
 session's first pane instead, and is never replaced while that agent lives:
 its first conversation keeps it until the agent exits.
 
-agy's subagents fire hooks from the agy process itself, each with its own
-conversation id, so an agy id is never replaced while its process lives either:
-the pane's first conversation keeps it until a relaunch.
+agy fires PreInvocation with each conversation id under the same agy pid, so a
+`/clear` updates the recorded id while that process lives (though if an agy
+subagent fires PreInvocation from the same pid, its id may replace the recorded
+one until the next top-level turn). Another agy process still cannot overwrite a
+live owner's id.
 """
 
 import json
@@ -387,8 +389,7 @@ def record_agent_session(
         launched = stores.launched_agent(pane_space)
         recorded = read_sessions(stores.sessions_file(pane_space)) if launched else None
         entry = recorded.get(launched.profile) if launched and recorded is not None else None
-        # A live agy keeps its first id, so its subagents' ids end here too.
-        if owner_alive(entry, started) and (is_agy or entry_session_id(entry) == session_id):
+        if owner_alive(entry, started) and entry_session_id(entry) == session_id:
             return False
 
     table = process_table()
@@ -432,7 +433,7 @@ def record_agent_session(
             return None
         entry = sessions.get(agent_profile)
         owner = entry.get("pid") if isinstance(entry, dict) else None
-        if (owner != agent_pid or from_daemon or is_agy) and owner_alive(entry, started):
+        if (owner != agent_pid or from_daemon) and owner_alive(entry, started):
             return None
         recording = {"session_id": session_id, "pid": agent_pid, "started": started(agent_pid)}
         if entry == recording:

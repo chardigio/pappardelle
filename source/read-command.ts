@@ -1,10 +1,17 @@
-// `pappardelle read <key>`: the last turns of a space's Claude conversation.
+// `pappardelle read <key>`: the last turns of a space's conversation.
 // A turn is one prompt the user typed plus the assistant text that answered
-// it. Tool results and the text Claude Code injects (isMeta: skill bodies,
-// reminders) arrive as user entries too, and are skipped.
+// it. Tool results and injected metadata/system entries are skipped.
 
 import {readFileSync} from 'node:fs';
-import {extractAssistantText, findLatestSessionJsonl} from './space-state.ts';
+import type {PappardelleConfig} from './config.ts';
+import {
+	extractAgyUserText,
+	extractAssistantText,
+	findSpaceTranscript,
+	type AgentSessionsDao,
+	type SpaceStateDao,
+	type TranscriptFormat,
+} from './space-state.ts';
 
 const MAX_TEXT = 500;
 
@@ -25,7 +32,10 @@ function promptText(content: unknown): string | undefined {
 	return text || undefined;
 }
 
-export function parseTurns(jsonl: string): Turn[] {
+export function parseTurns(
+	jsonl: string,
+	format: TranscriptFormat = 'claude',
+): Turn[] {
 	const turns: Turn[] = [];
 	for (const line of jsonl.split('\n')) {
 		if (!line.trim()) continue;
@@ -36,27 +46,45 @@ export function parseTurns(jsonl: string): Turn[] {
 			continue;
 		}
 
-		if (!entry || typeof entry !== 'object' || entry.isSidechain) continue;
-		if (entry.type === 'user' && !entry.isMeta) {
-			const prompt = promptText(entry.message?.content);
-			if (prompt)
-				turns.push({
-					prompt: prompt.slice(0, MAX_TEXT),
-					ts: typeof entry.timestamp === 'string' ? entry.timestamp : undefined,
-					replies: [],
-				});
-		} else if (entry.type === 'assistant') {
-			const text = extractAssistantText(entry);
-			const turn = turns.at(-1);
-			if (text && turn) turn.replies.push(text.slice(0, MAX_TEXT));
+		if (!entry || typeof entry !== 'object') continue;
+		let prompt: string | undefined;
+		let ts: string | undefined;
+		let reply: string | undefined;
+		if (format === 'agy') {
+			if (entry.type === 'USER_INPUT') {
+				prompt = extractAgyUserText(entry.content);
+				ts =
+					typeof entry.created_at === 'string' ? entry.created_at : undefined;
+			} else if (entry.type === 'PLANNER_RESPONSE') {
+				reply =
+					typeof entry.content === 'string'
+						? entry.content.trim() || undefined
+						: undefined;
+			}
+		} else if (!entry.isSidechain) {
+			if (entry.type === 'user' && !entry.isMeta) {
+				prompt = promptText(entry.message?.content);
+				ts = typeof entry.timestamp === 'string' ? entry.timestamp : undefined;
+			} else if (entry.type === 'assistant') {
+				reply = extractAssistantText(entry);
+			}
+		}
+
+		if (prompt) {
+			turns.push({prompt: prompt.slice(0, MAX_TEXT), ts, replies: []});
+		} else if (reply) {
+			turns.at(-1)?.replies.push(reply.slice(0, MAX_TEXT));
 		}
 	}
 
 	return turns;
 }
 
-export function readTurns(jsonlPath: string): Turn[] {
-	return parseTurns(readFileSync(jsonlPath, 'utf8'));
+export function readTurns(
+	jsonlPath: string,
+	format: TranscriptFormat = 'claude',
+): Turn[] {
+	return parseTurns(readFileSync(jsonlPath, 'utf8'), format);
 }
 
 function clock(ts: string | undefined): string {
@@ -103,6 +131,11 @@ export async function runReadCommand(options: {
 	issueKey: string;
 	/** The space's checkout, or null when it has none. */
 	worktree: string | null;
+	spaceState?: Pick<SpaceStateDao, 'read'>;
+	agentSessions?: Pick<AgentSessionsDao, 'read'>;
+	config?: PappardelleConfig | null;
+	home?: string;
+	claudeProjectsDir?: string;
 	turns: number | undefined;
 	json: boolean;
 	out: (text: string) => void;
@@ -114,15 +147,21 @@ export async function runReadCommand(options: {
 		return 1;
 	}
 
-	const log = options.worktree
-		? await findLatestSessionJsonl(options.worktree)
-		: null;
-	if (!log) {
+	const transcript = await findSpaceTranscript({
+		issueKey: options.issueKey,
+		worktreePath: options.worktree,
+		state: options.spaceState?.read(options.issueKey) ?? null,
+		agentSessions: options.agentSessions,
+		config: options.config,
+		home: options.home,
+		claudeProjectsDir: options.claudeProjectsDir,
+	});
+	if (!transcript) {
 		options.err(`No conversation log for ${options.issueKey}`);
 		return 1;
 	}
 
-	const turns = readTurns(log);
+	const turns = readTurns(transcript.file, transcript.format);
 	options.out(
 		options.json
 			? JSON.stringify(turnsJson(options.issueKey, turns, count), null, 2)

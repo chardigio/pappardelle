@@ -1323,6 +1323,13 @@ export function cleanupOrphanedOuterSessions(
  */
 export const defaultInnerTmuxRunner = spawnTmuxRunner(innerTmuxArgs);
 
+export function socketTmuxRunner(socket: string): OuterTmuxRunner {
+	return spawnTmuxRunner(
+		args => statusTmuxArgs([...args], socket),
+		() => defaultServerTmuxEnv(process.env),
+	);
+}
+
 const ENDING_VERBS = new Set(['kill-server', 'kill-session', 'kill-pane']);
 
 /**

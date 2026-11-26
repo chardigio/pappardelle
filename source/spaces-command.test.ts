@@ -5,6 +5,14 @@ import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
+import type {PappardelleConfig} from './config.ts';
+import {
+	parseStatusPane,
+	type ProgramStatusSnapshot,
+	type StatusPane,
+} from './program-status-monitor.ts';
+import {newSpaceIdentity} from './space-identity.ts';
+import {claudeProjectDir} from './space-state.ts';
 import {
 	formatSpaces,
 	gatherSpaces,
@@ -517,4 +525,310 @@ test('an agent still reporting under the bare status name is read until it repor
 	});
 	const after = await gather(home);
 	expect(after[0]?.status).toBe('ended');
+});
+
+async function recordIdentity(home: string, key: string) {
+	const worktree = path.join(home, '.worktrees', REPO, key);
+	const identity = newSpaceIdentity({
+		repo: REPO,
+		key,
+		worktreePath: worktree,
+		socket: 'pappardelle_inner',
+	});
+	await stores(home).spaceIdentities.record(identity);
+	return {identity, worktree};
+}
+
+function writeStaleClaudeLog(home: string, worktree: string): void {
+	writeJson(
+		path.join(
+			claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
+			'old.jsonl',
+		),
+		'{}',
+	);
+}
+
+async function setupOscSpaces(
+	home: string,
+	specs: Array<{
+		key: string;
+		info: ProgramStatusSnapshot['info'];
+		updatedAt: number;
+		authoritative?: boolean;
+		exited?: boolean;
+		dead?: boolean;
+	}>,
+): Promise<Pick<SpacesDeps, 'listStatusPanes' | 'programStatus'>> {
+	openSpaces(
+		home,
+		specs.map(spec => spec.key),
+	);
+	const panes = new Map<string, StatusPane>();
+	const snapshots = new Map<string, ProgramStatusSnapshot>();
+	for (const [index, spec] of specs.entries()) {
+		const {identity} = await recordIdentity(home, spec.key);
+		const pid = String(10 + index);
+		const pane = parseStatusPane(
+			`%${pid}\t${pid}\t${spec.dead ? '1' : '0'}\t1\t${pid}.m`,
+			'pappardelle_inner',
+		)!;
+		panes.set(identity.tmux.agentSession, pane);
+		snapshots.set(spec.key, {
+			version: 1,
+			repo: REPO,
+			key: spec.key,
+			pane,
+			authoritative: spec.authoritative ?? true,
+			exited: spec.exited ?? false,
+			updatedAt: spec.updatedAt,
+			records: [],
+			info: spec.info,
+		});
+	}
+
+	return {
+		listStatusPanes: async () =>
+			new Map(
+				[...panes].map(([session, pane]) => [session, {pinned: pane.id, pane}]),
+			),
+		programStatus: {
+			async read(key, pane) {
+				const snap = snapshots.get(key);
+				return snap && snap.pane.generation === pane.generation ? snap : null;
+			},
+		},
+	};
+}
+
+test('OSC program status reports Claude-vocabulary status and minutesAgo for agy and Codex spaces without Claude hooks', async () => {
+	const home = tempHome();
+	const now = 1_700_000_600_000;
+	const osc = await setupOscSpaces(home, [
+		{
+			key: 'AGY-IDLE',
+			info: {status: 'idle', app: 'antigravity'},
+			updatedAt: now - 2 * 60_000,
+		},
+		{
+			key: 'AGY-DONE',
+			info: {status: 'done', app: 'antigravity'},
+			updatedAt: now - 5 * 60_000,
+		},
+		{
+			key: 'CODEX-WORK',
+			info: {status: 'working', app: 'codex'},
+			updatedAt: now - 0.5 * 60_000,
+		},
+		{
+			key: 'CODEX-TOOL',
+			info: {status: 'working', tool: 'Bash', app: 'codex'},
+			updatedAt: now - 0.2 * 60_000,
+		},
+		{
+			key: 'AGY-PERM',
+			info: {status: 'blocked', kind: 'permission', app: 'antigravity'},
+			updatedAt: now - 60_000,
+		},
+		{
+			key: 'AGY-Q',
+			info: {status: 'blocked', kind: 'question', app: 'antigravity'},
+			updatedAt: now - 3 * 60_000,
+		},
+	]);
+
+	const spaces = await gather(home, {now, ...osc});
+	const byName = new Map(spaces.map(s => [s.name, s]));
+	expect(byName.get('AGY-IDLE')).toMatchObject({
+		status: 'waiting_for_input',
+		minutesAgo: 2,
+	});
+	expect(byName.get('AGY-DONE')).toMatchObject({
+		status: 'waiting_for_input',
+		minutesAgo: 5,
+	});
+	expect(byName.get('CODEX-WORK')).toMatchObject({
+		status: 'processing',
+		minutesAgo: 0.5,
+	});
+	expect(byName.get('CODEX-TOOL')).toMatchObject({
+		status: 'running_tool',
+		currentTool: 'Bash',
+		minutesAgo: 0.2,
+	});
+	expect(byName.get('AGY-PERM')).toMatchObject({
+		status: 'waiting_for_approval',
+		minutesAgo: 1,
+	});
+	expect(byName.get('AGY-Q')).toMatchObject({
+		status: 'waiting_for_approval',
+		minutesAgo: 3,
+	});
+	expect(spaces.map(s => s.name)).toStrictEqual([
+		'CODEX-TOOL',
+		'CODEX-WORK',
+		'AGY-PERM',
+		'AGY-IDLE',
+		'AGY-Q',
+		'AGY-DONE',
+	]);
+});
+
+test('non-authoritative OSC snapshots fall back to Claude hook or no_status', async () => {
+	const home = tempHome();
+	const now = 1_700_000_000_000;
+	const osc = await setupOscSpaces(home, [
+		{
+			key: 'STA-CLAUDE',
+			info: {status: 'unknown'},
+			updatedAt: now,
+			authoritative: false,
+		},
+		{
+			key: 'STA-NEW',
+			info: {status: 'unknown'},
+			updatedAt: now,
+			authoritative: false,
+		},
+	]);
+	await writeStatus(home, statusKey('STA-CLAUDE'), {
+		status: 'running_tool',
+		currentTool: 'Edit',
+		lastUpdate: now - 60_000,
+	});
+
+	const spaces = await gather(home, {now, ...osc});
+	const byName = new Map(spaces.map(s => [s.name, s]));
+	expect(byName.get('STA-CLAUDE')).toMatchObject({
+		status: 'running_tool',
+		currentTool: 'Edit',
+	});
+	expect(byName.get('STA-NEW')?.status).toBe('no_status');
+});
+
+test('agy and Codex spaces ignore leftover Claude hook status and Claude session files', async () => {
+	const home = tempHome();
+	const now = 1_700_000_000_000;
+	const daos = stores(home);
+	openSpaces(home, ['AGY-SWITCHED', 'CODEX-SWITCHED']);
+	for (const [key, profile] of [
+		['AGY-SWITCHED', 'agy'],
+		['CODEX-SWITCHED', 'codex'],
+	] as const) {
+		const {worktree} = await recordIdentity(home, key);
+		await writeStatus(home, statusKey(key), {
+			status: 'running_tool',
+			currentTool: 'Bash',
+			sessionId: `stale-claude-${key}`,
+			lastUpdate: now - 30_000,
+		});
+		writeJson(path.join(home, '.claude', 'sessions', `${key}.json`), {
+			pid: 99_999,
+			cwd: worktree,
+		});
+		writeStaleClaudeLog(home, worktree);
+		await daos.spaceState.write(key, {
+			agentProfile: {name: profile, isClaude: false},
+		});
+	}
+
+	const spaces = await gather(home, {now});
+	for (const space of spaces) {
+		expect(space.status).toBe('no_status');
+		expect(space.currentTool).toBeUndefined();
+		expect(space.lastUpdate).toBeUndefined();
+		expect(space.sessionId).toBeUndefined();
+		expect(space.pid).toBeUndefined();
+		expect(space.worktreePath).toBeUndefined();
+		expect(space.conversationLog).toBeUndefined();
+	}
+});
+
+test('agy spaces expose their transcript as conversationLog and never fall back to stale Claude logs', async () => {
+	const home = tempHome();
+	const now = 1_700_000_000_000;
+	const daos = stores(home);
+	openSpaces(home, ['AGY-WITH-LOG', 'AGY-NO-LOG']);
+	for (const key of ['AGY-WITH-LOG', 'AGY-NO-LOG']) {
+		const {worktree} = await recordIdentity(home, key);
+		writeStaleClaudeLog(home, worktree);
+	}
+
+	await daos.spaceState.write('AGY-WITH-LOG', {
+		agentProfile: {name: 'argon', isClaude: false},
+	});
+	await daos.spaceState.write('AGY-NO-LOG', {
+		agentProfile: {name: 'agy', isClaude: false},
+	});
+	writeJson(daos.agentSessions.file('AGY-WITH-LOG'), {
+		argon: {session_id: 'conv-123', pid: 42, started: null},
+	});
+	const agyLog = path.join(
+		home,
+		'.gemini',
+		'antigravity-cli',
+		'brain',
+		'conv-123',
+		'.system_generated',
+		'logs',
+		'transcript.jsonl',
+	);
+	fs.mkdirSync(path.dirname(agyLog), {recursive: true});
+	fs.writeFileSync(agyLog, '{"type":"USER_INPUT","content":"hi"}\n');
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'STA',
+		agent_profiles: {argon: {command: 'agy'}},
+		profiles: {dev: {display_name: 'Dev'}},
+	};
+
+	const spaces = await gather(home, {now, config});
+	const byName = new Map(spaces.map(s => [s.name, s]));
+	expect(byName.get('AGY-WITH-LOG')?.conversationLog).toBe(agyLog);
+	expect(typeof byName.get('AGY-WITH-LOG')?.logMinutesAgo).toBe('number');
+	expect(byName.get('AGY-NO-LOG')?.conversationLog).toBeUndefined();
+});
+
+test('exited OSC snapshots and dead panes report ended, and Claude ended/compacting hooks win over OSC', async () => {
+	const home = tempHome();
+	const now = 1_700_000_000_000;
+	const osc = await setupOscSpaces(home, [
+		{
+			key: 'OSC-EXITED',
+			info: {status: 'idle', app: 'antigravity'},
+			updatedAt: now - 10_000,
+			exited: true,
+		},
+		{
+			key: 'PANE-DEAD',
+			info: {status: 'idle', app: 'antigravity'},
+			updatedAt: now - 10_000,
+			dead: true,
+		},
+		{
+			key: 'CLAUDE-ENDED',
+			info: {status: 'idle', app: 'antigravity'},
+			updatedAt: now - 10_000,
+		},
+		{
+			key: 'CLAUDE-COMPACT',
+			info: {status: 'working', app: 'claude-code'},
+			updatedAt: now - 10_000,
+		},
+	]);
+	await writeStatus(home, statusKey('CLAUDE-ENDED'), {
+		status: 'ended',
+		lastUpdate: now - 5000,
+	});
+	await writeStatus(home, statusKey('CLAUDE-COMPACT'), {
+		status: 'compacting',
+		lastUpdate: now - 5000,
+	});
+
+	const spaces = await gather(home, {now, ...osc});
+	const byName = new Map(spaces.map(s => [s.name, s]));
+	expect(byName.get('OSC-EXITED')?.status).toBe('ended');
+	expect(byName.get('PANE-DEAD')?.status).toBe('ended');
+	expect(byName.get('CLAUDE-ENDED')?.status).toBe('ended');
+	expect(byName.get('CLAUDE-COMPACT')?.status).toBe('compacting');
 });

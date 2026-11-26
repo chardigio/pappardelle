@@ -1,4 +1,4 @@
-// `pappardelle spaces`: every open space with its Claude status, cached rail
+// `pappardelle spaces`: every open space with its agent status, cached rail
 // state and recap, issue title, PR link and branch summary. The JSON keeps
 // the shape of the sous-chef's old gather-spaces.sh, which the board reads,
 // and adds title, prUrl and git.
@@ -7,12 +7,32 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import type {ClaudeStatusDao} from './claude-status.ts';
+import {
+	statusInfo,
+	type ClaudeStatus,
+	type ClaudeStatusDao,
+	type StoredClaudeStatus,
+} from './claude-status.ts';
+import type {PappardelleConfig} from './config.ts';
 import type {IssueMetaDao} from './issue-meta.ts';
+import {
+	listStatusPanes,
+	type LocatedStatusPane,
+	type ProgramStatusDao,
+	type ProgramStatusSnapshot,
+	type StatusPane,
+} from './program-status-monitor.ts';
+import type {ProgramStatusInfo} from './program-status.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
-import {claudeProjectDir, type SpaceStateDao} from './space-state.ts';
+import {
+	findSpaceTranscript,
+	resolveSpaceAgentKind,
+	type AgentSessionsDao,
+	type SpaceStateDao,
+} from './space-state.ts';
 import type {SpaceIdentity, SpaceIdentityDao} from './space-identity.ts';
 import {getIssues} from './tracker.ts';
+import {mergeProgramStatus} from './workspace-status.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -59,12 +79,16 @@ export interface SpacesDeps {
 	registry: Pick<SpaceRegistryDao, 'openSpaces'>;
 	spaceIdentities: Pick<SpaceIdentityDao, 'get'>;
 	claudeStatus: Pick<ClaudeStatusDao, 'readableKey' | 'readState'>;
+	programStatus?: Pick<ProgramStatusDao, 'read'>;
 	spaceState: Pick<SpaceStateDao, 'read'>;
 	issueMeta: Pick<IssueMetaDao, 'read'>;
+	agentSessions?: Pick<AgentSessionsDao, 'read'>;
+	config?: PappardelleConfig | null;
 	home: string;
 	now?: number;
 	fetchTitles: (keys: string[]) => Promise<Map<string, string | null>>;
 	gitSummary: (worktreePath: string) => Promise<GitSummary | null>;
+	listStatusPanes?: (socket: string) => Promise<Map<string, LocatedStatusPane>>;
 	titleTimeoutMs?: number;
 }
 
@@ -132,29 +156,66 @@ function spaceHolding(
 	return found?.key;
 }
 
-function newestJsonl(
-	projectDir: string,
-): {file: string; mtimeMs: number} | null {
-	let newest: {file: string; mtimeMs: number} | null = null;
-	let entries: string[];
-	try {
-		entries = fs.readdirSync(projectDir);
-	} catch {
-		return null;
-	}
+function oscStatusLabel(info: ProgramStatusInfo): ClaudeStatus {
+	switch (info.status) {
+		case 'blocked': {
+			return 'waiting_for_approval';
+		}
 
-	for (const name of entries) {
-		if (!name.endsWith('.jsonl')) continue;
-		const file = path.join(projectDir, name);
-		try {
-			const {mtimeMs} = fs.statSync(file);
-			if (!newest || mtimeMs > newest.mtimeMs) newest = {file, mtimeMs};
-		} catch {
-			// Removed between readdir and stat
+		case 'done':
+		case 'idle': {
+			return 'waiting_for_input';
+		}
+
+		case 'working': {
+			return info.tool ? 'running_tool' : 'processing';
+		}
+
+		case 'error':
+		case 'unknown': {
+			return info.status;
 		}
 	}
+}
 
-	return newest;
+function spaceStatusFields(
+	stored: StoredClaudeStatus,
+	snapshot: ProgramStatusSnapshot | null,
+	pane: StatusPane | null,
+): Pick<SpaceEntry, 'status' | 'currentTool' | 'lastUpdate' | 'sessionId'> {
+	const hook = stored.kind === 'state' ? stored.state : null;
+	if (snapshot?.authoritative && pane) {
+		const merged = mergeProgramStatus(
+			hook ? statusInfo(hook) : null,
+			snapshot,
+			pane,
+		)!;
+		const status: ClaudeStatus =
+			snapshot.exited || pane.dead
+				? 'ended'
+				: hook?.status === 'ended' || hook?.status === 'compacting'
+					? hook.status
+					: oscStatusLabel(merged);
+		return {
+			status,
+			currentTool: status === 'ended' ? null : (merged.tool ?? null),
+			lastUpdate: hook
+				? Math.max(snapshot.updatedAt, hook.lastUpdate)
+				: snapshot.updatedAt,
+			...(hook ? {sessionId: hook.sessionId} : {}),
+		};
+	}
+
+	if (hook) {
+		return {
+			status: hook.status,
+			currentTool: hook.currentTool ?? null,
+			lastUpdate: hook.lastUpdate,
+			sessionId: hook.sessionId,
+		};
+	}
+
+	return {status: stored.kind === 'unreadable' ? 'unknown' : 'no_status'};
 }
 
 async function withTimeout<T>(
@@ -214,24 +275,45 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 		new Map<string, string | null>(),
 	);
 
+	const paneReader = deps.listStatusPanes ?? listStatusPanes;
+	const panesBySocket = new Map<string, Map<string, LocatedStatusPane>>();
+	if (deps.programStatus) {
+		const sockets = new Set(
+			[...identities.values()].map(identity => identity.tmux.socket),
+		);
+		await Promise.all(
+			[...sockets].map(async socket => {
+				panesBySocket.set(socket, await paneReader(socket));
+			}),
+		);
+	}
+
 	const entries = await Promise.all(
 		keys.map(async (name): Promise<SpaceEntry> => {
 			const entry: Partial<SpaceEntry> & {name: string} = {name};
+			const identity = identities.get(name);
+			const state = deps.spaceState.read(name);
+			const {kind} = resolveSpaceAgentKind(state, deps.config);
+			const pane = identity
+				? (panesBySocket
+						.get(identity.tmux.socket)
+						?.get(identity.tmux.agentSession)?.pane ?? null)
+				: null;
 
-			const stored = await deps.claudeStatus.readState(
-				await deps.claudeStatus.readableKey(repoName, name),
-			);
-			if (stored.kind === 'state') {
-				const {state} = stored;
-				entry.status = state.status;
-				entry.currentTool = state.currentTool ?? null;
-				entry.lastUpdate = state.lastUpdate;
-				if (entry.lastUpdate)
-					entry.minutesAgo = roundTenth((now - entry.lastUpdate) / 60_000);
-				entry.sessionId = state.sessionId;
-			} else {
-				entry.status = stored.kind === 'unreadable' ? 'unknown' : 'no_status';
-			}
+			const [stored, snapshot] = await Promise.all([
+				kind === 'claude'
+					? deps.claudeStatus.readState(
+							await deps.claudeStatus.readableKey(repoName, name),
+						)
+					: Promise.resolve({kind: 'none'} as const),
+				deps.programStatus && pane
+					? deps.programStatus.read(name, pane)
+					: Promise.resolve(null),
+			]);
+			Object.assign(entry, spaceStatusFields(stored, snapshot, pane));
+
+			if (entry.lastUpdate)
+				entry.minutesAgo = roundTenth((now - entry.lastUpdate) / 60_000);
 
 			const meta = deps.issueMeta.read(name);
 			if (meta) {
@@ -241,7 +323,6 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 				};
 			}
 
-			const state = deps.spaceState.read(name);
 			if (state) {
 				for (const field of [
 					'pipeline',
@@ -257,19 +338,23 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 
 			const prUrl = state?.prLinks?.at(-1)?.url ?? null;
 
-			const session = sessions.get(name);
-			if (session) {
-				entry.pid = session['pid'];
-				entry.worktreePath = session['cwd'];
+			if (kind === 'claude') {
+				const session = sessions.get(name);
+				if (session) {
+					entry.pid = session['pid'];
+					entry.worktreePath = session['cwd'];
+				}
 			}
 
-			const identity = identities.get(name);
 			const worktree = identity?.worktreePath ?? null;
-			const log =
-				worktree &&
-				newestJsonl(
-					claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
-				);
+			const log = await findSpaceTranscript({
+				issueKey: name,
+				worktreePath: worktree,
+				state,
+				agentSessions: deps.agentSessions,
+				config: deps.config,
+				home,
+			});
 			if (log) {
 				entry.conversationLog = log.file;
 				entry.logModified = log.mtimeMs / 1000;
@@ -390,25 +475,18 @@ export function formatSpaces(report: SpacesReport): string {
 		.join('\n');
 }
 
-export async function runSpacesCommand(options: {
-	repoName: string;
-	registry: SpacesDeps['registry'];
-	spaceIdentities: SpacesDeps['spaceIdentities'];
-	claudeStatus: SpacesDeps['claudeStatus'];
-	spaceState: SpacesDeps['spaceState'];
-	issueMeta: SpacesDeps['issueMeta'];
-	home: string;
-	json: boolean;
-	out: (text: string) => void;
-}): Promise<number> {
+export async function runSpacesCommand(
+	options: Omit<
+		SpacesDeps,
+		'fetchTitles' | 'gitSummary' | 'now' | 'listStatusPanes' | 'titleTimeoutMs'
+	> & {
+		json: boolean;
+		out: (text: string) => void;
+	},
+): Promise<number> {
+	const {json, out, ...deps} = options;
 	const report = await gatherSpaces({
-		repoName: options.repoName,
-		registry: options.registry,
-		spaceIdentities: options.spaceIdentities,
-		claudeStatus: options.claudeStatus,
-		spaceState: options.spaceState,
-		issueMeta: options.issueMeta,
-		home: options.home,
+		...deps,
 		async fetchTitles(keys) {
 			const issues = await getIssues(keys);
 			return new Map(
@@ -417,8 +495,6 @@ export async function runSpacesCommand(options: {
 		},
 		gitSummary: worktreeGitSummary,
 	});
-	options.out(
-		options.json ? JSON.stringify(report, null, 2) : formatSpaces(report),
-	);
+	out(json ? JSON.stringify(report, null, 2) : formatSpaces(report));
 	return 0;
 }

@@ -473,6 +473,15 @@ if (cli.input[0] === 'close') {
 	);
 }
 
+function readOptionalConfig() {
+	const load = readConfig();
+	if (load.kind === 'invalid') {
+		console.error(formatConfigErrors(load.errors));
+	}
+
+	return load.kind === 'valid' ? load.config : null;
+}
+
 if (cli.input[0] === 'spaces') {
 	const {runSpacesCommand} = await import('./spaces-command.ts');
 	await exitAfterFlush(
@@ -481,8 +490,11 @@ if (cli.input[0] === 'spaces') {
 			registry: daos.registry,
 			spaceIdentities: daos.spaceIdentities,
 			claudeStatus: daos.claudeStatus,
+			programStatus: daos.programStatus,
 			spaceState: daos.spaceState,
 			issueMeta: daos.issueMeta,
+			agentSessions: daos.agentSessions,
+			config: readOptionalConfig(),
 			home: homedir(),
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),
@@ -503,6 +515,10 @@ if (cli.input[0] === 'read') {
 		await runReadCommand({
 			issueKey,
 			worktree: getWorktreePath(issueKey),
+			spaceState: daos.spaceState,
+			agentSessions: daos.agentSessions,
+			config: readOptionalConfig(),
+			home: homedir(),
 			turns: cli.flags.turns,
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),
@@ -591,6 +607,11 @@ if (cli.input.length > 0) {
 							worktree,
 							since,
 							timeoutMs: 60_000,
+							osc: {
+								programStatus: daos.programStatus,
+								spaceIdentities: daos.spaceIdentities,
+								issueKey,
+							},
 						})
 					);
 				}

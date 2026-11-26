@@ -1,5 +1,20 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import {test, expect} from 'bun:test';
-import {formatTurns, parseTurns, turnsJson} from './read-command.ts';
+import {testState} from '../test/helpers/state.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
+import type {PappardelleConfig} from './config.ts';
+import {
+	formatTurns,
+	parseTurns,
+	runReadCommand,
+	turnsJson,
+} from './read-command.ts';
+import {
+	claudeProjectDir,
+	extractRecapFromJsonl,
+	type SpaceState,
+} from './space-state.ts';
 
 const jsonl = (...entries: unknown[]) =>
 	entries.map(entry => JSON.stringify(entry)).join('\n');
@@ -76,4 +91,200 @@ test('text and JSON output keep only the last N turns', () => {
 		totalTurns: 2,
 		turns: [turns[1]],
 	});
+});
+
+test('parseTurns extracts agy USER_INPUT and PLANNER_RESPONSE replies and skips noise', () => {
+	const turns = parseTurns(
+		jsonl(
+			{
+				step_index: 0,
+				source: 'SYSTEM',
+				type: 'SYSTEM_MESSAGE',
+				created_at: '2026-11-24T10:00:00Z',
+				content: 'system instructions',
+			},
+			{
+				step_index: 1,
+				source: 'MODEL',
+				type: 'PLANNER_RESPONSE',
+				created_at: '2026-11-24T10:00:01Z',
+				content: 'stray before prompt',
+			},
+			{
+				step_index: 2,
+				source: 'USER_EXPLICIT',
+				type: 'USER_INPUT',
+				created_at: '2026-11-24T10:01:00Z',
+				content:
+					'<USER_REQUEST>\nfix the tests\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nlocal time\n</ADDITIONAL_METADATA>',
+			},
+			{
+				step_index: 3,
+				source: 'MODEL',
+				type: 'PLANNER_RESPONSE',
+				created_at: '2026-11-24T10:01:05Z',
+				thinking: 'hmm',
+				tool_calls: [{name: 'run_command'}],
+			},
+			{
+				step_index: 4,
+				source: 'MODEL',
+				type: 'GENERIC',
+				created_at: '2026-11-24T10:01:06Z',
+				content: 'tool output',
+			},
+			{
+				step_index: 5,
+				source: 'MODEL',
+				type: 'PLANNER_RESPONSE',
+				created_at: '2026-11-24T10:01:10Z',
+				content: 'Fixed them.',
+			},
+			{
+				step_index: 6,
+				source: 'USER_EXPLICIT',
+				type: 'USER_INPUT',
+				created_at: '2026-11-24T10:02:00Z',
+				content: `<USER_REQUEST>\n${'a'.repeat(700)}`,
+			},
+			{
+				step_index: 7,
+				source: 'MODEL',
+				type: 'PLANNER_RESPONSE',
+				created_at: '2026-11-24T10:02:05Z',
+				content: 'b'.repeat(700),
+			},
+			'not json',
+		),
+		'agy',
+	);
+	expect(turns.length).toBe(2);
+	expect(turns[0]).toStrictEqual({
+		prompt: 'fix the tests',
+		ts: '2026-11-24T10:01:00Z',
+		replies: ['Fixed them.'],
+	});
+	expect(turns[1]!.prompt.length).toBe(500);
+	expect(turns[1]!.replies[0]!.length).toBe(500);
+});
+
+function readFixture(issueKey: string, config: PappardelleConfig | null) {
+	const home = tempDir('read-');
+	const worktree = path.join(home, 'wt', issueKey);
+	const {spaceState, agentSessions} = testState({home}).daos;
+	const staleClaude = path.join(
+		claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
+		'old.jsonl',
+	);
+	fs.mkdirSync(path.dirname(staleClaude), {recursive: true});
+	fs.writeFileSync(staleClaude, jsonl(user('stale claude'), assistant('nope')));
+
+	const run = async () => {
+		const out: string[] = [];
+		const err: string[] = [];
+		const code = await runReadCommand({
+			issueKey,
+			worktree,
+			spaceState,
+			agentSessions,
+			config,
+			home,
+			turns: 5,
+			json: true,
+			out: line => out.push(line),
+			err: line => err.push(line),
+		});
+		return {code, out, err};
+	};
+
+	const setProfile = async (
+		agentProfile: NonNullable<SpaceState['agentProfile']>,
+	) => spaceState.write(issueKey, {agentProfile});
+
+	return {home, agentSessions, run, setProfile};
+}
+
+test('runReadCommand reads agy transcript.jsonl and never falls back to stale Claude logs', async () => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'STA',
+		agent_profiles: {argon: {command: 'agy'}},
+		profiles: {dev: {display_name: 'Dev'}},
+	};
+	const f = readFixture('STA-9', config);
+	await f.setProfile({name: 'argon', isClaude: false});
+
+	// Before agy records a conversationId or transcript, must fail instead of reading Claude's log.
+	expect(await f.run()).toMatchObject({
+		code: 1,
+		err: ['No conversation log for STA-9'],
+	});
+
+	fs.mkdirSync(path.dirname(f.agentSessions.file('STA-9')), {recursive: true});
+	fs.writeFileSync(
+		f.agentSessions.file('STA-9'),
+		JSON.stringify({argon: {session_id: 'conv-agy-1', pid: 10, started: null}}),
+	);
+	expect(await f.run()).toMatchObject({code: 1});
+
+	const agyLog = path.join(
+		f.home,
+		'.gemini',
+		'antigravity-cli',
+		'brain',
+		'conv-agy-1',
+		'.system_generated',
+		'logs',
+		'transcript.jsonl',
+	);
+	fs.mkdirSync(path.dirname(agyLog), {recursive: true});
+	fs.writeFileSync(
+		agyLog,
+		jsonl(
+			{
+				type: 'USER_INPUT',
+				source: 'USER_EXPLICIT',
+				created_at: '2026-11-24T12:00:00Z',
+				content: '<USER_REQUEST>\nhello agy\n</USER_REQUEST>',
+			},
+			{
+				type: 'PLANNER_RESPONSE',
+				source: 'MODEL',
+				created_at: '2026-11-24T12:00:05Z',
+				content: 'hello human',
+			},
+		),
+	);
+
+	const result = await f.run();
+	expect(result.code).toBe(0);
+	expect(JSON.parse(result.out.join('\n'))).toStrictEqual({
+		issueKey: 'STA-9',
+		totalTurns: 1,
+		turns: [
+			{
+				prompt: 'hello agy',
+				ts: '2026-11-24T12:00:00Z',
+				replies: ['hello human'],
+			},
+		],
+	});
+	expect(await extractRecapFromJsonl(agyLog, 'agy')).toStrictEqual({
+		lastPrompt: 'hello agy',
+		lastAssistantExcerpt: 'hello human',
+	});
+});
+
+test('runReadCommand does not fall back to stale Claude logs for Codex or custom non-Claude spaces', async () => {
+	const f = readFixture('STA-10', null);
+	for (const agentProfile of [
+		{name: 'codex', isClaude: false},
+		{name: 'custom-agent', isClaude: false},
+	]) {
+		await f.setProfile(agentProfile);
+		expect(await f.run()).toMatchObject({
+			code: 1,
+			err: ['No conversation log for STA-10'],
+		});
+	}
 });
