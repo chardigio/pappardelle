@@ -16,21 +16,17 @@ import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {GitLabProvider} from '../source/providers/gitlab-provider.ts';
 import type {RailStatus} from '../source/providers/types.ts';
+import {requiredEnv} from './required-env.ts';
 
 const HOST = process.env['GITLAB_HOST'];
-const issueKey = process.env['GITLAB_ISSUE'];
 const EXPLICIT_MR = process.env['GITLAB_MR']
 	? Number(process.env['GITLAB_MR'])
 	: undefined;
 
-if (!issueKey) {
-	console.error(
-		'\u274c GITLAB_ISSUE is required. Example:\n  GITLAB_ISSUE=PROJ-123 bun integration-tests/verify-gitlab.ts',
-	);
-	process.exit(1);
-}
-
-const ISSUE_KEY = issueKey;
+const ISSUE_KEY = requiredEnv(
+	'GITLAB_ISSUE',
+	'GITLAB_ISSUE=PROJ-123 bun integration-tests/verify-gitlab.ts',
+);
 
 let failed = false;
 
