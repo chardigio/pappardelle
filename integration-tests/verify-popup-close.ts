@@ -8,6 +8,9 @@ import {
 	openPopupTerminal,
 	type PopupTerminal,
 } from '../source/popup/terminal.ts';
+import {requireTmuxGuard} from '../test/helpers/tmux-guard-check.ts';
+
+requireTmuxGuard();
 
 // Popups only show on an attached client, so this attaches a real one in a
 // pty to a throwaway server. A popup the rail is done with must close and

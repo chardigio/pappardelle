@@ -17,6 +17,7 @@ import {fileURLToPath} from 'node:url';
 import {isDeepStrictEqual} from 'node:util';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
+import {requireTmuxGuard} from '../test/helpers/tmux-guard-check.ts';
 import {sendHookEvent, subscribeRaw} from '../test/helpers/status-daemon.ts';
 import type {
 	ClaudeSessionState,
@@ -104,6 +105,7 @@ export class StatusHarness {
 	private view?: Awaited<ReturnType<typeof render>>;
 	private spaces: SpaceData[] = [];
 	constructor() {
+		requireTmuxGuard();
 		for (const [name, value] of Object.entries({
 			PAPPARDELLE_TMUX_SOCKET: this.socket,
 			PAPPARDELLE_STATUS_DIR: path.join(this.root, 'hooks'),

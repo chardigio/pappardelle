@@ -2,6 +2,10 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
+import {
+	killProcessesNaming,
+	processesNaming,
+} from '../test/helpers/processes.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
@@ -291,5 +295,57 @@ const guarded = Boolean(process.env[TEST_TMUX_REFUSALS]);
 				/^refusing to run tmux against the live tmux directory/,
 			);
 		}
+	},
+);
+
+const runScript = path.resolve('test/helpers/tmux-guard-run.sh');
+
+function runGuarded(script: string) {
+	return spawnSync(runScript, ['sh', '-c', script], {encoding: 'utf8'});
+}
+
+(guarded ? test : test.skip)(
+	'a suite run under the guard fails on a refused call it swallowed',
+	() => {
+		const base = path.dirname(
+			fs
+				.readFileSync(
+					path.join(process.env[TEST_TMUX_GUARD]!, 'live-dirs'),
+					'utf8',
+				)
+				.split('\n')
+				.find(Boolean)!,
+		);
+		const result = runGuarded(
+			`TMUX_TMPDIR='${base}' tmux -L guard-test-no-such-server ls; true`,
+		);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(
+			'refusing to run tmux against the live tmux directory',
+		);
+	},
+);
+
+(guarded ? test : test.skip)(
+	'a suite that passed but left a tmux server running fails, and the server is stopped',
+	() => {
+		const name = `guard-run-leak-${process.pid}`;
+		teardown(() => {
+			killProcessesNaming(name);
+		});
+		const result = runGuarded(
+			`echo "$TMUX_TMPDIR"; tmux -f /dev/null -L ${name} new-session -d 'sleep 60'`,
+		);
+		expect(result.status, result.stderr).toBe(1);
+		expect(result.stderr).toContain(`Stopped a tmux server left running on`);
+		expect(fs.existsSync(result.stdout.trim())).toBe(false);
+		expect(processesNaming(name)).toEqual([]);
+	},
+);
+
+(guarded ? test : test.skip)(
+	"a suite run under the guard exits with the suite's own status",
+	() => {
+		expect(runGuarded('exit 3').status).toBe(3);
 	},
 );
