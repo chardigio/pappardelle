@@ -356,18 +356,18 @@ combining an effort-suffixed model id (like `gemini-4-argon-medium`) with
 whatever the installed CLI accepts: an alias (`opus`, `sonnet`), a full id
 (`claude-opus-5[1m]`), and `low|medium|high|xhigh|max` for claude's effort.
 Claude, codex and agy are built in (scripts/builtin-agents.json): their
-model/effort/mode flags, how they take the launch prompt (agy's `-i {prompt}`),
-their resume args and skill prefix come from there, so their profiles need only
-`command`, `model`, `effort` and `mode`. Don't add `resume_args`, `model_args`,
-`effort_args`, `mode_args` or `prompt_args` for them unless the user wants to
-override one. Any other CLI needs `model_args` / `effort_args` / `mode_args`
-containing `{model}` / `{effort}` / `{mode}` (e.g. `model_args: --model {model}`)
-before it can take a value — validation rejects a value with no template — and
+model/effort flags, agy's mode and launch-prompt flags (`--mode {mode}`,
+`-i {prompt}`), their resume args and skill prefix come from there, so their
+profiles need only `command`, `model`, `effort` (and `mode` for agy). Don't add
+those built-in `*_args` fields for them unless the user wants to override one.
+Any other CLI needs `model_args` / `effort_args` / `mode_args` containing
+`{model}` / `{effort}` / `{mode}` (e.g. `model_args: --model {model}`) before it
+can take a value — validation rejects a value with no template — and
 `prompt_args` with `{prompt}` once if it won't take a bare prompt.
 
 To give one workspace profile a different model, define another agent profile
 and point that workspace profile at it. Only prompt for these when the user
-asks about model/effort; an unset field is strictly cheaper than a wrong one.
+asks about model/effort/mode; an unset field is strictly cheaper than a wrong one.
 
 Rules to apply when editing:
 

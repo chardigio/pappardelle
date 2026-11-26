@@ -321,7 +321,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_send',
 		description:
-			"Type a prompt into a space's agent TUI as if the user did: clears the input line, types the text literally, presses Enter. Slash commands are prompts. In Claude Code, use SendMessage to talk to another Claude space; from agy, Codex or Pi — or to reach a space running one — use space_send (calls from a space prepend [from <caller>] to non-command prompts). Fails with No active session when the agent's session isn't running: reopen with space_open (resume and wait) first. Fails with Not submitted when the text reached the input box but didn't send: it is still there, so look at space_screen before sending again, since a resend would see it as a draft",
+			"Type a prompt into a space's agent TUI as if the user did: clears the input line, types the text literally, presses Enter. Slash commands are prompts. In Claude Code, use SendMessage for another Claude space; otherwise use space_send (prepends [from <caller>] to non-command prompts). Fails with No active session when the agent's session isn't running: reopen with space_open (resume and wait) first. Fails with Not submitted when the text reached the input box but didn't send: it is still there, so look at space_screen before sending again, since a resend would see it as a draft",
 		inputSchema: {
 			key,
 			text: z.string().min(1),
@@ -387,7 +387,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_state',
 		description:
-			"What a space's agent is doing: working, permission (a tool prompt, with the command, the subagent that asked and the numbered options), question (an AskUserQuestion dialog), auth, dialog (a Codex or agy dialog such as folder trust, artifact review, settings or Models & Quota; a person answers it), usage_limit (with the reset time, including agy Refreshes in countdowns), draft (text sitting in the input box), idle, exited or no_session, plus any deferredSchedules waiting to retry",
+			"What a space's agent is doing: working, permission (a tool prompt, with the command, the subagent that asked and the numbered options), question (a question dialog), auth, dialog (a Codex or agy dialog such as folder trust, artifact review, settings or Models & Quota; a person answers it), usage_limit (with the reset time), draft (text sitting in the input box), idle, exited or no_session, plus any deferredSchedules waiting to retry",
 		readOnly: true,
 		inputSchema: {key},
 		toCli: ({key}) => ({args: ['state', key, '--json']}),
@@ -553,7 +553,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_schedule',
 		description:
-			"Wake a space's agent later with an OS timer, which runs even when this session and the TUI don't: at (send message at a time), after_limit (send message, default continue, once its usage limit resets), or keep_going (every interval: continue after a limit, and the nudge when the agent sits idle two checks in a row; never over a draft). Dismisses Codex's model-switch offer and agy's Models & Quota panel before sending; deferred one-shot jobs retry and appear in space_schedules, space_state and space_watch",
+			"Wake a space's agent later with an OS timer, which runs even when this session and the TUI don't: at (send message at a time), after_limit (send message, default continue, once its usage limit resets), or keep_going (every interval: continue after a limit, and the nudge when the agent sits idle two checks in a row; never over a draft). Dismisses Codex's model-switch offer and agy's Models & Quota panel before sending; deferred one-shot jobs retry automatically",
 		inputSchema: {
 			key,
 			kind: z.enum(['at', 'after_limit', 'keep_going']),
@@ -630,7 +630,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				.boolean()
 				.optional()
 				.describe(
-					"Wait up to 60s for the space's agent to start, and fail if it isn't confirmed. Set it before space_send to a space you just reopened: a failed launch leaves a shell in the pane, which would run the text as a command. Confirmations come from Claude hooks or native OSC program status (Codex, agy, Pi); agents without either never confirm",
+					"Wait up to 60s for the space's agent to start, and fail if it isn't confirmed. Set it before space_send to a space you just reopened: a failed launch leaves a shell in the pane, which would run the text as a command. Confirmations come from Claude hooks or native OSC program status (Codex, OpenCode, agy, Pi); agents without either never confirm",
 				),
 		},
 		toCli: ({input, resume, profile, agent_profile, wait}) => ({

@@ -132,7 +132,7 @@ keybindings:
           end tell
         end tell'
 
-  # send_to_claude — send a slash command to the active Claude session
+  # send_skill / send_to_claude — send a skill or command to the active agent session
   - key: 'a'
     name: 'Address PR feedback'
     send_skill: address-pr-feedback
