@@ -1,18 +1,9 @@
 import fs from 'node:fs';
 import {test, expect} from 'bun:test';
+import {trackerIssue} from '../test/helpers/space-fixtures.ts';
 import {testConfig} from '../test/helpers/config-fixtures.ts';
 import {testState} from '../test/helpers/state.ts';
 import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
-import type {TrackerIssue} from './providers/types.ts';
-
-function makeIssue(projectName: string | undefined): TrackerIssue {
-	return {
-		identifier: 'STA-1',
-		title: 't',
-		state: {name: 'In Progress', color: '#fff'},
-		project: projectName ? {name: projectName} : undefined,
-	} as unknown as TrackerIssue;
-}
 
 test('the rail emoji honors saved profiles and backfills without dropping other state', async () => {
 	const {spaceState} = testState().daos;
@@ -26,7 +17,7 @@ test('the rail emoji honors saved profiles and backfills without dropping other 
 		config,
 		spaceState,
 		issueKey: 'STA-1',
-		cachedIssue: makeIssue('Project B'),
+		cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 	};
 	await spaceState.write('STA-1', {profile: 'a'});
 	expect(resolveSpaceEmoji(args)).toBe('🅰️');
@@ -77,7 +68,7 @@ test('persisted profile takes precedence over a cached-issue project match', asy
 			config,
 			spaceState,
 			issueKey: 'STA-1',
-			cachedIssue: makeIssue('Project B'),
+			cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 		}),
 	).toBe('🅰️');
 });
@@ -104,7 +95,7 @@ test('backfills persisted profile from cached-issue project match', () => {
 		config,
 		spaceState,
 		issueKey: 'STA-2',
-		cachedIssue: makeIssue('Pappardelle Quality'),
+		cachedIssue: trackerIssue({project: {name: 'Pappardelle Quality'}}),
 	});
 	expect(result).toBe('🍝');
 	expect(spaceState.read('STA-2')?.profile).toBe('pappardelle');
@@ -125,7 +116,7 @@ test('after backfill, subsequent calls resolve emoji without needing the cached 
 		config,
 		spaceState,
 		issueKey: 'STA-2',
-		cachedIssue: makeIssue('Pappardelle Quality'),
+		cachedIssue: trackerIssue({project: {name: 'Pappardelle Quality'}}),
 	});
 	// Now act as if the in-memory issue cache was evicted — we still get the
 	// emoji from the persisted profile alone.
@@ -154,7 +145,7 @@ test('does not re-write space-state when profile is already persisted', async ()
 		config,
 		spaceState,
 		issueKey: 'STA-3',
-		cachedIssue: makeIssue('Some Other Project'),
+		cachedIssue: trackerIssue({project: {name: 'Some Other Project'}}),
 	});
 	expect(fs.statSync(filePath).mtimeMs).toBe(mtimeBefore);
 });
@@ -174,7 +165,7 @@ test('does not persist when cached-issue project does not match any profile', ()
 		config,
 		spaceState,
 		issueKey: 'STA-4',
-		cachedIssue: makeIssue('Some Other Project'),
+		cachedIssue: trackerIssue({project: {name: 'Some Other Project'}}),
 	});
 	expect(spaceState.read('STA-4')).toBe(null);
 });
@@ -217,7 +208,7 @@ test('persisted profile that no longer exists in config returns blank slot, not 
 			config,
 			spaceState,
 			issueKey: 'STA-8',
-			cachedIssue: makeIssue('Pappardelle Quality'),
+			cachedIssue: trackerIssue({project: {name: 'Pappardelle Quality'}}),
 		}),
 	).toBe('');
 });
@@ -278,7 +269,7 @@ test('emoji-free config returns undefined for every signal combination', () => {
 			config,
 			spaceState,
 			issueKey: 'STA-9',
-			cachedIssue: makeIssue('Project A'),
+			cachedIssue: trackerIssue({project: {name: 'Project A'}}),
 		}),
 	).toBe(undefined);
 	expect(
@@ -303,7 +294,7 @@ test('null config returns undefined and does not persist anything', () => {
 			config: null,
 			spaceState,
 			issueKey: 'STA-10',
-			cachedIssue: makeIssue('Project A'),
+			cachedIssue: trackerIssue({project: {name: 'Project A'}}),
 		}),
 	).toBe(undefined);
 	expect(spaceState.read('STA-10')).toBe(null);
@@ -347,7 +338,7 @@ test('resolveSpaceProfileName prefers the persisted profile over a project match
 			config,
 			spaceState,
 			issueKey: 'STA-21',
-			cachedIssue: makeIssue('Project B'),
+			cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 		}),
 	).toBe('a');
 });
@@ -364,7 +355,7 @@ test('resolveSpaceProfileName backfills from a project match and persists it', (
 			config,
 			spaceState,
 			issueKey: 'STA-22',
-			cachedIssue: makeIssue('Project B'),
+			cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 		}),
 	).toBe('backend');
 	expect(spaceState.read('STA-22')?.profile).toBe('backend');
@@ -392,7 +383,7 @@ test('resolveSpaceProfileName returns undefined for the main worktree row', () =
 			config,
 			spaceState,
 			issueKey: undefined,
-			cachedIssue: makeIssue('Project B'),
+			cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 		}),
 	).toBe(undefined);
 });
