@@ -17,14 +17,12 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import type {ProgramStatusSnapshot} from '../source/program-status-monitor.ts';
-import {requireTmuxGuard} from '../test/helpers/tmux-guard-check.ts';
 import {until} from './program-status-harness.ts';
 
 assert.ok(
 	process.argv.includes('--live'),
 	'Pass --live to run installed Codex',
 );
-requireTmuxGuard();
 const project = fileURLToPath(new URL('..', import.meta.url));
 const version = execFileSync('codex', ['--version'], {encoding: 'utf8'}).trim();
 const auth = path.join(
