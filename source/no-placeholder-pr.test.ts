@@ -93,7 +93,7 @@ function runCheckExistingPr(ghScript: string): string {
 			],
 			{
 				encoding: 'utf-8',
-				env: {...process.env, PATH: `${dir}:${process.env.PATH!}`},
+				env: {...process.env, PATH: `${dir}:${process.env['PATH']!}`},
 			},
 		).trim();
 	} finally {

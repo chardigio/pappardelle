@@ -20,7 +20,7 @@ const socket = path.join(root, 'tmux.sock');
 const tmux = (args: string[]) =>
 	execFileSync('tmux', ['-S', socket, ...args], {encoding: 'utf8'});
 const {TMUX_PANE: _pane, ...cleanEnv} = process.env;
-delete cleanEnv.TMUX;
+delete cleanEnv['TMUX'];
 
 async function settles(promise: Promise<void>, ms: number) {
 	return Promise.race([promise.then(() => true), delay(ms).then(() => false)]);

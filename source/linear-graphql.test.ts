@@ -144,7 +144,7 @@ test('sends the API key in the Authorization header', async () => {
 	await client(['STA-9']);
 
 	expect(captured).toBeTruthy();
-	expect(captured!.Authorization).toBe('lin_secret');
+	expect(captured!['Authorization']).toBe('lin_secret');
 	expect(captured!['Content-Type']).toBe('application/json');
 });
 
