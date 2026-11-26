@@ -81,9 +81,9 @@ jobs:
           PAPPARDELLE_TEST_STANDALONE: '1'
         run: bun run test:unit source/open-space-command.test.ts
 
-      # The shell-tests job runs on Linux, which has no osascript.
+      # Linux has no osascript, and the test reads no state, so one leg runs it.
       - name: Launcher session names through osascript (macOS)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.sqlite_state == '0'
         run: ./scripts/test-session-name-encoding.sh
 
       - name: Verify program status transport, lifecycle, cleanup and app
@@ -179,9 +179,6 @@ jobs:
 
       - name: Issue project extraction
         run: ./scripts/test-extract-issue-project.sh
-
-      - name: tmux session name encoding
-        run: ./scripts/test-session-name-encoding.sh
 
       - name: Config layer merge in idow
         run: ./scripts/test-config-layers.sh

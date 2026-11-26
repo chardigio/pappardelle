@@ -13,12 +13,12 @@
 # The command lines are assembled inside open-iterm-agent.sh's AppleScript, so
 # this runs the launcher with --print-command, and an osascript shim strips the
 # script's `tell application "iTerm"` block before the real osascript runs it
-# with the launcher's own arguments: AppleScript resolves an application's
+# with the launcher's own arguments. AppleScript resolves an application's
 # dictionary at compile time, so on a machine without iTerm2 installed the whole
-# script fails to compile and even --print-command (which returns well before
-# iTerm) cannot run. Everything this test cares about lives above that block.
-# test-workspace-launchers.sh checks the companion name too, but only where
-# iTerm is installed.
+# script fails to compile, and even --print-command cannot run although it
+# returns well before iTerm. Everything this test cares about lives above that
+# block. test-workspace-launchers.sh checks the companion name too, but needs
+# iTerm installed.
 #
 # Usage: ./test-session-name-encoding.sh
 
