@@ -586,11 +586,13 @@ test('install_local_clone stops before installing a checkout that does not typec
 
 function runUpdateScript(installCommand: string, waitOnFailure?: boolean) {
 	const home = testDir();
-	const result = spawnSync(
-		'/bin/bash',
-		['-c', updateShellScript({installCommand, waitOnFailure})],
-		{encoding: 'utf8', env: {...process.env, HOME: home}, stdio: 'pipe'},
+	// A child keeps the run's controlling terminal, so run from a terminal the
+	// wrapper's read from /dev/tty would wait for a key. A new session has none.
+	const spawned = Bun.spawnSync(
+		['/bin/bash', '-c', updateShellScript({installCommand, waitOnFailure})],
+		{env: {...process.env, HOME: home}, detached: true},
 	);
+	const result = {status: spawned.exitCode, stdout: spawned.stdout.toString()};
 	const log = path.join(home, '.pappardelle', 'logs', 'update.log');
 	return {result, log: fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : ''};
 }
