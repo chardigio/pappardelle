@@ -7,13 +7,13 @@ import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
+import {spaceData} from '../test/helpers/space-fixtures.ts';
 import {until, watcherReady} from '../test/helpers/wait.ts';
 import {
 	findSpaceIndexByIssueKey,
 	getHighlightFilePath,
 	type HighlightRequest,
 } from './highlight.ts';
-import type {SpaceData} from './types.ts';
 
 const exec = promisify(execFile);
 const daosUrl = new URL('state-daos.ts', import.meta.url).href;
@@ -166,12 +166,10 @@ test('the two stores leave the same target file for the same requests', async ()
 	const files = [];
 	for (const sqlite of [false, true]) {
 		const s = testState({sqlite});
-		/* eslint-disable no-await-in-loop -- The history is a sequence. */
 		await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
 		await s.daos.highlight.clear();
 		await s.daos.highlight.request({issueKey: 'STA-2', focus: false});
 		await s.daos.highlight.request({issueKey: 'STA-3', focus: false});
-		/* eslint-enable no-await-in-loop */
 		files.push(fs.readFileSync(targetFile(s), 'utf8'));
 	}
 
@@ -183,22 +181,17 @@ test('the two stores leave the same target file for the same requests', async ()
 // findSpaceIndexByIssueKey
 // ============================================================================
 
-const makeSpace = (name: string): SpaceData => ({
-	name,
-	worktreePath: `/worktrees/${name}`,
-});
-
 test('findSpaceIndexByIssueKey finds exact match', () => {
 	const spaces = [
-		makeSpace('STA-100'),
-		makeSpace('STA-200'),
-		makeSpace('STA-300'),
+		spaceData('STA-100'),
+		spaceData('STA-200'),
+		spaceData('STA-300'),
 	];
 	expect(findSpaceIndexByIssueKey(spaces, 'STA-200')).toBe(1);
 });
 
 test('findSpaceIndexByIssueKey returns -1 when not found', () => {
-	const spaces = [makeSpace('STA-100'), makeSpace('STA-200')];
+	const spaces = [spaceData('STA-100'), spaceData('STA-200')];
 	expect(findSpaceIndexByIssueKey(spaces, 'STA-999')).toBe(-1);
 });
 
@@ -207,15 +200,15 @@ test('findSpaceIndexByIssueKey handles empty spaces array', () => {
 });
 
 test('findSpaceIndexByIssueKey is case-insensitive', () => {
-	const spaces = [makeSpace('STA-100'), makeSpace('STA-200')];
+	const spaces = [spaceData('STA-100'), spaceData('STA-200')];
 	expect(findSpaceIndexByIssueKey(spaces, 'sta-200')).toBe(1);
 });
 
 test('findSpaceIndexByIssueKey matches first occurrence', () => {
 	const spaces = [
-		makeSpace('STA-100'),
-		makeSpace('STA-200'),
-		makeSpace('STA-100'),
+		spaceData('STA-100'),
+		spaceData('STA-200'),
+		spaceData('STA-100'),
 	];
 	expect(findSpaceIndexByIssueKey(spaces, 'STA-100')).toBe(0);
 });

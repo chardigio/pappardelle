@@ -3,7 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {thrownBy} from '../test/helpers/thrown.ts';
-import type {PappardelleConfig, Profile, KeybindingConfig} from './config.ts';
+import type {
+	PappardelleConfig,
+	Profile,
+	KeybindingConfig,
+	ProfileSelection,
+} from './config.ts';
 import {
 	matchProfiles,
 	matchProfileByProject,
@@ -53,8 +58,17 @@ import {ConfigValidationError} from './config-errors.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
 	CODE_IDE_COMMAND,
+	testConfig,
 	validateListView,
 } from '../test/helpers/config-fixtures.ts';
+
+function profileOfKind<K extends ProfileSelection['kind']>(
+	info: ProfileSelection | null,
+	kind: K,
+): Extract<ProfileSelection, {kind: K}> {
+	expect(info?.kind).toBe(kind);
+	return info as Extract<ProfileSelection, {kind: K}>;
+}
 
 // Helper to create a minimal profile
 function createProfile(keywords: string[], displayName: string): Profile {
@@ -70,12 +84,11 @@ function createConfig(
 	defaultProfile?: string,
 	teamPrefix?: string,
 ): PappardelleConfig {
-	return {
-		version: 1,
+	return testConfig({
 		default_profile: defaultProfile,
 		team_prefix: teamPrefix,
 		profiles,
-	};
+	});
 }
 
 // ============================================================================
@@ -2678,12 +2691,11 @@ test('determineProfileForInput defers profile selection for issue keys', () => {
 		},
 		'personal',
 	);
-	const info = determineProfileForInput(config, 'STA-123');
-	expect(info).toBeTruthy();
-	expect(info!.kind).toBe('deferred');
-	if (info?.kind === 'deferred') {
-		expect(info.displayName).toBe(DEFERRED_PROFILE_DISPLAY_NAME);
-	}
+	const info = profileOfKind(
+		determineProfileForInput(config, 'STA-123'),
+		'deferred',
+	);
+	expect(info.displayName).toBe(DEFERRED_PROFILE_DISPLAY_NAME);
 });
 
 test('determineProfileForInput defers profile selection for beads IDs', () => {
@@ -2745,9 +2757,11 @@ test('determineProfileForInput marks a beads ID pickable even when nothing claim
 		issue_tracker: {provider: 'beads' as const},
 	};
 	expect(matchProfilesByInputKeyPrefix(config, 'pap-a1b2')).toStrictEqual([]);
-	const info = determineProfileForInput(config, 'pap-a1b2');
-	expect(info!.kind).toBe('deferred');
-	if (info?.kind === 'deferred') expect(info.canPick).toBe(true);
+	const info = profileOfKind(
+		determineProfileForInput(config, 'pap-a1b2'),
+		'deferred',
+	);
+	expect(info.canPick).toBe(true);
 });
 
 test('matchProfilesByInputKeyPrefix reads the prefix of a beads ID', () => {
@@ -2964,12 +2978,12 @@ test('determineProfileForInput defers a lowercase issue key like an uppercase on
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
-	expect(determineProfileForInput(config, 'sta-123')!.kind).toBe('deferred');
+	expect(determineProfileForInput(config, 'sta-123')?.kind).toBe('deferred');
 	expect(
 		determineProfileForInput(
 			config,
 			'https://linear.app/acme/issue/sta-123/slug',
-		)!.kind,
+		)?.kind,
 	).toBe('deferred');
 });
 
@@ -2984,9 +2998,11 @@ test('determineProfileForInput marks a claimed key prefix as pickable', () => {
 		},
 		'personal',
 	);
-	const info = determineProfileForInput(config, 'STA-123');
-	expect(info!.kind).toBe('deferred');
-	if (info?.kind === 'deferred') expect(info.canPick).toBe(true);
+	const info = profileOfKind(
+		determineProfileForInput(config, 'STA-123'),
+		'deferred',
+	);
+	expect(info.canPick).toBe(true);
 });
 
 test('determineProfileForInput leaves an unclaimed key prefix unpickable', () => {
@@ -2994,9 +3010,11 @@ test('determineProfileForInput leaves an unclaimed key prefix unpickable', () =>
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
-	const info = determineProfileForInput(config, 'ZZZ-123');
-	expect(info!.kind).toBe('deferred');
-	if (info?.kind === 'deferred') expect(info.canPick).toBe(false);
+	const info = profileOfKind(
+		determineProfileForInput(config, 'ZZZ-123'),
+		'deferred',
+	);
+	expect(info.canPick).toBe(false);
 });
 
 test('determineProfileForInput leaves a bare number unpickable', () => {
@@ -3004,9 +3022,11 @@ test('determineProfileForInput leaves a bare number unpickable', () => {
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
-	const info = determineProfileForInput(config, '42');
-	expect(info!.kind).toBe('deferred');
-	if (info?.kind === 'deferred') expect(info.canPick).toBe(false);
+	const info = profileOfKind(
+		determineProfileForInput(config, '42'),
+		'deferred',
+	);
+	expect(info.canPick).toBe(false);
 });
 
 test('determineProfileForInput defers profile selection for bare issue numbers', () => {
@@ -3014,12 +3034,11 @@ test('determineProfileForInput defers profile selection for bare issue numbers',
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
-	const info = determineProfileForInput(config, '42');
-	expect(info).toBeTruthy();
-	expect(info!.kind).toBe('deferred');
-	if (info?.kind === 'deferred') {
-		expect(info.displayName).toBe(DEFERRED_PROFILE_DISPLAY_NAME);
-	}
+	const info = profileOfKind(
+		determineProfileForInput(config, '42'),
+		'deferred',
+	);
+	expect(info.displayName).toBe(DEFERRED_PROFILE_DISPLAY_NAME);
 });
 
 test('determineProfileForInput defers profile selection for Linear URLs', () => {
@@ -3027,15 +3046,14 @@ test('determineProfileForInput defers profile selection for Linear URLs', () => 
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
-	const info = determineProfileForInput(
-		config,
-		'https://linear.app/stardust-labs/issue/STA-123/something',
+	const info = profileOfKind(
+		determineProfileForInput(
+			config,
+			'https://linear.app/stardust-labs/issue/STA-123/something',
+		),
+		'deferred',
 	);
-	expect(info).toBeTruthy();
-	expect(info!.kind).toBe('deferred');
-	if (info?.kind === 'deferred') {
-		expect(info.displayName).toBe(DEFERRED_PROFILE_DISPLAY_NAME);
-	}
+	expect(info.displayName).toBe(DEFERRED_PROFILE_DISPLAY_NAME);
 });
 
 test('determineProfileForInput returns default profile when no keyword matches', () => {
@@ -3046,14 +3064,13 @@ test('determineProfileForInput returns default profile when no keyword matches',
 		},
 		'personal',
 	);
-	const info = determineProfileForInput(config, 'random description nothing');
-	expect(info).toBeTruthy();
-	expect(info!.kind).toBe('resolved');
-	if (info?.kind === 'resolved') {
-		expect(info.name).toBe('personal');
-		expect(info.isDefault).toBe(true);
-		expect(info.matchedKeywords).toStrictEqual([]);
-	}
+	const info = profileOfKind(
+		determineProfileForInput(config, 'random description nothing'),
+		'resolved',
+	);
+	expect(info.name).toBe('personal');
+	expect(info.isDefault).toBe(true);
+	expect(info.matchedKeywords).toStrictEqual([]);
 });
 
 test('determineProfileForInput picks the single matching profile', () => {
@@ -3064,13 +3081,12 @@ test('determineProfileForInput picks the single matching profile', () => {
 		},
 		'personal',
 	);
-	const info = determineProfileForInput(config, 'upload to trotbooks');
-	expect(info).toBeTruthy();
-	expect(info!.kind).toBe('resolved');
-	if (info?.kind === 'resolved') {
-		expect(info.name).toBe('trotbooks');
-		expect(info.isDefault).toBe(false);
-	}
+	const info = profileOfKind(
+		determineProfileForInput(config, 'upload to trotbooks'),
+		'resolved',
+	);
+	expect(info.name).toBe('trotbooks');
+	expect(info.isDefault).toBe(false);
 });
 
 test('determineProfileForInput picks highest-scoring profile on multi-match (STA-856 regression)', () => {
@@ -3086,18 +3102,17 @@ test('determineProfileForInput picks highest-scoring profile on multi-match (STA
 		},
 		'personal',
 	);
-	const info = determineProfileForInput(
-		config,
-		'make it so i can upload a personal image to trotbooks',
+	const info = profileOfKind(
+		determineProfileForInput(
+			config,
+			'make it so i can upload a personal image to trotbooks',
+		),
+		'resolved',
 	);
-	expect(info).toBeTruthy();
-	expect(info!.kind).toBe('resolved');
-	if (info?.kind === 'resolved') {
-		expect(info.name).toBe('trotbooks');
-		expect(info.isDefault).toBe(false);
-		// Should surface the keywords that tipped the scoring so the caller can show them.
-		expect(info.matchedKeywords.length >= 2).toBe(true);
-	}
+	expect(info.name).toBe('trotbooks');
+	expect(info.isDefault).toBe(false);
+	// Should surface the keywords that tipped the scoring so the caller can show them.
+	expect(info.matchedKeywords.length >= 2).toBe(true);
 });
 
 test('determineProfileForInput honors enforced (!) keywords', () => {
@@ -3109,16 +3124,12 @@ test('determineProfileForInput honors enforced (!) keywords', () => {
 		'personal',
 	);
 	// Enforcing "personal!" must win even though trotbooks scores higher without it.
-	const info = determineProfileForInput(
-		config,
-		'upload a personal! image to trotbooks',
+	const info = profileOfKind(
+		determineProfileForInput(config, 'upload a personal! image to trotbooks'),
+		'resolved',
 	);
-	expect(info).toBeTruthy();
-	expect(info!.kind).toBe('resolved');
-	if (info?.kind === 'resolved') {
-		expect(info.name).toBe('personal');
-		expect(info.enforced).toBe(true);
-	}
+	expect(info.name).toBe('personal');
+	expect(info.enforced).toBe(true);
 });
 
 // ============================================================================
@@ -3137,11 +3148,11 @@ test('determineProfileForInput carries the matched profile emoji', () => {
 		},
 		'personal',
 	);
-	const info = determineProfileForInput(config, 'fix trotbooks invoices');
-	expect(info!.kind).toBe('resolved');
-	if (info?.kind === 'resolved') {
-		expect(info.emoji).toBe('🐎');
-	}
+	const info = profileOfKind(
+		determineProfileForInput(config, 'fix trotbooks invoices'),
+		'resolved',
+	);
+	expect(info.emoji).toBe('🐎');
 });
 
 test('determineProfileForInput reserves a blank emoji slot when siblings have one', () => {
@@ -3152,11 +3163,11 @@ test('determineProfileForInput reserves a blank emoji slot when siblings have on
 		},
 		'personal',
 	);
-	const info = determineProfileForInput(config, 'personal notes');
-	expect(info?.kind).toBe('resolved');
-	if (info?.kind === 'resolved') {
-		expect(info.emoji).toBe('');
-	}
+	const info = profileOfKind(
+		determineProfileForInput(config, 'personal notes'),
+		'resolved',
+	);
+	expect(info.emoji).toBe('');
 });
 
 test('determineProfileForInput leaves emoji undefined when nothing configures one', () => {
@@ -3164,11 +3175,11 @@ test('determineProfileForInput leaves emoji undefined when nothing configures on
 		{personal: createProfile(['personal'], 'Personal')},
 		'personal',
 	);
-	const info = determineProfileForInput(config, 'personal notes');
-	expect(info?.kind).toBe('resolved');
-	if (info?.kind === 'resolved') {
-		expect(info.emoji).toBe(undefined);
-	}
+	const info = profileOfKind(
+		determineProfileForInput(config, 'personal notes'),
+		'resolved',
+	);
+	expect(info.emoji).toBe(undefined);
 });
 
 test('determineProfileForInput emoji survives the default-profile fallback', () => {
@@ -3179,12 +3190,12 @@ test('determineProfileForInput emoji survives the default-profile fallback', () 
 		},
 		'personal',
 	);
-	const info = determineProfileForInput(config, 'something unmatched');
-	expect(info?.kind).toBe('resolved');
-	if (info?.kind === 'resolved') {
-		expect(info.isDefault).toBe(true);
-		expect(info.emoji).toBe('🎸');
-	}
+	const info = profileOfKind(
+		determineProfileForInput(config, 'something unmatched'),
+		'resolved',
+	);
+	expect(info.isDefault).toBe(true);
+	expect(info.emoji).toBe('🎸');
 });
 
 // ============================================================================
@@ -3722,7 +3733,7 @@ test('an undefined YAML alias in a config file is reported with the file', () =>
 // ============================================================================
 
 test('grouping is off unless list_view.group_by is status', () => {
-	const config = {version: 1, profiles: {}} as unknown as PappardelleConfig;
+	const config = testConfig();
 	expect(isRailGroupedByStatus(config)).toBe(false);
 	config.list_view = {group_by: 'status'};
 	expect(isRailGroupedByStatus(config)).toBe(true);
@@ -3746,13 +3757,13 @@ test('getRailGroups falls back to the default groups', () => {
 // ============================================================================
 
 test('getSousChefKey defaults to M-s, also when the config failed to load', () => {
-	const config = {version: 1, profiles: {}} as unknown as PappardelleConfig;
+	const config = testConfig();
 	expect(getSousChefKey(config)).toBe('M-s');
 	expect(getSousChefKey(null)).toBe('M-s');
 });
 
 test('getSousChefKey returns the configured key, and null when turned off', () => {
-	const base = {version: 1, profiles: {}} as unknown as PappardelleConfig;
+	const base = testConfig();
 	expect(getSousChefKey({...base, sous_chef_key: 'M-j'})).toBe('M-j');
 	expect(getSousChefKey({...base, sous_chef_key: false})).toBe(null);
 });

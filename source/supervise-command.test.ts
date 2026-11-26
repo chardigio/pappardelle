@@ -9,9 +9,9 @@ import type {ApprovalPolicy} from './approve-policy.ts';
 import type {ClassifierVerdict} from './approve-classifier.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
 import type {Hold} from './holds.ts';
-import type {SuperviseEntry} from './supervise-log.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
-import {idowIdentities, testState} from '../test/helpers/state.ts';
+import {testState} from '../test/helpers/state.ts';
+import {superviseDeps} from '../test/helpers/supervise-deps.ts';
 import {unreachable} from '../test/helpers/unreachable.ts';
 
 const fixtures = path.join(
@@ -74,9 +74,6 @@ function harness(
 	let hook: ClaudeSessionState | null = null;
 	let ids = 0;
 	let sendOutcome: Awaited<ReturnType<SuperviseDeps['send']>> = 'sent';
-	const logged: SuperviseEntry[] = [];
-	const out: string[] = [];
-	const err: string[] = [];
 	const start = new Date(2026, 10, 9, 12, 0).getTime();
 	let clock = start;
 	let reads = 0;
@@ -101,21 +98,11 @@ function harness(
 		return {status: 1, stdout: ''};
 	};
 
-	const deps: SuperviseDeps = {
-		repo: () => 'repo',
-		identities: idowIdentities('repo', () => ['STA-1']),
-		resolveKey: raw => raw,
-		hookKey: async key => key,
-		readHook: async () => ({status: 'unknown'}),
+	const {deps, logged, out, err} = superviseDeps({
 		readHookState: async () =>
 			hook ? {kind: 'state', state: hook} : {kind: 'none'},
-		readSnapshot: () =>
-			unreachable(
-				'the harness lists no agent pane, so no status snapshot is read',
-			),
 		...(readAgyQuota ? {readAgyQuota} : {}),
 		runner,
-		serverRunner: () => ({status: 1, stdout: ''}),
 		now: () => new Date(clock),
 		async sleep(ms) {
 			clock += ms;
@@ -155,13 +142,7 @@ function harness(
 				unreachable('supervise never asks whether a timer is loaded'),
 		}),
 		caller,
-		readStdin: () => undefined,
-		out: text => out.push(text),
-		err: text => err.push(text),
-		log(_repo, _caller, entry) {
-			logged.push(entry);
-		},
-	};
+	});
 	return {
 		pressed,
 		typed,

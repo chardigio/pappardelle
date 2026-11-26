@@ -3,6 +3,7 @@ import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
+import {workspaceRefreshDeps} from '../test/helpers/workspace-refresh-deps.ts';
 import {until} from '../test/helpers/wait.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {useSpaceSelection} from './use-space-selection.ts';
@@ -41,36 +42,25 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	teardown(async () => {
 		await view.unmount();
 	});
-	const refresh = new WorkspaceRefresh({
-		readRegistry: async () => keys,
-		statusReader: () => async () => ({status: 'idle'}),
-		readWorktreePath: async key => `/worktrees/${key}`,
-		readMainWorktree: async () => ({path: '/repo', branch: 'main'}),
-		readDirty: async () => dirty,
-		statusKey: async name => `repo-${name}`,
-		getCachedIssue: () => null,
-		async fetchIssues() {},
-		readEmoji: async () => undefined,
-		setSpaces: update => selection.setSpaces(update),
-		onLoaded() {},
-		onError(error) {
-			throw error;
-		},
-	});
+	const refresh = new WorkspaceRefresh(
+		workspaceRefreshDeps({
+			readRegistry: async () => keys,
+			readDirty: async () => dirty,
+			setSpaces: update => selection.setSpaces(update),
+		}),
+	);
 	teardown(() => refresh.stop());
-	async function waitFor(check: () => boolean) {
-		await until(check, {frame: () => view.lastFrame()});
-		await delay(30);
-	}
+	const frame = () => view.lastFrame();
 	await refresh.refresh();
 	await refresh.idle();
-	await waitFor(
+	await until(
 		() =>
 			selection.spaces.length === 101 &&
 			selection.spaces.every(space => space.worktreePath),
+		{frame},
 	);
 	selection.selectSpace('STA-50');
-	await waitFor(() => view.lastFrame()!.includes('Selected: STA-50'));
+	await until(() => view.lastFrame()!.includes('Selected: STA-50'), {frame});
 	attachments.length = 0;
 	const before = rowCommits;
 	await refresh.refresh();
@@ -81,7 +71,7 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 
 	// Rebuilding every row was the old polling behavior, and defeats React.memo.
 	selection.setSpaces(spaces => spaces.map(space => ({...space})));
-	await waitFor(() => rowCommits === before + 101);
+	await until(() => rowCommits === before + 101, {frame});
 	expect(rowCommits - before).toBe(101);
 	expect(attachments).toStrictEqual([]);
 
@@ -91,12 +81,12 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	});
 	keys = [...keys.filter(key => key !== 'STA-100'), 'STA-101'];
 	await refresh.refresh();
-	await waitFor(() => view.lastFrame()!.includes('STA-101'));
+	await until(() => view.lastFrame()!.includes('STA-101'), {frame});
 	expect(view.lastFrame()!.includes('Selected: STA-50')).toBe(true);
 	expect(attachments).toStrictEqual([]);
 	keys = keys.filter(key => key !== 'STA-50');
 	await refresh.refreshListOnly();
-	await waitFor(() => view.lastFrame()!.includes('Selected: STA-49'));
+	await until(() => view.lastFrame()!.includes('Selected: STA-49'), {frame});
 	expect(attachments).toStrictEqual(['STA-49']);
 	finishDirty(false);
 	await refresh.idle();

@@ -1,14 +1,11 @@
 import {test, expect} from 'bun:test';
+import {spaceData} from '../test/helpers/space-fixtures.ts';
 import {filterSpaces, searchKeyStep, type RailSearch} from './rail-search.ts';
 import {press} from '../test/helpers/key-press.ts';
 import type {SpaceData} from './types.ts';
 
-function makeSpace(name: string, opts?: Partial<SpaceData>): SpaceData {
-	return {name, worktreePath: `/worktrees/${name}`, ...opts};
-}
-
 function titled(name: string, title: string): SpaceData {
-	return makeSpace(name, {
+	return spaceData(name, {
 		linearIssue: {
 			identifier: name,
 			title,
@@ -25,7 +22,7 @@ const searchable = [
 	titled('STA-10', 'Dashboard redesign'),
 	titled('STA-20', 'Fix STA-10 login regression'),
 	titled('STA-30', 'Add rail search'),
-	makeSpace('main', {isMainWorktree: true}),
+	spaceData('main', {isMainWorktree: true}),
 ];
 
 test('an empty or blank query keeps every row', () => {
@@ -56,7 +53,7 @@ test('the tightest match comes first, whichever row it is', () => {
 });
 
 test('a key typed in full comes ahead of longer keys that start with it', () => {
-	const rows = [makeSpace('STA-19'), makeSpace('STA-10'), makeSpace('STA-1')];
+	const rows = [spaceData('STA-19'), spaceData('STA-10'), spaceData('STA-1')];
 	expect(names(filterSpaces(rows, 'sta-1'))).toStrictEqual([
 		'STA-1',
 		'STA-19',
@@ -83,7 +80,7 @@ test('Enter with no match closes the search and selects nothing', () => {
 });
 
 test('Enter does not select a row that is still starting', () => {
-	const rows = [makeSpace('STA-40', {isPending: true}), ...searchable];
+	const rows = [spaceData('STA-40', {isPending: true}), ...searchable];
 	expect(step({query: 'sta', index: 0}, 'return', rows).select).toBe(undefined);
 });
 
