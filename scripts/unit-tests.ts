@@ -2,7 +2,11 @@
 // of the run's own. test/helpers/test-guard.ts refuses any other.
 import fs from 'node:fs';
 import path from 'node:path';
-import {makeThrowawayHome, testRunEnv} from '../test/helpers/env.ts';
+import {
+	makeThrowawayHome,
+	pathWithBun,
+	testRunEnv,
+} from '../test/helpers/env.ts';
 import {
 	TEST_HOME,
 	TEST_TMPDIR,
@@ -14,11 +18,6 @@ import {processesNaming} from '../test/helpers/processes.ts';
 const TEST_TIMEOUT_MS = 120_000;
 const repoRoot = path.resolve(import.meta.dir, '..');
 
-// A version manager's bun shim finds its config through HOME, so under the
-// throwaway HOME it would fail; tests that run bun get this one.
-const pathWithBun = [path.dirname(process.execPath), process.env['PATH']].join(
-	path.delimiter,
-);
 // The test tmux guard: tests and everything they start get a tmux that
 // refuses the user's own servers, a private TMUX_TMPDIR and no TMUX. A test
 // that reached the inner server once ended every agent session the user had
@@ -26,7 +25,7 @@ const pathWithBun = [path.dirname(process.execPath), process.env['PATH']].join(
 // which directory is live.
 const guardSetup = Bun.spawnSync(
 	[path.join(repoRoot, 'test/helpers/tmux-guard-env.sh')],
-	{env: {...process.env, PATH: pathWithBun}, stderr: 'inherit'},
+	{env: {...process.env, PATH: pathWithBun()}, stderr: 'inherit'},
 );
 if (!guardSetup.success)
 	throw new Error('Could not set up the test tmux guard');
@@ -56,7 +55,6 @@ const throwawayHome = makeThrowawayHome();
 
 const env: Record<string, string | undefined> = {
 	...testRunEnv(throwawayHome),
-	PATH: pathWithBun,
 	...guardExports,
 	TMPDIR: runTmpdir,
 	TMUX_TMPDIR: runTmuxTmpdir,

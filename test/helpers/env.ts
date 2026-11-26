@@ -47,6 +47,15 @@ export function makeThrowawayHome(): string {
 }
 
 /**
+ * `searchPath` with the running bun's directory first. A version manager's
+ * bun shim finds its config through HOME, so under a throwaway HOME it would
+ * fail; whatever a test run starts that runs bun gets this one.
+ */
+export function pathWithBun(searchPath = process.env['PATH']): string {
+	return [path.dirname(process.execPath), searchPath].join(path.delimiter);
+}
+
+/**
  * The environment a test run starts its processes with: `source` with
  * nothing that leads back to the developer's own tmux servers, agent config or
  * state, and `home` as HOME. Bun reads HOME once at startup, so it has to be
@@ -63,6 +72,7 @@ export function testRunEnv(
 					!isHostPappardelleEnv(name) && !droppedForTestRuns.has(name),
 			),
 		),
+		PATH: pathWithBun(source['PATH']),
 		HOME: home,
 		// zsh reads its rc files from ZDOTDIR, past HOME.
 		ZDOTDIR: home,
