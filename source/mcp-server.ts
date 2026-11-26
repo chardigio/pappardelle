@@ -11,21 +11,25 @@ import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
 	getMainRepoRoot,
 	getRepoName,
+	getSpaceAgentProfile,
 	readConfig,
 	SOUS_CHEF_FILE,
 	SOUS_CHEF_NAME,
 	sousChefLaunch,
 	workspaceAwareAgents,
 	type ConfigLoad,
+	type PappardelleConfig,
 } from './config.ts';
 import {inlineConfigErrors} from './config-errors.ts';
+import {isAgyCommand} from './config-launch-flags.ts';
 import {createLogger} from './logger.ts';
 
 const log = createLogger('mcp');
 import {companionRules} from './companion-rules.ts';
 import {MCP_TOOLS, type CliCall} from './mcp-tools.ts';
 import {bunIsolationArgs, isStandalone} from './runtime.ts';
-import {callerSpace, readCheckout} from './space-target.ts';
+import {callerSpace, readCheckout, type CallerSpace} from './space-target.ts';
+import type {SpaceStateDao} from './space-state.ts';
 import {createStateDaos} from './state-daos.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
@@ -34,6 +38,9 @@ export type RunCli = (call: CliCall, signal: AbortSignal) => Promise<CliResult>;
 
 const MESSAGING =
 	"To message the agent in another space, use SendMessage with the space key as `to` (ListAgents lists them): the agent sees who sent it and can reply. `space_send` types into that agent's TUI as if the user did. Codex, Pi and agy agents can't receive SendMessage, so `space_send` is the only way to reach them.";
+
+const AGY_MESSAGING =
+	'To message the agent in another space or the sous-chef in `main`, list spaces with `spaces_list` and send a prompt with `space_send` — never use SendMessage.';
 
 const MESSAGE_SOUS_CHEF = `The main checkout's agent coordinates the spaces; reach it with SendMessage to \`${SOUS_CHEF_NAME}\`.`;
 
@@ -47,8 +54,11 @@ export function workspaceInstructions(
 		sousChef?: boolean;
 		/** The SOUS-CHEF.md to point the coordinator at, when there is one. */
 		sousChefFile?: string;
+		/** An agy session reads `.agents/rules/pappardelle.md`, so keep MCP instructions aligned. */
+		agy?: boolean;
 	} = {},
 ): string {
+	const messaging = options.agy ? AGY_MESSAGING : MESSAGING;
 	if (!space) {
 		return [
 			"This repo uses Pappardelle, which gives each issue a git worktree, an agent session and a companion pane. This session isn't in a space, so pass `space` to the companion tools. Use this server's tools rather than tmux. The pappardelle-agent skill covers updating and restarting Pappardelle.",
@@ -58,13 +68,13 @@ export function workspaceInstructions(
 						`The user's own instructions for the sous-chef are in ${options.sousChefFile}. Read it before anything else, and follow it where it differs from this routine.`,
 					]
 				: []),
-			MESSAGING,
+			messaging,
 		].join('\n\n');
 	}
 
 	return `You are in Pappardelle space ${space}${repoName ? ` (repo ${repoName})` : ''}. Pappardelle gives each issue a git worktree, an agent session and a companion pane next to it, and the user watches both. Use this server's tools rather than tmux; they target your own space unless you pass \`space\`. The pappardelle-agent skill covers updating and restarting Pappardelle.
 
-${options.sousChef ? `${MESSAGING} ${MESSAGE_SOUS_CHEF}` : MESSAGING}
+${options.sousChef && !options.agy ? `${messaging} ${MESSAGE_SOUS_CHEF}` : messaging}
 
 ${companionRules()}`;
 }
@@ -81,18 +91,23 @@ function invalidConfigInstructions(errors: string[]): string {
 export function createMcpServer(options: {
 	awareness: WorkspaceAwareness;
 	space?: string;
+	sender?: string;
 	repoName?: string;
 	sousChef?: boolean;
 	sousChefFile?: string;
+	agy?: boolean;
 	runCli: RunCli;
 }): McpServer {
-	const {awareness, space, repoName, sousChef, sousChefFile, runCli} = options;
+	const {awareness, space, repoName, sousChef, sousChefFile, agy, runCli} =
+		options;
+	const sender = options.sender ?? space;
 	let instructions: string | undefined;
 	switch (awareness.kind) {
 		case 'on': {
 			instructions = workspaceInstructions(space, repoName, {
 				sousChef,
 				sousChefFile,
+				agy,
 			});
 			break;
 		}
@@ -125,10 +140,8 @@ export function createMcpServer(options: {
 				},
 			},
 			async (input: Record<string, unknown>, extra) => {
-				const {code, stdout, stderr} = await runCli(
-					tool.toCli(input),
-					extra.signal,
-				);
+				const call = tool.toCli(input, {sender});
+				const {code, stdout, stderr} = await runCli(call, extra.signal);
 				// Separate blocks, so a warning on stderr can't corrupt JSON on stdout.
 				const output = [stdout, stderr]
 					.map(text => text.trim())
@@ -221,17 +234,37 @@ function workspaceAwareness(load: ConfigLoad): WorkspaceAwareness {
 	}
 }
 
+export function callerIsAgy(options: {
+	caller: CallerSpace;
+	config: PappardelleConfig | null;
+	spaceState: Pick<SpaceStateDao, 'read'> | null;
+}): boolean {
+	const {caller, config, spaceState} = options;
+	if (caller.kind === 'none' || !config) return false;
+	const profile = getSpaceAgentProfile(config, spaceState?.read(caller.key));
+	return isAgyCommand(profile.command);
+}
+
 /** Resolves when the client closes the connection. */
 export async function runMcpServer(): Promise<void> {
 	const checkout = readCheckout({
 		repoName: getRepoName,
 		mainRoot: getMainRepoRoot,
 	});
+	const daos =
+		checkout.kind === 'checkout'
+			? createStateDaos({repo: checkout.checkout.repoName})
+			: null;
 	const caller = callerSpace({
 		env: process.env,
 		cwd: process.cwd(),
 		checkout,
-		identities: repo => createStateDaos({repo}).spaceIdentities,
+		identities: repo =>
+			checkout.kind === 'checkout' &&
+			repo === checkout.checkout.repoName &&
+			daos
+				? daos.spaceIdentities
+				: createStateDaos({repo}).spaceIdentities,
 	});
 	// The main checkout's session gets the instructions for a session in no
 	// space, which are where the sous-chef's routine is given.
@@ -248,15 +281,23 @@ export async function runMcpServer(): Promise<void> {
 		log.error(invalidConfigInstructions(awareness.errors));
 	const sousChef =
 		awareness.kind === 'on' && sousChefLaunch(config) !== undefined;
+	const sender = caller.kind === 'none' ? undefined : caller.key;
+	const agy = callerIsAgy({
+		caller,
+		config,
+		spaceState: daos?.spaceState ?? null,
+	});
 	const closed = new Promise(resolve => {
 		process.stdin.once('close', resolve);
 	});
 	await createMcpServer({
 		awareness,
 		space,
+		sender,
 		repoName,
 		sousChef,
 		sousChefFile: sousChef && !space ? findSousChefFile() : undefined,
+		agy,
 		runCli: spawnCli(space),
 	}).connect(new StdioServerTransport());
 	await closed;

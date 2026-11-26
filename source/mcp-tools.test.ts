@@ -15,10 +15,14 @@ import {newSpaceIdentity} from './space-identity.ts';
 import {encodeCursor} from './space-watch.ts';
 import {parseSuperviseArgs} from './supervise-args.ts';
 
-function call(name: string, input: Record<string, unknown>): CliCall {
+function call(
+	name: string,
+	input: Record<string, unknown>,
+	context?: {sender?: string},
+): CliCall {
 	const tool = MCP_TOOLS.find(candidate => candidate.name === name);
 	if (!tool) throw new Error(`No tool ${name}`);
-	return tool.toCli(input);
+	return tool.toCli(input, context);
 }
 
 const companion = (name: string, input: Record<string, unknown>) => {
@@ -238,7 +242,7 @@ test('space_highlight passes focus on only when asked', () => {
 	expect(cli('space_highlight', {key: 'STA-1'}).flags.focus).toBeFalsy();
 });
 
-test('space_send sends its text on stdin', () => {
+test('space_send sends its text on stdin and prepends [from sender] except on command prefixes', () => {
 	const {args, stdin} = call('space_send', {key: 'STA-1', text: "don't -x"});
 	expect(parseSendArgs(args)).toStrictEqual({
 		key: 'STA-1',
@@ -247,6 +251,22 @@ test('space_send sends its text on stdin', () => {
 		force: false,
 	});
 	expect(stdin).toBe("don't -x");
+
+	expect(
+		call('space_send', {key: 'STA-2', text: 'hello'}, {sender: 'STA-1'}).stdin,
+	).toBe('[from STA-1] hello');
+	for (const raw of [
+		'/clear',
+		'/do-with-plan STA-1',
+		' /compact',
+		'$skill',
+		'!ls',
+		'#note',
+	]) {
+		expect(
+			call('space_send', {key: 'STA-2', text: raw}, {sender: 'STA-1'}).stdin,
+		).toBe(raw);
+	}
 });
 
 test('space_press_keys sends repeated --keys', () => {

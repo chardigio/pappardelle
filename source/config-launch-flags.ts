@@ -29,7 +29,8 @@ export function builtinAgentDefaults(
 	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
 ): BuiltinAgentDefaults {
 	if (isClaudeAgentProfile(definition)) return BUILTIN_AGENTS['claude']!;
-	const name = commandBasename(definition.command);
+	const word = unwrapCommand(definition.command)?.word;
+	const name = word ? path.basename(word) : '';
 	return name !== 'claude' && Object.hasOwn(BUILTIN_AGENTS, name)
 		? BUILTIN_AGENTS[name]!
 		: {};
@@ -159,4 +160,75 @@ export function isClaudeAgentProfile(
 export function commandBasename(command: string): string {
 	const firstToken = command.trim().split(/\s+/)[0] ?? '';
 	return path.basename(firstToken);
+}
+
+const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const ENV_ARG_FLAGS = new Set([
+	'-u',
+	'--unset',
+	'-C',
+	'--chdir',
+	'-S',
+	'--split-string',
+]);
+
+export type UnwrappedCommand = {
+	word: string;
+	env: Record<string, string>;
+	unset: string[];
+};
+
+function stripOuterQuotes(value: string): string {
+	return value.length >= 2 &&
+		((value.startsWith("'") && value.endsWith("'")) ||
+			(value.startsWith('"') && value.endsWith('"')))
+		? value.slice(1, -1)
+		: value;
+}
+
+/**
+ * Unwraps leading `VAR=val` assignments and `env` wrappers from an agent
+ * launch command string, returning the target command word, assigned env vars,
+ * and any explicitly unset env var names.
+ */
+export function unwrapCommand(command: string): UnwrappedCommand | null {
+	const tokens = command.trim().split(/\s+/).filter(Boolean);
+	const env = new Map<string, string>();
+	const unset: string[] = [];
+	let inEnv = false;
+
+	for (let index = 0; index < tokens.length; index++) {
+		const token = tokens[index]!;
+		if (ENV_ASSIGNMENT.test(token)) {
+			const eq = token.indexOf('=');
+			env.set(token.slice(0, eq), stripOuterQuotes(token.slice(eq + 1)));
+			continue;
+		}
+
+		if (inEnv && token.startsWith('-')) {
+			if (ENV_ARG_FLAGS.has(token)) {
+				const target = tokens[++index];
+				if ((token === '-u' || token === '--unset') && target) {
+					unset.push(target);
+					env.delete(target);
+				}
+			}
+
+			continue;
+		}
+
+		if (path.posix.basename(token) === 'env') {
+			inEnv = true;
+			continue;
+		}
+
+		return {word: token, env: Object.fromEntries(env), unset};
+	}
+
+	return null;
+}
+
+export function isAgyCommand(command: string): boolean {
+	const word = unwrapCommand(command)?.word;
+	return word !== undefined && path.posix.basename(word) === 'agy';
 }

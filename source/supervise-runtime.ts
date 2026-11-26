@@ -1,16 +1,25 @@
 // The real dependencies of the supervision verbs: this machine's tmux, clock,
 // timers and environment. Read once here, so the verbs stay testable.
 
-import {spawnSync} from 'node:child_process';
+import {execFile, spawnSync} from 'node:child_process';
 import {realpathSync} from 'node:fs';
 import {homedir, tmpdir, userInfo} from 'node:os';
 import path from 'node:path';
+import {promisify} from 'node:util';
+import {inferAgyModel, parseAgyQuota} from './agent-screen.ts';
+import type {AgentStateReport} from './agent-state.ts';
 import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 import {newHoldId} from './holds.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {spaceStatusKey} from './claude-status.ts';
-import {getMainRepoRoot, getRepoName} from './config.ts';
+import {
+	getMainRepoRoot,
+	getRepoName,
+	getSpaceAgentProfile,
+	readConfig,
+} from './config.ts';
+import {unwrapCommand} from './config-launch-flags.ts';
 import {selfLaunchArgs} from './runtime.ts';
 import {rearmMissingTimers, type ScheduleDao} from './schedule.ts';
 import {
@@ -19,8 +28,13 @@ import {
 	type TimerBackend,
 	type TimerContext,
 } from './schedule-timers.ts';
+import type {SpaceStateDao} from './space-state.ts';
 import type {StateDaos} from './state-daos.ts';
-import {defaultReadStdin, type SuperviseDeps} from './supervise-command.ts';
+import {
+	defaultReadStdin,
+	type AgyQuotaResult,
+	type SuperviseDeps,
+} from './supervise-command.ts';
 import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {createLogger} from './logger.ts';
 import {
@@ -36,6 +50,126 @@ import {
 } from './tmux.ts';
 
 const log = createLogger('supervise');
+const execFileAsync = promisify(execFile);
+
+export const AGY_QUOTA_TIMEOUT_MS = 10_000;
+
+/**
+ * Strip `PAPPARDELLE_*` and `TMUX*` so `agy -p /quota` does not trigger
+ * session-recording hooks or interact with the caller's tmux session.
+ */
+export function sanitizedAgyEnv(
+	env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+	return Object.fromEntries(
+		Object.entries(env).filter(
+			([name]) => !name.startsWith('PAPPARDELLE_') && !name.startsWith('TMUX'),
+		),
+	);
+}
+
+export type QuotaCommandResult = {kind: 'ok'; output: string} | {kind: 'error'};
+
+export type QuotaCommandRunner = (
+	command: string,
+	args: readonly string[],
+	options: {env: NodeJS.ProcessEnv; timeoutMs: number},
+) => Promise<QuotaCommandResult>;
+
+async function defaultQuotaRunner(
+	command: string,
+	args: readonly string[],
+	{env, timeoutMs}: {env: NodeJS.ProcessEnv; timeoutMs: number},
+): Promise<QuotaCommandResult> {
+	try {
+		const {stdout} = await execFileAsync(command, [...args], {
+			env,
+			timeout: timeoutMs,
+			encoding: 'utf8',
+		});
+		return {kind: 'ok', output: stdout};
+	} catch (error) {
+		log.warn(`agy quota check failed for ${command}`, error as Error);
+		return {kind: 'error'};
+	}
+}
+
+function expandLeadingTilde(command: string, env: NodeJS.ProcessEnv): string {
+	if (!command.startsWith('~/')) return command;
+	const home = env['HOME'] || homedir();
+	return path.join(home, command.slice(2));
+}
+
+export async function readAgyQuota(
+	command: string,
+	options: {
+		env?: Record<string, string>;
+		unset?: readonly string[];
+		model?: string;
+		baseEnv?: NodeJS.ProcessEnv;
+		now?: () => Date;
+		run?: QuotaCommandRunner;
+		timeoutMs?: number;
+	} = {},
+): Promise<AgyQuotaResult> {
+	const {
+		env,
+		unset = [],
+		model,
+		baseEnv = process.env,
+		now = () => new Date(),
+		run = defaultQuotaRunner,
+		timeoutMs = AGY_QUOTA_TIMEOUT_MS,
+	} = options;
+	const dropped = new Set(unset);
+	const spawnEnv = Object.fromEntries(
+		Object.entries(sanitizedAgyEnv({...baseEnv, ...env})).filter(
+			([name]) => !dropped.has(name),
+		),
+	);
+	const executable = expandLeadingTilde(command, spawnEnv);
+	const result = await run(executable, ['-p', '/quota'], {
+		env: spawnEnv,
+		timeoutMs,
+	});
+	if (result.kind === 'error') return {kind: 'error'};
+	return parseAgyQuota(result.output, now(), model);
+}
+
+function agyQuotaTargetForSpace(
+	key: string,
+	report: AgentStateReport,
+	spaceState: Pick<SpaceStateDao, 'read'>,
+): {
+	command: string;
+	env: Record<string, string>;
+	unset: string[];
+	model: string | undefined;
+} | null {
+	if (report.app && report.app !== 'antigravity') return null;
+	const load = readConfig();
+	if (load.kind === 'valid') {
+		const profile = getSpaceAgentProfile(load.config, spaceState.read(key));
+		const unwrapped = unwrapCommand(profile.command);
+		if (unwrapped && path.posix.basename(unwrapped.word) === 'agy') {
+			return {
+				command: unwrapped.word,
+				env: {...profile.env, ...unwrapped.env},
+				unset: unwrapped.unset,
+				model: profile.model || inferAgyModel(report.screen),
+			};
+		}
+	}
+
+	return report.app === 'antigravity'
+		? {
+				command: 'agy',
+				env: {},
+				unset: [],
+				model: inferAgyModel(report.screen),
+			}
+		: null;
+}
 
 // Timer services start with a bare environment; these decide which tmux
 // server, status files, state database and status daemon `pappardelle`
@@ -181,11 +315,18 @@ export function defaultSuperviseDeps(
 		holds,
 		programStatus,
 		spaceIdentities,
+		spaceState,
 	}: Pick<
 		StateDaos,
-		'claudeStatus' | 'schedules' | 'holds' | 'programStatus' | 'spaceIdentities'
+		| 'claudeStatus'
+		| 'schedules'
+		| 'holds'
+		| 'programStatus'
+		| 'spaceIdentities'
+		| 'spaceState'
 	>,
 ): SuperviseDeps {
+	const now = () => new Date();
 	return {
 		repo: getRepoName,
 		identities: spaceIdentities,
@@ -198,9 +339,20 @@ export function defaultSuperviseDeps(
 		readHook: async hookKey => claudeStatus.read(hookKey),
 		readHookState: async hookKey => claudeStatus.readState(hookKey),
 		readSnapshot: async (key, pane) => programStatus.read(key, pane),
+		async readAgyQuota(key, report) {
+			const target = agyQuotaTargetForSpace(key, report, spaceState);
+			return target
+				? readAgyQuota(target.command, {
+						env: target.env,
+						unset: target.unset,
+						model: target.model,
+						now,
+					})
+				: {kind: 'not_agy'};
+		},
 		runner: supervisedInnerTmuxRunner,
 		serverRunner: supervisedServerTmuxRunner,
-		now: () => new Date(),
+		now,
 		async sleep(ms) {
 			await new Promise(resolve => {
 				setTimeout(resolve, ms);

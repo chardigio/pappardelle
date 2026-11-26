@@ -92,7 +92,7 @@ export function classifyAgent(
 		return 'permission';
 	}
 
-	if (screen.codexDialog) return 'dialog';
+	if (screen.codexDialog || screen.agyDialog) return 'dialog';
 	if (screen.usageLimit) return 'usage_limit';
 	if (status?.status === 'working' || screen.spinner) return 'working';
 	if (screen.composer) return 'draft';

@@ -1,7 +1,11 @@
 import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
-import {parseAgentScreen, parseResetTime} from './agent-screen.ts';
+import {
+	parseAgentScreen,
+	parseAgyQuota,
+	parseResetTime,
+} from './agent-screen.ts';
 
 // Captured from real Claude Code (2.1.319, 2.1.327, 2.1.330, 2.1.331) and Codex
 // (0.166, 0.170) sessions.
@@ -567,4 +571,418 @@ test('a long paste collapsed into a placeholder is the draft', () => {
 	expect(screen('codex-long-paste').composer).toBe(
 		'[Pasted Content 2190 chars]',
 	);
+});
+
+test('agy idle screens read an empty composer and strip the grey placeholder from lines', () => {
+	for (const name of ['agy-idle', 'agy-idle-factory']) {
+		const {composer, agyComposer, lines} = screen(name);
+		expect(composer).toBe('');
+		expect(agyComposer).toBe(true);
+		expect(lines.some(line => line.trimEnd() === '>')).toBe(true);
+		expect(lines.some(line => line.includes('Auto mode:'))).toBe(false);
+	}
+
+	const theme256Idle = parseAgentScreen(
+		[
+			'────────────────────',
+			'\u001B[38;5;32m>\u001B[39m \u001B[38;5;246mAuto mode: edits & safe commands auto-approved (shift+tab to cycle)',
+			'────────────────────',
+		].join('\n'),
+		NOW,
+	);
+	expect(theme256Idle.composer).toBe('');
+	expect(theme256Idle.lines.some(line => line.includes('Auto mode:'))).toBe(
+		false,
+	);
+
+	const truecolorIdle = parseAgentScreen(
+		[
+			'────────────────────',
+			'\u001B[94m>\u001B[0m \u001B[38;2;120;124;128mAsk anything',
+			'────────────────────',
+		].join('\n'),
+		NOW,
+	);
+	expect(truecolorIdle.composer).toBe('');
+
+	// Active text, pure white/black, chromatic text, and Codex 256-grey must remain drafts.
+	for (const styled of [
+		'\u001B[38;5;32m>\u001B[39m \u001B[38;5;254mbright draft',
+		'\u001B[38;5;32m>\u001B[39m \u001B[38;2;255;255;255mwhite draft',
+		'\u001B[38;5;32m>\u001B[39m \u001B[38;2;60;180;200mcyan draft',
+	]) {
+		const draft = parseAgentScreen(
+			['────────────────────', styled, '────────────────────'].join('\n'),
+			NOW,
+		);
+		expect(Boolean(draft.composer)).toBe(true);
+	}
+
+	const codexNonDim = parseAgentScreen(
+		'› \u001B[38;5;246mcodex typed text\n',
+		NOW,
+	);
+	expect(codexNonDim.composer).toBe('codex typed text');
+});
+
+test('agy draft screens read drafts in insert, normal and factory modes, including wrapped lines', () => {
+	expect(screen('agy-draft').composer).toBe('draft text not sent yet');
+	expect(screen('agy-draft-normal').composer).toBe('draft text not sent yet');
+	expect(screen('agy-draft-factory').composer).toBe('factory draft not sent');
+	expect(
+		screen('agy-draft').lines.some(line =>
+			line.includes('draft text not sent yet'),
+		),
+	).toBe(true);
+
+	const multiline = parseAgentScreen(
+		[
+			'────────────────────',
+			'\u001B[94m>\u001B[39m first line of agy draft',
+			'  second line of agy draft',
+			'────────────────────',
+			'auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(multiline.composer).toBe(
+		'first line of agy draft\nsecond line of agy draft',
+	);
+	expect(multiline.agyComposer).toBe(true);
+});
+
+test('agy transcript prompt echoes are not misread as a composer draft', () => {
+	for (const echo of [
+		'\u001B[1m\u001B[34m> Run something\u001B[0m',
+		'\u001B[0m\u001B[1m\u001B[38;5;39m> Run something\u001B[0m',
+	]) {
+		const capture = [
+			'\u001B[90m────────────────────────────────────────────────────────────\u001B[39m',
+			echo,
+			'',
+			'● Bash(ls)',
+			'\u001B[90m────────────────────────────────────────────────────────────\u001B[39m',
+		].join('\n');
+		expect(parseAgentScreen(capture, NOW).composer).toBe(null);
+	}
+});
+
+test('agy question lists parse into QuestionDialog and never as codexDialog', () => {
+	for (const [name, expectedQuestion] of [
+		['agy-question', 'Which color do you choose?'],
+		['agy-question-factory', 'Which color do you choose?'],
+		['agy-prompt-question', 'Please choose a color:'],
+	] as const) {
+		const parsed = screen(name);
+		expect(parsed.codexDialog).toBe(null);
+		expect(parsed.agyDialog).toBe(false);
+		expect(parsed.permission).toBe(null);
+		expect(parsed.composer).toBe(null);
+		expect(parsed.question).toStrictEqual({
+			tabs: [],
+			question: expectedQuestion,
+			options: [
+				{number: 1, label: 'red', kind: 'other', selected: true},
+				{number: 2, label: 'green', kind: 'other', selected: false},
+				{number: 3, label: 'blue', kind: 'other', selected: false},
+			],
+			multiSelect: false,
+			textOption: {number: 4, text: '', open: false},
+			cursor: 1,
+		});
+	}
+
+	const writeInHovered = parseAgentScreen(
+		[
+			'Question 1/1: Which color do you choose?',
+			'  1. red',
+			'  2. green',
+			'  3. blue',
+			'> 4. Write-in...',
+			'  ↑/↓ Navigate · enter Write-in · esc Skip',
+			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(writeInHovered.question?.cursor).toBe(4);
+	expect(writeInHovered.question?.textOption).toStrictEqual({
+		number: 4,
+		text: '',
+		open: false,
+	});
+
+	const writeInEmpty = parseAgentScreen(
+		[
+			'Question 1/1: Which color do you choose?',
+			'  1. red',
+			'  2. green',
+			'  3. blue',
+			'> 4. Write-in...',
+			'',
+			'  Your answer:',
+			'',
+			'  enter Submit · esc Back',
+			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(writeInEmpty.question?.textOption).toStrictEqual({
+		number: 4,
+		text: '',
+		open: true,
+		closeKey: 'Escape',
+	});
+
+	const writeInTyped = parseAgentScreen(
+		[
+			'Question 1/1: Which color do you choose?',
+			'  1. red',
+			'  2. green',
+			'  3. blue',
+			'> 4. Write-in...',
+			'',
+			'  Your answer:',
+			'  purple',
+			'',
+			'  enter Submit · esc Back',
+			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(writeInTyped.question?.textOption).toStrictEqual({
+		number: 4,
+		text: 'purple',
+		open: true,
+		closeKey: 'Escape',
+	});
+
+	const scrollbackQuestion = parseAgentScreen(
+		[
+			agentScreenFixture('agy-question'),
+			'● Completed earlier question',
+			'────────────────────',
+			'>',
+			'────────────────────',
+		].join('\n'),
+		NOW,
+	);
+	expect(scrollbackQuestion.question).toBe(null);
+});
+
+test('agy subagent manage view is flagged as agyDialog and never as codexDialog or question', () => {
+	const manage = screen('agy-subagent-manage');
+	expect(manage.agyDialog).toBe(true);
+	expect(manage.codexDialog).toBe(null);
+	expect(manage.question).toBe(null);
+	expect(manage.permission).toBe(null);
+	expect(manage.composer).toBe(null);
+
+	const scrollbackManage = parseAgentScreen(
+		[
+			agentScreenFixture('agy-subagent-manage'),
+			'● Resumed',
+			'────────────────────',
+			'>',
+			'────────────────────',
+		].join('\n'),
+		NOW,
+	);
+	expect(scrollbackManage.agyDialog).toBe(false);
+});
+
+test('parseResetTime parses ISO timestamps and parseAgyQuota filters by model family', () => {
+	const iso = '2026-11-24T09:10:11Z';
+	expect(parseResetTime(iso, NOW)).toStrictEqual(new Date(iso));
+	expect(parseResetTime('2026-99-99T00:00:00Z', NOW)).toBe(null);
+
+	const depleted = [
+		'Gemini Models\tWeekly Limit Remaining\t98%\t2026-12-01T04:14:49Z',
+		'Gemini Models\tFive Hour Limit Remaining\t0%\t2026-11-24T09:10:11Z',
+		'Claude and GPT models\tWeekly Limit Remaining\t100%\t2026-12-01T04:29:31Z',
+	].join('\n');
+	expect(
+		parseAgyQuota(
+			depleted,
+			new Date('2026-11-24T08:00:00Z'),
+			'gemini-4-hydrogen-medium',
+		),
+	).toStrictEqual({
+		kind: 'limited',
+		limit: {
+			resetText: '2026-11-24T09:10:11Z',
+			resetAt: new Date('2026-11-24T09:10:11Z'),
+			passed: false,
+		},
+	});
+	expect(
+		parseAgyQuota(depleted, new Date('2026-11-24T09:15:00Z')),
+	).toStrictEqual({
+		kind: 'limited',
+		limit: {
+			resetText: '2026-11-24T09:10:11Z',
+			resetAt: new Date('2026-11-24T09:10:11Z'),
+			passed: true,
+		},
+	});
+
+	// Depleted Claude/GPT quota must not falsely block a Gemini space (and vice versa).
+	const claudeOnlyDepleted = [
+		'Gemini Models\tFive Hour Limit Remaining\t56%\t2026-11-24T11:00:00Z',
+		'Claude and GPT models\tFive Hour Limit Remaining\t0%\t2026-11-24T09:10:11Z',
+	].join('\n');
+	expect(
+		parseAgyQuota(
+			claudeOnlyDepleted,
+			new Date('2026-11-24T08:00:00Z'),
+			'gemini-4-hydrogen-medium',
+		),
+	).toStrictEqual({kind: 'available'});
+	expect(
+		parseAgyQuota(
+			claudeOnlyDepleted,
+			new Date('2026-11-24T08:00:00Z'),
+			'claude-sonnet-4-6',
+		),
+	).toMatchObject({
+		kind: 'limited',
+		limit: {resetText: '2026-11-24T09:10:11Z'},
+	});
+	expect(
+		parseAgyQuota(
+			claudeOnlyDepleted,
+			new Date('2026-11-24T08:00:00Z'),
+			'gpt-5',
+		),
+	).toMatchObject({
+		kind: 'limited',
+		limit: {resetText: '2026-11-24T09:10:11Z'},
+	});
+
+	const bothDepleted = [
+		'Gemini Models\tWeekly Limit Remaining\t0%\t2026-12-01T04:14:49Z',
+		'Gemini Models\tFive Hour Limit Remaining\t0%\t2026-11-24T09:10:11Z',
+	].join('\n');
+	expect(
+		parseAgyQuota(bothDepleted, new Date('2026-11-24T08:00:00Z')),
+	).toMatchObject({
+		kind: 'limited',
+		limit: {resetText: '2026-12-01T04:14:49Z'},
+	});
+
+	const remaining = [
+		'Gemini Models\tWeekly Limit Remaining\t98%\t2026-12-01T04:14:49Z',
+		'Gemini Models\tFive Hour Limit Remaining\t97%\t2026-11-24T09:14:49Z',
+	].join('\n');
+	expect(parseAgyQuota(remaining, NOW)).toStrictEqual({kind: 'available'});
+	expect(parseAgyQuota('garbage output', NOW)).toStrictEqual({
+		kind: 'unparsed',
+	});
+	expect(parseAgyQuota('', NOW)).toStrictEqual({kind: 'unparsed'});
+	expect(
+		parseAgyQuota(
+			'Gemini Models\tFive Hour Limit Remaining\t0%\tnot-a-timestamp',
+			NOW,
+		),
+	).toStrictEqual({
+		kind: 'limited',
+		limit: {resetText: 'not-a-timestamp', resetAt: null, passed: false},
+	});
+});
+
+test('agy Out of credits footer and non-agy/stale notices are ignored, while live agy quota notices match', () => {
+	const footer = parseAgentScreen(
+		[
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'auto · Gemini 4 Hydrogen · medium · AI: Out of credits',
+		].join('\n'),
+		NOW,
+	);
+	expect(footer.usageLimit).toBe(null);
+
+	const outOfCreditsNotice = parseAgentScreen(
+		[
+			'✕ Out of credits',
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(outOfCreditsNotice.usageLimit).toBe(null);
+
+	// Non-agy screens (Claude shell mode, Esc footer, Codex GPT footer) never trigger AGY_LIMIT_NOTICE.
+	const claudeShell = parseAgentScreen(
+		[
+			'────────────────────',
+			'! grep "rate limit"',
+			'────────────────────',
+		].join('\n'),
+		NOW,
+	);
+	expect(claudeShell.usageLimit).toBe(null);
+	const claudeWithFooter = parseAgentScreen(
+		[
+			'Error: rate limit mentioned in file',
+			'────────────────────',
+			'❯ ',
+			'────────────────────',
+			'Esc to cancel · Tab to amend',
+		].join('\n'),
+		NOW,
+	);
+	expect(claudeWithFooter.usageLimit).toBe(null);
+
+	const codexOutput = parseAgentScreen(
+		['■ rate limit docs printed here', '› '].join('\n'),
+		NOW,
+	);
+	expect(codexOutput.usageLimit).toBe(null);
+	const codexWithRateLimit = parseAgentScreen(
+		[
+			'■ rate limit in output',
+			'› ',
+			'  GPT-6-Astra medium · ~/.worktrees/repo/STA-1',
+		].join('\n'),
+		NOW,
+	);
+	expect(codexWithRateLimit.usageLimit).toBe(null);
+
+	const quotaNotice = parseAgentScreen(
+		[
+			'✕ Quota exhausted for Gemini Models',
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(quotaNotice.usageLimit).toStrictEqual({
+		resetText: '',
+		resetAt: null,
+		passed: false,
+	});
+
+	for (const clearance of [
+		['● Working again'],
+		['• Resumed'],
+		['\u001B[1m\u001B[34m> continue\u001B[0m'],
+		['────────────────────', '\u001B[1m\u001B[34m> continue\u001B[0m'],
+	]) {
+		const stale = parseAgentScreen(
+			[
+				'✕ Quota exhausted for Gemini Models',
+				...clearance,
+				'────────────────────',
+				'\u001B[94m>\u001B[39m',
+				'────────────────────',
+				'auto · Gemini 4 Hydrogen · medium',
+			].join('\n'),
+			NOW,
+		);
+		expect(stale.usageLimit).toBe(null);
+	}
 });

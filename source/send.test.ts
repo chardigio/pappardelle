@@ -17,6 +17,7 @@ import {
 	CLEAR_COMPOSER_ROUNDS,
 	CLEAR_COMPOSER_ROUNDS_PER_CALL,
 	resolveInnerSessionTarget,
+	sendKeysToSpaceAgent,
 	sendToSpaceAgent,
 	type SendTmuxRunner,
 } from './tmux.ts';
@@ -662,3 +663,126 @@ if (sqliteRun) {
 		expect(calls.some(args => args.includes('=agent-r-HAND-1:'))).toBe(false);
 	});
 }
+
+test('sendToSpaceAgent leaves an agy draft alone unless forced, and never sends i in insert or factory mode', async () => {
+	for (const name of ['agy-draft', 'agy-draft-normal', 'agy-draft-factory']) {
+		const {runner, calls} = makeRunner({
+			sessions: ['agent-r-STA-1'],
+			screen: agentScreenFixture(name),
+		});
+		expect(
+			await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+		).toBe('draft');
+		expect(calls).toStrictEqual([]);
+	}
+
+	const sentAgy = (enters: number) =>
+		enters >= 1
+			? agentScreenFixture('agy-idle')
+			: agentScreenFixture('agy-draft');
+	for (const name of ['agy-draft', 'agy-draft-factory']) {
+		const {runner, calls} = makeRunner({
+			sessions: ['agent-r-STA-1'],
+			screen(sent) {
+				if (sent.pasted) return sentAgy(sent.enters);
+				return sent.cleared
+					? agentScreenFixture('agy-idle')
+					: agentScreenFixture(name);
+			},
+		});
+		expect(
+			await sendToSpaceAgent('STA-1', 'hi', {
+				runner,
+				lockDir,
+				force: true,
+				sleep,
+			}),
+		).toBe('sent');
+		expect(
+			calls.some(args => args[0] === 'send-keys' && args.at(-1) === 'i'),
+		).toBe(false);
+	}
+});
+
+test('forced send over an agy vim normal-mode draft enters insert mode once the first clear leaves it, then clears and submits', async () => {
+	let enteredInsert = false;
+	const {runner, calls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen(sent) {
+			if (sent.pasted) {
+				return sent.enters >= 1
+					? agentScreenFixture('agy-idle')
+					: agentScreenFixture('agy-draft');
+			}
+
+			if (enteredInsert) return agentScreenFixture('agy-idle');
+			return agentScreenFixture('agy-draft-normal');
+		},
+	});
+	const wrappedRunner: SendTmuxRunner = async (args, input) => {
+		if (args[0] === 'send-keys' && args.at(-1) === 'i') {
+			enteredInsert = true;
+		}
+
+		return runner(args, input);
+	};
+
+	expect(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner: wrappedRunner,
+			lockDir,
+			force: true,
+			sleep,
+		}),
+	).toBe('sent');
+	expect(enteredInsert).toBe(true);
+	const insertAt = calls.findIndex(
+		args => args[0] === 'send-keys' && args.at(-1) === 'i',
+	);
+	expect(insertAt > 0).toBe(true);
+	expect(calls.slice(insertAt + 1).some(args => args.includes('C-u'))).toBe(
+		true,
+	);
+	expect(calls.at(-1)?.at(-1)).toBe('Enter');
+});
+
+test('sendKeysToSpaceAgent allows Escape on agy question and subagent manage views while refusing answer keys', () => {
+	for (const fixtureName of ['agy-question', 'agy-subagent-manage']) {
+		const calls: string[][] = [];
+		const runner = (args: readonly string[]) => {
+			if (args[0] === 'list-sessions')
+				return {status: 0, stdout: 'agent-r-STA-1\n'};
+			if (args[0] === 'capture-pane')
+				return {status: 0, stdout: agentScreenFixture(fixtureName)};
+			calls.push([...args]);
+			return {status: 0, stdout: ''};
+		};
+
+		expect(sendKeysToSpaceAgent('STA-1', ['1'], {runner})).toBe('prompt');
+		expect(sendKeysToSpaceAgent('STA-1', ['Enter'], {runner})).toBe('prompt');
+		expect(calls).toStrictEqual([]);
+		expect(sendKeysToSpaceAgent('STA-1', ['Escape'], {runner})).toBe('sent');
+		expect(calls).toStrictEqual([
+			['send-keys', '-t', '=agent-r-STA-1:', '--', 'Escape'],
+		]);
+	}
+});
+
+test('sendToSpaceAgent blocks on agy subagent manage view even with force', async () => {
+	const {runner: sendRunner, calls: sendCalls} = makeRunner({
+		sessions: ['agent-r-STA-1'],
+		screen: agentScreenFixture('agy-subagent-manage'),
+	});
+	expect(
+		await sendToSpaceAgent('STA-1', 'hi', {runner: sendRunner, lockDir, sleep}),
+	).toBe('prompt');
+	expect(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner: sendRunner,
+			lockDir,
+			force: true,
+			sleep,
+		}),
+	).toBe('prompt');
+	expect(sendCalls).toStrictEqual([]);
+});

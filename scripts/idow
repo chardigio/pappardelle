@@ -957,7 +957,7 @@ elif [[ "$WORKTREE_CREATED" == true && "$AGENT_IS_CLAUDE" != true ]]; then
     AGENT_RESUME_ARGS=""
 fi
 if [[ "$WORKSPACE_AWARE" == true ]]; then
-    "$SCRIPT_DIR/install-agent-rules.sh" "$AGENT_COMMAND" "$WORKTREE_PATH" ||
+    "$SCRIPT_DIR/install-agent-rules.sh" "$AGENT_COMMAND" "$WORKTREE_PATH" --space "$ISSUE_KEY" --repo "$REPO_NAME" --role worker ||
         print_warning "Could not write the companion rules for $AGENT_COMMAND"
 fi
 

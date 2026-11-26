@@ -3,7 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
-import type {AgentState, AgentStateReport} from './agent-state.ts';
+import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
+import {parseAgentScreen, parseAgyQuota} from './agent-screen.ts';
+import {
+	classifyAgent,
+	type AgentState,
+	type AgentStateReport,
+} from './agent-state.ts';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {
@@ -598,3 +604,55 @@ console.log(JSON.stringify({job, queued}));
 		expect(store.queued('STA-2')).toBe(null);
 	});
 }
+
+contractTest(
+	'keep_going skips and at retries over an agy draft',
+	async state => {
+		const screen = parseAgentScreen(
+			agentScreenFixture('agy-draft-normal'),
+			NOW,
+		);
+		const draftReport: AgentStateReport = {
+			...report(classifyAgent(null, screen)),
+			composer: screen.composer,
+		};
+		const kg = harness(state, [draftReport]);
+		await kg.store.save({...keepGoing(), idleChecks: 1});
+		expect(await kg.fire(keepGoing())).toBe('skipped_draft');
+		expect(kg.sent).toStrictEqual([]);
+
+		const atJobAgy: Job = {...atJob, id: 'at-agy', key: 'STA-1'};
+		const at = harness(state, [draftReport], 'draft');
+		await at.store.save(atJobAgy);
+		expect(await at.fire(atJobAgy)).toBe('retrying');
+		expect(at.timers[0]?.arm).toBe(1);
+	},
+);
+
+contractTest(
+	'after_limit with an agy ISO reset waits before reset and sends continue after',
+	async state => {
+		const before = new Date('2026-11-24T09:00:00Z');
+		const after = new Date('2026-11-24T09:12:00Z');
+		const quotaOutput = [
+			'Gemini Models\tWeekly Limit Remaining\t98%\t2026-12-01T04:14:49Z',
+			'Gemini Models\tFive Hour Limit Remaining\t0%\t2026-11-24T09:10:11Z',
+		].join('\n');
+		const beforeQuota = parseAgyQuota(quotaOutput, before);
+		const afterQuota = parseAgyQuota(quotaOutput, after);
+		const beforeReport: AgentStateReport = {
+			...report('usage_limit'),
+			usageLimit: beforeQuota.kind === 'limited' ? beforeQuota.limit : null,
+		};
+		const afterReport: AgentStateReport = {
+			...report('usage_limit'),
+			usageLimit: afterQuota.kind === 'limited' ? afterQuota.limit : null,
+		};
+		const h = harness(state, [beforeReport, afterReport]);
+		await h.store.save(afterLimit);
+		expect(await h.fire(afterLimit, before)).toBe('waiting');
+		expect(h.timers[0]?.at).toBe('2026-11-24T09:11:11.000Z');
+		expect(await h.fire(afterLimit, after)).toBe('sent');
+		expect(h.sent).toStrictEqual(['continue']);
+	},
+);

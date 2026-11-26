@@ -2,24 +2,37 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
 import {test, expect} from 'bun:test';
+import {testState} from '../test/helpers/state.ts';
 import {rejectionOf} from '../test/helpers/thrown.ts';
 import {
+	callerIsAgy,
 	createMcpServer,
 	workspaceInstructions,
 	type CliResult,
 	type RunCli,
 	type WorkspaceAwareness,
 } from './mcp-server.ts';
+import type {PappardelleConfig} from './config.ts';
 import type {CliCall} from './mcp-tools.ts';
 
 async function connect(
-	options: {awareness?: WorkspaceAwareness; runCli?: RunCli} = {},
+	options: {
+		awareness?: WorkspaceAwareness;
+		space?: string;
+		sender?: string;
+		sousChef?: boolean;
+		agy?: boolean;
+		runCli?: RunCli;
+	} = {},
 ) {
 	const calls: CliCall[] = [];
 	const result: CliResult = {code: 0, stdout: 'out\n', stderr: ''};
 	const server = createMcpServer({
 		awareness: options.awareness ?? {kind: 'on'},
-		space: 'STA-1',
+		space: 'space' in options ? options.space : 'STA-1',
+		...(options.sender !== undefined ? {sender: options.sender} : {}),
+		...(options.sousChef !== undefined ? {sousChef: options.sousChef} : {}),
+		...(options.agy !== undefined ? {agy: options.agy} : {}),
 		repoName: 'repo',
 		runCli:
 			options.runCli ??
@@ -47,9 +60,106 @@ test('a tool call runs its CLI call and returns the output', async () => {
 		name: 'space_send',
 		arguments: {key: 'STA-2', text: "it's"},
 	});
-	expect(calls).toStrictEqual([{args: ['send', 'STA-2'], stdin: "it's"}]);
+	expect(calls).toStrictEqual([
+		{args: ['send', 'STA-2'], stdin: "[from STA-1] it's"},
+	]);
 	expect(text(result)).toBe('out');
 	expect(result.isError).toBeFalsy();
+});
+
+test('space_send prepends [from main] only when sender is main, and leaves unknown callers bare even with sousChef configured', async () => {
+	const main = await connect({
+		space: undefined,
+		sender: 'main',
+		sousChef: true,
+	});
+	await main.client.callTool({
+		name: 'space_send',
+		arguments: {key: 'STA-2', text: 'status?'},
+	});
+	expect(main.calls).toStrictEqual([
+		{args: ['send', 'STA-2'], stdin: '[from main] status?'},
+	]);
+
+	const strayWithSousChef = await connect({space: undefined, sousChef: true});
+	await strayWithSousChef.client.callTool({
+		name: 'space_send',
+		arguments: {key: 'STA-2', text: 'status?'},
+	});
+	expect(strayWithSousChef.calls).toStrictEqual([
+		{args: ['send', 'STA-2'], stdin: 'status?'},
+	]);
+
+	const external = await connect({space: undefined, sousChef: false});
+	await external.client.callTool({
+		name: 'space_send',
+		arguments: {key: 'STA-2', text: 'status?'},
+	});
+	expect(external.calls).toStrictEqual([
+		{args: ['send', 'STA-2'], stdin: 'status?'},
+	]);
+});
+
+test('agy workspace instructions teach space_send instead of SendMessage', () => {
+	const worker = workspaceInstructions('STA-1', 'repo', {
+		sousChef: true,
+		agy: true,
+	});
+	expect(worker).toMatch(/space_send/);
+	expect(worker).toMatch(/never use SendMessage/);
+	expect(worker).not.toMatch(/SendMessage to `sous-chef`/);
+});
+
+test('callerIsAgy checks the resolved profile instead of AGY_CLI_OSC7501', async () => {
+	const state = testState();
+	await state.daos.spaceState.write('STA-1', {
+		agentProfile: {name: 'claude', isClaude: true},
+	});
+	await state.daos.spaceState.write('STA-2', {
+		agentProfile: {name: 'agy', isClaude: false},
+	});
+	const config = {
+		version: 1,
+		agent_profile: 'claude',
+		agent_profiles: {
+			claude: {command: 'claude'},
+			agy: {command: 'env FOO=1 agy'},
+		},
+	} as unknown as PappardelleConfig;
+
+	expect(
+		callerIsAgy({
+			caller: {kind: 'env', key: 'STA-1'},
+			config,
+			spaceState: state.daos.spaceState,
+		}),
+	).toBe(false);
+	expect(
+		callerIsAgy({
+			caller: {kind: 'env', key: 'STA-2'},
+			config,
+			spaceState: state.daos.spaceState,
+		}),
+	).toBe(true);
+	expect(
+		callerIsAgy({
+			caller: {kind: 'none'},
+			config,
+			spaceState: state.daos.spaceState,
+		}),
+	).toBe(false);
+
+	// Even if AGY_CLI_OSC7501=on is set in env (as on every agent session), a
+	// Claude caller gets agy=false so SendMessage instructions stay intact.
+	const claudeInstructions = workspaceInstructions('STA-1', 'repo', {
+		sousChef: true,
+		agy: callerIsAgy({
+			caller: {kind: 'env', key: 'STA-1'},
+			config,
+			spaceState: state.daos.spaceState,
+		}),
+	});
+	expect(claudeInstructions).toMatch(/SendMessage to `sous-chef`/);
 });
 
 test('a command with no output still answers', async () => {

@@ -1,0 +1,60 @@
+
+  QA_SEND2_OK
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Count slowly from 1 to 15, one number per line, running sleep 1 with the shell between each number. Then reply DONE.
+
+[33m2.2k in | 297 out | 209 thinking
+[0m[32m●[39m [1m[33mBash[0m[37m(for i in $(seq 1 15); do echo $i; if [ $i -lt 15 ]; then sleep 1; fi; done)[39m [37m(ctrl+o to expand)
+
+[39m  Running the count from 1 to 15 in the background now; I'll reply once it finishes.
+
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+  10
+  11
+  12
+  13
+  14
+  15
+  DONE
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Use your file reading tool (not the shell) to read AGENTS.md and reply with its first word only.
+
+[0m[32m●[39m [1m[33mRead[0m[37m(~/.worktrees/qagy-d/qa-a1/AGENTS.md)[39m [37m(ctrl+o to expand)
+
+[39m  This
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Use your file reading tool (not the shell) to read /etc/hostname and reply with its contents only.
+
+[0m[32m●[39m [1m[33mRead[0m[37m(/etc/hostname)[39m [37m(ctrl+o to expand)
+
+[39m  omarchy
+
+[90m────────────────────────────────────────────────────────────[39m                                                            
+[1m[34m> Ask me one multiple-choice question with three options (red, green, blue) using your interactive question tool, the
+  one that shows me a selectable list
+
+[33m?[0m Which color do you choose?
+
+[1m[33mQuestion
+[0m[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+[1m[39mQuestion 1/1: Which color do you choose?
+
+[0m[94m> 1. red
+[39m  2. green
+  3. blue                                       
+  4. Write-in...                                                                                                        
+
+  [1m[94m↑/↓[0m[90m Navigate · [1m[94menter[0m[90m Select · [1m[94mesc[0m[90m Skip[39m                                                                                
+[90mesc to cancel[39m                                                                          [33mauto[2m[39m · Gemini 4 Hydrogen · medium
