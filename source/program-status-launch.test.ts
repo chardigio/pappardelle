@@ -18,7 +18,7 @@ import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {killProcessesNaming} from '../test/helpers/processes.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import * as wait from '../test/helpers/wait.ts';
 import {
 	serveTestHub,
 	subscribeRaw,
@@ -242,13 +242,16 @@ exec ${shellQuoteStatus(realTmux)} "$@"
 }
 
 async function until(read: () => boolean, label: string) {
-	await waitUntil(() => {
-		try {
-			return read();
-		} catch {
-			return false;
-		}
-	}, label);
+	await wait.until(
+		() => {
+			try {
+				return read();
+			} catch {
+				return false;
+			}
+		},
+		{what: label},
+	);
 }
 
 for (const launcher of ['tui', 'shell'] as const) {

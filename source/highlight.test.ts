@@ -7,7 +7,7 @@ import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
-import {waitUntil, watcherReady} from '../test/helpers/wait.ts';
+import {until, watcherReady} from '../test/helpers/wait.ts';
 import {
 	findSpaceIndexByIssueKey,
 	getHighlightFilePath,
@@ -53,7 +53,7 @@ contractTest(
 		await watcherReady();
 		await s.daos.highlight.request({issueKey: 'main', focus: true});
 		expect(fs.readFileSync(targetFile(s), 'utf8')).toBe('main\tfocus\n');
-		await waitUntil(() => requests.length > 0, 'a highlight request');
+		await until(() => requests.length > 0, {what: 'a highlight request'});
 		expect(requests[0]).toStrictEqual({issueKey: 'main', focus: true});
 	},
 );
@@ -69,7 +69,7 @@ contractTest(
 			'-c',
 			s.daos.highlight.shellRequest({issueKey: 'main', focus: true}),
 		]);
-		await waitUntil(() => requests.length > 0, 'a highlight request');
+		await until(() => requests.length > 0, {what: 'a highlight request'});
 		expect(requests[0]).toStrictEqual({issueKey: 'main', focus: true});
 	},
 );
@@ -77,7 +77,7 @@ contractTest(
 contractTest('a request reaches a watching listener', async s => {
 	const selected = await watching(s);
 	await s.daos.highlight.request({issueKey: 'STA-500', focus: false});
-	await waitUntil(() => selected.length > 0, 'a highlight request');
+	await until(() => selected.length > 0, {what: 'a highlight request'});
 	expect(selected[0]).toBe('STA-500');
 });
 
@@ -85,11 +85,11 @@ contractTest('a request reaches a watching listener', async s => {
 contractTest('asking for the same key twice selects it twice', async s => {
 	const selected = await watching(s);
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
-	await waitUntil(() => selected.length > 0, 'a highlight request');
+	await until(() => selected.length > 0, {what: 'a highlight request'});
 	await settle();
 	const first = selected.length;
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
-	await waitUntil(() => selected.length > first, 'a highlight request');
+	await until(() => selected.length > first, {what: 'a highlight request'});
 	expect([...new Set(selected)]).toStrictEqual(['STA-1']);
 });
 
@@ -104,7 +104,7 @@ contractTest(
 		await settle();
 		expect(selected).toStrictEqual([]);
 		await s.daos.highlight.request({issueKey: 'NEW-1', focus: false});
-		await waitUntil(() => selected.length > 0, 'a highlight request');
+		await until(() => selected.length > 0, {what: 'a highlight request'});
 		expect([...new Set(selected)]).toStrictEqual(['NEW-1']);
 	},
 );
@@ -119,12 +119,12 @@ contractTest('clearing removes the target file', async s => {
 contractTest('a request after a clear is reported', async s => {
 	const selected = await watching(s);
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
-	await waitUntil(() => selected.length > 0, 'a highlight request');
+	await until(() => selected.length > 0, {what: 'a highlight request'});
 	await s.daos.highlight.clear();
 	await settle();
 	const first = selected.length;
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
-	await waitUntil(() => selected.length > first, 'a highlight request');
+	await until(() => selected.length > first, {what: 'a highlight request'});
 	expect(selected.at(-1)).toBe('STA-1');
 });
 
@@ -157,7 +157,7 @@ await highlight.request({issueKey: 'STA-700', focus: false});
 			],
 			{timeout: 30_000},
 		);
-		await waitUntil(() => selected.length > 0, 'a highlight request');
+		await until(() => selected.length > 0, {what: 'a highlight request'});
 		expect(selected[0]).toBe('STA-700');
 	});
 }

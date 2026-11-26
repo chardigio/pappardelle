@@ -16,7 +16,7 @@ import {
 } from '../source/providers/index.ts';
 import {initTmuxState} from '../source/tmux.ts';
 import type {TrackerIssue} from '../source/providers/types.ts';
-import {StatusHarness, until} from './program-status-harness.ts';
+import {StatusHarness, untilSeen} from './program-status-harness.ts';
 
 // The rail over a state.db that SQLite refuses to open: it has to draw, list
 // no space it cannot read, report the problem, and list the space once the
@@ -79,7 +79,7 @@ try {
 				entry.component === 'app' &&
 				entry.message === 'Failed to refresh workspaces',
 		);
-	const unreadable = await until(
+	const unreadable = await untilSeen(
 		frame,
 		current => current.includes(repo) && refreshFailed(),
 		'the rail draws and reports the registry it could not read',
@@ -89,7 +89,7 @@ try {
 	console.log('PASS actual App: draws the rail over an unreadable database');
 
 	rmSync(dbPath);
-	const readable = await until(
+	const readable = await untilSeen(
 		frame,
 		current => current.includes(key),
 		'the space is listed once the database can be read',

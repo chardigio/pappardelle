@@ -23,7 +23,7 @@ test('a short pane keeps the title and footer and scrolls', async () => {
 	teardown(async () => {
 		await view.unmount();
 	});
-	await until(() => shortPaneShown(view.lastFrame()), view.lastFrame);
+	await until(() => shortPaneShown(view.lastFrame()), {frame: view.lastFrame});
 
 	let lines = view.lastFrame().split('\n');
 	expect(lines[2]!.includes('Keyboard Shortcuts')).toBe(true);
@@ -32,10 +32,9 @@ test('a short pane keeps the title and footer and scrolls', async () => {
 	expect(view.lastFrame().includes('Show this help')).toBe(false);
 
 	await view.stdin.write('G');
-	await until(
-		() => view.lastFrame().includes('Jump to the sous-chef'),
-		view.lastFrame,
-	);
+	await until(() => view.lastFrame().includes('Jump to the sous-chef'), {
+		frame: view.lastFrame,
+	});
 	lines = view.lastFrame().split('\n');
 	expect(lines.length).toBe(13);
 	expect(lines[2]!.includes('Keyboard Shortcuts')).toBe(true);
@@ -52,7 +51,7 @@ test('a tall pane shows every shortcut with no scroll hint', async () => {
 	});
 	await until(
 		() => view.lastFrame().includes('Close all done/canceled spaces'),
-		view.lastFrame,
+		{frame: view.lastFrame},
 	);
 
 	const frame = view.lastFrame();
@@ -65,13 +64,12 @@ test('keys that arrive together each scroll a line', async () => {
 	teardown(async () => {
 		await view.unmount();
 	});
-	await until(() => shortPaneShown(view.lastFrame()), view.lastFrame);
+	await until(() => shortPaneShown(view.lastFrame()), {frame: view.lastFrame});
 	const before = view.lastFrame().split('\n');
 
 	await view.stdin.write('jjj');
-	await until(
-		() => view.lastFrame().split('\n')[5] === before[8],
-		view.lastFrame,
-	);
+	await until(() => view.lastFrame().split('\n')[5] === before[8], {
+		frame: view.lastFrame,
+	});
 	expect().pass();
 });

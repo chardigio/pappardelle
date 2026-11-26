@@ -12,7 +12,7 @@ import {
 	snapshotOf,
 } from '../test/helpers/program-status.ts';
 import {testState, writeClaudeStatus} from '../test/helpers/state.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {
@@ -287,10 +287,9 @@ test('known native updates avoid discovery while full reads reconcile generation
 	await delay(0);
 	const before = h.queries();
 	await h.writeOsc({status: 'blocked', app: 'fixture', kind: 'auth'});
-	await waitUntil(
-		() => latest.get('TASK-1')?.status === 'blocked',
-		'a status update',
-	);
+	await until(() => latest.get('TASK-1')?.status === 'blocked', {
+		what: 'a status update',
+	});
 	await h.writeHook('processing');
 	await delay(100);
 	expect(h.queries()).toBe(before);
@@ -300,10 +299,9 @@ test('known native updates avoid discovery while full reads reconcile generation
 	await h.writeOsc({status: 'done', app: 'replacement'});
 	await h.status.read('TASK-1');
 	await h.writeHook('error');
-	await waitUntil(
-		() => latest.get('TASK-1')?.app === 'replacement',
-		'a status update',
-	);
+	await until(() => latest.get('TASK-1')?.app === 'replacement', {
+		what: 'a status update',
+	});
 	expect(latest.get('TASK-1')?.generation).not.toBe(oldGeneration);
 	expect(h.queries() > before).toBe(true);
 });
@@ -332,11 +330,11 @@ test('hook bursts reach only relevant workspaces and preserve the final question
 			Date.now(),
 			`ours-${i}`,
 		);
-	await waitUntil(
+	await until(
 		() =>
 			latest.size === 8 &&
 			[...latest.values()].every(info => info.status === 'blocked'),
-		'a status update',
+		{what: 'a status update'},
 	);
 	for (const [key, info] of latest) {
 		expect(key.startsWith('ours-')).toBe(true);
@@ -364,15 +362,14 @@ test('main snapshot events retain their UI alias and revoked leases trigger disc
 	await delay(0);
 	const before = h.queries();
 	await h.writeOsc({status: 'done'}, {key: 'main'});
-	await waitUntil(
-		() => latest.get('repo-main')?.status === 'done',
-		'a status update',
-	);
+	await until(() => latest.get('repo-main')?.status === 'done', {
+		what: 'a status update',
+	});
 	expect(h.queries()).toBe(before);
 	expect(latest.has('main')).toBe(false);
 	rmSync(`${file}.lease`);
 	await h.writeHook('processing', undefined, Date.now(), 'repo-main');
-	await waitUntil(() => h.queries() > before, 'a status update');
+	await until(() => h.queries() > before, {what: 'a status update'});
 });
 
 test('a refresh locates every space with one tmux call and pipes only unmonitored live panes', async () => {
@@ -496,11 +493,11 @@ test('a watched read that a newer attach overtook reads the newer pane, and atta
 
 	holdNextRead = true;
 	snapshotChanged('TASK-1');
-	await waitUntil(() => answerHeldRead !== undefined, 'the watched read');
+	await until(() => answerHeldRead !== undefined, {what: 'the watched read'});
 	await statuses.read('TASK-1');
 	answerHeldRead!(null);
 
-	await waitUntil(() => delivered.length > 0, 'the status update');
+	await until(() => delivered.length > 0, {what: 'the status update'});
 	expect(delivered).toStrictEqual([second.generation]);
 	expect(attached).toStrictEqual([first, second]);
 });
@@ -554,11 +551,10 @@ for (const sqlite of [false, true]) {
 		monitor.stdin.write(
 			'\u001B]7501;state=blocked:app=fixture:kind=auth\u0007',
 		);
-		await waitUntil(
-			() => latest.get('TASK-1')?.status === 'blocked',
-			'a status update',
-			10_000,
-		);
+		await until(() => latest.get('TASK-1')?.status === 'blocked', {
+			what: 'a status update',
+			timeoutMs: 10_000,
+		});
 		expect(latest.get('TASK-1')).toMatchObject({
 			source: 'osc',
 			app: 'fixture',

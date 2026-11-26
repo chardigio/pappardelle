@@ -54,7 +54,7 @@ test('renders before the scan finishes, then shows what it found', async () => {
 			await view.renderOnce();
 			return view.lastFrame() !== '(none)';
 		},
-		() => view.lastFrame(),
+		{frame: () => view.lastFrame()},
 	);
 	expect(view.lastFrame()).toBe('alpha,beta');
 });
@@ -78,7 +78,7 @@ test('a reopened prompt shows the last scan on its first frame, then the rescan'
 			await view.renderOnce();
 			return view.lastFrame() !== 'alpha';
 		},
-		() => view.lastFrame(),
+		{frame: () => view.lastFrame()},
 	);
 	expect(view.lastFrame()).toBe('alpha,installed-since');
 });

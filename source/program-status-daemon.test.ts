@@ -27,7 +27,7 @@ import {
 	testSocketPath,
 	type RawConnection,
 } from '../test/helpers/status-daemon.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
 import {
 	createProgramStatusDao,
 	followedPublisher,
@@ -209,7 +209,7 @@ test('a monitor’s first send to a connected daemon removes the snapshot file f
 		snapshotOf(target, report('blocked'), {updatedAt: at + 1000}),
 	);
 
-	await waitUntil(() => !existsSync(h.file), 'the file to be removed');
+	await until(() => !existsSync(h.file), {what: 'the file to be removed'});
 	await sentSoFar(h.clients[0]!, await subscribeRaw(socketPath, 'repo'));
 	expect(await readStatus(state, 'STA-1', pane)).toBe('blocked');
 	expect(existsSync(`${h.file}.lease`)).toBe(true);
@@ -244,10 +244,9 @@ test('a monitor that cannot reach a daemon keeps its snapshot file, and sends it
 	h.publisher.publish(snapshotOf(target, report('blocked')));
 	const latest = snapshotOf(target, report('done'));
 	h.publisher.publish(latest);
-	await waitUntil(
-		() => h.clock.delays().length === 1,
-		'the publisher to find no daemon',
-	);
+	await until(() => h.clock.delays().length === 1, {
+		what: 'the publisher to find no daemon',
+	});
 	expect(
 		(JSON.parse(readFileSync(h.file, 'utf8')) as ProgramStatusSnapshot).info
 			.status,
@@ -257,7 +256,7 @@ test('a monitor that cannot reach a daemon keeps its snapshot file, and sends it
 	const rail = await subscribeRaw(socketPath, 'repo');
 	h.clock.fire();
 
-	await waitUntil(() => !existsSync(h.file), 'the file to be removed');
+	await until(() => !existsSync(h.file), {what: 'the file to be removed'});
 	await sentSoFar(h.clients[0]!, rail);
 	expect(sentStatuses(rail)).toStrictEqual(['done']);
 	expect(
@@ -277,10 +276,9 @@ test('a monitor sends its latest snapshot again to a daemon that replaced the fi
 	await sentSoFar(h.clients[0]!, before);
 
 	await first.close();
-	await waitUntil(
-		() => h.clock.delays().length === 1,
-		'the publisher to see that the daemon went away',
-	);
+	await until(() => h.clock.delays().length === 1, {
+		what: 'the publisher to see that the daemon went away',
+	});
 	const second = await serveTestDaemon(socketPath);
 	const rail = await subscribeRaw(socketPath, 'repo');
 	h.clock.fire();
@@ -294,10 +292,9 @@ test('a monitor sends its latest snapshot again to a daemon that replaced the fi
 
 	h.revokeLease();
 	await second.close();
-	await waitUntil(
-		() => h.clock.delays().length === 1,
-		'the publisher to see that the second daemon went away',
-	);
+	await until(() => h.clock.delays().length === 1, {
+		what: 'the publisher to see that the second daemon went away',
+	});
 	await serveTestDaemon(socketPath);
 	const after = await subscribeRaw(socketPath, 'repo');
 	let connected = false;
@@ -305,7 +302,7 @@ test('a monitor sends its latest snapshot again to a daemon that replaced the fi
 		connected = true;
 	});
 	h.clock.fire();
-	await waitUntil(() => connected, 'the publisher to reconnect');
+	await until(() => connected, {what: 'the publisher to reconnect'});
 	await sentSoFar(h.clients[0]!, after);
 	expect(sentStatuses(after)).toStrictEqual([]);
 });
@@ -351,7 +348,7 @@ test('a snapshot that reaches the daemon after its space was forgotten is droppe
 	h.grantLease();
 	h.publisher.publish(snapshotOf(target, report('working')));
 
-	await waitUntil(() => dropSent, 'the monitor to drop its snapshot');
+	await until(() => dropSent, {what: 'the monitor to drop its snapshot'});
 	await sentSoFar(h.clients[0]!, rail);
 	const after = await subscribeRaw(socketPath, 'repo');
 	const [held] = after.messages;
@@ -436,7 +433,7 @@ test('an idle monitor moves its snapshot to the daemon on the liveness check aft
 		message => message.type === 'snapshot',
 		'the idle pane’s snapshot',
 	);
-	await waitUntil(() => !existsSync(h.file), 'the file to be removed');
+	await until(() => !existsSync(h.file), {what: 'the file to be removed'});
 	expect(
 		rail.messages.find(message => message.type === 'snapshot'),
 	).toStrictEqual({type: 'snapshot', snapshot});
@@ -479,7 +476,7 @@ test('a monitor asks for the flag again once its answer is a second old', async 
 	h.advance(1);
 	h.publisher.publish(snapshotOf(target, report('done')));
 	expect(h.clients.length).toBe(1);
-	await waitUntil(() => !existsSync(h.file), 'the file to be removed');
+	await until(() => !existsSync(h.file), {what: 'the file to be removed'});
 });
 
 /** A connection whose sends the test settles. */
@@ -608,11 +605,10 @@ tmuxTest(
 		};
 
 		await attach('STA-1', 'agent-1');
-		await waitUntil(
-			() => existsSync(statusSocket) && daemons().length === 1,
-			'the monitor to start a daemon',
-			60_000,
-		);
+		await until(() => existsSync(statusSocket) && daemons().length === 1, {
+			what: 'the monitor to start a daemon',
+			timeoutMs: 60_000,
+		});
 		const started = daemons();
 		const rail = await subscribeRaw(statusSocket, 'repo');
 		const held = (key: string, exited: boolean) =>
@@ -624,34 +620,30 @@ tmuxTest(
 						: []
 				).some(snapshot => snapshot.key === key && snapshot.exited === exited),
 			);
-		await waitUntil(
-			() => held('STA-1', false),
-			'the first monitor’s snapshot to reach the daemon it started',
-			30_000,
-		);
+		await until(() => held('STA-1', false), {
+			what: 'the first monitor’s snapshot to reach the daemon it started',
+			timeoutMs: REAL_TMUX_TIMEOUT_MS,
+		});
 
 		await attach('STA-2', 'agent-2');
 		await rail.received(
 			message => message.type === 'forgotten' && message.key === 'STA-2',
 			'the forget that attach sends for the second space',
 		);
-		await waitUntil(
-			() => held('STA-2', false) && monitors().length === 2,
-			'the second monitor’s snapshot',
-			30_000,
-		);
+		await until(() => held('STA-2', false) && monitors().length === 2, {
+			what: 'the second monitor’s snapshot',
+			timeoutMs: REAL_TMUX_TIMEOUT_MS,
+		});
 		expect(daemons()).toStrictEqual(started);
 
 		tmux('kill-server');
-		await waitUntil(
-			() => monitors().length === 0,
-			'the monitors to exit after their panes died',
-			30_000,
-		);
-		await waitUntil(
-			() => held('STA-1', true) && held('STA-2', true),
-			'the snapshot each monitor sent as it stopped',
-		);
+		await until(() => monitors().length === 0, {
+			what: 'the monitors to exit after their panes died',
+			timeoutMs: REAL_TMUX_TIMEOUT_MS,
+		});
+		await until(() => held('STA-1', true) && held('STA-2', true), {
+			what: 'the snapshot each monitor sent as it stopped',
+		});
 		expect(daemons()).toStrictEqual(started);
 	},
 	120_000,

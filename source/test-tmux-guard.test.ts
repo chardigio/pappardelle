@@ -7,7 +7,7 @@ import {
 	processesNaming,
 } from '../test/helpers/processes.ts';
 import {teardown} from '../test/helpers/teardown.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
 	TEST_TMUX_GUARD,
@@ -401,10 +401,9 @@ function runGuarded(script: string) {
 			{encoding: 'utf8'},
 		);
 		expect(start.status, start.stderr).toBe(0);
-		await waitUntil(
-			() => orphans().length === 1,
-			'the pane to start its sleep',
-		);
+		await until(() => orphans().length === 1, {
+			what: 'the pane to start its sleep',
+		});
 		spawnSync(setupScript, ['--finish', path.join(priv, 'refusals.log')]);
 		expect(orphans()).toEqual([]);
 	},

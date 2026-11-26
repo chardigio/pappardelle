@@ -3,7 +3,7 @@ import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {rejectionOf} from '../test/helpers/thrown.ts';
 import {testState} from '../test/helpers/state.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 import {clearRecentErrors, subscribeToErrors} from './logger.ts';
 import {stateDbPath} from './state-db.ts';
 import {onStateDbChange} from './state-db-watch.ts';
@@ -113,10 +113,9 @@ test('watches begun over a database that cannot be read deliver its changes once
 		space: 'STA-1',
 		kind: 'width',
 	});
-	await waitUntil(
-		() => told > 0,
-		'the watches to read what was written while they could not',
-	);
+	await until(() => told > 0, {
+		what: 'the watches to read what was written while they could not',
+	});
 
 	await daos.highlight.request({issueKey: 'STA-2', focus: false});
 	await daos.companionRequests.send({
@@ -124,10 +123,9 @@ test('watches begun over a database that cannot be read deliver its changes once
 		space: 'STA-2',
 		kind: 'width',
 	});
-	await waitUntil(
-		() => seen.highlight.length > 0 && seen.requests.length > 0,
-		'a change made after the watches could read',
-	);
+	await until(() => seen.highlight.length > 0 && seen.requests.length > 0, {
+		what: 'a change made after the watches could read',
+	});
 	expect(seen).toStrictEqual({
 		highlight: ['STA-2'],
 		requests: ['request-1'],

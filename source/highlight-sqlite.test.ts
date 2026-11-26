@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {testState} from '../test/helpers/state.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 import {getHighlightFilePath} from './highlight.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
 
@@ -49,13 +49,13 @@ test('a request is newer than the one it replaces when the clock has not moved',
 	const f = fixture();
 	f.watch();
 	await f.highlight.request({issueKey: 'STA-1', focus: false});
-	await waitUntil(() => f.selected.length === 1, 'a highlight request');
+	await until(() => f.selected.length === 1, {what: 'a highlight request'});
 	await f.highlight.request({issueKey: 'STA-1', focus: false});
-	await waitUntil(() => f.selected.length === 2, 'a highlight request');
+	await until(() => f.selected.length === 2, {what: 'a highlight request'});
 	expect(f.rows()).toStrictEqual([{key: 'STA-1', requested_at: 1001}]);
 	f.clock.now = 500;
 	await f.highlight.request({issueKey: 'STA-1', focus: false});
-	await waitUntil(() => f.selected.length === 3, 'a highlight request');
+	await until(() => f.selected.length === 3, {what: 'a highlight request'});
 	expect(f.rows()).toStrictEqual([{key: 'STA-1', requested_at: 1002}]);
 });
 
@@ -74,7 +74,7 @@ test('a target file written without the database is reported as a request', asyn
 	f.watch();
 	fs.writeFileSync(f.file, 'STA-9\n');
 	await f.stateColors.set('Done', '#74d09f');
-	await waitUntil(() => f.selected.length > 0, 'a highlight request');
+	await until(() => f.selected.length > 0, {what: 'a highlight request'});
 	expect(f.selected).toStrictEqual(['STA-9']);
 	expect(f.rows()).toStrictEqual([{key: 'STA-9', requested_at: 1000}]);
 });

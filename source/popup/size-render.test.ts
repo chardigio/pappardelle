@@ -89,10 +89,9 @@ for (const cols of [30, 80]) {
 			await view.unmount();
 		});
 
-		await until(
-			() => view.lastFrame().includes('‹ Closed ›'),
-			() => view.lastFrame(),
-		);
+		await until(() => view.lastFrame().includes('‹ Closed ›'), {
+			frame: () => view.lastFrame(),
+		});
 		const rows = view.lastFrame().split('\n');
 		expect(rows.length).toBe(size.height);
 		expect(rows.at(-3)!.includes('cancel'), 'the hint is the last row').toBe(

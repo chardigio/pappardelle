@@ -20,7 +20,7 @@ import {
 } from '../source/providers/index.ts';
 import {sessionNamesFor} from '../source/space-identity.ts';
 import {initTmuxState} from '../source/tmux.ts';
-import {StatusHarness, until} from './program-status-harness.ts';
+import {StatusHarness, untilSeen} from './program-status-harness.ts';
 import type {TrackerIssue} from '../source/providers/types.ts';
 
 const harness = new StatusHarness();
@@ -93,7 +93,7 @@ try {
 	);
 	const frames: Array<{scenario: string; frame: string}> = [];
 	async function expect(icon: string, scenario: string) {
-		const frame = await until(
+		const frame = await untilSeen(
 			() => view?.lastFrame() ?? '',
 			current => current.includes(`${icon} ${key}`),
 			scenario,

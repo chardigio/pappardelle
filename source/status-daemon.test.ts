@@ -15,7 +15,7 @@ import {
 	testSocketPath,
 	type RawConnection,
 } from '../test/helpers/status-daemon.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 import {withFileLock} from './file-lock.ts';
 import {
 	IDLE_EXIT_MS,
@@ -181,7 +181,9 @@ test('the daemon stops once the idle wait after its last connection closed is ov
 	const daemon = await serveTestDaemon(socketPath, {timers: clock.timers});
 	const first = await connectRaw(socketPath);
 	const second = await connectRaw(socketPath);
-	await waitUntil(() => clock.delays().length === 0, 'the daemon to be in use');
+	await until(() => clock.delays().length === 0, {
+		what: 'the daemon to be in use',
+	});
 
 	first.socket.destroy();
 	const rail = await subscribeRaw(socketPath, 'repo');
@@ -189,10 +191,9 @@ test('the daemon stops once the idle wait after its last connection closed is ov
 
 	second.socket.destroy();
 	rail.socket.destroy();
-	await waitUntil(
-		() => clock.delays().length === 1,
-		'the daemon to see that nothing is connected',
-	);
+	await until(() => clock.delays().length === 1, {
+		what: 'the daemon to see that nothing is connected',
+	});
 	expect(clock.delays()).toStrictEqual([IDLE_EXIT_MS]);
 
 	clock.fire();
@@ -250,10 +251,9 @@ test('a daemon about to stop starts the idle wait again after a connection that 
 	const candidate = withFileLock(socketPath, async () => starting);
 	clock.fire();
 	expect(await refused(socketPath)).toBe(false);
-	await waitUntil(
-		() => clock.delays().length === 1,
-		'the daemon to see that connection close',
-	);
+	await until(() => clock.delays().length === 1, {
+		what: 'the daemon to see that connection close',
+	});
 	release();
 	await candidate;
 	await withFileLock(socketPath, () => {});
@@ -271,10 +271,9 @@ test('an invalid line is ignored, and the lines after it on that connection stil
 
 	sender.socket.write('not a message\n{"type":"hook","state":{}}\n');
 	sender.send({type: 'subscribe', repo: 'other'});
-	await waitUntil(
-		() => sender.messages.length === 2,
-		'the daemon to answer a line that came after the invalid ones',
-	);
+	await until(() => sender.messages.length === 2, {
+		what: 'the daemon to answer a line that came after the invalid ones',
+	});
 	sender.send({type: 'hook', state: hookState('repo-A')});
 
 	await rail.received(isHook('repo-A'), 'the valid line');
@@ -310,13 +309,14 @@ test('a subscriber that stops reading is disconnected at the backlog cap, and th
 
 	const snapshots = (messages: DaemonMessage[]) =>
 		messages.filter(message => message.type === 'snapshot').length;
-	await waitUntil(
-		() => snapshots(reading.messages) === sent,
-		'the reading subscriber to get every snapshot',
-		20_000,
-	);
+	await until(() => snapshots(reading.messages) === sent, {
+		what: 'the reading subscriber to get every snapshot',
+		timeoutMs: 20_000,
+	});
 	stopped.socket.resume();
-	await waitUntil(() => stoppedClosed, 'the stopped subscriber to be closed');
+	await until(() => stoppedClosed, {
+		what: 'the stopped subscriber to be closed',
+	});
 	expect(snapshots(stopped.messages) < sent).toBe(true);
 
 	monitor.send({type: 'hook', state: hookState('repo-A')});

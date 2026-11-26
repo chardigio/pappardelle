@@ -12,7 +12,7 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 
 const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 const entry = path.join(import.meta.dirname, 'mcp-cli.ts');
@@ -446,10 +446,9 @@ tmuxTest(
 		const held = await call('space_answer', {key: 'STE-3', option: 1});
 		expect(held.isError, text(held)).toBeFalsy();
 		expect(text(held)).toMatch(/^Held h\w+: a push .+\ngit push origin main/);
-		await waitUntil(
-			() => fs.existsSync(push),
-			'the push prompt to be declined',
-		);
+		await until(() => fs.existsSync(push), {
+			what: 'the push prompt to be declined',
+		});
 		expect(fs.readFileSync(push, 'utf8').trim()).toBe('2');
 		const holds = JSON.parse(text(await call('space_holds', {}))) as Array<{
 			key: string;

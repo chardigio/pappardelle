@@ -20,7 +20,7 @@ import {
 	type StatusTimers,
 } from '../../source/status-protocol.ts';
 import {tempDir} from './temp-dir.ts';
-import {waitUntil} from './wait.ts';
+import {until} from './wait.ts';
 import {teardown, type Cleanup} from './teardown.ts';
 
 /** Timers that run only when a test fires them. */
@@ -175,7 +175,7 @@ export async function connectRaw(
 			socket.write(encodeMessage(message));
 		},
 		async received(matches, what) {
-			await waitUntil(() => messages.some(message => matches(message)), what);
+			await until(() => messages.some(message => matches(message)), {what});
 		},
 	};
 }

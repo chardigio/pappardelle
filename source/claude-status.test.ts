@@ -9,7 +9,7 @@ import {
 	testState,
 	writeClaudeStatus,
 } from '../test/helpers/state.ts';
-import {waitUntil, watcherReady} from '../test/helpers/wait.ts';
+import {until, watcherReady} from '../test/helpers/wait.ts';
 import type {ClaudeStatus, ClaudeSessionState} from './claude-status.ts';
 import {
 	STABLE_STATUSES,
@@ -400,12 +400,12 @@ contractTest('watch reports the key that changed', async s => {
 	// it started. They come ahead of a later write's events, so once this
 	// write is reported none are left to arrive.
 	await writeClaudeStatus(s, session('STA-0', 'processing'));
-	await waitUntil(() => reported.includes('STA-0'), 'the first write');
+	await until(() => reported.includes('STA-0'), {what: 'the first write'});
 	reported.length = 0;
 	await writeClaudeStatus(s, session('STA-2', 'waiting_for_input'));
-	await waitUntil(() => reported.includes('STA-2'), 'a status change');
+	await until(() => reported.includes('STA-2'), {what: 'a status change'});
 	await writeClaudeStatus(s, session('STA-3', 'ended'));
-	await waitUntil(() => reported.includes('STA-3'), 'a status change');
+	await until(() => reported.includes('STA-3'), {what: 'a status change'});
 	expect(reported.includes('STA-1')).toBe(false);
 	stop();
 	const before = reported.length;
