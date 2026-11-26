@@ -237,11 +237,15 @@ test('a highlight request and hook statuses left in files are deleted, not impor
 		write(stateDir, 'pr-link.stamp', ''),
 	];
 
-	const stores = daos(stateDir, 'repo');
-	const requests: string[] = [];
-	stores.highlight.watch(request => requests.push(request.issueKey))();
-	expect(stores.registry.openSpaces()).toEqual([]);
-	expect(requests).toEqual([]);
+	expect(daos(stateDir, 'repo').registry.openSpaces()).toEqual([]);
+	expect(
+		openStateDb(path.join(stateDir, 'state.db'))
+			.db.query<
+				{requests: number},
+				[]
+			>('SELECT COUNT(*) AS requests FROM highlight_targets')
+			.get(),
+	).toEqual({requests: 0});
 	expect([target, ...left].filter(file => fs.existsSync(file))).toEqual([]);
 	expect(fs.existsSync(path.join(stateDir, 'claude-status'))).toBe(false);
 });
