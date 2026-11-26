@@ -1191,7 +1191,7 @@ Builds before this one kept this state in JSON files under `~/.pappardelle/repos
 - The first time the database is opened, everything in those files that the database doesn't already hold is imported, and the files are deleted. `install.sh` does this, so the files are gone once an update finishes
 - A file that can't be read as state is kept where it is, and the import logs it
 - After an update, restart every running Pappardelle TUI. One still on the older build no longer sees the state it kept in files
-- An agent pane whose status monitor was started by an older build shows no program status until its agent relaunches
+- The import writes `~/.pappardelle/state-flag.json` with the flag on, so an agent pane's status monitor started by an older build sends its status to the status daemon within a second
 - `experimental.sqliteState` is ignored. A config that still sets it gets a deprecation warning naming the file to delete it from
 
 ### Status daemon

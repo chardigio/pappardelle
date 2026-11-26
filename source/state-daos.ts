@@ -267,12 +267,13 @@ function importJsonState(
 			];
 		});
 		// What no store imports: hook status and its pending-files scratch,
-		// the flag the hooks read, and the pr-link stamp's file.
+		// and the pr-link stamp's file.
 		const obsolete = ownsFiles
-			? ['claude-status', 'state-flag.json', 'pr-link.stamp'].map(name =>
+			? ['claude-status', 'pr-link.stamp'].map(name =>
 					path.join(stateDir, name),
 				)
 			: [];
+		if (ownsFiles) recordFlagForOlderMonitors(state.path, stateDir);
 		for (const file of [...files, ...obsolete]) {
 			try {
 				fs.rmSync(file, {force: true, recursive: true});
@@ -286,6 +287,26 @@ function importJsonState(
 	}
 
 	imported.add(state.path);
+}
+
+/**
+ * An agent pane's status monitor lives as long as the pane, and one started
+ * by an older build sends its snapshots to the daemon only while this file
+ * says the flag is on. Without it, such a pane would show no program status
+ * until its agent relaunches.
+ */
+function recordFlagForOlderMonitors(dbPath: string, stateDir: string): void {
+	try {
+		fs.writeFileSync(
+			path.join(stateDir, 'state-flag.json'),
+			`${JSON.stringify({sqliteState: true, db: dbPath})}\n`,
+		);
+	} catch (error) {
+		log.warn(
+			'Could not tell status monitors from an older build to use the status daemon',
+			error instanceof Error ? error : undefined,
+		);
+	}
 }
 
 /**

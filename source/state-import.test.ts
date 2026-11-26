@@ -229,12 +229,11 @@ test('a registry file that is not a registry stops the import until it is fixed'
 	expect(daos(stateDir, 'repo').registry.openSpaces()).toEqual(['A-1']);
 });
 
-test('a highlight request, hook statuses and the flag left in files are deleted, not imported', () => {
+test('a highlight request and hook statuses left in files are deleted, not imported', () => {
 	const stateDir = fileHome();
 	const target = write(stateDir, 'repos/repo/highlight-target', 'A-1\tfocus\n');
 	const left = [
 		write(stateDir, 'claude-status/repo-A-1.json', {status: 'working'}),
-		write(stateDir, 'state-flag.json', {sqliteState: true}),
 		write(stateDir, 'pr-link.stamp', ''),
 	];
 
@@ -245,6 +244,18 @@ test('a highlight request, hook statuses and the flag left in files are deleted,
 	expect(requests).toEqual([]);
 	expect([target, ...left].filter(file => fs.existsSync(file))).toEqual([]);
 	expect(fs.existsSync(path.join(stateDir, 'claude-status'))).toBe(false);
+});
+
+// A status monitor started by an older build follows this file, and with the
+// flag off writes snapshot files nothing reads now.
+test('the import tells status monitors from an older build to use the status daemon', () => {
+	const stateDir = fileHome();
+	write(stateDir, 'state-flag.json', {sqliteState: false});
+
+	expect(daos(stateDir, 'repo').registry.openSpaces()).toEqual([]);
+	expect(
+		JSON.parse(fs.readFileSync(path.join(stateDir, 'state-flag.json'), 'utf8')),
+	).toEqual({sqliteState: true, db: path.join(stateDir, 'state.db')});
 });
 
 test('a file written after the import is never read', () => {
