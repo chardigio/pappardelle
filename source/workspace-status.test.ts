@@ -13,6 +13,7 @@ import {
 } from '../test/helpers/program-status.ts';
 import {testState, writeClaudeStatus} from '../test/helpers/state.ts';
 import {until} from '../test/helpers/wait.ts';
+import {workspaceRefreshDeps} from '../test/helpers/workspace-refresh-deps.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {
@@ -398,24 +399,17 @@ test('a refresh locates every space with one tmux call and pipes only unmonitore
 		},
 	);
 	let spaces: SpaceData[] = [];
-	const refresh = new WorkspaceRefresh({
-		readRegistry: async () => keys,
-		statusReader: () => statuses.reader(),
-		readWorktreePath: async () => null,
-		readMainWorktree: async () => ({path: '/repo', branch: 'main'}),
-		readDirty: async () => null,
-		statusKey: async name => name,
-		getCachedIssue: () => null,
-		async fetchIssues() {},
-		readEmoji: async () => undefined,
-		setSpaces(update) {
-			spaces = update(spaces);
-		},
-		onLoaded() {},
-		onError(error) {
-			throw error;
-		},
-	});
+	const refresh = new WorkspaceRefresh(
+		workspaceRefreshDeps({
+			readRegistry: async () => keys,
+			statusReader: () => statuses.reader(),
+			readWorktreePath: async () => null,
+			readDirty: async () => null,
+			setSpaces(update) {
+				spaces = update(spaces);
+			},
+		}),
+	);
 	teardown(() => refresh.stop());
 	const commands = () => calls.map(args => args[2]);
 

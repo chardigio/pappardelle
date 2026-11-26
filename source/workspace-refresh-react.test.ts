@@ -3,6 +3,7 @@ import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
+import {workspaceRefreshDeps} from '../test/helpers/workspace-refresh-deps.ts';
 import {until} from '../test/helpers/wait.ts';
 import {WorkspaceRefresh} from './workspace-refresh.ts';
 import {useSpaceSelection} from './use-space-selection.ts';
@@ -41,22 +42,13 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	teardown(async () => {
 		await view.unmount();
 	});
-	const refresh = new WorkspaceRefresh({
-		readRegistry: async () => keys,
-		statusReader: () => async () => ({status: 'idle'}),
-		readWorktreePath: async key => `/worktrees/${key}`,
-		readMainWorktree: async () => ({path: '/repo', branch: 'main'}),
-		readDirty: async () => dirty,
-		statusKey: async name => `repo-${name}`,
-		getCachedIssue: () => null,
-		async fetchIssues() {},
-		readEmoji: async () => undefined,
-		setSpaces: update => selection.setSpaces(update),
-		onLoaded() {},
-		onError(error) {
-			throw error;
-		},
-	});
+	const refresh = new WorkspaceRefresh(
+		workspaceRefreshDeps({
+			readRegistry: async () => keys,
+			readDirty: async () => dirty,
+			setSpaces: update => selection.setSpaces(update),
+		}),
+	);
 	teardown(() => refresh.stop());
 	async function waitFor(check: () => boolean) {
 		await until(check, {frame: () => view.lastFrame()});
