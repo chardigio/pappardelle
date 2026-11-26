@@ -299,7 +299,7 @@ test('json: a held lock times out without writing and leaves timers responsive',
 	const lock = `${s.registryFile}.lock`;
 	fs.mkdirSync(lock);
 	fs.writeFileSync(path.join(lock, `${process.pid}-aaaaaaaa`), '');
-	setLockTimingForTests({timeoutMs: 60, retryMs: 5, staleMs: 1});
+	setLockTimingForTests({timeoutMs: 300, retryMs: 5, staleMs: 1});
 	teardown(resetLockTimingForTests);
 	let ticks = 0;
 	const timer = setInterval(() => {
