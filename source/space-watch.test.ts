@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {idowIdentities} from '../test/helpers/state.ts';
+import {unreachable} from '../test/helpers/unreachable.ts';
 import {test, expect} from 'bun:test';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
 import {
@@ -100,10 +101,13 @@ function spaces(
 		send: async () => 'sent',
 		sendKeys: () => 'sent',
 		typeText: () => 'sent',
-		classify: async () => ({allow: true}),
-		policy: {scratchRoots: ['/tmp/q-']},
-		store: () => ({root: '/nonexistent', repo: 'repo'}),
-		timers: () => ({create() {}, remove() {}}),
+		readHookState: () => unreachable('watch never reads the stored hook state'),
+		holds: () => unreachable('watch never reads the holds'),
+		newHoldId: () => unreachable('watch never makes a hold'),
+		classify: () => unreachable('watch never classifies a prompt'),
+		policy: () => unreachable('watch never reads the approval policy'),
+		store: () => unreachable('watch never reads the schedules'),
+		timers: () => unreachable('watch never touches the timers'),
 		caller: '9',
 		readStdin: () => undefined,
 		out: text => out.push(text),

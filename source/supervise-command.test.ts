@@ -148,7 +148,12 @@ function harness(
 		store: () => schedules,
 		holds: () => holds,
 		newHoldId: () => `h${++ids}`,
-		timers: () => ({create() {}, remove() {}}),
+		timers: () => ({
+			create() {},
+			remove() {},
+			exists: () =>
+				unreachable('supervise never asks whether a timer is loaded'),
+		}),
 		caller,
 		readStdin: () => undefined,
 		out: text => out.push(text),

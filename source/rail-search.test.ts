@@ -12,7 +12,7 @@ function titled(name: string, title: string): SpaceData {
 		linearIssue: {
 			identifier: name,
 			title,
-			state: {name: 'Todo', color: '#ccc'},
+			state: {name: 'Todo', type: 'unstarted', color: '#ccc'},
 		},
 	});
 }

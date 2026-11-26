@@ -126,7 +126,7 @@ try {
 					return null;
 				},
 				async runHooks() {
-					return {success: true};
+					return {kind: 'ran' as const};
 				},
 				worktreePath: () => harness.root,
 				currentInnerSession: () => null,

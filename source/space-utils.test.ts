@@ -45,7 +45,7 @@ test('does not show loading when linearIssue title is available', () => {
 				linearIssue: {
 					identifier: 'STA-123',
 					title: 'Fix the bug',
-					state: {name: 'In Progress', color: '#f2c94c'},
+					state: {name: 'In Progress', type: 'started', color: '#f2c94c'},
 				},
 			}),
 		),

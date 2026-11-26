@@ -118,6 +118,7 @@ test('applying a choice makes the matching tracker call', async () => {
 		await applyStateChoice(tracker, 'bd-1', {
 			kind: 'leave',
 			currentName: 'Open',
+			currentDone: false,
 		}),
 	).toBe(true);
 	expect(calls).toStrictEqual([

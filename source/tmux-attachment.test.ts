@@ -1058,6 +1058,11 @@ test('a new agent session stores the agent profile it was started with', async (
 			isClaude: false,
 			model: '',
 			effort: '',
+			mode: '',
+			extraArgs: [],
+			skillPrefix: '',
+			rulesArgs: [],
+			env: {},
 		}),
 	).toBe(true);
 	expect(derived.daos.spaceState.read('TEST-NEW')?.agentProfile).toStrictEqual({
@@ -1091,6 +1096,11 @@ test('a new agent session starts when its agent profile cannot be stored', async
 			isClaude: false,
 			model: '',
 			effort: '',
+			mode: '',
+			extraArgs: [],
+			skillPrefix: '',
+			rulesArgs: [],
+			env: {},
 		}),
 	).toBe(true);
 	expect(calls.some(args => args.includes('new-session'))).toBe(true);

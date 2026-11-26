@@ -66,6 +66,7 @@ function runResolver(
 ): {
 	init_cmd: string;
 	skip_permissions: string;
+	agent_profile: string;
 	agent_command: string;
 	agent_args: string;
 	agent_resume_args: string;

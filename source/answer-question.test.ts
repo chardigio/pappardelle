@@ -1,4 +1,5 @@
 import {idowIdentities} from '../test/helpers/state.ts';
+import {unreachable} from '../test/helpers/unreachable.ts';
 import {test, expect} from 'bun:test';
 import {runSuperviseCommand, type SuperviseDeps} from './supervise-command.ts';
 import type {SuperviseEntry} from './supervise-log.ts';
@@ -144,14 +145,14 @@ function harness(dialog: Dialog) {
 			defaultBranch: null,
 			realpath: target => target,
 		}),
-		store: () => ({root: '/nonexistent', repo: 'repo'}),
+		store: () => unreachable('answer never reads the schedules'),
 		holds: () => ({
 			save: async () => undefined,
 			load: () => null,
 			list: () => [],
 		}),
 		newHoldId: () => 'h1',
-		timers: () => ({create() {}, remove() {}}),
+		timers: () => unreachable('answer never touches the timers'),
 		caller: 'main',
 		readStdin: () => undefined,
 		out: text => out.push(text),
@@ -209,7 +210,9 @@ test('a tick the dialog ignores stops the answer before it is confirmed', async 
 	expect(h.sent).toStrictEqual(['1', '3']);
 	expect(dialog.answered).toBe(false);
 	expect(h.err[0]!).toMatch(/options 1, 3 ticked didn't show/);
-	expect(h.logged[0]!.detail!).toMatch(/stuck: options 1, 3 ticked/);
+	expect(h.logged[0]).toMatchObject({
+		detail: expect.stringMatching(/stuck: options 1, 3 ticked/),
+	});
 });
 
 test('typed text goes into the free-text row and is submitted once it shows there', async () => {

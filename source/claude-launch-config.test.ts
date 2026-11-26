@@ -244,7 +244,7 @@ test('buildAgentResumeCommand: a launch renames the agent and starts both branch
 			false,
 			DEFAULT_RESOLVED_AGENT_PROFILE,
 			'sess-1',
-			{name: 'sous-chef', prompt: '/sous-chef'},
+			{name: 'sous-chef', prompt: '/sous-chef', rules: false},
 		),
 	).toBe(
 		"claude --name sous-chef --resume sess-1 '/sous-chef' || { printf '\\033[A\\033[2K'; false; } || claude --name sous-chef '/sous-chef'",

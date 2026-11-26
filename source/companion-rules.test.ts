@@ -23,7 +23,10 @@ function argv(flags: string): string[] {
 function rulesFlagsFor(command: string, isClaude?: boolean): string {
 	const definition = {command, is_claude: isClaude};
 	return agentRulesFlags(
-		getNamedAgentProfile({agent_profiles: {a: definition}}, 'a').rulesArgs,
+		getNamedAgentProfile(
+			{version: 1, profiles: {}, agent_profiles: {a: definition}},
+			'a',
+		).rulesArgs,
 	);
 }
 
@@ -61,7 +64,11 @@ test('an agent gated as claude takes no rules flag, whatever its command', () =>
 });
 
 const codexProfile = getNamedAgentProfile(
-	{agent_profiles: {codex: {command: 'codex', resume_args: 'resume --last'}}},
+	{
+		version: 1,
+		profiles: {},
+		agent_profiles: {codex: {command: 'codex', resume_args: 'resume --last'}},
+	},
 	'codex',
 );
 
