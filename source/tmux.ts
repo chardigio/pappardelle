@@ -1826,16 +1826,12 @@ const defaultInnerSendRunner = spawnTmuxRunnerAsync(innerTmuxArgs);
 // and the chunks stayed apart also while the agent streamed output.
 export const CLEAR_COMPOSER_ROUNDS = 200;
 export const CLEAR_COMPOSER_ROUNDS_PER_CALL = 4;
-const CLEAR_COMPOSER_CHUNK = Array.from(
-	{length: CLEAR_COMPOSER_ROUNDS_PER_CALL},
-	() => ['C-e', 'C-k', 'C-u', 'BSpace'],
-).flat();
+const clearChunk = (keys: readonly string[]) =>
+	Array.from({length: CLEAR_COMPOSER_ROUNDS_PER_CALL}, () => keys).flat();
+const CLEAR_COMPOSER_CHUNK = clearChunk(['C-e', 'C-k', 'C-u', 'BSpace']);
 // Agy binds ctrl+k to approve inline subagent banners, so clearing an agy
 // composer must never send C-k.
-const CLEAR_AGY_COMPOSER_CHUNK = Array.from(
-	{length: CLEAR_COMPOSER_ROUNDS_PER_CALL},
-	() => ['C-e', 'C-u', 'BSpace'],
-).flat();
+const CLEAR_AGY_COMPOSER_CHUNK = clearChunk(['C-e', 'C-u', 'BSpace']);
 const CLEAR_COMPOSER_CALLS =
 	CLEAR_COMPOSER_ROUNDS / CLEAR_COMPOSER_ROUNDS_PER_CALL;
 

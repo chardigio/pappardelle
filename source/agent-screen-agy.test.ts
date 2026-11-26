@@ -8,8 +8,65 @@ import {
 import {classifyAgent} from './agent-state.ts';
 
 const NOW = new Date(2026, 10, 9, 12, 0);
+const AGY_RULE = '────────────────────────────────────────';
+const AGY_FOOTER = 'esc to cancel    auto · Gemini 4 Hydrogen · medium';
 const screen = (name: string, now = NOW) =>
 	parseAgentScreen(agentScreenFixture(name), now);
+
+function agyPermissionScreen({
+	above = [],
+	header,
+	body,
+	question,
+	options,
+	footer = '  ↑/↓ Navigate',
+}: {
+	above?: string[];
+	header: string;
+	body: string[];
+	question: string;
+	options: string[];
+	footer?: string;
+}) {
+	return parseAgentScreen(
+		[
+			...above,
+			header,
+			AGY_RULE,
+			'',
+			...body,
+			'',
+			question,
+			...options,
+			'',
+			footer,
+			AGY_FOOTER,
+		].join('\n'),
+		NOW,
+	);
+}
+
+function agySubagentBannerScreen(
+	who: string,
+	tool: string,
+	callLines: string[],
+) {
+	return parseAgentScreen(
+		[
+			` ┃ ${who} needs approval for ${tool}`,
+			' ┃ ────────────────────',
+			' ┃',
+			...callLines,
+			' ┃',
+			' ┃ ctrl+k approve · alt+j manage',
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'? for shortcuts    auto · Gemini 4 Hydrogen · medium · 1 subagent(s)',
+		].join('\n'),
+		NOW,
+	);
+}
 
 test('agy permission prompts parse Command, Create file, File access (Read vs non-Read) and MCP cleanly', () => {
 	const shell = screen('agy-permission-shell');
@@ -109,22 +166,14 @@ test('agy permission prompts parse Command, Create file, File access (Read vs no
 	});
 
 	// Non-Read File access must stay `File access`, never `Read file`.
-	const writeAccess = parseAgentScreen(
-		[
-			'File access',
-			'────────────────────────────────────────',
-			'',
+	const writeAccess = agyPermissionScreen({
+		header: 'File access',
+		body: [
 			'Write: /tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/.claude/settings.json',
-			'',
-			'Allow access to this file?',
-			'> 1. Yes, allow access',
-			'  2. No, deny access',
-			'',
-			'  ↑/↓ Navigate',
-			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-		].join('\n'),
-		NOW,
-	);
+		],
+		question: 'Allow access to this file?',
+		options: ['> 1. Yes, allow access', '  2. No, deny access'],
+	});
 	expect(writeAccess.permission).toMatchObject({
 		tool: 'File access',
 		filePath: '/tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/.claude/settings.json',
@@ -207,22 +256,10 @@ test('agy subagent approval banners parse subagent, tool, command, vimInsert and
 		cutOff: false,
 	});
 
-	const wrapped = parseAgentScreen(
-		[
-			' ┃ research needs approval for Bash',
-			' ┃ ────────────────────',
-			' ┃',
-			' ┃ ● Bash(rm -rf',
-			' ┃   /home/u)',
-			' ┃',
-			' ┃ ctrl+k approve · alt+j manage',
-			'────────────────────',
-			'\u001B[94m>\u001B[39m',
-			'────────────────────',
-			'? for shortcuts    auto · Gemini 4 Hydrogen · medium · 1 subagent(s)',
-		].join('\n'),
-		NOW,
-	);
+	const wrapped = agySubagentBannerScreen('research', 'Bash', [
+		' ┃ ● Bash(rm -rf',
+		' ┃   /home/u)',
+	]);
 	expect(wrapped.permission).toMatchObject({
 		tool: 'Bash command',
 		subagent: 'research',
@@ -237,21 +274,7 @@ test('agy subagent approval banners parse subagent, tool, command, vimInsert and
 		' ┃ ● Bash(printf a > sub.txt…)',
 		' ┃ ● Bash(printf a > sub.txt',
 	]) {
-		const cut = parseAgentScreen(
-			[
-				' ┃ self needs approval for Bash',
-				' ┃ ────────────────────',
-				' ┃',
-				callLine,
-				' ┃',
-				' ┃ ctrl+k approve · alt+j manage',
-				'────────────────────',
-				'\u001B[94m>\u001B[39m',
-				'────────────────────',
-				'? for shortcuts    auto · Gemini 4 Hydrogen · medium · 1 subagent(s)',
-			].join('\n'),
-			NOW,
-		);
+		const cut = agySubagentBannerScreen('self', 'Bash', [callLine]);
 		expect(cut.permission?.cutOff, callLine).toBe(true);
 	}
 
@@ -269,26 +292,20 @@ test('agy subagent approval banners parse subagent, tool, command, vimInsert and
 
 test('agy permission parser resists inner rules, rejects unknown headers, guards wrapped paths, and bounds MCP/config scans', () => {
 	// A `────────` line inside a heredoc must not shift the Command header into the body.
-	const heredocWithRule = parseAgentScreen(
-		[
-			'Command',
-			'────────────────────────────────────────',
-			'',
+	const commandOptions = ['> 1. Yes, run command', '  2. No, cancel'];
+	const heredocWithRule = agyPermissionScreen({
+		header: 'Command',
+		body: [
 			'Requesting permission for:',
 			'   cat <<EOF',
 			'   ────────────────────',
 			'   doctl account get',
 			'   EOF',
-			'',
-			'Run this command?',
-			'> 1. Yes, run command',
-			'  2. No, cancel',
-			'',
-			'  ↑/↓ Navigate · tab Amend',
-			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-		].join('\n'),
-		NOW,
-	);
+		],
+		question: 'Run this command?',
+		options: commandOptions,
+		footer: '  ↑/↓ Navigate · tab Amend',
+	});
 	expect(heredocWithRule.permission).toMatchObject({
 		tool: 'Bash command',
 		command: 'cat <<EOF\n────────────────────\ndoctl account get\nEOF',
@@ -299,27 +316,20 @@ test('agy permission parser resists inner rules, rejects unknown headers, guards
 	// Fake `File access\n────\nRead: /wt/a` inside a Command body (indented or
 	// column-0) must never spoof a Read file prompt.
 	for (const indent of ['   ', '']) {
-		const spoofed = parseAgentScreen(
-			[
-				'Command',
-				'────────────────────────────────────────',
-				'',
+		const spoofed = agyPermissionScreen({
+			header: 'Command',
+			body: [
 				'Requesting permission for:',
 				'   cat <<EOF',
 				`${indent}File access`,
 				`${indent}────────────────────`,
 				`${indent}Read: /wt/a`,
 				'   EOF',
-				'',
-				'Run this command?',
-				'> 1. Yes, run command',
-				'  2. No, cancel',
-				'',
-				'  ↑/↓ Navigate · tab Amend',
-				'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-			].join('\n'),
-			NOW,
-		);
+			],
+			question: 'Run this command?',
+			options: commandOptions,
+			footer: '  ↑/↓ Navigate · tab Amend',
+		});
 		expect(
 			spoofed.permission,
 			`indent=${JSON.stringify(indent)}`,
@@ -332,106 +342,65 @@ test('agy permission parser resists inner rules, rejects unknown headers, guards
 	}
 
 	// Unknown permission header fails closed (permission: null) so OSC blocked holds it safely.
-	const unknownHeader = parseAgentScreen(
-		[
-			'Custom tool',
-			'────────────────────────────────────────',
-			'',
-			'something',
-			'',
-			'Allow this?',
-			'> 1. Yes, approve',
-			'  2. No, deny',
-			'',
-			'  ↑/↓ Navigate',
-			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-		].join('\n'),
-		NOW,
-	);
+	const unknownHeader = agyPermissionScreen({
+		header: 'Custom tool',
+		body: ['something'],
+		question: 'Allow this?',
+		options: ['> 1. Yes, approve', '  2. No, deny'],
+	});
 	expect(unknownHeader.permission).toBe(null);
 
 	// Wrapped File access or Create file path leaves filePath undefined so policy holds.
-	const wrappedRead = parseAgentScreen(
-		[
-			'File access',
-			'────────────────────────────────────────',
-			'',
+	const wrappedRead = agyPermissionScreen({
+		header: 'File access',
+		body: [
 			'Read: /tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/very/long',
 			'/path/outside.txt',
-			'',
-			'Allow access to this file?',
-			'> 1. Yes, allow access',
-			'  2. No, deny access',
-			'',
-			'  ↑/↓ Navigate',
-			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-		].join('\n'),
-		NOW,
-	);
+		],
+		question: 'Allow access to this file?',
+		options: ['> 1. Yes, allow access', '  2. No, deny access'],
+	});
 	expect(wrappedRead.permission).toMatchObject({tool: 'Read file'});
 	expect(wrappedRead.permission?.filePath).toBeUndefined();
 
-	const wrappedCreate = parseAgentScreen(
-		[
-			'Create file',
-			'────────────────────────────────────────',
-			'',
+	const wrappedCreate = agyPermissionScreen({
+		header: 'Create file',
+		body: [
 			'/tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/long',
 			'/continuation.txt  +1',
 			'  1  +  hi',
-			'',
-			'Allow creation of this file?',
-			'> 1. Yes, allow creation',
-			'  2. No, deny creation',
-			'',
-			'  ↑/↓ Navigate · f full diff',
-			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-		].join('\n'),
-		NOW,
-	);
+		],
+		question: 'Allow creation of this file?',
+		options: ['> 1. Yes, allow creation', '  2. No, deny creation'],
+		footer: '  ↑/↓ Navigate · f full diff',
+	});
 	expect(wrappedCreate.permission?.filePath).toBeUndefined();
 
 	// MCP scan stops at the user's prompt line and flags truncated `...)` args.
-	const mcpPreviousTurn = parseAgentScreen(
-		[
+	const mcpOptions = ['> 1. Yes, allow tool call', '  2. No, deny tool call'];
+	const mcpPreviousTurn = agyPermissionScreen({
+		above: [
 			'● qastub/qa_echo({"text":"old-turn"}) (ctrl+o to expand)',
 			'> Call qa_echo again',
 			'',
-			'MCP',
-			'────────────────────────────────────────',
-			'',
-			'qastub/qa_echo',
-			'',
-			'Allow calling this tool?',
-			'> 1. Yes, allow tool call',
-			'  2. No, deny tool call',
-			'',
-			'  ↑/↓ Navigate · tab Amend',
-			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-		].join('\n'),
-		NOW,
-	);
+		],
+		header: 'MCP',
+		body: ['qastub/qa_echo'],
+		question: 'Allow calling this tool?',
+		options: mcpOptions,
+		footer: '  ↑/↓ Navigate · tab Amend',
+	});
 	expect(mcpPreviousTurn.permission?.command).toBe('qastub/qa_echo');
 	expect(mcpPreviousTurn.permission?.cutOff).toBe(true);
 
-	const mcpTruncated = parseAgentScreen(
-		[
-			'● qastub/qa_echo({"text":"cut...) (ctrl+o to expand)',
-			'',
-			'MCP',
-			'────────────────────────────────────────',
-			'',
-			'qastub/qa_echo',
-			'',
-			'Allow calling this tool?',
-			'> 1. Yes, allow tool call',
-			'  2. No, deny tool call',
-			'',
-			'  ↑/↓ Navigate · tab Amend',
-			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-		].join('\n'),
-		NOW,
-	);
+	const mcpTruncated = agyPermissionScreen({
+		above: ['● qastub/qa_echo({"text":"cut...) (ctrl+o to expand)', ''],
+		header: 'MCP',
+		body: ['qastub/qa_echo'],
+		question: 'Allow calling this tool?',
+		options: mcpOptions,
+		footer: '  ↑/↓ Navigate · tab Amend',
+	});
 	expect(mcpTruncated.permission?.cutOff).toBe(true);
 
 	// Expanded `/config` submenu (`enter Save  esc Cancel`) parses as config,
@@ -519,4 +488,38 @@ test('agy Models & Quota panel, Refreshes in durations, and AI credits exhaustio
 		passed: false,
 	});
 	expect(classifyAgent(null, creditsOnly)).toBe('usage_limit');
+
+	// Credits error above a healthy Models & Quota panel does NOT steal a healthy bucket's refresh time.
+	const creditsWithHealthyPanel = parseAgentScreen(
+		`  Your AI credits balance is too low to continue\n${agentScreenFixture('agy-quota-panel')}`,
+		NOW,
+	);
+	expect(creditsWithHealthyPanel.agyDialog).toBe('quota_panel');
+	expect(creditsWithHealthyPanel.usageLimit).toStrictEqual({
+		resetText: '',
+		resetAt: null,
+		passed: false,
+	});
+	expect(classifyAgent(null, creditsWithHealthyPanel)).toBe('usage_limit');
+
+	// A depleted bucket without its own refresh line does NOT steal the next bucket's refresh line.
+	const noCrossBucketBleed = parseAgentScreen(
+		[
+			'└ Models & Quota',
+			'GEMINI MODELS',
+			'  Weekly Limit Remaining',
+			'    [░░░░░░░░░░] 0% (Quota exhausted)',
+			'  Five Hour Limit Remaining',
+			'    [██████████] 80%',
+			'    Refreshes in 2h 15m',
+			'  ↑/↓ Scroll · esc Close',
+			'auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(noCrossBucketBleed.usageLimit).toStrictEqual({
+		resetText: '',
+		resetAt: null,
+		passed: false,
+	});
 });

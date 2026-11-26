@@ -60,7 +60,7 @@ export function holdPlan(
 }
 
 /** The arrows from the highlighted option to `option`, then Enter. */
-function arrowKeys(selected: number, option: number): string[] {
+export function arrowKeys(selected: number, option: number): string[] {
 	const steps = option - selected;
 	return [
 		...Array.from({length: Math.abs(steps)}, () => (steps > 0 ? 'Down' : 'Up')),
@@ -110,7 +110,7 @@ const FILE_TOOLS = new Set([
 	'NotebookEdit',
 ]);
 const FILE_HEADER =
-	/^(?:Edit|Create|Write|Overwrite|Read) file$|^Edit notebook$/;
+	/^(?:Edit|Create|Write|Overwrite|Read) file$|^Edit notebook$|^File access$/;
 // What a file prompt asks when its header is off the screen.
 const FILE_QUESTION = /^Do you want to (?:create|make this edit to|overwrite) /;
 // Answering prompts is the chef's: a call to these from a space would let
@@ -337,7 +337,7 @@ export function decideAnswer(
 	// The hook's tool stands in only for a header cut off the screen: it can
 	// be a record of a different call queued behind this one.
 	const fileTool = permission.tool
-		? FILE_HEADER.test(permission.tool) || permission.tool === 'File access'
+		? FILE_HEADER.test(permission.tool)
 		: FILE_TOOLS.has(hook?.currentTool ?? '') ||
 			FILE_QUESTION.test(permission.question);
 	const isAgy = permission.source === 'agy';

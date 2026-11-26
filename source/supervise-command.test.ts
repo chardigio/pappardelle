@@ -1152,18 +1152,14 @@ test('wait returns immediately when the agent has exited or exits mid-wait', asy
 
 test('agy shell, edit, read and MCP prompts pass through answer without the 10s Claude hook stall', async () => {
 	// Safe shell command: goes to classifier with 0ms hook wait and approves via digit 1.
-	const shell = harness([fixture('agy-permission-shell')], {
-		app: 'antigravity',
-	});
+	const shell = harness([fixture('agy-permission-shell')]);
 	expect(await shell.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(shell.pressed).toStrictEqual([['1']]);
 	expect(shell.classified).toStrictEqual(['printf qa > qa.txt']);
 	expect(shell.elapsed()).toBeLessThan(1000);
 
 	// Truncated agy shell command (⋯ N lines hidden) is held and non-approvable.
-	const truncated = harness([fixture('agy-permission-shell-truncated')], {
-		app: 'antigravity',
-	});
+	const truncated = harness([fixture('agy-permission-shell-truncated')]);
 	expect(await truncated.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(truncated.pressed).toStrictEqual([['2']]);
 	expect(truncated.classified).toStrictEqual([]);
@@ -1174,37 +1170,29 @@ test('agy shell, edit, read and MCP prompts pass through answer without the 10s 
 	});
 
 	// Create file inside the worktree approves directly without Claude hook or classifier.
-	const editInside = harness(
-		[
-			fixture('agy-permission-edit').replace(
-				'/tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/x.txt',
-				`${worktree}/x.txt`,
-			),
-		],
-		{app: 'antigravity'},
-	);
+	const editInside = harness([
+		fixture('agy-permission-edit').replace(
+			'/tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/x.txt',
+			`${worktree}/x.txt`,
+		),
+	]);
 	expect(await editInside.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(editInside.pressed).toStrictEqual([['1']]);
 	expect(editInside.classified).toStrictEqual([]);
 	expect(editInside.elapsed()).toBeLessThan(1000);
 
 	// Read inside worktree approves directly; Read outside holds as approvable with filePath and resolves cleanly.
-	const readInside = harness(
-		[
-			fixture('agy-permission-read').replace(
-				'/tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/AGENTS.md',
-				`${worktree}/AGENTS.md`,
-			),
-		],
-		{app: 'antigravity'},
-	);
+	const readInside = harness([
+		fixture('agy-permission-read').replace(
+			'/tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/AGENTS.md',
+			`${worktree}/AGENTS.md`,
+		),
+	]);
 	expect(await readInside.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(readInside.pressed).toStrictEqual([['1']]);
 	expect(readInside.classified).toStrictEqual([]);
 
-	const readOutside = harness([fixture('agy-permission-read-outside')], {
-		app: 'antigravity',
-	});
+	const readOutside = harness([fixture('agy-permission-read-outside')]);
 	expect(await readOutside.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(readOutside.pressed).toStrictEqual([['2']]);
 	expect(readOutside.holds.load('h1')).toMatchObject({
@@ -1218,47 +1206,41 @@ test('agy shell, edit, read and MCP prompts pass through answer without the 10s 
 	expect(readOutside.holds.load('h1')?.state).toBe('used');
 
 	// Non-Read File access to agent config is held (reading: true is NOT granted).
-	const writeConfig = harness(
+	const writeConfig = harness([
 		[
-			[
-				'File access',
-				'────────────────────────────────────────',
-				'',
-				`Write: ${worktree}/.claude/settings.json`,
-				'',
-				'Allow access to this file?',
-				'> 1. Yes, allow access',
-				'  2. No, deny access',
-				'',
-				'  ↑/↓ Navigate',
-				'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-			].join('\n'),
-		],
-		{app: 'antigravity'},
-	);
+			'File access',
+			'────────────────────────────────────────',
+			'',
+			`Write: ${worktree}/.claude/settings.json`,
+			'',
+			'Allow access to this file?',
+			'> 1. Yes, allow access',
+			'  2. No, deny access',
+			'',
+			'  ↑/↓ Navigate',
+			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+	]);
 	expect(await writeConfig.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(writeConfig.pressed).toStrictEqual([['2']]);
 	expect(writeConfig.holds.load('h1')?.reason).toMatch(/agent configuration/);
 
 	// Non-Read File access without an absolute path fails closed (holds without calling classifier).
-	const unknownFileAccess = harness(
+	const unknownFileAccess = harness([
 		[
-			[
-				'File access',
-				'────────────────────────────────────────',
-				'',
-				'Write: relative/path.txt',
-				'',
-				'Allow access to this file?',
-				'> 1. Yes, allow access',
-				'  2. No, deny access',
-				'',
-				'  ↑/↓ Navigate',
-				'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-			].join('\n'),
-		],
-		{app: 'antigravity'},
-	);
+			'File access',
+			'────────────────────────────────────────',
+			'',
+			'Write: relative/path.txt',
+			'',
+			'Allow access to this file?',
+			'> 1. Yes, allow access',
+			'  2. No, deny access',
+			'',
+			'  ↑/↓ Navigate',
+			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+	]);
 	expect(await unknownFileAccess.run('answer', 'STA-1', '--option', '1')).toBe(
 		0,
 	);
@@ -1267,20 +1249,17 @@ test('agy shell, edit, read and MCP prompts pass through answer without the 10s 
 	expect(unknownFileAccess.holds.load('h1')?.reason).toMatch(/isn't known/);
 
 	// MCP prompt sends full call with arguments to classifier; pappardelle answer tools hold directly.
-	const mcp = harness([fixture('agy-permission-mcp')], {app: 'antigravity'});
+	const mcp = harness([fixture('agy-permission-mcp')]);
 	expect(await mcp.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(mcp.pressed).toStrictEqual([['1']]);
 	expect(mcp.classified).toStrictEqual(['qastub/qa_echo({"text":"hi"})']);
 
-	const mcpSelfApprove = harness(
-		[
-			fixture('agy-permission-mcp').replaceAll(
-				'qastub/qa_echo',
-				'pappardelle/space_answer',
-			),
-		],
-		{app: 'antigravity'},
-	);
+	const mcpSelfApprove = harness([
+		fixture('agy-permission-mcp').replaceAll(
+			'qastub/qa_echo',
+			'pappardelle/space_answer',
+		),
+	]);
 	expect(await mcpSelfApprove.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(mcpSelfApprove.pressed).toStrictEqual([['2']]);
 	expect(mcpSelfApprove.classified).toStrictEqual([]);
@@ -1291,9 +1270,7 @@ test('agy shell, edit, read and MCP prompts pass through answer without the 10s 
 
 test('agy subagent approval banner approves with Escape+C-k / C-k and denies/holds via manage view', async () => {
 	// Vim insert mode: approving sends Escape then C-k.
-	const approveInsert = harness([fixture('agy-subagent-banner-1')], {
-		app: 'antigravity',
-	});
+	const approveInsert = harness([fixture('agy-subagent-banner-1')]);
 	expect(await approveInsert.run('state', 'STA-1', '--json')).toBe(0);
 	expect(JSON.parse(approveInsert.out[0]!)).toMatchObject({
 		state: 'permission',
@@ -1308,9 +1285,7 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 	expect(approveInsert.classified).toStrictEqual(['printf a > sub-1.txt']);
 
 	// Normal mode (MCP): approving sends bare C-k.
-	const approveNormal = harness([fixture('agy-subagent-banner-mcp')], {
-		app: 'antigravity',
-	});
+	const approveNormal = harness([fixture('agy-subagent-banner-mcp')]);
 	expect(await approveNormal.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(approveNormal.pressed).toStrictEqual([['C-k']]);
 
@@ -1338,7 +1313,7 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 		postDenyDetail, // after Down + Enter: still on subagent detail screen
 		fixture('agy-idle'), // after Escape: back on main view
 	];
-	const heldSub = harness(holdScreens, {ignoresKeys: true, app: 'antigravity'});
+	const heldSub = harness(holdScreens, {ignoresKeys: true});
 	expect(await heldSub.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(heldSub.pressed).toStrictEqual([
 		['Escape', 'M-j'],
@@ -1361,7 +1336,7 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 	);
 	const bailSub = harness(
 		[disallowedBanner, disallowedBanner, missingDenyManage],
-		{ignoresKeys: true, app: 'antigravity'},
+		{ignoresKeys: true},
 	);
 	expect(await bailSub.run('answer', 'STA-1', '--option', '1')).toBe(1);
 	expect(bailSub.pressed).toStrictEqual([['Escape', 'M-j'], ['Escape']]);
@@ -1374,7 +1349,7 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 	]) {
 		const wrongSub = harness(
 			[disallowedBanner, disallowedBanner, wrongManage],
-			{ignoresKeys: true, app: 'antigravity'},
+			{ignoresKeys: true},
 		);
 		expect(await wrongSub.run('answer', 'STA-1', '--option', '1')).toBe(1);
 		expect(wrongSub.pressed).toStrictEqual([['Escape', 'M-j'], ['Escape']]);
@@ -1394,7 +1369,7 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 			manageFor('Bash', 'rm -rf /home/u'),
 			fixture('agy-idle'),
 		],
-		{ignoresKeys: true, app: 'antigravity'},
+		{ignoresKeys: true},
 	);
 	expect(await splitSub.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(splitSub.holds.load('h1')?.reason).toMatch(/outside the space/);
@@ -1410,7 +1385,7 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 			manageFor('Bash', 'printf a > sub-1.txt && rm -rf /'),
 			fixture('agy-idle'),
 		],
-		{ignoresKeys: true, app: 'antigravity'},
+		{ignoresKeys: true},
 	);
 	expect(await cutSub.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(cutSub.holds.load('h1')).toMatchObject({approvable: false});

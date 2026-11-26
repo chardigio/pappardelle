@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
-import {teardown} from '../test/helpers/teardown.ts';
+import {setTestEnv, teardown} from '../test/helpers/teardown.ts';
 import {rejectionOf} from '../test/helpers/thrown.ts';
 import {
 	agyClassifierArgs,
@@ -117,11 +117,7 @@ test('a check that outlives its deadline ends then, even if a child keeps its ou
 			mode: 0o755,
 		},
 	);
-	const path0 = process.env['PATH'];
-	process.env['PATH'] = `${bin}:${path0 ?? ''}`;
-	teardown(() => {
-		process.env['PATH'] = path0;
-	});
+	setTestEnv('PATH', `${bin}:${process.env['PATH'] ?? ''}`);
 	const started = Date.now();
 	await rejectionOf(spawnClassifier('claude', [], '', 300)).then(error => {
 		expect(error.message).toBe('timed out after 0.3s');

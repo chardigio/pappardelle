@@ -319,7 +319,8 @@ function underDismissableDialog(
 	report: AgentStateReport,
 ): AgentStateReport['state'] {
 	if (!isDismissableDialog(report)) return report.state;
-	return report.usageLimit ? 'usage_limit' : 'idle';
+	if (report.usageLimit) return 'usage_limit';
+	return report.status?.status === 'working' ? 'working' : 'idle';
 }
 
 async function fireOneShot(

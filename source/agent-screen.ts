@@ -247,14 +247,10 @@ const AGY_FILE_QUESTION =
 	/^Allow (?:creation|editing|updating|writing|overwriting) of this file\?$/;
 const AGY_HEADER_QUESTIONS: Record<string, RegExp> = {
 	Command: /^Run this command\?$/,
-	'Create file': AGY_FILE_QUESTION,
-	'Edit file': AGY_FILE_QUESTION,
-	'Update file': AGY_FILE_QUESTION,
-	'Write file': AGY_FILE_QUESTION,
-	'Overwrite file': AGY_FILE_QUESTION,
 	'File access': /^Allow access to this file\?$/,
 	MCP: /^Allow calling this tool\?$/,
 };
+const AGY_EXPAND_HINT = /\s+\(ctrl\+o to expand\)\s*$/;
 const AGY_ANNOUNCEMENT_DISMISS = /^\s*┃\s+esc to dismiss\s*$/;
 const AGY_VIM_INSERT = /^\s*--\s+INSERT\s+--(?:\s|$)/;
 const AGY_ESC_TO_CANCEL =
@@ -473,10 +469,7 @@ function findAgyMcpCallLine(
 		const trimmed = rawLine.trim();
 		if (!trimmed) continue;
 		if (trimmed.startsWith('● ')) {
-			const stripped = trimmed
-				.slice(2)
-				.replace(/\s+\(ctrl\+o to expand\)\s*$/, '')
-				.trim();
+			const stripped = trimmed.slice(2).replace(AGY_EXPAND_HINT, '').trim();
 			if (
 				!mcpName ||
 				stripped.startsWith(`${mcpName}(`) ||
@@ -501,7 +494,12 @@ function anchoredFooterAt(
 	match: (line: string) => boolean,
 ): number {
 	const at = lastIndex(lines, match);
-	return at !== -1 && isAgyBottomAnchored(lines, at) ? at : -1;
+	if (at === -1) return -1;
+	return lines
+		.slice(at + 1)
+		.every(line => !line.trim() || AGY_BOTTOM_LINE.test(line))
+		? at
+		: -1;
 }
 
 export type AgySubagentManageApproval = {
@@ -556,10 +554,7 @@ export function parseAgySubagentManageApproval(
 	let trajectoryCommand = '';
 	const below = lines.slice(sectionEnd);
 	for (let index = below.length - 1; index >= 0; index--) {
-		const cleaned = below[index]!.trim().replace(
-			/\s+\(ctrl\+o to expand\)\s*$/,
-			'',
-		);
+		const cleaned = below[index]!.trim().replace(AGY_EXPAND_HINT, '');
 		const match = /^●\s+([^(]+)\((.*)\)$/.exec(cleaned);
 		if (match && match[1]!.trim() === rawTool) {
 			trajectoryCommand = match[2]!.trim();
@@ -612,7 +607,10 @@ function parseAgyPermission(lines: string[]): PermissionPrompt | null {
 		const candidateLine = lines[candidateAt]!;
 		if (candidateLine.startsWith(' ') || candidateLine.startsWith('\t'))
 			continue;
-		const expectedQuestion = AGY_HEADER_QUESTIONS[candidateLine.trim()];
+		const headerName = candidateLine.trim();
+		const expectedQuestion = AGY_FILE_HEADERS.has(headerName)
+			? AGY_FILE_QUESTION
+			: AGY_HEADER_QUESTIONS[headerName];
 		if (expectedQuestion?.test(question)) {
 			ruleAt = index;
 			headerAt = candidateAt;
@@ -907,15 +905,6 @@ function withCheckboxes(options: PromptOption[]): PromptOption[] {
 	});
 }
 
-function isAgyBottomAnchored(
-	lines: readonly string[],
-	footerAt: number,
-): boolean {
-	return lines
-		.slice(footerAt + 1)
-		.every(line => !line.trim() || AGY_BOTTOM_LINE.test(line));
-}
-
 const AGY_OVERLAY_LOOKBACK = 45;
 
 function agyOverlayHeaderAbove(
@@ -987,11 +976,11 @@ function questionBlock(
 }
 
 function parseAgyQuestion(lines: string[]): QuestionDialog | null {
-	const footerAt = lastIndex(
+	const footerAt = anchoredFooterAt(
 		lines,
 		line => AGY_QUESTION_FOOTER.test(line) || AGY_WRITE_IN_FOOTER.test(line),
 	);
-	if (footerAt === -1 || !isAgyBottomAnchored(lines, footerAt)) return null;
+	if (footerAt === -1) return null;
 	const open = AGY_WRITE_IN_FOOTER.test(lines[footerAt]!);
 	const firstOptionAt = lastIndex(lines.slice(0, footerAt), line =>
 		/^\s*(?:>\s*)?1\.\s/.test(line),
@@ -1212,9 +1201,11 @@ function agyQuotaMatchesModel(group: string, model?: string): boolean {
 }
 
 /** Infer the active agy model name from the screen's bottom status bar. */
-export function inferAgyModel(screen: string): string | undefined {
-	const tail = screen
-		.split('\n')
+export function inferAgyModel(
+	screen: string | readonly string[],
+): string | undefined {
+	const source = typeof screen === 'string' ? screen.split('\n') : screen;
+	const tail = source
 		.map(line => line.trim())
 		.filter(Boolean)
 		.slice(-2);
@@ -1274,6 +1265,8 @@ const AGY_LIMIT_NOTICE =
 const AGY_REFRESHES_IN = /\b(Refreshes in\s+(?:\d+\s*[dhms]\s*)+)/i;
 const AGY_QUOTA_DEPLETED_LINE = /(?:\]\s*0(?:\.0+)?%\b|\bquota exhausted\b)/i;
 const AGY_QUOTA_GROUP_LINE = /^\s*(GEMINI MODELS|CLAUDE AND GPT MODELS)\s*$/i;
+const AGY_QUOTA_BUCKET_BOUNDARY =
+	/(?:\bLimit Remaining\b|\]\s*\d+(?:\.\d+)?%)/i;
 const TRANSCRIPT_BOLD_PROMPT = new RegExp(
 	`^\\s*(?:${ESC}\\[0m)?${ESC}\\[1m(?:${ESC}\\[[0-9;]*m)*>`,
 );
@@ -1281,7 +1274,7 @@ const TRANSCRIPT_BOLD_PROMPT = new RegExp(
 function parseAgyQuotaPanelLimit(
 	lines: readonly string[],
 	now: Date,
-): {limit: UsageLimit | null; fallbackRefresh: string; panelStart: number} {
+): {limit: UsageLimit | null; panelStart: number} {
 	const footerAt = anchoredFooterAt(lines, line =>
 		AGY_QUOTA_PANEL_FOOTER.test(line),
 	);
@@ -1292,10 +1285,9 @@ function parseAgyQuotaPanelLimit(
 	const panelStart =
 		headerAt !== -1 ? headerAt : Math.max(0, limitEnd - AGY_OVERLAY_LOOKBACK);
 	const panelLines = lines.slice(panelStart, limitEnd);
-	const activeModel = inferAgyModel(lines.join('\n'));
+	const activeModel = inferAgyModel(lines);
 	let currentGroup = '';
 	const depleted: UsageLimit[] = [];
-	let fallbackRefresh = '';
 
 	for (let index = 0; index < panelLines.length; index++) {
 		const line = panelLines[index]!;
@@ -1309,18 +1301,21 @@ function parseAgyQuotaPanelLimit(
 			continue;
 		}
 
-		const refreshHere = AGY_REFRESHES_IN.exec(line)?.[1]?.trim();
-		if (refreshHere) fallbackRefresh = refreshHere;
 		if (!AGY_QUOTA_DEPLETED_LINE.test(line)) continue;
-		let resetText = refreshHere ?? '';
+		let resetText = AGY_REFRESHES_IN.exec(line)?.[1]?.trim() ?? '';
 		if (!resetText) {
 			for (
 				let next = index + 1;
 				next < Math.min(panelLines.length, index + 4);
 				next++
 			) {
-				if (AGY_QUOTA_GROUP_LINE.test(panelLines[next]!)) break;
-				const match = AGY_REFRESHES_IN.exec(panelLines[next]!);
+				const candidate = panelLines[next]!;
+				if (
+					AGY_QUOTA_GROUP_LINE.test(candidate) ||
+					AGY_QUOTA_BUCKET_BOUNDARY.test(candidate)
+				)
+					break;
+				const match = AGY_REFRESHES_IN.exec(candidate);
 				if (match) {
 					resetText = match[1]!.trim();
 					break;
@@ -1333,7 +1328,6 @@ function parseAgyQuotaPanelLimit(
 
 	return {
 		limit: depleted.length > 0 ? latestUsageLimit(depleted) : null,
-		fallbackRefresh,
 		panelStart,
 	};
 }
@@ -1404,6 +1398,7 @@ function parseUsageLimit(
 		input?.glyph === '>' ? findBottomRule(lines, input.at) : -1;
 	const stale = lines.slice(agyAt + 1, noticeEnd).some((line, offset) => {
 		const index = agyAt + 1 + offset;
+		// When quota_panel nulls `input`, `panelStart - 3` spans the 3-line composer box drawn directly above `└ Models & Quota`.
 		const isPanelComposerRule =
 			panel !== null && index >= panel.panelStart - 3 && RULE.test(line);
 		return (
@@ -1422,7 +1417,6 @@ function parseUsageLimit(
 		INLINE_ISO_TIMESTAMP.exec(joined)?.[1] ??
 		AGY_REFRESHES_IN.exec(joined)?.[1]?.trim() ??
 		TRY_AGAIN_AT.exec(joined)?.[1] ??
-		panel?.fallbackRefresh ??
 		'';
 	return toUsageLimit(resetText, now);
 }

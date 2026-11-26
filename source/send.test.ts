@@ -7,7 +7,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect, beforeAll, afterAll} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
-import {snapshotOf} from '../test/helpers/program-status.ts';
+import {agyBlockedSnapshot} from '../test/helpers/program-status.ts';
 import {
 	sqliteRun,
 	testTmuxSpaces,
@@ -847,30 +847,7 @@ test('sendToSpaceAgent blocks on agy trust dialog, /artifact review, /config, /m
 	};
 
 	const blockedSnapshot = async (message: string, authoritative = true) =>
-		snapshotOf(
-			{
-				repo: 'r',
-				key: 'STA-1',
-				pane: {
-					id: '%1',
-					pid: '42',
-					dead: false,
-					piped: true,
-					marker: '42.marker',
-					generation: 'gen',
-				},
-			},
-			[
-				{
-					state: 'blocked',
-					id: '',
-					app: 'antigravity',
-					kind: 'permission',
-					message,
-				},
-			],
-			{authoritative},
-		);
+		agyBlockedSnapshot(message, {repo: 'r', authoritative});
 
 	// Unparsed OSC-blocked prompt is refused even with force.
 	const unparsed = makeOscSendRunner('unparsed custom agy prompt');

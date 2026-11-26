@@ -76,10 +76,6 @@ function formatDeferredSchedules(
 	);
 }
 
-export function agyDialogLabel(dialog: AgyDialogKind): string {
-	return AGY_DIALOG_LABELS[dialog];
-}
-
 export function formatQuestion(question: QuestionTab): string {
 	const lines = [
 		question.multiSelect
@@ -120,7 +116,7 @@ export function formatState(report: AgentStateReport): string {
 	if (report.codexDialog)
 		lines.push(`Codex dialog: ${report.codexDialog.title}`);
 	else if (report.agyDialog)
-		lines.push(`Dialog: ${agyDialogLabel(report.agyDialog)}`);
+		lines.push(`Dialog: ${AGY_DIALOG_LABELS[report.agyDialog]}`);
 	else if (
 		report.status?.status === 'blocked' &&
 		report.status.message === 'Approve plan'
@@ -151,7 +147,7 @@ export function formatChange(change: SpaceChange): string {
 	if (change.codexDialog)
 		lines.push(`  Codex dialog: ${change.codexDialog.title}`);
 	if (change.agyDialog)
-		lines.push(`  Dialog: ${agyDialogLabel(change.agyDialog)}`);
+		lines.push(`  Dialog: ${AGY_DIALOG_LABELS[change.agyDialog]}`);
 	if (change.composer) lines.push(`  Composer: ${change.composer}`);
 	lines.push(...formatDeferredSchedules(change.deferredSchedules, '  '));
 	return lines.join('\n');

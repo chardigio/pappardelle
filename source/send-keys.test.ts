@@ -1,6 +1,6 @@
 import {test, expect, beforeAll, afterAll} from 'bun:test';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
-import {snapshotOf} from '../test/helpers/program-status.ts';
+import {agyBlockedSnapshot} from '../test/helpers/program-status.ts';
 import {testTmuxSpaces} from '../test/helpers/state.ts';
 import {sendKeysToSpaceAgent, type OuterTmuxRunner} from './tmux.ts';
 
@@ -185,9 +185,7 @@ test('--keys adapts Escape and S-Tab/BTab for agy vim insert mode and announceme
 	expect(await sentFor(agyIdleInsertNoBanner, ['Escape'])).toStrictEqual([
 		'Escape',
 	]);
-	expect(await sentFor(agyWorkingNormal, ['Escape'])).toStrictEqual([
-		'Escape',
-	]);
+	expect(await sentFor(agyWorkingNormal, ['Escape'])).toStrictEqual(['Escape']);
 
 	// S-Tab / BTab clears vim insert and/or announcement banner first and normalizes S-Tab to BTab.
 	expect(await sentFor(agyIdleInsertNoBanner, ['S-Tab'])).toStrictEqual([
@@ -257,30 +255,7 @@ test('--keys blocks non-Escape on agy prompts, /model, /config and unparsed OSC 
 		};
 
 	const blockedSnapshot = async (message: string, authoritative = true) =>
-		snapshotOf(
-			{
-				repo: 'repo',
-				key: 'STA-1',
-				pane: {
-					id: '%1',
-					pid: '42',
-					dead: false,
-					piped: true,
-					marker: '42.marker',
-					generation: 'gen',
-				},
-			},
-			[
-				{
-					state: 'blocked',
-					id: '',
-					app: 'antigravity',
-					kind: 'permission',
-					message,
-				},
-			],
-			{authoritative},
-		);
+		agyBlockedSnapshot(message, {authoritative});
 
 	expect(
 		await sendKeysToSpaceAgent('STA-1', ['1'], {

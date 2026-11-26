@@ -2,18 +2,22 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
+import {Database} from 'bun:sqlite';
 import {test, expect} from 'bun:test';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
+import {contractTest} from '../test/helpers/dao-contract.ts';
+import {testState, type TestState} from '../test/helpers/state.ts';
+import {teardown} from '../test/helpers/teardown.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {parseAgentScreen, parseAgyQuota} from './agent-screen.ts';
 import {
 	classifyAgent,
 	type AgentState,
 	type AgentStateReport,
 } from './agent-state.ts';
-import {contractTest} from '../test/helpers/dao-contract.ts';
-import {testState, type TestState} from '../test/helpers/state.ts';
 import {
 	fireJob,
+	JsonScheduleDao,
 	parseJob,
 	parseWhen,
 	rearmMissingTimers,
@@ -22,6 +26,7 @@ import {
 	type Job,
 	type SendOutcome,
 } from './schedule.ts';
+import {SqliteScheduleDao} from './schedule-sqlite.ts';
 import {
 	launchdPlist,
 	onCalendar,
@@ -29,6 +34,7 @@ import {
 	systemdUnitName,
 	type TimerContext,
 } from './schedule-timers.ts';
+import {closeStateDb, openStateDb} from './state-db.ts';
 
 const NOW = new Date(2026, 10, 9, 12, 0);
 
@@ -369,6 +375,22 @@ contractTest(
 		expect(await h.fire(keepGoing())).toBe('sent');
 		expect(h.dismissed).toStrictEqual(['STA-1', 'STA-1', 'STA-1']);
 		expect(h.sent).toStrictEqual(['resume work', 'continue', 'keep going']);
+
+		// When the agent is working behind an open Models & Quota panel, keep_going skips without pressing Escape.
+		const workingQuota = {
+			...report('dialog'),
+			agyDialog: 'quota_panel' as const,
+			status: {
+				status: 'working' as const,
+				app: 'antigravity',
+				source: 'osc' as const,
+			},
+		};
+		const working = harness(state, [workingQuota]);
+		await working.store.save({...keepGoing(), idleChecks: 1});
+		expect(await working.fire(keepGoing())).toBe('skipped_working');
+		expect(working.dismissed).toStrictEqual([]);
+		expect(working.sent).toStrictEqual([]);
 	},
 );
 
@@ -391,6 +413,95 @@ test('parseJob stays backward-compatible with job files lacking defer fields', (
 		at: NOW.toISOString(),
 		message: 'hi',
 		arm: 1,
+	});
+});
+
+test('SQLite v7 schedules table migrates cleanly to v8 with defer columns', async () => {
+	const dir = tempDir('schedule-migrate-');
+	const dbPath = path.join(dir, 'state.sqlite');
+	const raw = new Database(dbPath, {create: true});
+	raw.run(`CREATE TABLE json_sync (
+		path TEXT PRIMARY KEY,
+		ino TEXT NOT NULL,
+		size INTEGER NOT NULL,
+		mtime_ns TEXT NOT NULL,
+		malformed INTEGER NOT NULL DEFAULT 0 CHECK (malformed IN (0, 1))
+	) STRICT`);
+	raw.run(`CREATE TABLE schedules (
+		repo TEXT NOT NULL,
+		id TEXT NOT NULL,
+		kind TEXT NOT NULL CHECK (kind IN ('at', 'after_limit', 'keep_going')),
+		key TEXT NOT NULL,
+		at TEXT,
+		message TEXT,
+		arm INTEGER,
+		every_seconds INTEGER,
+		nudge TEXT,
+		until TEXT,
+		idle_checks INTEGER,
+		PRIMARY KEY (repo, id)
+	) STRICT`);
+	raw.run(
+		`INSERT INTO schedules (repo, id, kind, key, at, message, arm)
+		VALUES ('repo', 'old1', 'at', 'STA-1', ?, 'ping', 0)`,
+		[NOW.toISOString()],
+	);
+	raw.run('PRAGMA user_version = 7');
+	raw.close();
+
+	const stateDb = openStateDb(dbPath);
+	teardown(() => {
+		closeStateDb(dbPath);
+	});
+	expect(
+		stateDb.db.query<{user_version: number}, []>('PRAGMA user_version').get()
+			?.user_version,
+	).toBe(8);
+	expect(
+		stateDb.db
+			.query<
+				{defer_reason: string | null; defer_count: number | null},
+				[string]
+			>('SELECT defer_reason, defer_count FROM schedules WHERE id = ?')
+			.get('old1'),
+	).toStrictEqual({defer_reason: null, defer_count: null});
+
+	const json = new JsonScheduleDao(
+		path.join(dir, 'schedules'),
+		path.join(dir, 'queued'),
+	);
+	await json.save({
+		kind: 'at',
+		id: 'old1',
+		key: 'STA-1',
+		at: NOW.toISOString(),
+		message: 'ping',
+		arm: 0,
+	});
+	const dao = new SqliteScheduleDao(() => stateDb, 'repo', json);
+	expect(dao.load('old1')).toStrictEqual({
+		kind: 'at',
+		id: 'old1',
+		key: 'STA-1',
+		at: NOW.toISOString(),
+		message: 'ping',
+		arm: 0,
+	});
+
+	await dao.save({
+		kind: 'at',
+		id: 'old1',
+		key: 'STA-1',
+		at: NOW.toISOString(),
+		message: 'ping',
+		arm: 1,
+		deferReason: 'prompt',
+		deferCount: 2,
+	});
+	expect(dao.load('old1')).toMatchObject({
+		arm: 1,
+		deferReason: 'prompt',
+		deferCount: 2,
 	});
 });
 

@@ -1,19 +1,22 @@
 import {test, expect} from 'bun:test';
 import {agentScreenFixture as fixture} from '../test/helpers/agent-screens.ts';
-import {idowIdentities, testState} from '../test/helpers/state.ts';
+import {testState} from '../test/helpers/state.ts';
+import {superviseDeps} from '../test/helpers/supervise-deps.ts';
+import {unreachable} from '../test/helpers/unreachable.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 import {runSuperviseCommand, type SuperviseDeps} from './supervise-command.ts';
-import type {SuperviseEntry} from './supervise-log.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
 const NOW = new Date(2026, 10, 9, 12, 0);
 
 const policy: ApprovalPolicy = {
 	worktree: '/worktree',
-	repo: '/repo',
-	home: '/home/u',
-	worktrees: '/home/u/.worktrees',
-	stateDir: '/home/u/.pappardelle',
+	roots: ['/tmp'],
+	reserved: [],
+	shared: [],
+	scratchpad: '-worktree',
+	defaultBranch: 'main',
+	realpath: target => target,
 };
 
 function agyHarness(
@@ -30,9 +33,6 @@ function agyHarness(
 	const pressed: string[][] = [];
 	const classified: string[] = [];
 	const sent: Array<{key: string; text: string}> = [];
-	const logged: SuperviseEntry[] = [];
-	const out: string[] = [];
-	const err: string[] = [];
 	let clock = NOW.getTime();
 	let reads = 0;
 	let redraws = 0;
@@ -57,21 +57,11 @@ function agyHarness(
 		return {status: 1, stdout: ''};
 	};
 
-	const deps: SuperviseDeps = {
-		repo: () => 'repo',
-		identities: idowIdentities('repo', () => ['STA-1']),
-		resolveKey: raw => raw,
-		hookKey: async key => key,
-		readHook: async () => ({status: 'unknown'}),
+	const {deps, logged, out, err} = superviseDeps({
 		readHookState: async () => ({kind: 'none'}),
-		readSnapshot: async () => ({
-			app: 'antigravity',
-			status: 'idle',
-			source: 'osc',
-		}),
+		readSnapshot: async () => null,
 		...(readAgyQuota ? {readAgyQuota} : {}),
 		runner,
-		serverRunner: () => ({status: 1, stdout: ''}),
 		now: () => new Date(clock),
 		async sleep(ms) {
 			clock += ms;
@@ -88,9 +78,6 @@ function agyHarness(
 			redraws = 1;
 			return 'sent';
 		},
-		async typeText() {
-			return 'sent';
-		},
 		async classify(_key, request) {
 			classified.push(request.command);
 			return {kind: 'approve', reason: 'safe'};
@@ -99,15 +86,12 @@ function agyHarness(
 		store: () => schedules,
 		holds: () => holds,
 		newHoldId: () => `h${++ids}`,
-		timers: () => ({create() {}, remove() {}}),
-		caller: 'main',
-		readStdin: () => undefined,
-		out: text => out.push(text),
-		err: text => err.push(text),
-		log(_repo, _caller, entry) {
-			logged.push(entry);
-		},
-	};
+		timers: () => ({
+			create() {},
+			remove() {},
+			exists: () => unreachable('exists is not stubbed'),
+		}),
+	});
 	return {
 		schedules,
 		holds,
@@ -189,8 +173,10 @@ test('agy Models & Quota panel supports after_limit, stale refresh, Escape dismi
 	expect(healthy.pressed).toStrictEqual([['Escape']]);
 	expect(healthy.sent).toStrictEqual([{key: 'STA-1', text: 'check status'}]);
 	expect(
-		healthy.logged.some(entry =>
-			entry.detail?.includes('closed Models & Quota panel'),
+		healthy.logged.some(
+			entry =>
+				entry.action === 'answer' &&
+				entry.detail?.includes('closed Models & Quota panel'),
 		),
 	).toBe(true);
 

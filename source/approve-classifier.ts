@@ -183,17 +183,14 @@ function invocationFor(
 	if (backend === 'agy') {
 		return {
 			command,
-			args: agyClassifierArgs(
-				`${RUBRIC}\n\n${input}`,
-				trimmedModel ?? DEFAULT_AGY_CLASSIFIER_MODEL,
-			),
+			args: agyClassifierArgs(`${RUBRIC}\n\n${input}`, trimmedModel),
 			stdin: '',
 		};
 	}
 
 	return {
 		command,
-		args: classifierArgs(trimmedModel ?? DEFAULT_CLAUDE_CLASSIFIER_MODEL),
+		args: classifierArgs(trimmedModel),
 		stdin: input,
 	};
 }
@@ -273,10 +270,7 @@ export async function classifyWithConfig(
 	const first = await runOnce(claudeCall, spawnFn);
 	if (first.verdict.kind !== 'unavailable') return first.verdict;
 	if (first.enoent) {
-		return runWithRetry(
-			invocationFor('agy', 'agy', DEFAULT_AGY_CLASSIFIER_MODEL, input),
-			spawnFn,
-		);
+		return runWithRetry(invocationFor('agy', 'agy', undefined, input), spawnFn);
 	}
 
 	const second = await runOnce(claudeCall, spawnFn);

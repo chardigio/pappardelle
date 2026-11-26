@@ -33,6 +33,7 @@ import {
 	type QuestionDialog,
 } from './agent-screen.ts';
 import {
+	arrowKeys,
 	decideAnswer,
 	holdPlan,
 	optionKeys,
@@ -142,19 +143,13 @@ const SCREEN_POLL_MS = 2000;
 const SOONEST_WAKE_MS = 60_000;
 const TAB_SETTLE_MS = 300;
 
-function withoutUsageLimit(
-	report: AgentStateReport,
-	now: Date,
-): AgentStateReport {
-	const working =
-		report.status?.status === 'working' ||
-		parseAgentScreen(report.screen, now).spinner;
+function withoutUsageLimit(report: AgentStateReport): AgentStateReport {
 	const state =
 		report.state !== 'usage_limit'
 			? report.state
 			: report.agyDialog
 				? 'dialog'
-				: working
+				: report.status?.status === 'working'
 					? 'working'
 					: report.composer
 						? 'draft'
@@ -225,7 +220,7 @@ async function readState(
 	const result = await deps.readAgyQuota(key, report);
 	if (result.kind === 'limited') return {...report, usageLimit: result.limit};
 	if (result.kind === 'available' && report.usageLimit) {
-		return withoutUsageLimit(report, deps.now());
+		return withoutUsageLimit(report);
 	}
 
 	return report;
@@ -798,11 +793,7 @@ async function denyAgySubagentBanner(
 		return 'the matching approval in subagent manage';
 	}
 
-	const delta = approval.denyNumber - approval.cursor;
-	const denyKeys = [
-		...Array.from({length: Math.abs(delta)}, () => (delta > 0 ? 'Down' : 'Up')),
-		'Enter',
-	];
+	const denyKeys = arrowKeys(approval.cursor, approval.denyNumber);
 	if ((await deps.sendKeys(key, denyKeys)) !== 'sent') {
 		return 'the subagent action denied';
 	}
