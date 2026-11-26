@@ -15,9 +15,9 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 PROJECT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PASS=0
-FAIL=0
 
 if [[ -z "${XDG_RUNTIME_DIR:-}" ]] || ! command -v systemd-run >/dev/null || ! command -v bun >/dev/null ||
     ! systemctl --user show-environment >/dev/null 2>&1; then
@@ -38,6 +38,7 @@ SOCKET=""
 
 T() { env -u TMUX -u TMUX_PANE tmux -L pappardelle_inner "$@"; }
 
+# shellcheck disable=SC2329  # invoked via trap
 cleanup() {
     local status=$?
     for unit in $(systemctl --user list-units --all --plain --no-legend "pappardelle-$REPO_NAME-*" | awk '{print $1}'); do
@@ -52,9 +53,6 @@ cleanup() {
     exit "$status"
 }
 trap cleanup EXIT
-
-pass() { echo "  ✓ $1"; PASS=$((PASS + 1)); }
-fail() { echo "  ✗ $1"; FAIL=$((FAIL + 1)); }
 
 git init -q "$REPO"
 printf 'version: 1\nteam_prefix: QA\nissue_tracker:\n  provider: jira\n  base_url: https://example.invalid\nprofiles:\n  test:\n    display_name: Test\n' > "$REPO/.pappardelle.yml"
@@ -145,6 +143,4 @@ if pappardelle unschedule "$id" >/dev/null; then pass "unscheduled $id"; else fa
 units="$(systemctl --user list-timers --all --plain --no-legend "pappardelle-$REPO_NAME-*" | wc -l)"
 if [[ "$units" -eq 0 ]]; then pass "no timer left"; else fail "$units timers left"; fi
 
-echo
-echo "Results: $PASS passed, $FAIL failed"
-[[ "$FAIL" -eq 0 ]]
+summarize

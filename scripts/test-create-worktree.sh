@@ -12,14 +12,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PASS=0
-FAIL=0
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 
 cleanup() {
     if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
@@ -33,15 +27,9 @@ assert_valid_json() {
     local output="$2"
 
     if [[ -n "$output" ]] && echo "$output" | jq empty 2>/dev/null; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
+        pass "$test_name"
     else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Output was not valid JSON:"
-        echo "    ---"
-        echo "    $output"
-        echo "    ---"
-        FAIL=$((FAIL + 1))
+        fail "$test_name" "Output was not valid JSON:" "---" "$output" "---"
     fi
 }
 
@@ -54,12 +42,9 @@ assert_json_field() {
     local actual
     actual=$(echo "$output" | jq -r ".$field" 2>/dev/null)
     if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
+        pass "$test_name"
     else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected .$field = \"$expected\", got \"$actual\""
-        FAIL=$((FAIL + 1))
+        fail "$test_name" "Expected .$field = \"$expected\", got \"$actual\""
     fi
 }
 
@@ -70,31 +55,9 @@ assert_single_line() {
     local line_count
     line_count=$(echo "$output" | wc -l | tr -d ' ')
     if [[ "$line_count" -eq 1 ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
+        pass "$test_name"
     else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected 1 line, got $line_count:"
-        echo "    ---"
-        echo "    $output"
-        echo "    ---"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$expected" == "$actual" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: $expected"
-        echo "    Got:      $actual"
-        FAIL=$((FAIL + 1))
+        fail "$test_name" "Expected 1 line, got $line_count:" "---" "$output" "---"
     fi
 }
 
@@ -129,12 +92,9 @@ assert_no_auto_stash() {
     local count
     count=$(git stash list 2>/dev/null | grep -c "auto-stash for worktree creation" || true)
     if [[ "$count" -eq 0 ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
+        pass "$test_name"
     else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Found $count auto-stash entries — main repo should never be stashed"
-        FAIL=$((FAIL + 1))
+        fail "$test_name" "Found $count auto-stash entries — main repo should never be stashed"
     fi
 }
 
@@ -398,12 +358,9 @@ assert_main_repo_unchanged "main-based repo"
 
 EXPECTED_PATH="$WORKTREES_ROOT/repo/CHEX-100"
 if [[ -d "$EXPECTED_PATH" ]]; then
-    echo -e "  ${GREEN}PASS${RESET} worktree directory exists"
-    PASS=$((PASS + 1))
+    pass "worktree directory exists"
 else
-    echo -e "  ${RED}FAIL${RESET} worktree directory exists"
-    echo "    Expected: $EXPECTED_PATH"
-    FAIL=$((FAIL + 1))
+    fail "worktree directory exists" "Expected: $EXPECTED_PATH"
 fi
 
 cd /
@@ -418,11 +375,9 @@ setup_repo
 cd "$MAIN_REPO"
 git branch "STA-600" master --quiet
 if git show-ref --verify --quiet "refs/heads/STA-600"; then
-    echo -e "  ${GREEN}PASS${RESET} precondition: branch STA-600 exists"
-    PASS=$((PASS + 1))
+    pass "precondition: branch STA-600 exists"
 else
-    echo -e "  ${RED}FAIL${RESET} precondition: branch STA-600 exists"
-    FAIL=$((FAIL + 1))
+    fail "precondition: branch STA-600 exists"
 fi
 
 snapshot_main_repo
@@ -430,11 +385,9 @@ OUTPUT=$(create_worktree --issue-key "STA-600" --project-key "test" 2>/dev/null)
 EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
-    echo -e "  ${GREEN}PASS${RESET} exits 0 when branch already exists"
-    PASS=$((PASS + 1))
+    pass "exits 0 when branch already exists"
 else
-    echo -e "  ${RED}FAIL${RESET} exits 0 when branch already exists (got exit $EXIT_CODE)"
-    FAIL=$((FAIL + 1))
+    fail "exits 0 when branch already exists (got exit $EXIT_CODE)"
 fi
 
 assert_valid_json "stdout is valid JSON (existing branch)" "$OUTPUT"
@@ -444,12 +397,9 @@ assert_main_repo_unchanged "existing branch"
 
 EXPECTED_PATH="$WORKTREES_ROOT/repo/STA-600"
 if [[ -d "$EXPECTED_PATH" ]]; then
-    echo -e "  ${GREEN}PASS${RESET} worktree directory exists (existing branch)"
-    PASS=$((PASS + 1))
+    pass "worktree directory exists (existing branch)"
 else
-    echo -e "  ${RED}FAIL${RESET} worktree directory exists (existing branch)"
-    echo "    Expected: $EXPECTED_PATH"
-    FAIL=$((FAIL + 1))
+    fail "worktree directory exists (existing branch)" "Expected: $EXPECTED_PATH"
 fi
 
 teardown_repo
@@ -468,22 +418,18 @@ OUTPUT=$(create_worktree --issue-key "STA-700" --project-key "test" 2>/dev/null)
 EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
-    echo -e "  ${GREEN}PASS${RESET} succeeds despite stale index.lock"
-    PASS=$((PASS + 1))
+    pass "succeeds despite stale index.lock"
 else
-    echo -e "  ${RED}FAIL${RESET} succeeds despite stale index.lock (got exit $EXIT_CODE)"
-    FAIL=$((FAIL + 1))
+    fail "succeeds despite stale index.lock (got exit $EXIT_CODE)"
 fi
 
 assert_valid_json "stdout is valid JSON (stale index.lock)" "$OUTPUT"
 assert_json_field "issue_key is correct (stale index.lock)" "$OUTPUT" "issue_key" "STA-700"
 
 if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
-    echo -e "  ${GREEN}PASS${RESET} stale index.lock was removed"
-    PASS=$((PASS + 1))
+    pass "stale index.lock was removed"
 else
-    echo -e "  ${RED}FAIL${RESET} stale index.lock was removed"
-    FAIL=$((FAIL + 1))
+    fail "stale index.lock was removed"
 fi
 
 teardown_repo
@@ -501,22 +447,18 @@ EXIT_CODE=0
 OUTPUT=$(create_worktree --issue-key "STA-800" --project-key "test" 2>/dev/null) || EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
-    echo -e "  ${GREEN}PASS${RESET} succeeds despite stale index.lock on clean repo"
-    PASS=$((PASS + 1))
+    pass "succeeds despite stale index.lock on clean repo"
 else
-    echo -e "  ${RED}FAIL${RESET} succeeds despite stale index.lock on clean repo (got exit $EXIT_CODE)"
-    FAIL=$((FAIL + 1))
+    fail "succeeds despite stale index.lock on clean repo (got exit $EXIT_CODE)"
 fi
 
 assert_valid_json "stdout is valid JSON (index.lock, clean repo)" "$OUTPUT"
 assert_json_field "issue_key is correct (index.lock, clean repo)" "$OUTPUT" "issue_key" "STA-800"
 
 if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
-    echo -e "  ${GREEN}PASS${RESET} stale index.lock was removed (clean repo)"
-    PASS=$((PASS + 1))
+    pass "stale index.lock was removed (clean repo)"
 else
-    echo -e "  ${RED}FAIL${RESET} stale index.lock was removed (clean repo)"
-    FAIL=$((FAIL + 1))
+    fail "stale index.lock was removed (clean repo)"
 fi
 
 teardown_repo
@@ -535,11 +477,9 @@ git -C "$MAIN_REPO" worktree add "$WORKTREE_EXTRA" -b extra-branch master --quie
 touch "$MAIN_REPO/.git/index.lock"
 
 if [[ -f "$WORKTREE_EXTRA/.git" && ! -d "$WORKTREE_EXTRA/.git" ]]; then
-    echo -e "  ${GREEN}PASS${RESET} precondition: .git in worktree is a file"
-    PASS=$((PASS + 1))
+    pass "precondition: .git in worktree is a file"
 else
-    echo -e "  ${RED}FAIL${RESET} precondition: .git in worktree is a file"
-    FAIL=$((FAIL + 1))
+    fail "precondition: .git in worktree is a file"
 fi
 
 # Run create-worktree pointing MAIN_REPO at the worktree. The lock removal
@@ -547,11 +487,9 @@ fi
 MAIN_REPO="$WORKTREE_EXTRA" create_worktree --issue-key "STA-900" --project-key "test" >/dev/null 2>&1 || true
 
 if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
-    echo -e "  ${GREEN}PASS${RESET} stale index.lock removed via git-common-dir resolution"
-    PASS=$((PASS + 1))
+    pass "stale index.lock removed via git-common-dir resolution"
 else
-    echo -e "  ${RED}FAIL${RESET} stale index.lock removed via git-common-dir resolution"
-    FAIL=$((FAIL + 1))
+    fail "stale index.lock removed via git-common-dir resolution"
 fi
 
 teardown_repo
@@ -572,12 +510,4 @@ teardown_repo
 
 # ==========================================================================
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize

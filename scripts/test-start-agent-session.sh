@@ -7,13 +7,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 
 # A run inside a space inherits that space's PAPPARDELLE_*, and the state ones
 # (PAPPARDELLE_STATE_DB, PAPPARDELLE_STATUS_SOCKET, PAPPARDELLE_STATUS_DIR)
@@ -102,21 +97,6 @@ SHIM
 chmod +x "$CLAUDE_SHIM_DIR/claude"
 export PATH="$CLAUDE_SHIM_DIR:$PATH"
 
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: $expected"
-        echo "    Actual:   $actual"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
 # Poll for a shim argv log to appear. The command send-keys types runs in an
 # interactive shell that sources the user's rc files first, so a fixed sleep
 # is flaky under load — wait up to 15s instead.
@@ -161,11 +141,9 @@ COMPANION_SESSION="companion-${TEST_REPO}-${ISSUE_KEY}"
 
 # Precondition: no session
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
-    echo -e "  ${RED}FAIL${RESET} precondition: session should not exist"
-    FAIL=$((FAIL + 1))
+    fail "precondition: session should not exist"
 else
-    echo -e "  ${GREEN}PASS${RESET} precondition: no existing session"
-    PASS=$((PASS + 1))
+    pass "precondition: no existing session"
 fi
 
 # Run the script
@@ -176,11 +154,9 @@ EXIT_CODE=$?
 assert_eq "exits 0" "0" "$EXIT_CODE"
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${RESET} claude session created with repo-qualified name"
-    PASS=$((PASS + 1))
+    pass "claude session created with repo-qualified name"
 else
-    echo -e "  ${RED}FAIL${RESET} claude session created with repo-qualified name ($CLAUDE_SESSION)"
-    FAIL=$((FAIL + 1))
+    fail "claude session created with repo-qualified name ($CLAUDE_SESSION)"
 fi
 
 # The session environment names the space, for a Claude started later in the pane
@@ -222,11 +198,9 @@ EXIT_CODE=$?
 assert_eq "exits 0 when session already exists" "0" "$EXIT_CODE"
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$CLAUDE_SESSION" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${RESET} session still exists (idempotent)"
-    PASS=$((PASS + 1))
+    pass "session still exists (idempotent)"
 else
-    echo -e "  ${RED}FAIL${RESET} session still exists (idempotent)"
-    FAIL=$((FAIL + 1))
+    fail "session still exists (idempotent)"
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$CLAUDE_SESSION" 2>/dev/null || true
@@ -243,11 +217,9 @@ start_session --issue-key "$ISSUE_KEY2" --repo-name "$TEST_REPO" --worktree "$WO
 
 COMPANION_SESSION2="companion-${TEST_REPO}-${ISSUE_KEY2}"
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$COMPANION_SESSION2" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${RESET} companion session created with repo-qualified name"
-    PASS=$((PASS + 1))
+    pass "companion session created with repo-qualified name"
 else
-    echo -e "  ${RED}FAIL${RESET} companion session created with repo-qualified name ($COMPANION_SESSION2)"
-    FAIL=$((FAIL + 1))
+    fail "companion session created with repo-qualified name ($COMPANION_SESSION2)"
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "agent-${TEST_REPO}-${ISSUE_KEY2}" 2>/dev/null || true
@@ -270,11 +242,9 @@ start_session --issue-key "$ISSUE_SHORT" --repo-name "$TEST_REPO" --worktree "$W
 for kind in agent companion; do
     SHORT_SESSION="${kind}-${TEST_REPO}-${ISSUE_SHORT}"
     if tmux -L "$PAPPARDELLE_TMUX_SOCKET" list-sessions -F '#{session_name}' 2>/dev/null | grep -qx "$SHORT_SESSION"; then
-        echo -e "  ${GREEN}PASS${RESET} $kind session created despite a longer session sharing its prefix"
-        PASS=$((PASS + 1))
+        pass "$kind session created despite a longer session sharing its prefix"
     else
-        echo -e "  ${RED}FAIL${RESET} $kind session created despite a longer session sharing its prefix ($SHORT_SESSION)"
-        FAIL=$((FAIL + 1))
+        fail "$kind session created despite a longer session sharing its prefix ($SHORT_SESSION)"
     fi
 done
 
@@ -314,11 +284,9 @@ assert_eq "errors without PAPPARDELLE_TMUX_SOCKET" \
 echo -e "\n${BOLD}Test: the session names are required${RESET}"
 OUTPUT=$("$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --repo-name "$TEST_REPO" --worktree "/tmp" 2>&1 || true)
 if echo "$OUTPUT" | grep -q -- "--agent-session, --companion-session and --legacy-agent-session are required"; then
-    echo -e "  ${GREEN}PASS${RESET} errors when the session names are missing"
-    PASS=$((PASS + 1))
+    pass "errors when the session names are missing"
 else
-    echo -e "  ${RED}FAIL${RESET} errors when the session names are missing"
-    FAIL=$((FAIL + 1))
+    fail "errors when the session names are missing"
 fi
 
 # ==========================================================================
@@ -326,11 +294,9 @@ fi
 echo -e "\n${BOLD}Test: --repo-name is required${RESET}"
 OUTPUT=$(start_session --issue-key "X-1" --worktree "/tmp" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "repo-name is required"; then
-    echo -e "  ${GREEN}PASS${RESET} errors when --repo-name is missing"
-    PASS=$((PASS + 1))
+    pass "errors when --repo-name is missing"
 else
-    echo -e "  ${RED}FAIL${RESET} errors when --repo-name is missing"
-    FAIL=$((FAIL + 1))
+    fail "errors when --repo-name is missing"
 fi
 
 # ==========================================================================
@@ -349,13 +315,11 @@ sleep 0.3
 
 PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "agent-${TEST_REPO}-${ISSUE_KEY3}" '#{pane_start_command}' 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY3"; then
-    echo -e "  ${GREEN}PASS${RESET} issue key included in claude command"
-    PASS=$((PASS + 1))
+    pass "issue key included in claude command"
 else
-    echo -e "  ${RED}FAIL${RESET} issue key included in claude command"
-    echo "    Expected start command to contain: $ISSUE_KEY3"
-    echo "    Start command: $(echo "$PANE_CONTENT" | head -5)"
-    FAIL=$((FAIL + 1))
+    fail "issue key included in claude command" \
+        "Expected start command to contain: $ISSUE_KEY3" \
+        "Start command: $(echo "$PANE_CONTENT" | head -5)"
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "agent-${TEST_REPO}-${ISSUE_KEY3}" 2>/dev/null || true
@@ -374,13 +338,11 @@ sleep 0.3
 
 PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" display-message -p -t "agent-${TEST_REPO}-${ISSUE_KEY4}" '#{pane_start_command}' 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "/test-skill" && echo "$PANE_CONTENT" | grep -qF "$ISSUE_KEY4"; then
-    echo -e "  ${GREEN}PASS${RESET} init cmd + issue key in claude command"
-    PASS=$((PASS + 1))
+    pass "init cmd + issue key in claude command"
 else
-    echo -e "  ${RED}FAIL${RESET} init cmd + issue key in claude command"
-    echo "    Expected start command to contain: /test-skill and $ISSUE_KEY4"
-    echo "    Start command: $(echo "$PANE_CONTENT" | head -5)"
-    FAIL=$((FAIL + 1))
+    fail "init cmd + issue key in claude command" \
+        "Expected start command to contain: /test-skill and $ISSUE_KEY4" \
+        "Start command: $(echo "$PANE_CONTENT" | head -5)"
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "agent-${TEST_REPO}-${ISSUE_KEY4}" 2>/dev/null || true
@@ -408,22 +370,18 @@ sleep 0.3
 RESUME_CALL5=$(shim_calls_for_key5 | tail -2 | head -1)
 FRESH_CALL5=$(shim_calls_for_key5 | tail -1)
 if [[ "$RESUME_CALL5" == *" --continue"* && "$FRESH_CALL5" != *"--continue"* ]]; then
-    echo -e "  ${GREEN}PASS${RESET} claude --continue failed, then the fresh launch ran"
-    PASS=$((PASS + 1))
+    pass "claude --continue failed, then the fresh launch ran"
 else
-    echo -e "  ${RED}FAIL${RESET} claude --continue failed, then the fresh launch ran"
-    echo "    claude calls: $(cat "$CLAUDE_SHIM_LOG" 2>/dev/null)"
-    FAIL=$((FAIL + 1))
+    fail "claude --continue failed, then the fresh launch ran" \
+        "claude calls: $(cat "$CLAUDE_SHIM_LOG" 2>/dev/null)"
 fi
 
 PANE_CONTENT=$(tmux -L "$PAPPARDELLE_TMUX_SOCKET" capture-pane -t "agent-${TEST_REPO}-${ISSUE_KEY5}" -p -S - 2>/dev/null || echo "")
 if echo "$PANE_CONTENT" | grep -qF "No conversation found to continue"; then
-    echo -e "  ${RED}FAIL${RESET} error message should be suppressed"
-    echo "    Pane contains: $(echo "$PANE_CONTENT" | grep 'No conversation')"
-    FAIL=$((FAIL + 1))
+    fail "error message should be suppressed" \
+        "Pane contains: $(echo "$PANE_CONTENT" | grep 'No conversation')"
 else
-    echo -e "  ${GREEN}PASS${RESET} error message suppressed"
-    PASS=$((PASS + 1))
+    pass "error message suppressed"
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "agent-${TEST_REPO}-${ISSUE_KEY5}" 2>/dev/null || true
@@ -440,22 +398,18 @@ start_session --issue-key "$ISSUE_KEY6" --repo-name "$TEST_REPO" --worktree "$WO
 
 # Must exist on the inner socket
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "agent-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${RESET} claude session is on the inner socket"
-    PASS=$((PASS + 1))
+    pass "claude session is on the inner socket"
 else
-    echo -e "  ${RED}FAIL${RESET} claude session is on the inner socket"
-    FAIL=$((FAIL + 1))
+    fail "claude session is on the inner socket"
 fi
 
 # Must NOT exist on the default socket (STA-860: the whole point of the fix
 # is that inner sessions move off the default socket so the viewer-pane
 # attach doesn't collide with tmux's nesting check).
 if tmux has-session -t "agent-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null; then
-    echo -e "  ${RED}FAIL${RESET} claude session leaked onto the default socket"
-    FAIL=$((FAIL + 1))
+    fail "claude session leaked onto the default socket"
 else
-    echo -e "  ${GREEN}PASS${RESET} claude session did not leak onto the default socket"
-    PASS=$((PASS + 1))
+    pass "claude session did not leak onto the default socket"
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "agent-${TEST_REPO}-${ISSUE_KEY6}" 2>/dev/null || true
@@ -500,32 +454,18 @@ wait_for_file "$ARGV_LOG" || true
 ARGV=$(head -1 "$ARGV_LOG" 2>/dev/null || echo "")
 
 if [[ "$ARGV" == *"--model sonnet"* ]]; then
-    echo -e "  ${GREEN}PASS${RESET} --model reached claude ($ARGV)"
-    PASS=$((PASS + 1))
+    pass "--model reached claude ($ARGV)"
 else
-    echo -e "  ${RED}FAIL${RESET} --model reached claude"
-    echo "    argv: $ARGV"
-    FAIL=$((FAIL + 1))
+    fail "--model reached claude" "argv: $ARGV"
 fi
 
 if [[ "$ARGV" == *"--effort high"* ]]; then
-    echo -e "  ${GREEN}PASS${RESET} --effort reached claude"
-    PASS=$((PASS + 1))
+    pass "--effort reached claude"
 else
-    echo -e "  ${RED}FAIL${RESET} --effort reached claude"
-    echo "    argv: $ARGV"
-    FAIL=$((FAIL + 1))
+    fail "--effort reached claude" "argv: $ARGV"
 fi
 
-if [[ "$ARGV" == "--model sonnet --effort high --name $ISSUE_KEY7 --continue" ]]; then
-    echo -e "  ${GREEN}PASS${RESET} exact flag order: model → effort → name"
-    PASS=$((PASS + 1))
-else
-    echo -e "  ${RED}FAIL${RESET} exact flag order: model → effort → name"
-    echo "    Expected: --model sonnet --effort high --name $ISSUE_KEY7 --continue"
-    echo "    Actual:   $ARGV"
-    FAIL=$((FAIL + 1))
-fi
+assert_eq "exact flag order: model → effort → name" "--model sonnet --effort high --name $ISSUE_KEY7 --continue" "$ARGV"
 
 tmux -L "$SHIM_SOCKET" kill-server 2>/dev/null || true
 
@@ -661,12 +601,9 @@ ZSHRC
     start_hist_session "$HIST_SOCKET" "$KEY9" "GIT_OPTIONAL_LOCKS=0 gitui"
 
     if [[ -f "$HIST_FILE" ]] && grep -qE 'claude|gitui' "$HIST_FILE"; then
-        echo -e "  ${RED}FAIL${RESET} history file has no launch entries"
-        echo "    History: $(cat "$HIST_FILE")"
-        FAIL=$((FAIL + 1))
+        fail "history file has no launch entries" "History: $(cat "$HIST_FILE")"
     else
-        echo -e "  ${GREEN}PASS${RESET} history file has no launch entries"
-        PASS=$((PASS + 1))
+        pass "history file has no launch entries"
     fi
 
     SHELL_RESULT="$TMPDIR_ROOT/shell-result"
@@ -699,11 +636,9 @@ fi
 # below must NOT create one in its own home.
 echo -e "\n${BOLD}Test: pre-trust writes ~/.claude.json for claude agents only${RESET}"
 if [[ -f "$SHIM_HOME/.claude.json" ]]; then
-    echo -e "  ${GREEN}PASS${RESET} claude launch pre-trusted the worktree"
-    PASS=$((PASS + 1))
+    pass "claude launch pre-trusted the worktree"
 else
-    echo -e "  ${RED}FAIL${RESET} claude launch pre-trusted the worktree"
-    FAIL=$((FAIL + 1))
+    fail "claude launch pre-trusted the worktree"
 fi
 
 # ==========================================================================
@@ -740,11 +675,9 @@ ARGV9=$(head -1 "$ARGV_LOG9" 2>/dev/null || echo "")
 assert_eq "codex argv is args + resume args only" "--yolo resume --last" "$ARGV9"
 
 if [[ -f "$CODEX_HOME/.claude.json" ]]; then
-    echo -e "  ${RED}FAIL${RESET} codex launch must not pre-trust ~/.claude.json"
-    FAIL=$((FAIL + 1))
+    fail "codex launch must not pre-trust ~/.claude.json"
 else
-    echo -e "  ${GREEN}PASS${RESET} codex launch skipped the ~/.claude.json pre-trust"
-    PASS=$((PASS + 1))
+    pass "codex launch skipped the ~/.claude.json pre-trust"
 fi
 
 tmux -L "$SHIM_SOCKET9" kill-server 2>/dev/null || true
@@ -860,19 +793,15 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$LEGACY_SESSION" -c "$WORK
 start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$RENAMED_SESSION" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${RESET} legacy session renamed to agent-*"
-    PASS=$((PASS + 1))
+    pass "legacy session renamed to agent-*"
 else
-    echo -e "  ${RED}FAIL${RESET} legacy session renamed to agent-*"
-    FAIL=$((FAIL + 1))
+    fail "legacy session renamed to agent-*"
 fi
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "$LEGACY_SESSION" 2>/dev/null; then
-    echo -e "  ${RED}FAIL${RESET} legacy claude-* name should be gone after rename"
-    FAIL=$((FAIL + 1))
+    fail "legacy claude-* name should be gone after rename"
 else
-    echo -e "  ${GREEN}PASS${RESET} legacy claude-* name is gone after rename"
-    PASS=$((PASS + 1))
+    pass "legacy claude-* name is gone after rename"
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$RENAMED_SESSION" 2>/dev/null || true
@@ -898,11 +827,9 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$RENAMED_SESSION" -c "$WOR
 start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" --no-agent 2>/dev/null
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$LEGACY_SESSION:" 2>/dev/null; then
-    echo -e "  ${RED}FAIL${RESET} legacy session killed"
-    FAIL=$((FAIL + 1))
+    fail "legacy session killed"
 else
-    echo -e "  ${GREEN}PASS${RESET} legacy session killed"
-    PASS=$((PASS + 1))
+    pass "legacy session killed"
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$RENAMED_SESSION:" 2>/dev/null || true
@@ -927,27 +854,21 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "companion-${TEST_REPO}-${O
 start_session --issue-key "$ISSUE_KEY13" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH13" --no-agent 2>/dev/null
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=$OTHER_LEGACY13:" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${RESET} other space's legacy session kept its name"
-    PASS=$((PASS + 1))
+    pass "other space's legacy session kept its name"
 else
-    echo -e "  ${RED}FAIL${RESET} other space's legacy session kept its name"
-    FAIL=$((FAIL + 1))
+    fail "other space's legacy session kept its name"
 fi
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=agent-${TEST_REPO}-${ISSUE_KEY13}:" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${RESET} a fresh agent session was created for the new space"
-    PASS=$((PASS + 1))
+    pass "a fresh agent session was created for the new space"
 else
-    echo -e "  ${RED}FAIL${RESET} a fresh agent session was created for the new space"
-    FAIL=$((FAIL + 1))
+    fail "a fresh agent session was created for the new space"
 fi
 
 if tmux -L "$PAPPARDELLE_TMUX_SOCKET" has-session -t "=companion-${TEST_REPO}-${ISSUE_KEY13}:" 2>/dev/null; then
-    echo -e "  ${GREEN}PASS${RESET} a companion session was created despite another space's companion"
-    PASS=$((PASS + 1))
+    pass "a companion session was created despite another space's companion"
 else
-    echo -e "  ${RED}FAIL${RESET} a companion session was created despite another space's companion"
-    FAIL=$((FAIL + 1))
+    fail "a companion session was created despite another space's companion"
 fi
 
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$OTHER_LEGACY13:" 2>/dev/null || true
@@ -965,18 +886,14 @@ SHIM_SOCKET14="pappardelle_inner_shim14_$$"
 if PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET14" start_session \
     --issue-key "$ISSUE_KEY14" --repo-name "$TEST_REPO" --worktree "$TMPDIR_ROOT" \
     --agent-command codex 2>/dev/null; then
-    echo -e "  ${RED}FAIL${RESET} script should exit non-zero"
-    FAIL=$((FAIL + 1))
+    fail "script should exit non-zero"
 else
-    echo -e "  ${GREEN}PASS${RESET} script exits non-zero"
-    PASS=$((PASS + 1))
+    pass "script exits non-zero"
 fi
 if tmux -L "$SHIM_SOCKET14" has-session -t "=agent-${TEST_REPO}-${ISSUE_KEY14}:" 2>/dev/null; then
-    echo -e "  ${RED}FAIL${RESET} no session is created"
-    FAIL=$((FAIL + 1))
+    fail "no session is created"
 else
-    echo -e "  ${GREEN}PASS${RESET} no session is created"
-    PASS=$((PASS + 1))
+    pass "no session is created"
 fi
 tmux -L "$SHIM_SOCKET14" kill-server 2>/dev/null || true
 
@@ -1190,13 +1107,5 @@ assert_eq "companion session starts in the worktree" "$HASH_WORKTREE" \
 
 rm -rf "$TMPDIR_ROOT"
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize
 

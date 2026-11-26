@@ -10,14 +10,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PASS=0
-FAIL=0
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 
 cleanup() {
     if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
@@ -25,52 +19,6 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
-
-assert_file_exists() {
-    local test_name="$1"
-    local file_path="$2"
-
-    if [[ -f "$file_path" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected file to exist: $file_path"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_file_not_exists() {
-    local test_name="$1"
-    local file_path="$2"
-
-    if [[ ! -f "$file_path" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected file to NOT exist: $file_path"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_file_content() {
-    local test_name="$1"
-    local file_path="$2"
-    local expected="$3"
-
-    local actual
-    actual=$(cat "$file_path" 2>/dev/null)
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: $expected"
-        echo "    Actual:   $actual"
-        FAIL=$((FAIL + 1))
-    fi
-}
 
 # Set up a fresh temp git repo with a local "origin" remote and worktree
 setup_repo_with_worktree() {
@@ -277,12 +225,4 @@ teardown
 
 # ==========================================================================
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize

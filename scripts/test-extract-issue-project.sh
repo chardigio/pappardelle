@@ -23,16 +23,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/provider-helpers.sh"
-
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
 
 cleanup() {
     if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
@@ -41,35 +35,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
-
 assert_contains() {
     local test_name="$1"
     local needle="$2"
     local haystack="$3"
 
     if [[ "$haystack" == *"$needle"* ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
+        pass "$test_name"
     else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected to contain: \"$needle\""
-        echo "    Actual:              \"$haystack\""
-        FAIL=$((FAIL + 1))
+        fail "$test_name" "Expected to contain: \"$needle\"" "Actual:              \"$haystack\""
     fi
 }
 
@@ -377,12 +351,4 @@ assert_eq "hyphenated beads prefix splits on the last hyphen" "wx0" "$(issue_num
 
 # ==========================================================================
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize
