@@ -194,6 +194,7 @@ import {
 	frameStartedChannel,
 } from './pane-frame-options.ts';
 import {
+	isAgyArtifactBanner,
 	type AgentScreen,
 	type AgyComposerState,
 	parseAgentScreen,
@@ -243,9 +244,13 @@ import {
 } from './layout-sizing.ts';
 import {nextSizeOverride, type WindowSize} from './pane-drag.ts';
 import {
+	AGENT_PANE_FORMAT,
+	statusPaneOf,
 	statusSocket,
 	statusTmuxArgs,
 	type ProgramStatusDao,
+	type ProgramStatusSnapshot,
+	type StatusPane,
 } from './program-status-monitor.ts';
 
 // Re-export sizing constants and functions for external use
@@ -2084,6 +2089,53 @@ function sendBlocker(
 }
 
 /**
+ * OSC fallback for prompts the screen parser didn't recognise: when the agent
+ * reports OSC `blocked` (permission, question, auth), refuse sends and
+ * non-Escape keys so an unparsed prompt is never answered by accident.
+ * Agy's non-modal `Approve plan` artifact banner stays open to sends.
+ */
+async function isOscBlockedPrompt(
+	issueKey: string,
+	session: string,
+	screen: AgentScreen,
+	{
+		runner,
+		readSnapshot,
+	}: {
+		runner: SendTmuxRunner;
+		readSnapshot?: (
+			key: string,
+			pane: StatusPane,
+		) => Promise<ProgramStatusSnapshot | null>;
+	},
+): Promise<boolean> {
+	const reader =
+		readSnapshot ??
+		(stateDaos
+			? async (key: string, pane: StatusPane) => programStatus().read(key, pane)
+			: null);
+	if (!reader) return false;
+	const listing = await runner([
+		'list-panes',
+		'-s',
+		'-t',
+		exactSessionTarget(session),
+		'-F',
+		AGENT_PANE_FORMAT,
+	]);
+	if (listing.error || listing.status !== 0) return false;
+	const pane = statusPaneOf(
+		listing.stdout.split('\n').filter(Boolean),
+		statusSocket(),
+	);
+	if (!pane) return false;
+	const snapshot = await reader(issueKey, pane);
+	const status = snapshot?.info;
+	if (status?.status !== 'blocked') return false;
+	return !isAgyArtifactBanner(status, screen);
+}
+
+/**
  * Submit `text` as a prompt to the agent session of a space.
  * Backs `pappardelle send`, which the sous-chef skill relays through.
  */
@@ -2097,6 +2149,10 @@ export async function sendToSpaceAgent(
 		/** Send over a draft in the input box. Never over a prompt. */
 		force?: boolean;
 		sleep?: (ms: number) => Promise<void>;
+		readSnapshot?: (
+			key: string,
+			pane: StatusPane,
+		) => Promise<ProgramStatusSnapshot | null>;
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
@@ -2115,6 +2171,14 @@ export async function sendToSpaceAgent(
 				// Unread, the screen may hold a prompt the keys would answer.
 				if (!screen) return 'failed';
 				const blocker = sendBlocker(screen, options.force ?? false);
+				if (blocker === 'prompt') return 'prompt';
+				if (
+					await isOscBlockedPrompt(issueKey, session, screen, {
+						runner,
+						readSnapshot: options.readSnapshot,
+					})
+				)
+					return 'prompt';
 				if (blocker) return blocker;
 				return submit(pane, text, screen);
 			},
@@ -2185,7 +2249,7 @@ function adaptAgySupervisorKeys(
  * in order. Nothing is cleared or submitted around them, so a keybinding
  * reaches the TUI exactly as if the user pressed it.
  */
-export function sendKeysToSpaceAgent(
+export async function sendKeysToSpaceAgent(
 	issueKey: string,
 	keys: readonly string[],
 	options: {
@@ -2196,8 +2260,12 @@ export function sendKeysToSpaceAgent(
 		literal?: boolean;
 		/** Override the pause between injected Escape keys in tests. */
 		pause?: (ms: number) => void;
+		readSnapshot?: (
+			key: string,
+			pane: StatusPane,
+		) => Promise<ProgramStatusSnapshot | null>;
 	} = {},
-): SendToSpaceAgentResult {
+): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const session = spaceSessionNames(issueKey)?.agent;
 	const target = session && resolveInnerSessionTargetSync(session, runner);
@@ -2213,13 +2281,29 @@ export function sendKeysToSpaceAgent(
 		const parsed = parseAgentScreen(screen.stdout ?? '', new Date());
 		if (parsed.codexDialog || parsed.agyDialog === 'trust') return 'prompt';
 		const answers = keys.some(key => key !== 'Escape');
-		if (answers && (parsed.permission || parsed.question || parsed.agyDialog))
+		if (
+			answers &&
+			(parsed.permission ||
+				parsed.question ||
+				parsed.agyDialog ||
+				(await isOscBlockedPrompt(issueKey, session, parsed, {
+					runner,
+					readSnapshot: options.readSnapshot,
+				})))
+		)
 			return 'prompt';
 		if (!options.literal && parsed.agyComposer) {
 			const adapted = adaptAgySupervisorKeys(keys, parsed.agyComposer);
 			effectiveKeys = adapted.keys;
 			settleAfterEscape = adapted.settleAfterEscape;
 		}
+	} else if (
+		!options.literal &&
+		effectiveKeys.some(
+			(key, index) => key === 'Escape' && index < effectiveKeys.length - 1,
+		)
+	) {
+		settleAfterEscape = true;
 	}
 
 	const pause = options.pause ?? sleepSync;

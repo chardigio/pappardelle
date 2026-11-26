@@ -2730,3 +2730,73 @@ for (const value of ['', '  ', true, 3]) {
 		).toBe(true);
 	});
 }
+
+// ============================================================================
+// approval_classifier
+// ============================================================================
+
+const withApprovalClassifier = (value: unknown) => ({
+	version: 1,
+	profiles: {test: {display_name: 'Test'}},
+	approval_classifier: value,
+});
+
+test('validateConfig accepts valid approval_classifier configs', () => {
+	expect(() => validateConfig(withApprovalClassifier({}))).not.toThrow();
+	expect(() =>
+		validateConfig(withApprovalClassifier({command: 'agy'})),
+	).not.toThrow();
+	expect(() =>
+		validateConfig(
+			withApprovalClassifier({
+				command: '/usr/local/bin/claude',
+				model: 'haiku',
+			}),
+		),
+	).not.toThrow();
+	expect(() =>
+		validateConfig(
+			withApprovalClassifier({
+				command: 'agy',
+				model: 'gemini-4-hydrogen-low',
+			}),
+		),
+	).not.toThrow();
+});
+
+test('validateConfig rejects invalid approval_classifier configs', () => {
+	for (const bad of ['agy', null, []]) {
+		const error = thrownBy(
+			() => validateConfig(withApprovalClassifier(bad)),
+			ConfigValidationError,
+		);
+		expect(
+			error?.message.includes('approval_classifier: must be an object'),
+		).toBe(true);
+	}
+
+	expect(
+		thrownBy(
+			() => validateConfig(withApprovalClassifier({command: 'codex'})),
+			ConfigValidationError,
+		)?.message.includes('approval_classifier.command: must run claude or agy'),
+	).toBe(true);
+
+	expect(
+		thrownBy(
+			() => validateConfig(withApprovalClassifier({command: ''})),
+			ConfigValidationError,
+		)?.message.includes(
+			'approval_classifier.command: must be a non-empty single-line string',
+		),
+	).toBe(true);
+
+	expect(
+		thrownBy(
+			() => validateConfig(withApprovalClassifier({model: 'a\nb'})),
+			ConfigValidationError,
+		)?.message.includes(
+			'approval_classifier.model: must be a non-empty single-line string',
+		),
+	).toBe(true);
+});

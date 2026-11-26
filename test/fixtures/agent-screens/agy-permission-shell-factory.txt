@@ -1,0 +1,61 @@
+
+
+[90m────────────────────────────────────────────────────────────[39m                    
+[1m[34m> Reply with exactly QA_FSEND_OK and nothing else[0m                                                          
+
+  QA_FSEND_OK                                                                   
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Run exactly this shell command and nothing else, then reply DONE: printf qa > qa.txt
+
+[0m[32m●[39m [1m[33mRan[0m [37m(printf qa > qa.txt)[39m [37m(ctrl+o to expand)
+
+[39m  DONE
+
+[90m────────────────────────────────────────────────────────────[39m                          
+[1m[34m> Run exactly this shell command and nothing else, then reply DONE: rm qa.txt
+
+[0m[32m●[39m [1m[33mRan[0m [37m(rm qa.txt)[39m [37m(ctrl+o to expand)
+
+[39m  DONE
+
+[90m────────────────────────────────────────────────────────────[39m                 
+[1m[34m> Run exactly this shell command and nothing else, then reply DONE: printf qa > /tmp/q-agy-dfac/outside.txt
+
+[0m[32m●[39m [1m[33mRan[0m 2 commands [37m(printf qa > /tmp/q-agy-dfac/outside.txt ×2)[39m [37m(ctrl+o to expand)
+
+[39m  DONE
+
+[1m[34m> /config[0m                                                                                                               
+[1m[34m  ⎿  [0m[37mExited /config command
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Use your file editing tool (not the shell) to create the file /tmp/q-agy-dfac/x.txt containing the single line: hello[0m 
+
+[37m○[39m [37mThought for 1.9s[39m [37m(File creation is straightforward; employing the file writing function, aiming to create `/tmp/q...)[39m 
+[32m●[39m [1m[33mEdited[0m 1 file [37m(x.txt)[39m [37m(ctrl+o to expand)[39m                                                                              
+
+  Created /tmp/q-agy-dfac/x.txt.                                                                                        
+
+[1m[34m> /config
+  ⎿  [0m[37mExited /config command[39m                                                                                             
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Run exactly this shell command and nothing else, then reply DONE: printf qa > qa.txt[0m                                  
+
+[33m●[39m [1m[33mRan[0m [37m(printf qa > qa.txt)[39m [37m(ctrl+o to expand)[39m                                                                           
+
+[1m[33mCommand
+[0m[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+[1m[37mRequesting permission for:
+[0m[37m   printf qa > qa.txt[39m                                                                                                   
+
+[1mRun this command?[0m                                                                                                       
+[94m> 1. Yes, run command[39m                                                                                                   
+  2. Yes, and always allow in this conversation for commands that start with 'printf qa > qa.txt'                       
+  3. Yes, and always allow for commands that start with 'printf qa > qa.txt' (Persist to settings.json)                 
+  4. No, cancel                                                                                                         
+
+  [1m[94m↑/↓[0m[90m Navigate · [1m[94mtab[0m[90m Amend · [1m[94mctrl+g[0m[90m edit/expand command
+esc to cancel[39m                                                                                 [2mGemini 4 Hydrogen · medium

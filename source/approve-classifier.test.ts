@@ -5,10 +5,15 @@ import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {rejectionOf} from '../test/helpers/thrown.ts';
 import {
+	agyClassifierArgs,
 	classifierInput,
 	classifyCommand,
+	classifyWithConfig,
+	DEFAULT_AGY_CLASSIFIER_MODEL,
 	defaultClassifierRun,
+	parseClassifierOutput,
 	type ClassifierRun,
+	type SpawnClassifier,
 } from './approve-classifier.ts';
 
 const request = {
@@ -123,4 +128,112 @@ test('a check that outlives its deadline ends then, even if a child keeps its ou
 		expect(error.message).toBe('timed out after 0.3s');
 	});
 	expect(Date.now() - started < 5000).toBe(true);
+});
+
+test('parseClassifierOutput parses agy 1.5.x JSON envelopes and fails closed on malformed output', () => {
+	const agyEnvelope = JSON.stringify({
+		conversation_id: '74fbc901-a4e2-4af0-93c1-0e2b4e8381ac',
+		status: 'SUCCESS',
+		response: '{"approve":true,"reason":"local write"}',
+		duration_seconds: 4.1,
+		num_turns: 2,
+		structured_output: {approve: true, reason: 'local write'},
+	});
+	expect(parseClassifierOutput(agyEnvelope)).toStrictEqual({
+		kind: 'approve',
+		reason: 'local write',
+	});
+	expect(
+		parseClassifierOutput(
+			JSON.stringify({
+				status: 'SUCCESS',
+				structured_output: {approve: false, reason: 'deletes root'},
+			}),
+		),
+	).toStrictEqual({
+		kind: 'hold',
+		reason: 'the approval check said no: deletes root',
+	});
+	expect(parseClassifierOutput('{}').kind).toBe('unavailable');
+	expect(parseClassifierOutput('{"structured_output":null}').kind).toBe(
+		'unavailable',
+	);
+});
+
+test('classifyWithConfig falls back from claude ENOENT to agy, does not mask non-ENOENT errors, and honors explicit config', async () => {
+	const enoent = Object.assign(new Error('spawn claude ENOENT'), {
+		code: 'ENOENT',
+	});
+	const calls: Array<{command: string; args: string[]; input: string}> = [];
+	const fallbackSpawn: SpawnClassifier = async (command, args, input) => {
+		calls.push({command, args, input});
+		if (command === 'claude') throw enoent;
+		return {
+			status: 0,
+			stdout: JSON.stringify({
+				status: 'SUCCESS',
+				structured_output: {approve: true, reason: 'safe build'},
+			}),
+		};
+	};
+
+	expect(
+		await classifyWithConfig(request, {spawn: fallbackSpawn}),
+	).toStrictEqual({kind: 'approve', reason: 'safe build'});
+	expect(calls.map(call => call.command)).toStrictEqual(['claude', 'agy']);
+	expect(calls[1]!.args).toContain('--disable-slash-commands');
+	expect(calls[1]!.args).toContain(DEFAULT_AGY_CLASSIFIER_MODEL);
+	expect(calls[1]!.args).toContain('--json-schema');
+	expect(calls[1]!.args).toContain('--settings');
+	expect(calls[1]!.input).toBe('');
+
+	// Non-ENOENT errors retry claude and do NOT silently switch to agy.
+	const nonEnoentCalls: string[] = [];
+	const eacces = Object.assign(new Error('spawn claude EACCES'), {
+		code: 'EACCES',
+	});
+	const failVerdict = await classifyWithConfig(request, {
+		async spawn(command) {
+			nonEnoentCalls.push(command);
+			throw eacces;
+		},
+	});
+	expect(failVerdict.kind).toBe('unavailable');
+	expect(nonEnoentCalls).toStrictEqual(['claude', 'claude']);
+
+	// Explicit agy config invokes agy directly with the configured model.
+	const agyCalls: Array<{command: string; args: string[]}> = [];
+	expect(
+		await classifyWithConfig(request, {
+			config: {command: '/opt/bin/agy', model: 'gemini-4-argon-low'},
+			async spawn(command, args) {
+				agyCalls.push({command, args});
+				return {
+					status: 0,
+					stdout: verdict({approve: false, reason: 'exfiltrates secrets'}),
+				};
+			},
+		}),
+	).toStrictEqual({
+		kind: 'hold',
+		reason: 'the approval check said no: exfiltrates secrets',
+	});
+	expect(agyCalls.length).toBe(1);
+	expect(agyCalls[0]!.command).toBe('/opt/bin/agy');
+	expect(agyCalls[0]!.args).toContain('gemini-4-argon-low');
+
+	// Explicit claude config does NOT fall back to agy even on ENOENT.
+	const pinnedCalls: string[] = [];
+	const pinnedVerdict = await classifyWithConfig(request, {
+		config: {command: 'claude', model: 'sonnet'},
+		async spawn(command) {
+			pinnedCalls.push(command);
+			throw enoent;
+		},
+	});
+	expect(pinnedVerdict.kind).toBe('unavailable');
+	expect(pinnedCalls).toStrictEqual(['claude', 'claude']);
+
+	const args = agyClassifierArgs('check this', 'gemini-4-hydrogen-low');
+	expect(args.slice(-2)).toStrictEqual(['-p', 'check this']);
 });

@@ -238,6 +238,13 @@ export interface TerminalConfig {
 	app?: string; // "auto" (default), "iTerm", "Ghostty", or any app name
 }
 
+export interface ApprovalClassifierConfig {
+	/** Classifier CLI (`claude`, `agy`, or a path to one). Unset tries `claude` and falls back to `agy` on ENOENT. */
+	command?: string;
+	/** Model passed to the classifier CLI (defaults to `haiku` for claude, `gemini-4-hydrogen-low` for agy). */
+	model?: string;
+}
+
 /** How each space is drawn in the TUI list. */
 export type ListLayout = 'single_line' | 'two_line';
 
@@ -405,6 +412,8 @@ export interface PappardelleConfig {
 	 * main checkout's) is told it coordinates the other spaces. Off by default.
 	 */
 	sous_chef?: boolean;
+	/** Optional CLI and model for the approval classifier gate used by `pappardelle answer`. */
+	approval_classifier?: ApprovalClassifierConfig;
 	/**
 	 * When true, agents in the repo get the pappardelle MCP server's tools and
 	 * instructions, and the companion rules at launch. Off by default.

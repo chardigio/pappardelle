@@ -71,6 +71,14 @@ agent_profiles:
 # (optional, default: claude)
 # agent_profile: codex
 
+# Approval classifier for `pappardelle answer` (optional).
+# Unset tries `claude` (haiku) and falls back to `agy` (gemini-4-hydrogen-low)
+# when `claude` is not installed. Set `command` to `claude` or `agy` (or a path
+# to one) to pin a backend directly.
+# approval_classifier:
+#   command: agy
+#   model: gemini-4-hydrogen-low
+
 # Commands to run after git worktree is created (optional).
 # Without this section, create-worktree.sh just creates the branch.
 # Uses the same CommandConfig format as profile commands.

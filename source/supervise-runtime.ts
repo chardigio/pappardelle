@@ -8,7 +8,7 @@ import path from 'node:path';
 import {promisify} from 'node:util';
 import {inferAgyModel, parseAgyQuota} from './agent-screen.ts';
 import type {AgentStateReport} from './agent-state.ts';
-import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
+import {classifyWithConfig} from './approve-classifier.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 import {newHoldId} from './holds.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
@@ -367,15 +367,15 @@ export function defaultSuperviseDeps(
 		async send(key, text) {
 			return sendToSpaceAgent(key, text);
 		},
-		sendKeys(key, keys) {
-			const result = sendKeysToSpaceAgent(key, keys, {
+		async sendKeys(key, keys) {
+			const result = await sendKeysToSpaceAgent(key, keys, {
 				runner: supervisedInnerTmuxRunner,
 				answering: true,
 			});
 			return keyOutcome(result);
 		},
-		typeText(key, text) {
-			const result = sendKeysToSpaceAgent(key, [text], {
+		async typeText(key, text) {
+			const result = await sendKeysToSpaceAgent(key, [text], {
 				runner: supervisedInnerTmuxRunner,
 				answering: true,
 				literal: true,
@@ -383,14 +383,18 @@ export function defaultSuperviseDeps(
 			return keyOutcome(result);
 		},
 		async classify(key, request) {
-			return classifyCommand(
+			const load = readConfig();
+			return classifyWithConfig(
 				{
 					...request,
 					worktree: worktreeOf(key),
 					cwd: request.cwd ?? agentCwd(key),
 					tempRoots: tempRoots(),
 				},
-				defaultClassifierRun,
+				{
+					config:
+						load.kind === 'valid' ? load.config.approval_classifier : undefined,
+				},
 			);
 		},
 		policy: approvalPolicy,

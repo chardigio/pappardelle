@@ -93,6 +93,12 @@ export function optionKeys(
 		candidate => candidate.number === option,
 	)?.shortcut;
 	if (!shortcut) return null;
+	if (permission.subagentBanner) {
+		return permission.subagentBanner.vimInsert
+			? ['Escape', shortcut]
+			: [shortcut];
+	}
+
 	return [shortcut === 'esc' ? 'Escape' : shortcut];
 }
 
@@ -325,17 +331,28 @@ export function decideAnswer(
 	// The hook's tool stands in only for a header cut off the screen: it can
 	// be a record of a different call queued behind this one.
 	const fileTool = permission.tool
-		? FILE_HEADER.test(permission.tool)
+		? FILE_HEADER.test(permission.tool) ||
+			(permission.tool === 'File access' && Boolean(permission.filePath))
 		: FILE_TOOLS.has(hook?.currentTool ?? '') ||
 			FILE_QUESTION.test(permission.question);
-	if (fileTool && !hook)
+	const isAgy = permission.source === 'agy';
+	if (fileTool && !hook && !isAgy)
 		return {
 			kind: 'error',
 			exit: 1,
 			message:
 				"Claude hasn't reported which file this prompt is for yet; answer again in a few seconds",
 		};
-	const file = fileTool ? promptFile(permission, hook) : null;
+	const file = fileTool
+		? isAgy
+			? permission.filePath
+				? ({kind: 'file', file: permission.filePath} as const)
+				: ({
+						kind: 'hold',
+						reason: "the file this prompt is for isn't known",
+					} as const)
+			: promptFile(permission, hook)
+		: null;
 	const prompt: HeldPrompt = {
 		key,
 		tool,
@@ -388,7 +405,9 @@ export function decideAnswer(
 
 	if (permission.cutOff)
 		return held(
-			"the top of the prompt is off the screen, so the call can't be read",
+			isAgy
+				? "part of the command is hidden on screen, so the call can't be read"
+				: "the top of the prompt is off the screen, so the call can't be read",
 		);
 	// A Bash command naming these is only text; pappardelle answer and holds
 	// are hard stops in the rules.
@@ -403,6 +422,7 @@ export function decideAnswer(
 		const wrapped =
 			// A heredoc's end must stay on a line of its own.
 			permission.choose === 'shortcut' &&
+			!isAgy &&
 			permission.command.includes('\n') &&
 			!permission.command.includes('<<')
 				? checkApproval(permission.command.replaceAll('\n', ' '), policy, {
@@ -413,7 +433,8 @@ export function decideAnswer(
 		const verdict = checkApproval(permission.command, policy, {
 			// Claude's shell stays where the agent last cd'd, which only the hook
 			// knows.
-			startDir: permission.choose === 'shortcut' ? null : (hook?.cwd ?? null),
+			startDir:
+				permission.choose === 'shortcut' || isAgy ? null : (hook?.cwd ?? null),
 		});
 		if (verdict.kind === 'hold') return held(verdict.reason);
 	}

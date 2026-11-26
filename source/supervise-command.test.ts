@@ -1149,3 +1149,240 @@ test('wait returns immediately when the agent has exited or exits mid-wait', asy
 	});
 	expect(exitsMidWait.elapsed()).toBeLessThan(30_000);
 });
+
+test('agy shell, edit, read and MCP prompts pass through answer without the 10s Claude hook stall', async () => {
+	// Safe shell command: goes to classifier with 0ms hook wait and approves via digit 1.
+	const shell = harness([fixture('agy-permission-shell')], {
+		app: 'antigravity',
+	});
+	expect(await shell.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(shell.pressed).toStrictEqual([['1']]);
+	expect(shell.classified).toStrictEqual(['printf qa > qa.txt']);
+	expect(shell.elapsed()).toBeLessThan(1000);
+
+	// Truncated agy shell command (⋯ N lines hidden) is held and non-approvable.
+	const truncated = harness([fixture('agy-permission-shell-truncated')], {
+		app: 'antigravity',
+	});
+	expect(await truncated.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(truncated.pressed).toStrictEqual([['2']]);
+	expect(truncated.classified).toStrictEqual([]);
+	expect(truncated.holds.load('h1')).toMatchObject({
+		approvable: false,
+		reason:
+			"part of the command is hidden on screen, so the call can't be read",
+	});
+
+	// Create file inside the worktree approves directly without Claude hook or classifier.
+	const editInside = harness(
+		[
+			fixture('agy-permission-edit').replace(
+				'/tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/x.txt',
+				`${worktree}/x.txt`,
+			),
+		],
+		{app: 'antigravity'},
+	);
+	expect(await editInside.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(editInside.pressed).toStrictEqual([['1']]);
+	expect(editInside.classified).toStrictEqual([]);
+	expect(editInside.elapsed()).toBeLessThan(1000);
+
+	// Read inside worktree approves directly; Read outside holds as approvable with filePath and resolves cleanly.
+	const readInside = harness(
+		[
+			fixture('agy-permission-read').replace(
+				'/tmp/q-agy-d/home/.worktrees/qagy-d/qa-b2/AGENTS.md',
+				`${worktree}/AGENTS.md`,
+			),
+		],
+		{app: 'antigravity'},
+	);
+	expect(await readInside.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(readInside.pressed).toStrictEqual([['1']]);
+	expect(readInside.classified).toStrictEqual([]);
+
+	const readOutside = harness([fixture('agy-permission-read-outside')], {
+		app: 'antigravity',
+	});
+	expect(await readOutside.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(readOutside.pressed).toStrictEqual([['2']]);
+	expect(readOutside.holds.load('h1')).toMatchObject({
+		tool: 'Read file',
+		filePath: '/etc/hostname',
+		approvable: true,
+	});
+	expect(await readOutside.run('holds', 'approve', 'h1')).toBe(0);
+	expect(await readOutside.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(readOutside.pressed.at(-1)).toStrictEqual(['1']);
+	expect(readOutside.holds.load('h1')?.state).toBe('used');
+
+	// Non-Read File access to agent config is held (reading: true is NOT granted).
+	const writeConfig = harness(
+		[
+			[
+				'File access',
+				'────────────────────────────────────────',
+				'',
+				`Write: ${worktree}/.claude/settings.json`,
+				'',
+				'Allow access to this file?',
+				'> 1. Yes, allow access',
+				'  2. No, deny access',
+				'',
+				'  ↑/↓ Navigate',
+				'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+			].join('\n'),
+		],
+		{app: 'antigravity'},
+	);
+	expect(await writeConfig.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(writeConfig.pressed).toStrictEqual([['2']]);
+	expect(writeConfig.holds.load('h1')?.reason).toMatch(/agent configuration/);
+
+	// MCP prompt sends full call with arguments to classifier; pappardelle answer tools hold directly.
+	const mcp = harness([fixture('agy-permission-mcp')], {app: 'antigravity'});
+	expect(await mcp.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(mcp.pressed).toStrictEqual([['1']]);
+	expect(mcp.classified).toStrictEqual(['qastub/qa_echo({"text":"hi"})']);
+
+	const mcpSelfApprove = harness(
+		[
+			fixture('agy-permission-mcp').replaceAll(
+				'qastub/qa_echo',
+				'pappardelle/space_answer',
+			),
+		],
+		{app: 'antigravity'},
+	);
+	expect(await mcpSelfApprove.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(mcpSelfApprove.pressed).toStrictEqual([['2']]);
+	expect(mcpSelfApprove.classified).toStrictEqual([]);
+	expect(mcpSelfApprove.holds.load('h1')?.reason).toMatch(
+		/answers prompts for agents/,
+	);
+});
+
+test('agy subagent approval banner approves with Escape+C-k / C-k and denies/holds via manage view', async () => {
+	// Vim insert mode: approving sends Escape then C-k.
+	const approveInsert = harness([fixture('agy-subagent-banner-1')], {
+		app: 'antigravity',
+	});
+	expect(await approveInsert.run('state', 'STA-1', '--json')).toBe(0);
+	expect(JSON.parse(approveInsert.out[0]!)).toMatchObject({
+		state: 'permission',
+		permission: {
+			subagent: 'self',
+			tool: 'Bash command',
+			command: 'printf a > sub-1.txt',
+		},
+	});
+	expect(await approveInsert.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(approveInsert.pressed).toStrictEqual([['Escape', 'C-k']]);
+	expect(approveInsert.classified).toStrictEqual(['printf a > sub-1.txt']);
+
+	// Normal mode (MCP): approving sends bare C-k.
+	const approveNormal = harness([fixture('agy-subagent-banner-mcp')], {
+		app: 'antigravity',
+	});
+	expect(await approveNormal.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(approveNormal.pressed).toStrictEqual([['C-k']]);
+
+	// Hard-stop subagent Bash command holds by opening manage view (Escape + M-j) and denying (Down + Enter).
+	const disallowedBanner = fixture('agy-subagent-banner-1').replace(
+		'printf a > sub-1.txt',
+		'doctl account get',
+	);
+	const postDenyDetail = [
+		'  main › self',
+		'  ● done · Gemini 4 Hydrogen (Medium) · worked 3s · 3 steps',
+		'  ↑/↓ scroll · pgup/pgdown page · ctrl+end bottom · ctrl+home top · ctrl+o expand · shift+k kill · esc back',
+		'                                                                       auto · Gemini 4 Hydrogen · medium · 1 subagent(s)',
+	].join('\n');
+	const holdScreens = [
+		disallowedBanner, // initial readState
+		disallowedBanner, // re-read in holdPrompt before pressing
+		fixture('agy-subagent-manage'), // after Escape + M-j
+		postDenyDetail, // after Down + Enter: still on subagent detail screen (no Approval Required)
+		postDenyDetail, // readState check sees agyDialog === 'subagent_manage' -> sends Escape
+		fixture('agy-idle'), // after Escape: back on main view
+		fixture('agy-idle'), // finalState check
+	];
+	let idx = 0;
+	const {schedules, holds} = testState().daos;
+	const pressed: string[][] = [];
+	const sent: string[] = [];
+	const out: string[] = [];
+	const err: string[] = [];
+	const customDeps: SuperviseDeps = {
+		repo: () => 'repo',
+		identities: idowIdentities('repo', () => ['STA-1']),
+		resolveKey: raw => raw,
+		hookKey: async key => key,
+		readHook: async () => ({status: 'unknown'}),
+		readHookState: async () => ({kind: 'none'}),
+		readSnapshot: async () => null,
+		runner(args) {
+			if (args[0] === 'list-sessions')
+				return {status: 0, stdout: 'agent-repo-STA-1\n'};
+			if (args[0] === 'capture-pane') {
+				const screen = holdScreens[Math.min(idx++, holdScreens.length - 1)]!;
+				return {status: 0, stdout: screen};
+			}
+
+			return {status: 1, stdout: ''};
+		},
+		serverRunner: () => ({status: 1, stdout: ''}),
+		now: () => new Date(2026, 10, 9, 12, 0),
+		async sleep() {},
+		async waitForStatusChange() {},
+		async send(_key, text) {
+			sent.push(text);
+			return 'sent';
+		},
+		sendKeys(_key, keys) {
+			pressed.push(keys);
+			return 'sent';
+		},
+		typeText: () => 'sent',
+		classify: async () => ({kind: 'approve', reason: 'ok'}),
+		policy: () => policy,
+		store: () => schedules,
+		holds: () => holds,
+		newHoldId: () => 'h1',
+		timers: () => ({create() {}, remove() {}}),
+		caller: 'main',
+		readStdin: () => undefined,
+		out: text => out.push(text),
+		err: text => err.push(text),
+		log() {},
+	};
+	expect(
+		await runSuperviseCommand(['answer', 'STA-1', '--option', '1'], customDeps),
+	).toBe(0);
+	expect(pressed).toStrictEqual([
+		['Escape', 'M-j'],
+		['Down', 'Enter'],
+		['Escape'],
+	]);
+	expect(holds.load('h1')).toMatchObject({
+		tool: 'Bash command',
+		command: 'doctl account get',
+		state: 'open',
+	});
+	expect(sent[0]).toMatch(/^Held for the chef \(h1\): doctl deploys/);
+});
+
+test('agy /config and /model pickers format as dialog and refuse answer without --force', async () => {
+	for (const [name, label] of [
+		['agy-config', 'Settings (/config)'],
+		['agy-model-picker', 'Model picker (/model)'],
+	] as const) {
+		const h = harness([fixture(name)]);
+		expect(await h.run('state', 'STA-1'), name).toBe(0);
+		expect(h.out[0], name).toBe(`STA-1: dialog\nDialog: ${label}`);
+		expect(await h.run('answer', 'STA-1', '--option', '1'), name).toBe(
+			POLICY_REFUSED_EXIT,
+		);
+	}
+});
