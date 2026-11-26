@@ -14,6 +14,7 @@ import {contractTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {
 	fireJob,
+	parseJob,
 	parseWhen,
 	rearmMissingTimers,
 	RETRY_MS,
@@ -77,7 +78,7 @@ function harness(
 					sent.push(text);
 					return sendOutcome;
 				},
-				async dismissModelSwitch(key) {
+				async dismissDialog(key) {
 					dismissed.push(key);
 				},
 				createTimer(next) {
@@ -258,6 +259,15 @@ contractTest(
 		expect(h.store.list()[0]).toMatchObject({
 			at: new Date(NOW.getTime() + RETRY_MS).toISOString(),
 			arm: 1,
+			deferReason: 'draft',
+			deferCount: 1,
+		});
+		// A second refusal increments deferCount and persists across JSON & SQLite.
+		expect(await h.fire(afterLimit)).toBe('retrying');
+		expect(h.store.load('al')).toMatchObject({
+			arm: 2,
+			deferReason: 'draft',
+			deferCount: 2,
 		});
 		expect(h.store.queued('STA-1')).toBe('the next step');
 	},
@@ -329,6 +339,60 @@ contractTest(
 		expect(h.sent).toStrictEqual(['continue', 'continue']);
 	},
 );
+
+contractTest(
+	'a wake-up dismisses agy Models & Quota panel with Escape before sending',
+	async state => {
+		const openQuota = {
+			...report('dialog'),
+			agyDialog: 'quota_panel' as const,
+		};
+		const exhaustedQuota = {
+			...report('usage_limit', new Date(2026, 10, 9, 11, 58)),
+			agyDialog: 'quota_panel' as const,
+		};
+		const h = harness(state, [openQuota, exhaustedQuota, openQuota, openQuota]);
+		const atJob: Job = {
+			kind: 'at',
+			id: 'at-q',
+			key: 'STA-1',
+			at: NOW.toISOString(),
+			message: 'resume work',
+			arm: 0,
+		};
+		await h.store.save(atJob);
+		expect(await h.fire(atJob)).toBe('sent');
+		await h.store.save(afterLimit);
+		expect(await h.fire(afterLimit)).toBe('sent');
+		await h.store.save(keepGoing());
+		expect(await h.fire(keepGoing())).toBe('waiting');
+		expect(await h.fire(keepGoing())).toBe('sent');
+		expect(h.dismissed).toStrictEqual(['STA-1', 'STA-1', 'STA-1']);
+		expect(h.sent).toStrictEqual(['resume work', 'continue', 'keep going']);
+	},
+);
+
+test('parseJob stays backward-compatible with job files lacking defer fields', () => {
+	expect(
+		parseJob(
+			JSON.stringify({
+				kind: 'at',
+				id: 'old1',
+				key: 'STA-1',
+				at: NOW.toISOString(),
+				message: 'hi',
+				arm: 1,
+			}),
+		),
+	).toStrictEqual({
+		kind: 'at',
+		id: 'old1',
+		key: 'STA-1',
+		at: NOW.toISOString(),
+		message: 'hi',
+		arm: 1,
+	});
+});
 
 contractTest(
 	'keep_going leaves any other Codex dialog to a person',

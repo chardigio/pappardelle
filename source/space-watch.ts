@@ -76,6 +76,9 @@ function seenAs(report: AgentStateReport): string {
 			: null,
 		report.codexDialog?.title ?? null,
 		report.agyDialog ?? null,
+		report.deferredSchedules?.length
+			? report.deferredSchedules.map(job => [job.id, job.reason])
+			: null,
 	].filter(part => part !== null);
 	if (prompt.length === 0) return report.state;
 	const hash = createHash('sha256')
@@ -116,6 +119,7 @@ export function changesSince(
 			seenAs(report) !== baseline[report.key] &&
 			(targets === null ||
 				targets.has(report.state) ||
+				Boolean(report.deferredSchedules?.length) ||
 				isEndedAgentState(report.state)),
 	);
 }

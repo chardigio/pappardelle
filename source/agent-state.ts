@@ -76,6 +76,14 @@ export const WAIT_TARGETS: Record<
 	ready: ['idle', 'draft', 'exited', 'no_session', ...BLOCKED],
 };
 
+export type DeferredSchedule = {
+	id: string;
+	at: string;
+	reason: string;
+	count: number;
+	message: string;
+};
+
 export type AgentStateReport = {
 	key: string;
 	state: AgentState;
@@ -88,6 +96,8 @@ export type AgentStateReport = {
 	codexDialog: CodexDialog | null;
 	agyDialog: AgyDialogKind | null;
 	composer: string | null;
+	/** Deferred one-shot wake-ups waiting on this space, when any. */
+	deferredSchedules?: DeferredSchedule[];
 	screen: string;
 };
 
@@ -137,6 +147,12 @@ export function classifyAgent(
 	if (pane?.dead) return 'exited';
 	if (screen.permission) return 'permission';
 	if (screen.question) return 'question';
+	// An exhausted Models & Quota panel is a usage limit (while still exposing
+	// agyDialog: 'quota_panel' so scheduled wake-ups dismiss it with Escape).
+	if (screen.agyDialog === 'quota_panel' && screen.usageLimit) {
+		return 'usage_limit';
+	}
+
 	// Modal dialogs (such as agy's trust dialog or /artifact review) can also
 	// carry an OSC blocked/permission report; classify them as dialog first.
 	if (screen.codexDialog || screen.agyDialog) return 'dialog';

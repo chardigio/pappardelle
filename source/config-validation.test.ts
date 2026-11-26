@@ -2804,4 +2804,13 @@ test('validateConfig rejects invalid approval_classifier configs', () => {
 			'approval_classifier.model: must be a non-empty single-line string',
 		),
 	).toBe(true);
+
+	expect(
+		thrownBy(
+			() => validateConfig(withApprovalClassifier({model: 'haiku'})),
+			ConfigValidationError,
+		)?.message.includes(
+			'approval_classifier.model requires approval_classifier.command',
+		),
+	).toBe(true);
 });

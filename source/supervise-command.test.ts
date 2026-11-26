@@ -1326,10 +1326,15 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 		'  ↑/↓ scroll · pgup/pgdown page · ctrl+end bottom · ctrl+home top · ctrl+o expand · shift+k kill · esc back',
 		'                                                                       auto · Gemini 4 Hydrogen · medium · 1 subagent(s)',
 	].join('\n');
+	const manageFor = (rawTool: string, callArgs: string) =>
+		fixture('agy-subagent-manage')
+			.replaceAll('qastub/qa_echo', rawTool)
+			.replace('{"text":"sub-1"}', callArgs);
+
 	const holdScreens = [
 		disallowedBanner, // initial readState
 		disallowedBanner, // re-read in holdPrompt before pressing
-		fixture('agy-subagent-manage'), // after Escape + M-j
+		manageFor('Bash', 'doctl account get'), // after Escape + M-j
 		postDenyDetail, // after Down + Enter: still on subagent detail screen
 		fixture('agy-idle'), // after Escape: back on main view
 	];
@@ -1350,7 +1355,7 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 	);
 
 	// If manage view lacks `No, deny`, bail with Escape instead of pressing Enter.
-	const missingDenyManage = fixture('agy-subagent-manage').replace(
+	const missingDenyManage = manageFor('Bash', 'doctl account get').replace(
 		'2. No, deny',
 		'2. Maybe later',
 	);
@@ -1362,6 +1367,20 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 	expect(bailSub.pressed).toStrictEqual([['Escape', 'M-j'], ['Escape']]);
 	expect(bailSub.holds.list()).toStrictEqual([]);
 
+	// If manage view opened a different tool or command, bail with Escape and never press Enter.
+	for (const wrongManage of [
+		fixture('agy-subagent-manage'),
+		manageFor('Bash', 'printf other > ok.txt'),
+	]) {
+		const wrongSub = harness(
+			[disallowedBanner, disallowedBanner, wrongManage],
+			{ignoresKeys: true, app: 'antigravity'},
+		);
+		expect(await wrongSub.run('answer', 'STA-1', '--option', '1')).toBe(1);
+		expect(wrongSub.pressed).toStrictEqual([['Escape', 'M-j'], ['Escape']]);
+		expect(wrongSub.holds.list()).toStrictEqual([]);
+	}
+
 	// Multi-line agy subagent Bash command split across lines is caught by wrapped dual-check,
 	// and truncated `...)` subagent commands hold as non-approvable.
 	const splitRm = fixture('agy-subagent-banner-1').replace(
@@ -1369,7 +1388,12 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 		'(rm -rf\n ┃   /home/u)',
 	);
 	const splitSub = harness(
-		[splitRm, splitRm, fixture('agy-subagent-manage'), fixture('agy-idle')],
+		[
+			splitRm,
+			splitRm,
+			manageFor('Bash', 'rm -rf /home/u'),
+			fixture('agy-idle'),
+		],
 		{ignoresKeys: true, app: 'antigravity'},
 	);
 	expect(await splitSub.run('answer', 'STA-1', '--option', '1')).toBe(0);
@@ -1380,17 +1404,23 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 		'printf a > sub-1.txt && ...',
 	);
 	const cutSub = harness(
-		[cutBanner, cutBanner, fixture('agy-subagent-manage'), fixture('agy-idle')],
+		[
+			cutBanner,
+			cutBanner,
+			manageFor('Bash', 'printf a > sub-1.txt && rm -rf /'),
+			fixture('agy-idle'),
+		],
 		{ignoresKeys: true, app: 'antigravity'},
 	);
 	expect(await cutSub.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(cutSub.holds.load('h1')).toMatchObject({approvable: false});
 });
 
-test('agy /config and /model pickers format as dialog and refuse answer without --force', async () => {
+test('agy /config, /model and /quota dialogs format as dialog and refuse answer without --force', async () => {
 	for (const [name, label] of [
 		['agy-config', 'Settings (/config)'],
 		['agy-model-picker', 'Model picker (/model)'],
+		['agy-quota-panel', 'Models & Quota (/quota)'],
 	] as const) {
 		const h = harness([fixture(name)]);
 		expect(await h.run('state', 'STA-1'), name).toBe(0);

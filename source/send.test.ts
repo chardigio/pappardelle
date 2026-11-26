@@ -916,4 +916,41 @@ test('sendToSpaceAgent blocks on agy trust dialog, /artifact review, /config, /m
 			readSnapshot: async () => blockedSnapshot('Approve plan'),
 		}),
 	).toBe('sent');
+
+	// Open agy composer with stale authoritative OSC blocked (e.g. right after
+	// holdPrompt denies a modal prompt) still allows send.
+	const afterDeny = makeOscSendRunner(({pasted, enters}) => {
+		if (!pasted) return agentScreenFixture('agy-idle');
+		return enters >= 1
+			? agentScreenFixture('agy-idle')
+			: agentScreenFixture('agy-draft');
+	});
+	expect(
+		await sendToSpaceAgent('STA-1', 'Held for the chef (h1)', {
+			runner: afterDeny.runner,
+			lockDir,
+			sleep,
+			readSnapshot: async () => blockedSnapshot('Approve Bash'),
+		}),
+	).toBe('sent');
+
+	// Unparsed inline approval banner above an open agy composer stays blocked.
+	const inlineBanner = [
+		' ┃ worker needs approval for CustomTool',
+		' ┃ (unparsed body without bullet)',
+		'────────────────────────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────────────────────────',
+		'? for shortcuts    auto · Gemini 4 Hydrogen · medium',
+	].join('\n');
+	const unparsedInline = makeOscSendRunner(inlineBanner);
+	expect(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner: unparsedInline.runner,
+			lockDir,
+			sleep,
+			readSnapshot: async () => blockedSnapshot('Approve CustomTool'),
+		}),
+	).toBe('prompt');
+	expect(unparsedInline.calls).toStrictEqual([]);
 });

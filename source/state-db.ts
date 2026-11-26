@@ -214,6 +214,8 @@ const MIGRATIONS: string[] = [
 		resolved_at TEXT,
 		PRIMARY KEY (repo, id)
 	) STRICT`,
+	`ALTER TABLE schedules ADD COLUMN defer_reason TEXT;
+	ALTER TABLE schedules ADD COLUMN defer_count INTEGER`,
 ];
 
 let defaultPathForTests: string | undefined;

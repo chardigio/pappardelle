@@ -6,7 +6,11 @@ import type {
 	PromptOption,
 	QuestionDialog,
 } from './agent-screen.ts';
-import type {AgentState, AgentStateReport} from './agent-state.ts';
+import type {
+	AgentState,
+	AgentStateReport,
+	DeferredSchedule,
+} from './agent-state.ts';
 import type {Hold} from './holds.ts';
 import type {Job, SendOutcome} from './schedule.ts';
 
@@ -29,6 +33,7 @@ export type SpaceChange = {
 		| 'agyDialog'
 		| 'usageLimit'
 		| 'composer'
+		| 'deferredSchedules'
 	>
 >;
 
@@ -58,7 +63,18 @@ const AGY_DIALOG_LABELS: Record<AgyDialogKind, string> = {
 	subagent_manage: 'Subagent approval manage view',
 	config: 'Settings (/config)',
 	model_picker: 'Model picker (/model)',
+	quota_panel: 'Models & Quota (/quota)',
 };
+
+function formatDeferredSchedules(
+	schedules: readonly DeferredSchedule[] | undefined,
+	indent = '',
+): string[] {
+	return (schedules ?? []).map(
+		job =>
+			`${indent}Deferred wake-up: ${job.id} (${job.count}x: ${job.reason}, next ${job.at}): ${job.message}`,
+	);
+}
 
 export function agyDialogLabel(dialog: AgyDialogKind): string {
 	return AGY_DIALOG_LABELS[dialog];
@@ -112,6 +128,7 @@ export function formatState(report: AgentStateReport): string {
 		lines.push('Pending artifact review (/artifact)');
 	// Shown under a limit too, since a draft there stops the wake-up.
 	if (report.composer) lines.push(`Composer: ${report.composer}`);
+	lines.push(...formatDeferredSchedules(report.deferredSchedules));
 	return lines.join('\n');
 }
 
@@ -136,6 +153,7 @@ export function formatChange(change: SpaceChange): string {
 	if (change.agyDialog)
 		lines.push(`  Dialog: ${agyDialogLabel(change.agyDialog)}`);
 	if (change.composer) lines.push(`  Composer: ${change.composer}`);
+	lines.push(...formatDeferredSchedules(change.deferredSchedules, '  '));
 	return lines.join('\n');
 }
 
@@ -170,17 +188,14 @@ export function holdDelivery(
 }
 
 export function describeJob(job: Job): string {
-	switch (job.kind) {
-		case 'at': {
-			return `${job.id}  ${job.key}  at ${job.at}: ${job.message}`;
-		}
-
-		case 'after_limit': {
-			return `${job.id}  ${job.key}  after the usage limit, at ${job.at}: ${job.message}`;
-		}
-
-		case 'keep_going': {
-			return `${job.id}  ${job.key}  every ${job.everySeconds}s${job.until ? ` until ${job.until}` : ''}: ${job.nudge}`;
-		}
+	if (job.kind === 'keep_going') {
+		return `${job.id}  ${job.key}  every ${job.everySeconds}s${job.until ? ` until ${job.until}` : ''}: ${job.nudge}`;
 	}
+
+	const deferred = job.deferReason
+		? ` [deferred ${job.deferCount ?? 1}x: ${job.deferReason}]`
+		: '';
+	return job.kind === 'at'
+		? `${job.id}  ${job.key}  at ${job.at}${deferred}: ${job.message}`
+		: `${job.id}  ${job.key}  after the usage limit, at ${job.at}${deferred}: ${job.message}`;
 }

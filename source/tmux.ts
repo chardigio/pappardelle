@@ -194,7 +194,6 @@ import {
 	frameStartedChannel,
 } from './pane-frame-options.ts';
 import {
-	isAgyArtifactBanner,
 	type AgentScreen,
 	type AgyComposerState,
 	parseAgentScreen,
@@ -2153,7 +2152,11 @@ async function isOscBlockedPrompt(
 	if (!snapshot?.authoritative) return false;
 	const status = snapshot.info;
 	if (status.status !== 'blocked') return false;
-	return !isAgyArtifactBanner(status, screen);
+	// Agy modal prompts hide the `>` composer; an open composer without an inline
+	// approval banner means OSC `blocked` is either the non-modal artifact strip
+	// or has not cleared yet after a deny.
+	if (screen.agyComposer && !screen.agyComposer.inlineApproval) return false;
+	return true;
 }
 
 /**

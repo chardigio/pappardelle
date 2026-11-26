@@ -1,13 +1,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {test, expect} from 'bun:test';
 import {idowIdentities} from '../test/helpers/state.ts';
 import {superviseDeps} from '../test/helpers/supervise-deps.ts';
-import {test, expect} from 'bun:test';
+import {unreachable} from '../test/helpers/unreachable.ts';
+import type {ClaudeStatusInfo} from './claude-status.ts';
+import type {ScheduleDao} from './schedule.ts';
+import {decodeCursor, encodeCursor} from './space-watch.ts';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
 import {runSuperviseCommand, type WatchResult} from './supervise-command.ts';
-import type {ClaudeStatusInfo} from './claude-status.ts';
-import {decodeCursor, encodeCursor} from './space-watch.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
+
+const emptySchedules: ScheduleDao = {
+	save: () => unreachable('save is not stubbed'),
+	load: () => unreachable('load is not stubbed'),
+	list: () => [],
+	delete: () => unreachable('delete is not stubbed'),
+	queue: () => unreachable('queue is not stubbed'),
+	queued: () => unreachable('queued is not stubbed'),
+	clearQueued: () => unreachable('clearQueued is not stubbed'),
+};
 
 const fixture = (name: string) =>
 	fs.readFileSync(
@@ -102,6 +114,7 @@ function spaces(
 			clock += ms;
 			between.shift()?.();
 		},
+		store: () => emptySchedules,
 		caller: '9',
 	});
 	return {

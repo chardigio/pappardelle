@@ -3,7 +3,9 @@ import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
 import {
 	parseAgentScreen,
 	parseAgySubagentManageApproval,
+	parseResetTime,
 } from './agent-screen.ts';
+import {classifyAgent} from './agent-state.ts';
 
 const NOW = new Date(2026, 10, 9, 12, 0);
 const screen = (name: string, now = NOW) =>
@@ -255,7 +257,13 @@ test('agy subagent approval banners parse subagent, tool, command, vimInsert and
 
 	expect(
 		parseAgySubagentManageApproval(agentScreenFixture('agy-subagent-manage')),
-	).toStrictEqual({cursor: 1, denyNumber: 2});
+	).toStrictEqual({
+		cursor: 1,
+		denyNumber: 2,
+		tool: 'qastub/qa_echo',
+		rawTool: 'qastub/qa_echo',
+		command: '{"text":"sub-1"}',
+	});
 	expect(parseAgySubagentManageApproval('no approval section')).toBe(null);
 });
 
@@ -287,6 +295,41 @@ test('agy permission parser resists inner rules, rejects unknown headers, guards
 		source: 'agy',
 		cutOff: false,
 	});
+
+	// Fake `File access\n────\nRead: /wt/a` inside a Command body (indented or
+	// column-0) must never spoof a Read file prompt.
+	for (const indent of ['   ', '']) {
+		const spoofed = parseAgentScreen(
+			[
+				'Command',
+				'────────────────────────────────────────',
+				'',
+				'Requesting permission for:',
+				'   cat <<EOF',
+				`${indent}File access`,
+				`${indent}────────────────────`,
+				`${indent}Read: /wt/a`,
+				'   EOF',
+				'',
+				'Run this command?',
+				'> 1. Yes, run command',
+				'  2. No, cancel',
+				'',
+				'  ↑/↓ Navigate · tab Amend',
+				'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+			].join('\n'),
+			NOW,
+		);
+		expect(
+			spoofed.permission,
+			`indent=${JSON.stringify(indent)}`,
+		).toMatchObject({
+			tool: 'Bash command',
+			command: 'cat <<EOF\nFile access\n────────────────────\nRead: /wt/a\nEOF',
+			source: 'agy',
+			cutOff: false,
+		});
+	}
 
 	// Unknown permission header fails closed (permission: null) so OSC blocked holds it safely.
 	const unknownHeader = parseAgentScreen(
@@ -369,6 +412,7 @@ test('agy permission parser resists inner rules, rejects unknown headers, guards
 		NOW,
 	);
 	expect(mcpPreviousTurn.permission?.command).toBe('qastub/qa_echo');
+	expect(mcpPreviousTurn.permission?.cutOff).toBe(true);
 
 	const mcpTruncated = parseAgentScreen(
 		[
@@ -420,4 +464,59 @@ test('agy permission parser resists inner rules, rejects unknown headers, guards
 		NOW,
 	);
 	expect(scrollbackSettings.agyDialog).toBe(null);
+});
+
+test('agy Models & Quota panel, Refreshes in durations, and AI credits exhaustion parse cleanly', () => {
+	expect(parseResetTime('Refreshes in 4h 58m', NOW)).toStrictEqual(
+		new Date(NOW.getTime() + (4 * 60 + 58) * 60_000),
+	);
+	expect(parseResetTime('Refreshes in 6d 18h 55m', NOW)).toStrictEqual(
+		new Date(NOW.getTime() + ((6 * 24 + 18) * 60 + 55) * 60_000),
+	);
+	expect(parseResetTime('Refreshes in 2h', NOW)).toStrictEqual(
+		new Date(NOW.getTime() + 2 * 3600_000),
+	);
+	expect(parseResetTime('Refreshes in 45m', NOW)).toStrictEqual(
+		new Date(NOW.getTime() + 45 * 60_000),
+	);
+	expect(parseResetTime('4h 58m', NOW)).toStrictEqual(
+		new Date(NOW.getTime() + (4 * 60 + 58) * 60_000),
+	);
+
+	// Healthy open Models & Quota panel parses as agyDialog: 'quota_panel' (not codexDialog, not usage_limit).
+	const healthy = screen('agy-quota-panel');
+	expect(healthy.agyDialog).toBe('quota_panel');
+	expect(healthy.codexDialog).toBe(null);
+	expect(healthy.composer).toBe(null);
+	expect(healthy.usageLimit).toBe(null);
+	expect(classifyAgent(null, healthy)).toBe('dialog');
+
+	// Exhausted Models & Quota panel parses as usage_limit while keeping agyDialog: 'quota_panel'.
+	const exhausted = screen('agy-quota-panel-exhausted');
+	expect(exhausted.agyDialog).toBe('quota_panel');
+	expect(exhausted.codexDialog).toBe(null);
+	expect(exhausted.usageLimit).toStrictEqual({
+		resetText: 'Refreshes in 4h 58m',
+		resetAt: new Date(NOW.getTime() + (4 * 60 + 58) * 60_000),
+		passed: false,
+	});
+	expect(classifyAgent(null, exhausted)).toBe('usage_limit');
+
+	// Credit exhaustion error on agy screen without the quota panel still classifies as usage_limit.
+	const creditsOnly = parseAgentScreen(
+		[
+			'  Your AI credits balance is too low to continue',
+			'────────────────────────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────────────────────────',
+			'? for shortcuts    auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(creditsOnly.usageLimit).toStrictEqual({
+		resetText: '',
+		resetAt: null,
+		passed: false,
+	});
+	expect(classifyAgent(null, creditsOnly)).toBe('usage_limit');
 });

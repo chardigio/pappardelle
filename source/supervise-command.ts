@@ -13,6 +13,7 @@ import {
 	type AgentState,
 	type AgentStateDeps,
 	type AgentStateReport,
+	type DeferredSchedule,
 } from './agent-state.ts';
 import type {SpaceIdentityDao} from './space-identity.ts';
 import {
@@ -27,6 +28,8 @@ import {
 	parseAgentScreen,
 	parseAgySubagentManageApproval,
 	type AgyQuotaParseResult,
+	type AgySubagentManageApproval,
+	type PermissionPrompt,
 	type QuestionDialog,
 } from './agent-screen.ts';
 import {
@@ -149,12 +152,42 @@ function withoutUsageLimit(
 	const state =
 		report.state !== 'usage_limit'
 			? report.state
-			: working
-				? 'working'
-				: report.composer
-					? 'draft'
-					: 'idle';
+			: report.agyDialog
+				? 'dialog'
+				: working
+					? 'working'
+					: report.composer
+						? 'draft'
+						: 'idle';
 	return {...report, usageLimit: null, state};
+}
+
+function deferredSchedulesFor(
+	key: string,
+	jobs: readonly Job[],
+): DeferredSchedule[] {
+	return jobs
+		.filter(
+			(job): job is Extract<Job, {kind: 'at' | 'after_limit'}> =>
+				job.kind !== 'keep_going' &&
+				job.key === key &&
+				job.deferReason !== undefined,
+		)
+		.map(job => ({
+			id: job.id,
+			at: job.at,
+			reason: job.deferReason!,
+			count: job.deferCount ?? 1,
+			message: job.message,
+		}));
+}
+
+function withDeferredSchedules(
+	report: AgentStateReport,
+	jobs: readonly Job[],
+): AgentStateReport {
+	const deferredSchedules = deferredSchedulesFor(report.key, jobs);
+	return deferredSchedules.length > 0 ? {...report, deferredSchedules} : report;
 }
 
 async function readState(
@@ -180,10 +213,13 @@ async function readState(
 		return report;
 	}
 
+	const stalePanel = report.agyDialog === 'quota_panel';
 	const shouldLookup =
 		quota === 'always'
-			? !limitLiftsAt(report)
-			: Boolean(report.usageLimit && !report.usageLimit.resetAt);
+			? !limitLiftsAt(report) || stalePanel
+			: Boolean(
+					report.usageLimit && (!report.usageLimit.resetAt || stalePanel),
+				);
 	if (!shouldLookup) return report;
 
 	const result = await deps.readAgyQuota(key, report);
@@ -302,6 +338,7 @@ function describeChange(report: AgentStateReport, from: AgentState | null) {
 		'agyDialog',
 		'usageLimit',
 		'composer',
+		'deferredSchedules',
 	] as const) {
 		if (report[field]) Object.assign(change, {[field]: report[field]});
 	}
@@ -370,10 +407,17 @@ async function watchSpaces(
 					),
 		);
 
-	const read = async () =>
-		Promise.all(
-			keys().map(async key => readState(key, deps, {quota: 'never'})),
+	const read = async () => {
+		const jobs = deps.store().list();
+		return Promise.all(
+			keys().map(async key =>
+				withDeferredSchedules(
+					await readState(key, deps, {quota: 'never'}),
+					jobs,
+				),
+			),
 		);
+	};
 	const targets = targetStates(command.until);
 	let reports = await read();
 	// Without a cursor, every space already in a target state is news; with no
@@ -698,11 +742,34 @@ async function promptHook(
 	}
 }
 
+function matchesSubagentManage(
+	permission: PermissionPrompt | null,
+	approval: AgySubagentManageApproval,
+): boolean {
+	if (!permission) return false;
+	if (approval.tool !== permission.tool && approval.rawTool !== permission.tool)
+		return false;
+	if (!approval.command || !permission.command) return true;
+	const clean = (text: string) =>
+		text
+			.replace(/\s+/g, ' ')
+			.replace(/(?:\.{3}|…)$/, '')
+			.trim();
+	const shown = clean(approval.command);
+	const expected = clean(permission.command);
+	if (!shown || !expected) return true;
+	return (
+		shown === expected ||
+		shown.startsWith(expected) ||
+		expected.startsWith(shown)
+	);
+}
+
 /**
  * Agy's inline subagent banner offers `ctrl+k approve · alt+j manage` with no
- * direct deny key. Denying opens the manage view (`openKeys`), verifies the
- * `No, deny` row on screen before pressing Enter, and closes the manage view
- * if agy stays on the subagent detail screen.
+ * direct deny key. Denying opens the manage view (`openKeys`), verifies both
+ * the pending tool/call and the `No, deny` row before pressing Enter, and
+ * closes the manage view if agy stays on the subagent detail screen.
  */
 async function denyAgySubagentBanner(
 	key: string,
@@ -724,6 +791,11 @@ async function denyAgySubagentBanner(
 	if (!approval) {
 		await deps.sendKeys(key, ['Escape']);
 		return 'the No, deny option in subagent manage';
+	}
+
+	if (!matchesSubagentManage(before.permission, approval)) {
+		await deps.sendKeys(key, ['Escape']);
+		return 'the matching approval in subagent manage';
 	}
 
 	const delta = approval.denyNumber - approval.cursor;
@@ -1059,7 +1131,10 @@ async function execute(
 
 		case 'state': {
 			const key = deps.resolveKey(command.key);
-			const report = await readState(key, deps);
+			const report = withDeferredSchedules(
+				await readState(key, deps),
+				deps.store().list(),
+			);
 			const tabs = command.tabs
 				? await readQuestionTabs(key, report, deps)
 				: undefined;
@@ -1300,26 +1375,34 @@ async function execute(
 			// Removed only after the log line is written: on macOS, booting out
 			// the job that fired ends this process.
 			const retired: Job[] = [];
+			let lastState: AgentState | null = null;
 			const result: FireResult = await fireJob(job, {
 				store: deps.store(),
 				now: deps.now(),
-				readState: async key =>
-					readState(key, deps, {
+				async readState(key) {
+					const report = await readState(key, deps, {
 						quota: job.kind === 'after_limit' ? 'always' : 'on_notice',
-					}),
+					});
+					lastState = report.state;
+					return report;
+				},
 				async send(key, text) {
 					const outcome = await deps.send(key, text);
 					log({action: 'send', key, sent: text, detail: outcome}, caller);
 					return outcome;
 				},
-				async dismissModelSwitch(key) {
+				async dismissDialog(key, report) {
 					const outcome = await deps.sendKeys(key, ['Escape']);
+					const label =
+						report.agyDialog === 'quota_panel'
+							? 'closed Models & Quota panel'
+							: 'kept the current model';
 					log(
 						{
 							action: 'answer',
 							key,
 							sent: 'Escape',
-							detail: `kept the current model: ${outcome}`,
+							detail: `${label}: ${outcome}`,
 						},
 						caller,
 					);
@@ -1333,14 +1416,17 @@ async function execute(
 				},
 			});
 			const next = deps.store().load(job.id);
+			const fireDetail =
+				next && next.kind !== 'keep_going'
+					? next.deferReason
+						? `${result} (${next.deferReason}, state: ${lastState ?? 'unknown'}), next at ${next.at}`
+						: `${result}, next at ${next.at}`
+					: result;
 			log(
 				{
 					action: 'fire',
 					key: job.key,
-					detail:
-						next && next.kind !== 'keep_going'
-							? `${result}, next at ${next.at}`
-							: result,
+					detail: fireDetail,
 				},
 				caller,
 			);

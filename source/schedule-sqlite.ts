@@ -13,6 +13,7 @@ import {
 	type Job,
 	type JsonScheduleDao,
 	type ScheduleDao,
+	type SendOutcome,
 } from './schedule.ts';
 import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 
@@ -25,6 +26,8 @@ type JobRow = {
 	at: string | null;
 	message: string | null;
 	arm: number | null;
+	defer_reason: string | null;
+	defer_count: number | null;
 	every_seconds: number | null;
 	nudge: string | null;
 	until: string | null;
@@ -32,7 +35,7 @@ type JobRow = {
 };
 
 const JOB_COLUMNS =
-	'id, kind, key, at, message, arm, every_seconds, nudge, until, idle_checks';
+	'id, kind, key, at, message, arm, defer_reason, defer_count, every_seconds, nudge, until, idle_checks';
 
 function toJob(row: JobRow): Job {
 	const {id, key} = row;
@@ -55,6 +58,8 @@ function toJob(row: JobRow): Job {
 		at: row.at!,
 		message: row.message!,
 		arm: row.arm!,
+		...(row.defer_reason ? {deferReason: row.defer_reason as SendOutcome} : {}),
+		...(row.defer_count ? {deferCount: row.defer_count} : {}),
 	};
 }
 
@@ -185,7 +190,7 @@ export class SqliteScheduleDao implements ScheduleDao {
 		this.openDb()
 			.db.query(
 				`INSERT OR REPLACE INTO schedules (repo, ${JOB_COLUMNS})
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				this.repo,
@@ -195,6 +200,8 @@ export class SqliteScheduleDao implements ScheduleDao {
 				oneShot?.at ?? null,
 				oneShot?.message ?? null,
 				oneShot?.arm ?? null,
+				oneShot?.deferReason ?? null,
+				oneShot?.deferCount ?? null,
 				keepGoing?.everySeconds ?? null,
 				keepGoing?.nudge ?? null,
 				keepGoing?.until ?? null,

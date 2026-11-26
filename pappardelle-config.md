@@ -509,7 +509,7 @@ interface PappardelleConfig {
 	agent_profile?: string; // Default agent profile name for all profiles (default: "claude"). Per-profile overridable.
 	approval_classifier?: {
 		command?: string; // "claude", "agy", or an absolute path to one. Unset tries claude and falls back to agy on ENOENT.
-		model?: string; // Model passed to the classifier CLI (defaults to "haiku" for claude, "gemini-4-hydrogen-low" for agy).
+		model?: string; // Model passed to the classifier CLI; requires command (defaults to "haiku" for claude, "gemini-4-hydrogen-low" for agy).
 	};
 	claude?: {
 		initialization_command?: string; // DEPRECATED: use the top-level initialization_command

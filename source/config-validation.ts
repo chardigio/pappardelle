@@ -1251,10 +1251,16 @@ function validateApprovalClassifier(value: unknown): string[] {
 		}
 	}
 
-	if (cfg['model'] !== undefined && !isSingleLineString(cfg['model'])) {
-		errors.push(
-			'approval_classifier.model: must be a non-empty single-line string',
-		);
+	if (cfg['model'] !== undefined) {
+		if (!isSingleLineString(cfg['model'])) {
+			errors.push(
+				'approval_classifier.model: must be a non-empty single-line string',
+			);
+		} else if (cfg['command'] === undefined) {
+			errors.push(
+				'approval_classifier.model requires approval_classifier.command',
+			);
+		}
 	}
 
 	return errors;

@@ -27,6 +27,9 @@ type OneShot = {
 	 * running timer's unit still holds the old name.
 	 */
 	arm: number;
+	/** Last send refusal that deferred this job, and how many times it deferred. */
+	deferReason?: SendOutcome;
+	deferCount?: number;
 };
 
 export type Job =
@@ -121,7 +124,7 @@ export function parseJob(content: string): Job {
 		};
 	}
 
-	const {at, message, arm} = job;
+	const {at, message, arm, deferReason, deferCount} = job;
 	if (
 		(kind !== 'at' && kind !== 'after_limit') ||
 		!isString(at) ||
@@ -129,7 +132,18 @@ export function parseJob(content: string): Job {
 		!Number.isInteger(arm)
 	)
 		throw new Error('Not a scheduled job');
-	return {kind, id, key, at, message, arm: arm as number};
+	return {
+		kind,
+		id,
+		key,
+		at,
+		message,
+		arm: arm as number,
+		...(isString(deferReason) ? {deferReason: deferReason as SendOutcome} : {}),
+		...(Number.isInteger(deferCount) && (deferCount as number) > 0
+			? {deferCount: deferCount as number}
+			: {}),
+	};
 }
 
 export class JsonScheduleDao implements ScheduleDao {
@@ -238,12 +252,23 @@ export type FireDeps = {
 	now: Date;
 	readState: (key: string) => Promise<AgentStateReport>;
 	send: (key: string, text: string) => Promise<SendOutcome>;
-	/** Escape on Codex's offer to switch models, which keeps the current one. */
-	dismissModelSwitch: (key: string) => Promise<void>;
+	/**
+	 * Escape on a dismissable dialog (Codex's model-switch offer or agy's
+	 * Models & Quota panel) before sending a scheduled wake-up.
+	 */
+	dismissDialog: (key: string, report: AgentStateReport) => Promise<void>;
 	createTimer: (job: Job) => void;
 	/** Removes the job's timer once the job is done. */
 	removeTimer: (job: Job) => void;
 };
+
+/** Dialogs that a scheduled wake-up can safely close with Escape before sending. */
+export function isDismissableDialog(report: AgentStateReport): boolean {
+	return (
+		report.codexDialog?.kind === 'model_switch' ||
+		report.agyDialog === 'quota_panel'
+	);
+}
 
 async function sendNext(
 	job: Job,
@@ -251,8 +276,8 @@ async function sendNext(
 	report: AgentStateReport,
 	deps: FireDeps,
 ): Promise<SendOutcome> {
-	if (report.codexDialog?.kind === 'model_switch') {
-		await deps.dismissModelSwitch(job.key);
+	if (isDismissableDialog(report)) {
+		await deps.dismissDialog(job.key, report);
 	}
 
 	const queued = deps.store.queued(job.key);
@@ -275,16 +300,25 @@ async function rearm(
 	job: Extract<Job, {kind: 'at' | 'after_limit'}>,
 	at: Date,
 	deps: FireDeps,
+	deferReason?: SendOutcome,
 ): Promise<void> {
-	const next = {...job, at: at.toISOString(), arm: job.arm + 1};
+	const {deferReason: _prevReason, deferCount: prevCount, ...base} = job;
+	const next: Extract<Job, {kind: 'at' | 'after_limit'}> = {
+		...base,
+		at: at.toISOString(),
+		arm: job.arm + 1,
+		...(deferReason ? {deferReason, deferCount: (prevCount ?? 0) + 1} : {}),
+	};
 	await deps.store.save(next);
 	deps.createTimer(next);
 	deps.removeTimer(job);
 }
 
-/** The state under Codex's model-switch offer, which a wake-up dismisses. */
-function underModelSwitch(report: AgentStateReport): AgentStateReport['state'] {
-	if (report.codexDialog?.kind !== 'model_switch') return report.state;
+/** The state under a dismissable dialog that a wake-up closes before sending. */
+function underDismissableDialog(
+	report: AgentStateReport,
+): AgentStateReport['state'] {
+	if (!isDismissableDialog(report)) return report.state;
 	return report.usageLimit ? 'usage_limit' : 'idle';
 }
 
@@ -327,7 +361,7 @@ async function fireOneShot(
 		return 'unsubmitted';
 	}
 
-	await rearm(job, new Date(now.getTime() + RETRY_MS), deps);
+	await rearm(job, new Date(now.getTime() + RETRY_MS), deps, outcome);
 	return 'retrying';
 }
 
@@ -347,7 +381,7 @@ export async function fireJob(job: Job, deps: FireDeps): Promise<FireResult> {
 	const report = await deps.readState(job.key);
 	const save = async (idleChecks: number) =>
 		deps.store.save({...job, idleChecks});
-	switch (underModelSwitch(report)) {
+	switch (underDismissableDialog(report)) {
 		case 'working': {
 			await save(0);
 			return 'skipped_working';

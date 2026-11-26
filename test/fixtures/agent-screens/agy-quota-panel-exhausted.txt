@@ -1,0 +1,35 @@
+
+  Your AI credits balance is too low to continue
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+└ Models & Quota
+
+  Account: qa-user@example.com
+
+GEMINI MODELS
+  Models within this group: Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen, Orchestrator (Neon)
+
+  Weekly Limit Remaining
+    [████████████████████████████████████░░░░░░░░░░░░░░] 71.08%
+    Refreshes in 6d 18h 55m
+
+  Five Hour Limit Remaining
+    [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% (Quota exhausted)
+    Refreshes in 4h 58m
+
+
+CLAUDE AND GPT MODELS
+  Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B
+
+  Weekly Limit Remaining
+    [███████████████████████████████████████████░░░░░░░] 86.93%
+    Refreshes in 6d 19h 2m
+
+  Five Hour Limit Remaining
+    [█████████████████████████████████████░░░░░░░░░░░░░] 73.86%
+    Refreshes in 2m
+
+  ↑/↓ Scroll · pgup/pgdown Page · ctrl+end Bottom · ctrl+home Top · esc Close
+                                                                                       auto · Gemini 4 Hydrogen · medium
