@@ -825,10 +825,10 @@ test('getIssues uses GraphQL client when provided — one batched call, no CLI',
 	};
 
 	let graphqlCallCount = 0;
-	let receivedKeys: string[] | null = null;
+	const receivedKeys: string[][] = [];
 	const graphql: LinearGraphQLClient = async keys => {
 		graphqlCallCount++;
-		receivedKeys = [...keys];
+		receivedKeys.push([...keys]);
 		const map = new Map<string, TrackerIssue | null>();
 		for (const k of keys) map.set(k, fakeIssue(k));
 		return map;
@@ -843,7 +843,7 @@ test('getIssues uses GraphQL client when provided — one batched call, no CLI',
 	expect(cliCallCount, 'CLI should not be called when GraphQL succeeds').toBe(
 		0,
 	);
-	expect(receivedKeys).toStrictEqual(['STA-1', 'STA-2', 'STA-3']);
+	expect(receivedKeys).toStrictEqual([['STA-1', 'STA-2', 'STA-3']]);
 	expect(result.size).toBe(3);
 	expect(result.get('STA-1')!.title).toBe('Issue STA-1');
 	expect(result.get('STA-3')!.title).toBe('Issue STA-3');

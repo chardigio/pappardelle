@@ -779,7 +779,7 @@ test('the status row gives way when a group header would take the only list row'
 	expect(atTop.statusFits).toBe(false);
 	expect(
 		rows.slice(atTop.scrollOffset, atTop.scrollOffset + atTop.visibleCount),
-	).toStrictEqual([rows[0], rows[1]]);
+	).toStrictEqual(rows.slice(0, 2));
 	// Cursor deep in the list: the header has scrolled out, so the status row stays.
 	const deep = railWindow({...layout, cursorRow: 6, linesPerItem: 2});
 	expect(deep.statusFits).toBe(true);

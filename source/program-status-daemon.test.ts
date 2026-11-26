@@ -613,7 +613,7 @@ tmuxTest(
 			'the monitor to start a daemon',
 			60_000,
 		);
-		const [daemon] = daemons();
+		const started = daemons();
 		const rail = await subscribeRaw(statusSocket, 'repo');
 		const held = (key: string, exited: boolean) =>
 			rail.messages.some(message =>
@@ -640,7 +640,7 @@ tmuxTest(
 			'the second monitor’s snapshot',
 			30_000,
 		);
-		expect(daemons()).toStrictEqual([daemon]);
+		expect(daemons()).toStrictEqual(started);
 
 		tmux('kill-server');
 		await waitUntil(
@@ -652,7 +652,7 @@ tmuxTest(
 			() => held('STA-1', true) && held('STA-2', true),
 			'the snapshot each monitor sent as it stopped',
 		);
-		expect(daemons()).toStrictEqual([daemon]);
+		expect(daemons()).toStrictEqual(started);
 	},
 	120_000,
 );
