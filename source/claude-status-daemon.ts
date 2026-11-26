@@ -24,21 +24,11 @@ export class DaemonClaudeStatusDao implements ClaudeStatusDao {
 		});
 	}
 
-	async read(statusKey: string): Promise<ClaudeStatusInfo | null> {
+	async read(statusKey: string): Promise<ClaudeStatusInfo> {
 		const stored = await this.readState(statusKey);
-		switch (stored.kind) {
-			case 'state': {
-				return statusInfo(stored.state);
-			}
-
-			case 'none': {
-				return {status: 'unknown'};
-			}
-
-			case 'unreadable': {
-				return null;
-			}
-		}
+		return stored.kind === 'state'
+			? statusInfo(stored.state)
+			: {status: 'unknown'};
 	}
 
 	async readState(statusKey: string): Promise<StoredClaudeStatus> {

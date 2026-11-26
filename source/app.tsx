@@ -169,7 +169,6 @@ import {
 	reportConfigEvent,
 	reportStartedWithInvalidConfig,
 } from './config-report.ts';
-import {spaceStatusKey} from './claude-status.ts';
 import {StartupQueue, scheduleWorkspaceStart} from './startup-queue.ts';
 import {runWorkspaceSetup} from './workspace-startup.ts';
 import {LatestTask} from './latest-task.ts';
@@ -710,7 +709,7 @@ export default function App({
 			readWorktreePath: async key => getWorktreePathAsync(key),
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
-			statusKey: async key => spaceStatusKey(claudeStatus, repoName, key),
+			statusKey: async key => claudeStatus.readableKey(repoName, key),
 			getCachedIssue: getIssueCached,
 			fetchIssues: getIssues,
 			async readEmoji(issueKey, cachedIssue) {

@@ -226,7 +226,7 @@ export class WorkspaceRefresh {
 					const detail = byName.get(space.name);
 					if (!detail || space.isPending || space.isMainWorktree) return space;
 					// An agent restarted since the space was listed moves from the
-					// bare status file to the qualified one.
+					// bare status key to the qualified one.
 					const patch: Partial<SpaceData> = {statusKey: detail.statusKey};
 					if (detail.worktreePath.status === 'fulfilled')
 						patch.worktreePath = detail.worktreePath.value;

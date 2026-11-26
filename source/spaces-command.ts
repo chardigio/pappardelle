@@ -215,7 +215,7 @@ function spaceStatusFields(
 		};
 	}
 
-	return {status: stored.kind === 'unreadable' ? 'unknown' : 'no_status'};
+	return {status: 'no_status'};
 }
 
 async function withTimeout<T>(

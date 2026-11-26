@@ -35,7 +35,7 @@ function runner(screen: string | null, paneListing?: string): OuterTmuxRunner {
 
 const state = async (
 	screen: string | null,
-	hook: Partial<ClaudeStatusInfo> | null = null,
+	hook: Partial<ClaudeStatusInfo> = {},
 	options: {
 		paneListing?: string;
 		snapshot?: ProgramStatusSnapshot | null;
@@ -47,16 +47,12 @@ const state = async (
 		now: () => new Date(2026, 10, 9, 12, 0),
 		async sleep() {},
 		hookKey: 'STA-1',
-		async readHook() {
-			if (!hook) return null;
-			const info: ClaudeStatusInfo = {status: 'unknown', ...hook};
-			return info;
-		},
+		readHook: async () => ({status: 'unknown', ...hook}),
 		readSnapshot: async () => options.snapshot ?? null,
 	});
 const stateOf = async (
 	screen: string | null,
-	hook: Partial<ClaudeStatusInfo> | null = null,
+	hook: Partial<ClaudeStatusInfo> = {},
 ) => {
 	const report = await state(screen, hook);
 	return report.state;
@@ -163,10 +159,14 @@ test('dead pane and exited-to-shell panes classify as exited, not idle or permis
 	// Alive pane back at login shell after OSC 133;A cleared idle classifies as exited.
 	const pane = parseStatusPane('%1\t42\t0\t1\t42.marker', statusSocket())!;
 	const target = {repo: 'repo', key: 'STA-1', pane};
-	const shellAfterOsc = await state('[user@host qa-a1]$ ', null, {
-		paneListing: paneRow('zsh'),
-		snapshot: snapshotOf(target, [], {updatedAt: 0}),
-	});
+	const shellAfterOsc = await state(
+		'[user@host qa-a1]$ ',
+		{},
+		{
+			paneListing: paneRow('zsh'),
+			snapshot: snapshotOf(target, [], {updatedAt: 0}),
+		},
+	);
 	expect(shellAfterOsc.state).toBe('exited');
 
 	// Alive pane back at shell after Claude's hook reported also classifies as exited.
@@ -178,34 +178,50 @@ test('dead pane and exited-to-shell panes classify as exited, not idle or permis
 	expect(shellAfterHook.state).toBe('exited');
 
 	// Exited-to-shell after crash where OSC snapshot retained `done`.
-	const crashedAfterDone = await state('[user@host qa-a1]$ ', null, {
-		paneListing: paneRow('bash'),
-		snapshot: snapshotOf(
-			target,
-			[{state: 'done', id: '', app: 'antigravity'}],
-			{updatedAt: 0},
-		),
-	});
+	const crashedAfterDone = await state(
+		'[user@host qa-a1]$ ',
+		{},
+		{
+			paneListing: paneRow('bash'),
+			snapshot: snapshotOf(
+				target,
+				[{state: 'done', id: '', app: 'antigravity'}],
+				{updatedAt: 0},
+			),
+		},
+	);
 	expect(crashedAfterDone.state).toBe('exited');
 
 	// Live agent with a composer or non-shell process stays idle, never exited.
-	const liveComposer = await state(fixture('agy-idle'), null, {
-		paneListing: paneRow('bash'),
-	});
+	const liveComposer = await state(
+		fixture('agy-idle'),
+		{},
+		{
+			paneListing: paneRow('bash'),
+		},
+	);
 	expect(liveComposer.state).toBe('idle');
 
-	const nonShell = await state('', null, {
-		paneListing: paneRow('agy'),
-	});
+	const nonShell = await state(
+		'',
+		{},
+		{
+			paneListing: paneRow('agy'),
+		},
+	);
 	expect(nonShell.state).toBe('idle');
 });
 
 test('a shell foreground with no prior agent status source does not classify as exited', async () => {
 	// A newly created space still running its login shell before the agent
 	// launches (or an unmonitored test stub) has no status source yet.
-	const noStatus = await state('', null, {
-		paneListing: paneRow('bash'),
-	});
+	const noStatus = await state(
+		'',
+		{},
+		{
+			paneListing: paneRow('bash'),
+		},
+	);
 	expect(noStatus.state).toBe('idle');
 
 	const unknownHook = await state(

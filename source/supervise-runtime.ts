@@ -12,7 +12,6 @@ import {classifyWithConfig} from './approve-classifier.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 import {newHoldId} from './holds.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
-import {spaceStatusKey} from './claude-status.ts';
 import {
 	getMainRepoRoot,
 	getRepoName,
@@ -171,7 +170,7 @@ function agyQuotaTargetForSpace(
 }
 
 // Timer services start with a bare environment; these decide which tmux
-// server, status files, state database and status daemon `pappardelle`
+// server, monitor leases, state database and status daemon `pappardelle`
 // reaches when one fires.
 const PASSED_TO_TIMERS = [
 	'PATH',
@@ -328,7 +327,7 @@ export function defaultSuperviseDeps(
 		repo: getRepoName,
 		identities: spaceIdentities,
 		resolveKey,
-		hookKey: async key => spaceStatusKey(claudeStatus, getRepoName(), key),
+		hookKey: async key => claudeStatus.readableKey(getRepoName(), key),
 		readHook: async hookKey => claudeStatus.read(hookKey),
 		readHookState: async hookKey => claudeStatus.readState(hookKey),
 		readSnapshot: async (key, pane) => programStatus.read(key, pane),

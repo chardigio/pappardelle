@@ -14,7 +14,7 @@ import {
 import {
 	findSpaceByStatusKey,
 	hookStatusKey,
-	parseSessionState,
+	sessionStateOf,
 } from './claude-status.ts';
 import {createStateDaos} from './state-daos.ts';
 
@@ -248,11 +248,9 @@ test('a status record needs the fields the hook always writes, and a status it c
 		event: 'PreToolUse',
 		cwd: '/work',
 	});
-	expect(parseSessionState(JSON.stringify(state))).toStrictEqual(state);
+	expect(sessionStateOf(state)).toStrictEqual(state);
 	expect(
-		parseSessionState(
-			JSON.stringify(session('STA-1', 'ended', {lastUpdate: 5})),
-		),
+		sessionStateOf(session('STA-1', 'ended', {lastUpdate: 5})),
 	).toStrictEqual({
 		sessionId: 'test-session',
 		workspaceName: 'STA-1',
@@ -270,10 +268,8 @@ test('a status record needs the fields the hook always writes, and a status it c
 		null,
 		[],
 	]) {
-		expect(() => parseSessionState(JSON.stringify(broken))).toThrow();
+		expect(sessionStateOf(broken)).toBeUndefined();
 	}
-
-	expect(() => parseSessionState('{')).toThrow();
 });
 
 // ============================================================================

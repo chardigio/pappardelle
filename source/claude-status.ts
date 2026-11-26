@@ -40,23 +40,14 @@ export const ACTIVE_STATUSES = new Set<ClaudeStatus>([
 export const ACTIVE_STATUS_TIMEOUT = 10 * 60 * 1000;
 
 /**
- * The name of a space's hook status file: the space key, or the main
- * checkout's branch, qualified by repo. Every repo writes to the same
- * directory, and two repos can have spaces with the same key.
+ * The key a space's hook status is reported under: the space key, or the main
+ * checkout's branch, qualified by repo. Every repo reports to the same status
+ * daemon, and two repos can have spaces with the same key.
  */
 export function hookStatusKey(repoName: string, name: string): string {
 	// Branch names may carry a slash (alice/STA-1). The hook flattens it the
-	// same way so the status file name stays a single path segment.
+	// same way, so the two must agree on the flattened key.
 	return `${repoName}-${name}`.replaceAll('/', '-');
-}
-
-/** The status key to read a space's hook status under. */
-export async function spaceStatusKey(
-	claudeStatus: Pick<ClaudeStatusDao, 'readableKey'>,
-	repoName: string,
-	key: string,
-): Promise<string> {
-	return claudeStatus.readableKey(repoName, key);
 }
 
 export interface ClaudeStatusInfo {
@@ -68,7 +59,6 @@ export interface ClaudeStatusInfo {
 /** What is stored under a status key, as the hook wrote it. */
 export type StoredClaudeStatus =
 	| {kind: 'none'}
-	| {kind: 'unreadable'}
 	| {kind: 'state'; state: ClaudeSessionState};
 
 /**
@@ -85,8 +75,8 @@ export interface ClaudeStatusDao {
 	 * fixes.
 	 */
 	readableKey(repoName: string, name: string): Promise<string>;
-	/** `unknown` when nothing is recorded, null when the record cannot be read. */
-	read(statusKey: string): Promise<ClaudeStatusInfo | null>;
+	/** `unknown` when nothing is recorded. */
+	read(statusKey: string): Promise<ClaudeStatusInfo>;
 	readState(statusKey: string): Promise<StoredClaudeStatus>;
 	/** Call `listener` with the status key of each record that changes. */
 	watch(listener: (statusKey: string) => void): () => void;
@@ -174,13 +164,6 @@ export function sessionStateOf(value: unknown): ClaudeSessionState | undefined {
 	);
 }
 
-/** Throws when `content` is not a record as the hook writes it. */
-export function parseSessionState(content: string): ClaudeSessionState {
-	const state = sessionStateOf(JSON.parse(content));
-	if (!state) throw new Error('Not a Claude status record');
-	return state;
-}
-
 /**
  * The rule of `ClaudeStatusDao.readableKey`, for a store that says whether it
  * holds a record under a status key.
@@ -196,7 +179,7 @@ export async function readableStatusKey(
 }
 
 /**
- * Find the index of a space matching a status file workspace name.
+ * Find the index of a space matching a hook record's workspace name.
  * Uses statusKey (repo-qualified) when present, falls back to name.
  */
 export function findSpaceByStatusKey(

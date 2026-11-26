@@ -25,7 +25,7 @@ import type {ProgramStatusInfo} from './program-status.ts';
  */
 export interface SpaceData {
 	name: string; // Issue key (e.g., STA-123) or branch name for main worktree
-	statusKey?: string; // Repo-qualified key for status file lookups (e.g., "pappa-chex-main"); defaults to name
+	statusKey?: string; // Repo-qualified key for hook status lookups (e.g., "pappa-chex-main"); defaults to name
 	// eslint-disable-next-line @typescript-eslint/no-deprecated
 	linearIssue?: LinearIssue;
 	/** Provider-agnostic alias for linearIssue. Prefer this in new code. */

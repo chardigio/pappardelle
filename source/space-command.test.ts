@@ -606,7 +606,7 @@ function statusDaos(
 		claudeStatus: {
 			...state.daos.claudeStatus,
 			readableKey: async (repo, name) => `${repo}-${name}`,
-			read: async key => (key === 'repo-STA-1' ? hook : null),
+			read: async key => (key === 'repo-STA-1' ? hook : {status: 'unknown'}),
 		},
 		programStatus: {
 			...state.daos.programStatus,
