@@ -4,13 +4,15 @@ import {
 	MAIN_PANE,
 	PANE_NAME_RULE,
 } from './companion-splits.ts';
+import {
+	BUILTIN_AGENT_PROFILE_FIELDS,
+	BUILTIN_AGENTS,
+} from './builtin-agents.ts';
 import type {AgentProfileConfig, PappardelleConfig} from './config.ts';
 import {ConfigValidationError} from './config-errors.ts';
 import {
 	AGENT_PROFILE_LAUNCH_FIELDS,
-	AGENT_PROFILE_LAUNCH_PLACEHOLDERS,
 	builtinAgentDefaults,
-	isAgyAgentProfile,
 	LAUNCH_FIELDS,
 	PROMPT_PLACEHOLDER,
 } from './config-launch-flags.ts';
@@ -571,23 +573,11 @@ export function configErrors(config: unknown): string[] {
 
 const AGENT_PROFILE_STRING_FIELDS = [
 	'args',
-	'resume_args',
-	'model',
-	'effort',
-	'mode',
-	'model_args',
-	'effort_args',
-	'mode_args',
-	'prompt_args',
-	'skill_prefix',
+	...AGENT_PROFILE_LAUNCH_FIELDS,
+	...BUILTIN_AGENT_PROFILE_FIELDS,
 ] as const;
 
-const AGY_MODES = ['accept-edits', 'auto', 'plan'] as const;
-const AGY_MODE_SET = new Set<string>(AGY_MODES);
-const AGY_MODES_LABEL = [
-	...AGY_MODES.slice(0, -1).map(m => `"${m}"`),
-	`or "${AGY_MODES.at(-1)}"`,
-].join(', ');
+const AGY_MODES = new Set(['accept-edits', 'auto', 'plan']);
 
 // agy 1.5.16 warns and silently switches to Gemini 4 Neon (High) when an
 // effort-suffixed model id is combined with an explicit --effort flag.
@@ -635,7 +625,7 @@ function validateAgentLaunchTemplates(
 	for (const field of AGENT_PROFILE_LAUNCH_FIELDS) {
 		const templateField = `${field}_args` as const;
 		const template = agentProfile[templateField];
-		const placeholder = AGENT_PROFILE_LAUNCH_PLACEHOLDERS[field];
+		const placeholder = `{${field}}`;
 		if (typeof template === 'string' && !template.includes(placeholder)) {
 			errors.push(
 				`agent_profiles.${name}.${templateField}: must contain ${placeholder}`,
@@ -653,12 +643,7 @@ function validateAgentLaunchTemplates(
 			);
 		}
 	}
-	if (
-		isAgyAgentProfile({
-			command: agentProfile.command,
-			is_claude: agentProfile.is_claude,
-		})
-	) {
+	if (builtin === BUILTIN_AGENTS['agy']) {
 		errors.push(...validateAgyAgentProfile(name, agentProfile));
 	}
 	const promptArgs = agentProfile.prompt_args;
@@ -680,8 +665,10 @@ function validateAgyAgentProfile(
 	const errors: string[] = [];
 	if (typeof agentProfile.mode === 'string') {
 		const mode = agentProfile.mode.trimEnd();
-		if (mode !== '' && !AGY_MODE_SET.has(mode)) {
-			errors.push(`agent_profiles.${name}.mode: must be ${AGY_MODES_LABEL}`);
+		if (mode !== '' && !AGY_MODES.has(mode)) {
+			errors.push(
+				`agent_profiles.${name}.mode: must be "accept-edits", "auto", or "plan"`,
+			);
 		}
 	}
 	const model =

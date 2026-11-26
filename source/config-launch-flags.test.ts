@@ -2,7 +2,6 @@ import {test, expect} from 'bun:test';
 import {
 	bindResumeArgs,
 	builtinAgentDefaults,
-	isAgyAgentProfile,
 	isAgyCommand,
 	isClaudeCommand,
 	renderAgentLaunchFlags,
@@ -168,31 +167,38 @@ test('unwrapCommand, isAgyCommand, and builtinAgentDefaults handle env wrappers'
 	expect(wrapped.prompt_args).toBeTruthy();
 });
 
-test('isAgyAgentProfile matches bare agy and paths unless gated as claude', () => {
-	expect(isAgyAgentProfile({command: 'agy'})).toBe(true);
-	expect(isAgyAgentProfile({command: '/usr/local/bin/agy --flag'})).toBe(true);
-	expect(isAgyAgentProfile({command: 'agy', is_claude: true})).toBe(false);
-	expect(isAgyAgentProfile({command: 'claude'})).toBe(false);
-	expect(isAgyAgentProfile({command: 'codex'})).toBe(false);
-});
-
-test('supportsSousChefPrompt gates prompt to claude, codex, agy, or explicit prompt_args', () => {
-	expect(supportsSousChefPrompt({command: 'claude'})).toBe(true);
+test('supportsSousChefPrompt gates prompt to claude, codex, or profiles with promptArgs', () => {
+	expect(supportsSousChefPrompt({command: 'claude', isClaude: true})).toBe(
+		true,
+	);
 	expect(
-		supportsSousChefPrompt({command: 'claude-local', is_claude: true}),
+		supportsSousChefPrompt({command: 'claude-local', isClaude: true}),
 	).toBe(true);
-	expect(supportsSousChefPrompt({command: '/opt/bin/codex'})).toBe(true);
-	expect(supportsSousChefPrompt({command: 'agy'})).toBe(true);
 	expect(
-		supportsSousChefPrompt({command: 'custom', prompt_args: '-i {prompt}'}),
+		supportsSousChefPrompt({command: '/opt/bin/codex', isClaude: false}),
 	).toBe(true);
-	expect(supportsSousChefPrompt({command: 'opencode', skill_prefix: '/'})).toBe(
+	expect(
+		supportsSousChefPrompt({
+			command: 'agy',
+			isClaude: false,
+			promptArgs: '-i {prompt}',
+		}),
+	).toBe(true);
+	expect(
+		supportsSousChefPrompt({
+			command: 'custom',
+			isClaude: false,
+			promptArgs: '--prompt {prompt}',
+		}),
+	).toBe(true);
+	expect(supportsSousChefPrompt({command: 'pi', isClaude: false})).toBe(false);
+	expect(supportsSousChefPrompt({command: 'opencode', isClaude: false})).toBe(
 		false,
 	);
-	expect(supportsSousChefPrompt({command: 'pi'})).toBe(false);
-	expect(supportsSousChefPrompt({command: 'opencode'})).toBe(false);
-	expect(supportsSousChefPrompt({command: 'env FOO=1 agy'})).toBe(false);
-	expect(supportsSousChefPrompt({command: 'claude', is_claude: false})).toBe(
+	expect(
+		supportsSousChefPrompt({command: 'env FOO=1 agy', isClaude: false}),
+	).toBe(false);
+	expect(supportsSousChefPrompt({command: 'claude', isClaude: false})).toBe(
 		false,
 	);
 });

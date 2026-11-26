@@ -506,115 +506,95 @@ test('buildAgentResumeCommand: a minimal agy profile relaunches without a prompt
 });
 
 test('sousChefLaunch uses the resolved agent skillPrefix and wires through agy and codex launch commands', () => {
-	const agyConfig = makeConfig({
-		sous_chef: true,
-		agent_profiles: {
-			agy: {command: 'agy', model: 'gemini-4-hydrogen-medium', mode: 'plan'},
+	const cases = [
+		{
+			agent: {command: 'agy', model: 'gemini-4-hydrogen-medium', mode: 'plan'},
+			launch: {name: 'sous-chef', prompt: '/sous-chef'},
+			sessionId: undefined,
+			rules: true,
+			command:
+				"agy --model gemini-4-hydrogen-medium --mode plan -i '/sous-chef'",
 		},
-		agent_profile: 'agy',
-	});
-	const agyProfile = getAgentProfile(agyConfig);
-	const agyLaunch = sousChefLaunch(agyConfig, agyProfile);
-	expect(agyLaunch).toStrictEqual({name: 'sous-chef', prompt: '/sous-chef'});
-	expect(
-		buildAgentResumeCommand('main', false, agyProfile, undefined, {
+		{
+			agent: {command: 'agy', model: 'gemini-4-hydrogen-medium', mode: 'plan'},
+			launch: {name: 'sous-chef', prompt: '/sous-chef'},
+			sessionId: 'conv-1',
 			rules: true,
-			...agyLaunch,
-		}),
-	).toBe("agy --model gemini-4-hydrogen-medium --mode plan -i '/sous-chef'");
-	expect(
-		buildAgentResumeCommand('main', false, agyProfile, 'conv-1', {
-			rules: true,
-			...agyLaunch,
-		}),
-	).toBe(
-		"agy --model gemini-4-hydrogen-medium --mode plan --conversation conv-1 -i '/sous-chef' || { printf '\\033[A\\033[2K'; false; } || agy --model gemini-4-hydrogen-medium --mode plan -i '/sous-chef'",
-	);
-
-	const codexConfig = makeConfig({
-		sous_chef: true,
-		agent_profiles: {codex: {command: 'codex', args: '--yolo'}},
-		agent_profile: 'codex',
-	});
-	const codexProfile = getAgentProfile(codexConfig);
-	const codexLaunch = sousChefLaunch(codexConfig, codexProfile);
-	expect(codexLaunch).toStrictEqual({name: 'sous-chef', prompt: '$sous-chef'});
-	expect(
-		buildAgentResumeCommand('main', false, codexProfile, 'sess-1', {
+			command:
+				"agy --model gemini-4-hydrogen-medium --mode plan --conversation conv-1 -i '/sous-chef' || { printf '\\033[A\\033[2K'; false; } || agy --model gemini-4-hydrogen-medium --mode plan -i '/sous-chef'",
+		},
+		{
+			agent: {command: 'codex', args: '--yolo'},
+			launch: {name: 'sous-chef', prompt: '$sous-chef'},
+			sessionId: 'sess-1',
 			rules: false,
-			...codexLaunch,
-		}),
-	).toBe(
-		"codex --yolo resume sess-1 '$sous-chef' || { printf '\\033[A\\033[2K'; false; } || codex --yolo '$sous-chef'",
-	);
+			command:
+				"codex --yolo resume sess-1 '$sous-chef' || { printf '\\033[A\\033[2K'; false; } || codex --yolo '$sous-chef'",
+		},
+		{
+			agent: undefined,
+			launch: {name: 'sous-chef', prompt: '/sous-chef'},
+			sessionId: 'sess-1',
+			rules: true,
+			command:
+				"claude --name sous-chef --resume sess-1 '/sous-chef' || { printf '\\033[A\\033[2K'; false; } || claude --name sous-chef '/sous-chef'",
+		},
+		{
+			agent: {command: 'custom-cli', prompt_args: '--prompt {prompt}'},
+			launch: {name: 'sous-chef', prompt: '/sous-chef'},
+			sessionId: undefined,
+			rules: false,
+			command: "custom-cli --prompt '/sous-chef'",
+		},
+		{
+			agent: {command: 'pi'},
+			launch: {name: 'sous-chef'},
+			sessionId: undefined,
+			rules: false,
+			command: 'pi',
+		},
+		{
+			agent: {command: 'env FOO=1 agy'},
+			launch: {name: 'sous-chef', prompt: '/sous-chef'},
+			sessionId: undefined,
+			rules: false,
+			command: "env FOO=1 agy -i '/sous-chef'",
+		},
+		{
+			agent: {command: 'env FOO=1 custom-cli'},
+			launch: {name: 'sous-chef'},
+			sessionId: undefined,
+			rules: false,
+			command: 'env FOO=1 custom-cli',
+		},
+	];
 
+	for (const c of cases) {
+		const config = makeConfig({
+			sous_chef: true,
+			...(c.agent && {
+				agent_profiles: {target: c.agent},
+				agent_profile: 'target',
+			}),
+		});
+		const profile = getAgentProfile(config);
+		const launch = sousChefLaunch(config, profile);
+		expect(launch).toStrictEqual(c.launch);
+		expect(
+			buildAgentResumeCommand('main', false, profile, c.sessionId, {
+				rules: c.rules,
+				...launch,
+			}),
+		).toBe(c.command);
+	}
+
+	const agyProfile = getAgentProfile(
+		makeConfig({
+			agent_profiles: {agy: {command: 'agy'}},
+			agent_profile: 'agy',
+		}),
+	);
 	expect(sousChefLaunch(makeConfig({sous_chef: false}), agyProfile)).toBe(
 		undefined,
 	);
-
-	const claudeConfig = makeConfig({sous_chef: true});
-	const claudeProfile = getAgentProfile(claudeConfig);
-	const claudeLaunch = sousChefLaunch(claudeConfig, claudeProfile);
-	expect(claudeLaunch).toStrictEqual({
-		name: 'sous-chef',
-		prompt: '/sous-chef',
-	});
-	expect(
-		buildAgentResumeCommand('main', false, claudeProfile, 'sess-1', {
-			rules: true,
-			...claudeLaunch,
-		}),
-	).toBe(
-		"claude --name sous-chef --resume sess-1 '/sous-chef' || { printf '\\033[A\\033[2K'; false; } || claude --name sous-chef '/sous-chef'",
-	);
-
-	const customPromptConfig = makeConfig({
-		sous_chef: true,
-		agent_profiles: {
-			custom: {command: 'custom-cli', prompt_args: '--prompt {prompt}'},
-		},
-		agent_profile: 'custom',
-	});
-	const customProfile = getAgentProfile(customPromptConfig);
-	const customLaunch = sousChefLaunch(customPromptConfig, customProfile);
-	expect(customLaunch).toStrictEqual({
-		name: 'sous-chef',
-		prompt: '/sous-chef',
-	});
-	expect(
-		buildAgentResumeCommand('main', false, customProfile, undefined, {
-			rules: false,
-			...customLaunch,
-		}),
-	).toBe("custom-cli --prompt '/sous-chef'");
-
-	const piConfig = makeConfig({
-		sous_chef: true,
-		agent_profiles: {pi: {command: 'pi'}},
-		agent_profile: 'pi',
-	});
-	const piProfile = getAgentProfile(piConfig);
-	const piLaunch = sousChefLaunch(piConfig, piProfile);
-	expect(piLaunch).toStrictEqual({name: 'sous-chef'});
-	expect(
-		buildAgentResumeCommand('main', false, piProfile, undefined, {
-			rules: true,
-			...piLaunch,
-		}).includes('sous-chef'),
-	).toBe(false);
-
-	const bareCustomConfig = makeConfig({
-		sous_chef: true,
-		agent_profiles: {bare: {command: 'env FOO=1 agy'}},
-		agent_profile: 'bare',
-	});
-	const bareProfile = getAgentProfile(bareCustomConfig);
-	const bareLaunch = sousChefLaunch(bareCustomConfig, bareProfile);
-	expect(bareLaunch).toStrictEqual({name: 'sous-chef'});
-	expect(
-		buildAgentResumeCommand('main', false, bareProfile, undefined, {
-			rules: false,
-			...bareLaunch,
-		}),
-	).toBe('env FOO=1 agy');
 });

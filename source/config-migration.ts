@@ -32,6 +32,7 @@ import {
 	type ConfigPaths,
 	type PappardelleConfig,
 } from './config.ts';
+import {BUILTIN_AGENT_PROFILE_FIELDS} from './builtin-agents.ts';
 import {shellQuote} from './shell-quote.ts';
 import {
 	builtinAgentDefaults,
@@ -205,15 +206,6 @@ function removeKeepingComments(
 	found.parent.comment = joinComments(found.parent.comment, comment);
 }
 
-const BUILTIN_FIELDS = [
-	'model_args',
-	'effort_args',
-	'mode_args',
-	'prompt_args',
-	'resume_args',
-	'skill_prefix',
-] as const;
-
 /**
  * Drop each agent profile field that repeats its built-in default, after
  * stripping the trailing prompt flag agy profiles used before prompt_args
@@ -236,7 +228,7 @@ function dropBuiltinDefaults(
 		if (!definition) continue;
 		const builtin = builtinAgentDefaults(definition);
 		const flag = builtinPromptFlag(definition);
-		for (const field of BUILTIN_FIELDS) {
+		for (const field of BUILTIN_AGENT_PROFILE_FIELDS) {
 			const at = ['agent_profiles', name, field];
 			const node = document.getIn(at, true);
 			if (!isScalar(node) || typeof node.value !== 'string') continue;
@@ -501,10 +493,6 @@ function launches(config: PappardelleConfig): Record<string, string> {
 		[undefined, ...Object.keys(config.profiles)].map(profileName => {
 			const agent = getAgentProfile(config, undefined, profileName);
 			const definition = config.agent_profiles?.[agent.name];
-			const promptArgs = definition
-				? (definition.prompt_args ??
-					builtinAgentDefaults(definition).prompt_args)
-				: undefined;
 			// Flag order isn't kept: extra_args move into args, ahead of the
 			// model/effort flags, which no CLI cares about. The prompt template's
 			// flag counts with them, so agy's `-i` moving from model_args into
@@ -512,7 +500,7 @@ function launches(config: PappardelleConfig): Record<string, string> {
 			// more than once, and the rewrite only drops the duplicates.
 			const promptFlag = definition && builtinPromptFlag(definition);
 			const flags =
-				`${agent.command} ${agent.args}${renderAgentLaunchFlags(agent)} ${promptArgs?.replace('{prompt}', '') ?? ''}`
+				`${agent.command} ${agent.args}${renderAgentLaunchFlags(agent)} ${agent.promptArgs?.replace('{prompt}', '') ?? ''}`
 					.split(/\s+/)
 					.filter(
 						(token, index, tokens) =>

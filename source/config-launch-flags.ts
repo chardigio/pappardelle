@@ -21,15 +21,6 @@ export const AGENT_PROFILE_LAUNCH_FIELDS = [...LAUNCH_FIELDS, 'mode'] as const;
 export type AgentProfileLaunchField =
 	(typeof AGENT_PROFILE_LAUNCH_FIELDS)[number];
 
-export const AGENT_PROFILE_LAUNCH_PLACEHOLDERS: Record<
-	AgentProfileLaunchField,
-	string
-> = {
-	model: '{model}',
-	effort: '{effort}',
-	mode: '{mode}',
-};
-
 export const PROMPT_PLACEHOLDER = '{prompt}';
 
 /**
@@ -95,19 +86,14 @@ export function renderAgentLaunchFlags(
 		>
 	>,
 ): string {
-	const templates: Record<AgentProfileLaunchField, string | undefined> = {
-		model: agentProfile.modelArgs,
-		effort: agentProfile.effortArgs,
-		mode: agentProfile.modeArgs,
-	};
 	let flags = '';
 	for (const field of AGENT_PROFILE_LAUNCH_FIELDS) {
 		const value = agentProfile[field];
-		const template = templates[field];
+		const template = agentProfile[`${field}Args`];
 		if (!value || !template) continue;
 		const quoted = quoteLaunchValue(value);
 		// A function, so `$'` and `$&` in the value aren't replacement patterns.
-		flags += ` ${template.replaceAll(AGENT_PROFILE_LAUNCH_PLACEHOLDERS[field], () => quoted)}`;
+		flags += ` ${template.replaceAll(`{${field}}`, () => quoted)}`;
 	}
 	for (const arg of agentProfile.extraArgs ?? []) {
 		flags += ` ${quoteLaunchValue(arg)}`;
@@ -190,30 +176,23 @@ export function isClaudeAgentProfile(
 	return definition.is_claude ?? isClaudeCommand(definition.command);
 }
 
-export function isAgyAgentProfile(
-	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
-): boolean {
-	return (
-		!isClaudeAgentProfile(definition) &&
-		commandBasename(definition.command) === 'agy'
-	);
-}
-
-const SOUS_CHEF_PROMPT_AGENTS = new Set(['codex', 'agy']);
-
 /**
- * Whether an agent profile accepts the `<skill_prefix>sous-chef` launch
- * prompt. Unregistered CLIs without `prompt_args` (such as Pi, opencode, or
- * wrapped binaries — even if they set `skill_prefix` for `send_skill`) would
- * otherwise receive a bare `'/sous-chef'` argument.
+ * Whether a resolved agent profile accepts the `<skill_prefix>sous-chef`
+ * launch prompt. Unregistered CLIs without `prompt_args` (such as Pi,
+ * opencode, or wrapped binaries — even if they set `skill_prefix` for
+ * `send_skill`) would otherwise receive a bare `'/sous-chef'` argument.
  */
 export function supportsSousChefPrompt(
-	definition: Pick<AgentProfileConfig, 'command' | 'is_claude' | 'prompt_args'>,
+	agentProfile: Pick<
+		ResolvedAgentProfile,
+		'command' | 'isClaude' | 'promptArgs'
+	>,
 ): boolean {
+	const word = unwrapCommand(agentProfile.command)?.word;
 	return (
-		isClaudeAgentProfile(definition) ||
-		SOUS_CHEF_PROMPT_AGENTS.has(commandBasename(definition.command)) ||
-		Boolean(definition.prompt_args)
+		agentProfile.isClaude ||
+		Boolean(agentProfile.promptArgs) ||
+		(word !== undefined && path.basename(word) === 'codex')
 	);
 }
 

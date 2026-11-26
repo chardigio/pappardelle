@@ -1902,11 +1902,11 @@ export function sousChefLaunch(
 	config: PappardelleConfig | null,
 	agentProfile?: Pick<
 		ResolvedAgentProfile,
-		'skillPrefix' | 'supportsSousChefPrompt'
+		'command' | 'isClaude' | 'promptArgs' | 'skillPrefix'
 	>,
 ): SousChefLaunch | undefined {
 	if (config?.sous_chef !== true) return undefined;
-	if (agentProfile && !agentProfile.supportsSousChefPrompt) {
+	if (agentProfile && !supportsSousChefPrompt(agentProfile)) {
 		return {name: SOUS_CHEF_NAME};
 	}
 	const prefix = agentProfile?.skillPrefix ?? '/';
@@ -2074,7 +2074,6 @@ export interface ResolvedAgentProfile {
 	/** The deprecated `claude.extra_args`, rendered after model/effort/mode. */
 	extraArgs: string[];
 	skillPrefix: string;
-	supportsSousChefPrompt: boolean;
 	/** How the agent takes the companion rules at launch; see agentRulesFlags. */
 	rulesArgs: string[];
 	env: Record<string, string>;
@@ -2110,7 +2109,6 @@ function resolveAgentProfile(
 		promptArgs: definition.prompt_args ?? builtin.prompt_args,
 		extraArgs: [],
 		skillPrefix: definition.skill_prefix ?? builtin.skill_prefix ?? '/',
-		supportsSousChefPrompt: supportsSousChefPrompt(definition),
 		rulesArgs: builtin.rules_args ?? [],
 		env: definition.env ?? {},
 	};

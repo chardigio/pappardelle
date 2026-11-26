@@ -216,8 +216,6 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
      else ($def_resolved.command | basename) as $name
           | if $name == "claude" then {} else ($builtin_agents[0][$name] // {}) end
      end) as $builtin_agent |
-    ({model: $builtin_agent.model_args, effort: $builtin_agent.effort_args, mode: $builtin_agent.mode_args}
-     | with_entries(select(.value != null))) as $builtin |
     ([("model", "effort", "mode") as $f | {
         key: $f,
         value: {
@@ -225,8 +223,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
                     elif $is_claude and $f != "mode" then ($selected.claude[$f] // $claude[$f] // "" | tostring | sub("\n+$"; ""))
                     else "" end),
             template: (if $def_resolved | has($f + "_args") then ($def_resolved[$f + "_args"] // "")
-                       else ($builtin[$f] // "") end),
-            template_set: (($def_resolved | has($f + "_args")) or ($builtin | has($f)))
+                       else ($builtin_agent[$f + "_args"] // "") end)
         }
     }] | from_entries) as $launch |
     # A block-scalar item ends in a newline that is not part of the argument.
@@ -250,9 +247,7 @@ RESOLVED_JSON=$(printf '%s\n' "$RESOLVED" | PROFILE="$PROFILE" AGENT_PROFILE_OVE
         agent_is_claude: $is_claude,
         agent_skill_prefix: (if $def_resolved | has("skill_prefix") then ($def_resolved.skill_prefix // "")
                              else ($builtin_agent.skill_prefix // "/") end),
-        agent_launch_flags: ([render($launch.model.template; "{model}"; $launch.model.value),
-                              render($launch.effort.template; "{effort}"; $launch.effort.value),
-                              render($launch.mode.template; "{mode}"; $launch.mode.value),
+        agent_launch_flags: ([(("model", "effort", "mode") as $f | render($launch[$f].template; "{\($f)}"; $launch[$f].value)),
                               ($extra_args[] | tostring | quote_value)] | join(" ")),
         agent_env: ($def_resolved.env // {} | tojson),
         workspace_aware: (.workspace_aware_agents == true),

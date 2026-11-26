@@ -156,19 +156,9 @@ test('buildAgentResumeCommand without a recorded session continues claude', () =
 // codex's directory-agnostic `resume --last` would find another space's.
 test('buildAgentResumeCommand without a recorded session launches other agents directly', () => {
 	const codex: ResolvedAgentProfile = {
-		name: 'codex',
-		command: 'codex',
+		...codexAgentProfile,
 		args: '',
 		resumeArgs: 'resume {session_id}',
-		isClaude: false,
-		model: '',
-		effort: '',
-		mode: '',
-		extraArgs: [],
-		skillPrefix: '$',
-		supportsSousChefPrompt: true,
-		rulesArgs: [],
-		env: {},
 	};
 	expect(buildAgentResumeCommand('STA-806', false, codex)).toBe(`codex`);
 });
@@ -266,19 +256,15 @@ test('every tracker key shape gets a session name of its own', () => {
 // buildAgentResumeCommand: non-claude agents
 
 const codexAgentProfile: ResolvedAgentProfile = {
+	...DEFAULT_RESOLVED_AGENT_PROFILE,
 	name: 'codex',
 	command: 'codex',
 	args: '--yolo',
 	resumeArgs: 'resume --last',
 	isClaude: false,
-	model: '',
-	effort: '',
-	mode: '',
-	extraArgs: [],
+	modelArgs: undefined,
+	effortArgs: undefined,
 	skillPrefix: '$',
-	supportsSousChefPrompt: true,
-	rulesArgs: [],
-	env: {},
 };
 
 test('non-claude agent with resume args gets the fallback chain', () => {
@@ -337,19 +323,9 @@ test('empty-string resume args also launch directly (no malformed chain)', () =>
 
 test('non-claude agent without args uses the bare command', () => {
 	const cmd = buildAgentResumeCommand('STA-1', false, {
-		name: 'codex',
-		command: 'codex',
+		...codexAgentProfile,
 		args: '',
 		resumeArgs: undefined,
-		isClaude: false,
-		model: '',
-		effort: '',
-		mode: '',
-		extraArgs: [],
-		skillPrefix: '$',
-		supportsSousChefPrompt: true,
-		rulesArgs: [],
-		env: {},
 	});
 	expect(cmd).toBe(`codex`);
 });
@@ -358,19 +334,9 @@ test('non-claude agent without args uses the bare command', () => {
 
 test('claude agent profile passed explicitly matches the default output', () => {
 	const claudeAgentProfile: ResolvedAgentProfile = {
-		name: 'claude',
-		command: 'claude',
-		args: '',
-		resumeArgs: '--resume {session_id}',
-		isClaude: true,
-		model: '',
-		effort: '',
-		mode: '',
-		extraArgs: [],
-		skillPrefix: '/',
-		supportsSousChefPrompt: true,
-		rulesArgs: [],
-		env: {},
+		...DEFAULT_RESOLVED_AGENT_PROFILE,
+		modelArgs: undefined,
+		effortArgs: undefined,
 	};
 	expect(buildAgentResumeCommand('STA-806', false, claudeAgentProfile)).toBe(
 		buildAgentResumeCommand('STA-806'),
