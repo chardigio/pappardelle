@@ -33,7 +33,7 @@ API_PROFILE="profiles:
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: defaults to gitui when no layer sets it${RESET}"
+section "defaults to gitui when no layer sets it"
 write_config_layers "version: 1
 default_profile: api
 $API_PROFILE"
@@ -41,7 +41,7 @@ assert_eq "default → gitui" "GIT_OPTIONAL_LOCKS=0 gitui" "$(resolve_companion_
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: top-level companion_command applies when profile has none${RESET}"
+section "top-level companion_command applies when profile has none"
 write_config_layers "version: 1
 default_profile: api
 companion_command: lazygit
@@ -50,7 +50,7 @@ assert_eq "top-level lazygit" "lazygit" "$(resolve_companion_command api)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: per-profile companion_command beats top-level${RESET}"
+section "per-profile companion_command beats top-level"
 write_config_layers "version: 1
 default_profile: backend
 companion_command: gitui
@@ -67,7 +67,7 @@ assert_eq "profile without override → top-level" "gitui" "$(resolve_companion_
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: explicit empty string is preserved (plain shell)${RESET}"
+section "explicit empty string is preserved (plain shell)"
 write_config_layers "version: 1
 default_profile: api
 companion_command: \"\"
@@ -76,7 +76,7 @@ assert_eq "empty top-level stays empty" "" "$(resolve_companion_command api)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: per-profile empty string overrides a non-empty top-level${RESET}"
+section "per-profile empty string overrides a non-empty top-level"
 write_config_layers "version: 1
 default_profile: docs
 companion_command: gitui
@@ -89,7 +89,7 @@ assert_eq "profile empty wins over top-level" "" "$(resolve_companion_command do
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home-config top-level reaches a project that never mentions it${RESET}"
+section "home-config top-level reaches a project that never mentions it"
 write_config_layers "version: 1
 default_profile: api
 $API_PROFILE" "" "version: 1
@@ -98,7 +98,7 @@ assert_eq "home top-level → project profile" "hunk diff --watch" "$(resolve_co
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: project top-level beats home top-level${RESET}"
+section "project top-level beats home top-level"
 write_config_layers "version: 1
 default_profile: api
 companion_command: tig
@@ -108,7 +108,7 @@ assert_eq "project top-level wins" "tig" "$(resolve_companion_command api)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home-config per-profile override applies to a project-declared profile${RESET}"
+section "home-config per-profile override applies to a project-declared profile"
 write_config_layers "version: 1
 default_profile: api
 companion_command: tig
@@ -120,7 +120,7 @@ assert_eq "home profile override beats project top-level" "make run" "$(resolve_
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: local config beats project and home${RESET}"
+section "local config beats project and home"
 write_config_layers "version: 1
 default_profile: api
 companion_command: tig
@@ -130,7 +130,7 @@ assert_eq "local empty string wins over both" "" "$(resolve_companion_command ap
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: idow reads companion_command from the layered resolver, not the project file${RESET}"
+section "idow reads companion_command from the layered resolver, not the project file"
 IDOW_RAW_LOOKUPS=$(grep -c 'companion_command // .companion_command' "$SCRIPT_DIR/idow" || true)
 assert_eq "no single-file yq lookup left in idow" "0" "$IDOW_RAW_LOOKUPS"
 

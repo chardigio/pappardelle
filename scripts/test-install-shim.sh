@@ -31,7 +31,7 @@ mkdir -p "$SANDBOX_HOME"
 
 EXPECTED_VERSION="$(bun -p "require('$REPO_DIR/package.json').version")"
 
-echo -e "${BOLD}Running install.sh with sandboxed HOME...${RESET}"
+echo "Running install.sh with sandboxed HOME..."
 INSTALL_LOG="$SANDBOX/install.log"
 if ! HOME="$SANDBOX_HOME" bash "$REPO_DIR/install.sh" > "$INSTALL_LOG" 2>&1; then
     INSTALL_TAIL=("last 20 lines of its log:")
@@ -43,8 +43,7 @@ fi
 SHIM="$SANDBOX_HOME/.local/bin/pappardelle"
 SNAPSHOT="$SANDBOX_HOME/.pappardelle/local"
 
-echo ""
-echo -e "${BOLD}Snapshot install${RESET}"
+section "Snapshot install"
 
 assert_eq "shim was created" "yes" "$([[ -f "$SHIM" && -x "$SHIM" ]] && echo yes || echo no)"
 assert_eq "shim runs the snapshot's executable" "EXECUTABLE=\"$SNAPSHOT/dist/pappardelle\"" \
@@ -56,8 +55,7 @@ assert_eq "snapshot's dist holds the executable and its source map" "pappardelle
 assert_eq "install links nothing to this checkout" "" \
     "$(grep -rlF "$REPO_DIR" "$SANDBOX_HOME" --exclude-dir=logs --exclude=commit-sha 2>/dev/null || true)"
 
-echo ""
-echo -e "${BOLD}Runtime: nothing on PATH${RESET}"
+section "Runtime: nothing on PATH"
 
 # Invoked via /bin/bash: with PATH this bare even the shebang's `env bash`
 # lookup would fail before the shim ran.

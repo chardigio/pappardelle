@@ -84,7 +84,7 @@ assert_sessions() {
     fi
 }
 
-echo -e "\n${BOLD}Test: the launcher attaches to the session names it is given${RESET}"
+section "the launcher attaches to the session names it is given"
 
 assert_sessions "names idow gives a beads child issue" "agent-testrepo-bd-a3f8e9_1" "companion-testrepo-bd-a3f8e9_1"
 assert_sessions "a companion name that is not the agent's with another prefix" "agent-testrepo-STA-1" "hand-named_companion"

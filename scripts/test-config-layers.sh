@@ -40,7 +40,7 @@ merged() {
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: project-only config passes through unchanged${RESET}"
+section "project-only config passes through unchanged"
 write_config_layers "version: 1
 team_prefix: STA
 profiles:
@@ -51,7 +51,7 @@ assert_eq "profile list" "api" "$(merged | yq -r '.profiles | keys | .[]')"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home-only settings reach a project that never mentions them${RESET}"
+section "home-only settings reach a project that never mentions them"
 write_config_layers "version: 1
 profiles:
   api:
@@ -82,7 +82,7 @@ assert_eq "companion_command from home" "hunk diff --watch" "$(merged | yq -r '.
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: project beats home, local beats both, key by key${RESET}"
+section "project beats home, local beats both, key by key"
 write_config_layers "version: 1
 team_prefix: PROJ
 profiles:
@@ -111,7 +111,7 @@ assert_eq "home-only top-level key survives" "hunk diff --watch" "$(merged | yq 
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: arrays replace, they do not append (matches deepMerge in config.ts)${RESET}"
+section "arrays replace, they do not append (matches deepMerge in config.ts)"
 write_config_layers "version: 1
 profiles:
   api:
@@ -123,7 +123,7 @@ assert_eq "project array replaces home array" "project-kw" "$(merged | yq -r '.p
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: missing home and local files are skipped, not errors${RESET}"
+section "missing home and local files are skipped, not errors"
 write_config_layers "version: 1
 team_prefix: ONLY"
 assert_eq "no home, no local" "ONLY" "$(merged | yq -r '.team_prefix')"
@@ -132,7 +132,7 @@ assert_eq "nonexistent explicit path is skipped" "ONLY" \
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: layer precedence beats init command spelling${RESET}"
+section "layer precedence beats init command spelling"
 # A project still on the deprecated claude.initialization_command must override
 # a home config that has migrated; each layer is renamed before the merge.
 write_config_layers "version: 1
@@ -169,7 +169,7 @@ assert_eq "profile claude list passes through" "sonnet" "$(yq -r '.profiles.api.
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a layer with no YAML document adds nothing to the merge${RESET}"
+section "a layer with no YAML document adds nothing to the merge"
 # An empty file holds zero documents.
 for kind in empty whitespace-only comments-only; do
     case "$kind" in
@@ -214,7 +214,7 @@ write_config_layers ""
 : > "$(layer_file home)"
 assert_eq "every layer empty merges to an empty map" "{}" "$(merged)"
 
-echo -e "\n${BOLD}Test: resolve-agent-config.sh keeps the project config beside an empty local file${RESET}"
+section "resolve-agent-config.sh keeps the project config beside an empty local file"
 write_config_layers "version: 1
 workspace_aware_agents: true
 initialization_command: /init-workspace
@@ -232,7 +232,7 @@ assert_eq "workspace_aware" "true" "$(jq -r '.workspace_aware' <<<"$RESOLVED")"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a layer whose top level is a scalar or a list fails, naming the file${RESET}"
+section "a layer whose top level is a scalar or a list fails, naming the file"
 for kind in scalar list; do
     case "$kind" in
         scalar) bad_text="just a string" ;;
@@ -254,7 +254,7 @@ done
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a ---, null or ~ layer adds nothing to the merge${RESET}"
+section "a ---, null or ~ layer adds nothing to the merge"
 for doc in --- null "~"; do
     for layer in home project local; do
         write_config_layers "version: 1
@@ -273,7 +273,7 @@ done
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: an alias resolves even when a higher layer overrides its anchor${RESET}"
+section "an alias resolves even when a higher layer overrides its anchor"
 write_config_layers "version: 1
 a: &x {k: 1}
 b: *x" "a: {k: 2}"
@@ -283,7 +283,7 @@ assert_eq "the higher layer's value wins" "2" "$(yq -r '.a.k' "$TMPDIR_ROOT/merg
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: an alias, a merge key and the deprecated init spelling across three layers${RESET}"
+section "an alias, a merge key and the deprecated init spelling across three layers"
 write_config_layers "version: 1
 base: &base
   team_prefix: BASE
@@ -309,7 +309,7 @@ assert_eq "no layer files merge to an empty map without reading stdin" "{}" \
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: idow wiring${RESET}"
+section "idow wiring"
 IDOW="$SCRIPT_DIR/idow"
 assert_eq "idow merges the layers into CONFIG_PATH" "1" "$(grep -c 'CONFIG_PATH="\$MERGED_CONFIG_PATH"' "$IDOW" || true)"
 assert_eq "merge runs before the first provider read" "yes" \

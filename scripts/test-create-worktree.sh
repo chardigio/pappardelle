@@ -146,7 +146,7 @@ common_dir() {
 
 # ==========================================================================
 
-echo -e "${BOLD}Test: create-worktree with clean repo (main repo untouched)${RESET}"
+section "create-worktree with clean repo (main repo untouched)"
 setup_repo
 
 snapshot_main_repo
@@ -161,7 +161,7 @@ teardown_repo
 
 # A local branch named origin/master shadows refs/remotes/origin/master when the
 # start point is the short name origin/master, so it must be the full ref.
-echo -e "\n${BOLD}Test: local branch names cannot confuse origin's default branch${RESET}"
+section "local branch names cannot confuse origin's default branch"
 setup_repo
 git -C "$MAIN_REPO" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
 git -C "$MAIN_REPO" branch origin/master
@@ -174,7 +174,7 @@ assert_main_repo_unchanged "ambiguous ref"
 teardown_repo
 
 # Respect the repository tag-fetch policy for setup/version commands.
-echo -e "\n${BOLD}Test: new worktrees honor the repository tag-fetch policy${RESET}"
+section "new worktrees honor the repository tag-fetch policy"
 setup_repo
 git -C "$MAIN_REPO" config remote.origin.tagOpt --tags
 tag_clone="$TMPDIR_ROOT/tag-clone"
@@ -194,7 +194,7 @@ teardown_repo
 
 # Existing issue branches do not depend on origin's default branch. Reopening
 # one should work immediately even when the remote is unreachable.
-echo -e "\n${BOLD}Test: reuses an existing branch without fetching${RESET}"
+section "reuses an existing branch without fetching"
 setup_repo
 git -C "$MAIN_REPO" branch STA-150
 git -C "$MAIN_REPO" remote set-url origin "$TMPDIR_ROOT/missing-origin.git"
@@ -208,7 +208,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with uncommitted changes (no auto-stash, no checkout)${RESET}"
+section "create-worktree with uncommitted changes (no auto-stash, no checkout)"
 setup_repo
 
 # Dirty the working tree — old behavior would stash this and switch to master.
@@ -227,7 +227,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with staged changes (staging preserved)${RESET}"
+section "create-worktree with staged changes (staging preserved)"
 setup_repo
 
 echo "staged content" > "$MAIN_REPO/newfile.txt"
@@ -245,7 +245,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: main repo on a feature branch is preserved (not switched to master)${RESET}"
+section "main repo on a feature branch is preserved (not switched to master)"
 setup_repo
 
 # Previously create-worktree.sh would silently `git checkout master`,
@@ -272,7 +272,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: dirty local + divergent remote (no implicit pull, no conflict)${RESET}"
+section "dirty local + divergent remote (no implicit pull, no conflict)"
 setup_repo
 
 cd "$MAIN_REPO"
@@ -313,7 +313,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with multiple dirty files (all preserved untouched)${RESET}"
+section "create-worktree with multiple dirty files (all preserved untouched)"
 setup_repo
 
 for i in $(seq 1 5); do
@@ -337,7 +337,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with main-based repo (not master)${RESET}"
+section "create-worktree with main-based repo (not master)"
 
 setup_repo main
 
@@ -360,7 +360,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree when branch already exists (no worktree dir)${RESET}"
+section "create-worktree when branch already exists (no worktree dir)"
 setup_repo
 
 cd "$MAIN_REPO"
@@ -397,7 +397,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with stale index.lock (dirty repo)${RESET}"
+section "create-worktree with stale index.lock (dirty repo)"
 setup_repo
 
 # Stale index.lock + dirty working tree. The lock must be cleared before
@@ -423,7 +423,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with stale index.lock and CLEAN repo${RESET}"
+section "create-worktree with stale index.lock and CLEAN repo"
 setup_repo
 
 # Stale index.lock on a clean repo — the lock would still block git fetch
@@ -448,7 +448,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: index.lock resolved via git-common-dir when MAIN_REPO is a worktree${RESET}"
+section "index.lock resolved via git-common-dir when MAIN_REPO is a worktree"
 setup_repo
 
 # In a worktree, .git is a file (not a directory), so naively checking
@@ -475,7 +475,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: the worktree goes where it is told${RESET}"
+section "the worktree goes where it is told"
 # The path is decided by the stores (a stored space's own, or the one a new
 # space gets), so the script never builds one from the key.
 setup_repo
@@ -491,7 +491,7 @@ teardown_repo
 
 # idow exports PAPPARDELLE_PROJECT_ROOT and runs the script from wherever it
 # was started, which need not be inside the repository.
-echo -e "\n${BOLD}Test: PAPPARDELLE_PROJECT_ROOT names the repository when MAIN_REPO is unset${RESET}"
+section "PAPPARDELLE_PROJECT_ROOT names the repository when MAIN_REPO is unset"
 setup_repo
 PROJECT_REPO="$MAIN_REPO"
 (cd / && env -u MAIN_REPO -u PAPPARDELLE_MAIN_REPO_ROOT PAPPARDELLE_PROJECT_ROOT="$PROJECT_REPO" \
@@ -501,7 +501,7 @@ assert_eq "the worktree is added to PAPPARDELLE_PROJECT_ROOT" "$(common_dir "$PR
     "$(common_dir "$WORKTREES_ROOT/repo/STA-960" 2>/dev/null)"
 teardown_repo
 
-echo -e "\n${BOLD}Test: MAIN_REPO wins over PAPPARDELLE_PROJECT_ROOT${RESET}"
+section "MAIN_REPO wins over PAPPARDELLE_PROJECT_ROOT"
 setup_repo
 PROJECT_REPO="$MAIN_REPO"
 setup_repo

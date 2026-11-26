@@ -35,7 +35,7 @@ export PAPPARDELLE_TMUX_SOCKET=pappardelle_inner
 # shellcheck disable=SC2016 # the $ signs are the prompt's own text
 PROMPT_RAW='/idow it'"'"'s "q" $HOME $(touch PWNED) `touch PWNED` \\n & x'
 for prompt_args in "-i {prompt}" ""; do
-    echo -e "${BOLD}Test: prompt survives both shell parses (prompt_args [$prompt_args])${RESET}"
+    section "prompt survives both shell parses (prompt_args [$prompt_args])"
     test_tmpdir PROMPT_TMP
     mkdir -p "$PROMPT_TMP/bin"
     cat > "$PROMPT_TMP/bin/agy" <<SHIM
@@ -65,7 +65,7 @@ done
 # for a shim, cd into a worktree whose path holds quotes and a $(), title the
 # pane with the key and name the sessions it is given, quotes and all, and
 # claude gets the key as one --name word, without running any of the inputs.
-echo -e "${BOLD}Test: worktree path, repo name and key survive the pane shell${RESET}"
+section "worktree path, repo name and key survive the pane shell"
 test_tmpdir PATH_TMP
 mkdir -p "$PATH_TMP/bin"
 PATH_WT="$PATH_TMP/o'brien \$(touch $PATH_TMP/pwned) it's \"wt\""
@@ -111,7 +111,7 @@ assert_eq "nothing in the inputs ran" "no" \
 
 # The names come from the space's stored identity, so a launcher attaches to
 # what it is given, even a name that agent-<repo>-<key> would never spell.
-echo -e "\n${BOLD}Test: the default-terminal launcher attaches to the names it is given${RESET}"
+section "the default-terminal launcher attaches to the names it is given"
 NAMED_LINES=$("$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree /tmp/wt --issue-key QA-1 \
     --repo-name testrepo --agent-session hand.named_agent --companion-session hand-named_companion \
     --prompt "" --print-command)
@@ -122,7 +122,7 @@ assert_eq "companion pane" "1" "$(sed -n 2p <<< "$NAMED_LINES" | grep -c "new-se
 # server, rebuilds a viewer that lost a pane inside the same session. Killing
 # the viewer and creating it again can empty the user's default server, and a
 # new-session that reaches a server on its way out fails with it.
-echo -e "\n${BOLD}Test: the default-terminal viewer is rebuilt in place${RESET}"
+section "the default-terminal viewer is rebuilt in place"
 test_tmpdir VIEW_TMP
 REAL_TMUX=$(command -v tmux)
 mkdir -p "$VIEW_TMP/bin" "$VIEW_TMP/home" "$VIEW_TMP/wt"
@@ -195,7 +195,7 @@ FLAG_CASES=(
     "--agent-command claude-local --agent-is-claude true --skip-permissions"
 )
 
-echo -e "${BOLD}Test: launch flags are byte-identical${RESET}"
+section "launch flags are byte-identical"
 for flags in "${FLAG_CASES[@]}"; do
     read -r -a flag_args <<< "$flags"
     assert_eq "flags [${flags:-none}]" \
@@ -206,7 +206,7 @@ for flags in "${FLAG_CASES[@]}"; do
         "$(default_term --prompt "" "${flag_args[@]}" --print-launch-flags)"
 done
 
-echo -e "\n${BOLD}Test: assembled command lines are byte-identical${RESET}"
+section "assembled command lines are byte-identical"
 for flags in "${FLAG_CASES[@]}"; do
     read -r -a flag_args <<< "$flags"
     assert_eq "command [${flags:-none}]" \
@@ -219,7 +219,7 @@ done
 
 # The agent profile's model/effort flags arrive as one multi-word value, so
 # they can't ride the whitespace-split FLAG_CASES above.
-echo -e "\n${BOLD}Test: agent profile launch flags are byte-identical${RESET}"
+section "agent profile launch flags are byte-identical"
 LAUNCH_FLAG_CASES=(
     "codex|false|-m 'gpt-5.5 [1m]' -c model_reasoning_effort=high"
     "claude|true|--model opus --effort max"
@@ -242,7 +242,7 @@ done
 # The names are passed in, so a launcher that rebuilt one from the key would
 # still pass every assertion above for QA-1 while attaching to a session
 # nothing else uses.
-echo -e "\n${BOLD}Test: the given session names are attached by every launcher${RESET}"
+section "the given session names are attached by every launcher"
 for names in "bd-a1b2.1|agent-testrepo-bd-a1b2_1|companion-testrepo-bd-a1b2_1" \
     "my_svc-a1b2|hand.named_agent|hand-named_companion"; do
     IFS='|' read -r KEY AGENT_NAME COMPANION_NAME <<< "$names"
@@ -308,7 +308,7 @@ assert_eq "--window-id does not change the assembled bytes" \
     "$(ghostty --prompt "" --print-command)" \
     "$(ghostty --prompt "" --window-id tab-group-abc123 --print-command)"
 
-echo -e "\n${BOLD}Test: companion pane does not replay into a live session${RESET}"
+section "companion pane does not replay into a live session"
 # idow step 7 usually created the companion session already. new-session -A
 # attaches to it instead of starting the companion command a second time, and
 # nothing is typed into the pane, so a running gitui is left alone on reopen.
@@ -327,7 +327,7 @@ for launcher in iterm ghostty; do
     fi
 done
 
-echo -e "\n${BOLD}Test: idow captures the window after --open is parsed${RESET}"
+section "idow captures the window after --open is parsed"
 # idow resolves its config before it parses arguments, so a capture placed with
 # the config sees an unset OPEN_WORKSPACE and silently never runs, disabling
 # window targeting altogether.

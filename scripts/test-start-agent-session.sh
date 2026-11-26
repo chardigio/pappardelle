@@ -99,7 +99,7 @@ start_session() {
 
 # ==========================================================================
 
-echo -e "${BOLD}Test: creates repo-qualified claude tmux session${RESET}"
+section "creates repo-qualified claude tmux session"
 ISSUE_KEY="${TEST_PREFIX}-100"
 WORKTREE_PATH="$TMPDIR_ROOT/worktree"
 mkdir -p "$WORKTREE_PATH"
@@ -149,7 +149,7 @@ assert_eq "session has correct working directory" "$RESOLVED_WORKTREE" "$RESOLVE
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: idempotent — skips creation when session already exists${RESET}"
+section "idempotent — skips creation when session already exists"
 
 start_session --issue-key "$ISSUE_KEY" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH" --no-agent 2>/dev/null
 EXIT_CODE=$?
@@ -163,7 +163,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$COMPANION_SESSION" 2>/dev/n
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: also creates repo-qualified companion session${RESET}"
+section "also creates repo-qualified companion session"
 ISSUE_KEY2="${TEST_PREFIX}-200"
 WORKTREE_PATH2="$TMPDIR_ROOT/worktree2"
 mkdir -p "$WORKTREE_PATH2"
@@ -178,7 +178,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$COMPANION_SESSION2" 2>/dev/
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a session name that prefixes an existing one is distinct${RESET}"
+section "a session name that prefixes an existing one is distinct"
 # tmux -t resolves by prefix when no exact match exists, so STA-1 would find a
 # live STA-12 and skip creating its own sessions, leaving the workspace
 # attached to the wrong issue.
@@ -202,7 +202,7 @@ done
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: the sessions get exactly the names passed${RESET}"
+section "the sessions get exactly the names passed"
 # The names are decided when the space is created, so the script takes them
 # as given, even ones the key and repo would never be spelled as.
 NAMED_KEY="${TEST_PREFIX}-260"
@@ -220,7 +220,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=$NAMED_COMPANION:" 2>/dev/n
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: the socket is required${RESET}"
+section "the socket is required"
 OUTPUT=$(env -u PAPPARDELLE_TMUX_SOCKET "$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --repo-name "$TEST_REPO" \
     --worktree "/tmp" --agent-session agent-x --companion-session companion-x --legacy-agent-session claude-x 2>&1 || true)
 assert_eq "errors without PAPPARDELLE_TMUX_SOCKET" \
@@ -228,14 +228,14 @@ assert_eq "errors without PAPPARDELLE_TMUX_SOCKET" \
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: the session names are required${RESET}"
+section "the session names are required"
 OUTPUT=$("$SCRIPT_DIR/start-agent-session.sh" --issue-key "X-1" --repo-name "$TEST_REPO" --worktree "/tmp" 2>&1 || true)
 assert_contains "errors when the session names are missing" \
     "--agent-session, --companion-session and --legacy-agent-session are required" "$OUTPUT"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: --repo-name is required${RESET}"
+section "--repo-name is required"
 OUTPUT=$(start_session --issue-key "X-1" --worktree "/tmp" 2>&1 || true)
 assert_contains "errors when --repo-name is missing" "repo-name is required" "$OUTPUT"
 
@@ -243,7 +243,7 @@ assert_contains "errors when --repo-name is missing" "repo-name is required" "$O
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: without init cmd, claude command includes issue key${RESET}"
+section "without init cmd, claude command includes issue key"
 ISSUE_KEY3="${TEST_PREFIX}-300"
 WORKTREE_PATH3="$TMPDIR_ROOT/worktree3"
 mkdir -p "$WORKTREE_PATH3"
@@ -259,7 +259,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISS
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: with init cmd, claude command includes init cmd and issue key${RESET}"
+section "with init cmd, claude command includes init cmd and issue key"
 ISSUE_KEY4="${TEST_PREFIX}-400"
 WORKTREE_PATH4="$TMPDIR_ROOT/worktree4"
 mkdir -p "$WORKTREE_PATH4"
@@ -280,7 +280,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISS
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: --continue error message is suppressed when no conversation exists${RESET}"
+section "--continue error message is suppressed when no conversation exists"
 ISSUE_KEY5="${TEST_PREFIX}-500"
 WORKTREE_PATH5="$TMPDIR_ROOT/worktree5"
 mkdir -p "$WORKTREE_PATH5"
@@ -312,7 +312,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISS
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: sessions land on the inner socket, not the default${RESET}"
+section "sessions land on the inner socket, not the default"
 ISSUE_KEY6="${TEST_PREFIX}-600"
 WORKTREE_PATH6="$TMPDIR_ROOT/worktree6"
 mkdir -p "$WORKTREE_PATH6"
@@ -339,7 +339,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISS
 # These two cases get a HOME of their own, apart from the run's: the pre-trust
 # check further down reads $SHIM_HOME/.claude.json to see that only the claude
 # launch wrote one.
-echo -e "\n${BOLD}Test: launch flags reach the claude command line${RESET}"
+section "launch flags reach the claude command line"
 ISSUE_KEY7="${TEST_PREFIX}-700"
 WORKTREE_PATH7="$TMPDIR_ROOT/worktree7"
 SHIM_DIR="$TMPDIR_ROOT/shim"
@@ -378,7 +378,7 @@ tmux -L "$SHIM_SOCKET" kill-server 2>/dev/null || true
 
 # Off-by-default regression: omit both flags and the command line must be
 # exactly what it was before STA-1829.
-echo -e "\n${BOLD}Test: no launch flags → command line unchanged${RESET}"
+section "no launch flags → command line unchanged"
 ISSUE_KEY8="${TEST_PREFIX}-800"
 WORKTREE_PATH8="$TMPDIR_ROOT/worktree8"
 ARGV_LOG8="$TMPDIR_ROOT/claude-argv-8.log"
@@ -408,7 +408,7 @@ tmux -L "$SHIM_SOCKET8" kill-server 2>/dev/null || true
 # by resolve-agent-config.sh, and each reaches claude as one argument after
 # --effort and before --name. The shim brackets every argument so a value with
 # spaces or JSON braces shows whether it was split.
-echo -e "\n${BOLD}Test: rendered extra args reach claude as separate arguments${RESET}"
+section "rendered extra args reach claude as separate arguments"
 ISSUE_KEY9="${TEST_PREFIX}-900"
 WORKTREE_PATH9="$TMPDIR_ROOT/worktree9"
 ARGV_LOG9="$TMPDIR_ROOT/claude-argv-9.log"
@@ -437,7 +437,7 @@ tmux -L "$SHIM_SOCKET9" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: initialization prompt reaches a continued conversation${RESET}"
+section "initialization prompt reaches a continued conversation"
 ISSUE_KEY10="${TEST_PREFIX}-1000"
 WORKTREE_PATH10="$TMPDIR_ROOT/worktree10"
 ARGV_LOG10="$TMPDIR_ROOT/claude-argv-10.log"
@@ -469,7 +469,7 @@ tmux -L "$SHIM_SOCKET10" kill-server 2>/dev/null || true
 # records them in its history file. An isolated zsh (ZDOTDIR) with its own
 # HISTFILE and INC_APPEND_HISTORY writes every line it reads from the prompt
 # straight to disk, so a typed launch would show up there immediately.
-echo -e "\n${BOLD}Test: launches leave no trace in shell history${RESET}"
+section "launches leave no trace in shell history"
 if ! ZSH_BIN=$(command -v zsh); then
     skip "launches leave no trace in shell history (zsh not installed)"
 else
@@ -535,7 +535,7 @@ fi
 # Pre-trust is claude-only. The claude shim runs above redirected HOME
 # to SHIM_HOME, so ~/.claude.json must have appeared there; the codex run
 # below must NOT create one in its own home.
-echo -e "\n${BOLD}Test: pre-trust writes ~/.claude.json for claude agents only${RESET}"
+section "pre-trust writes ~/.claude.json for claude agents only"
 if [[ -f "$SHIM_HOME/.claude.json" ]]; then
     pass "claude launch pre-trusted the worktree"
 else
@@ -547,7 +547,7 @@ fi
 # A non-claude agent runs `{command} {args}` verbatim — no --name, no
 # dsp, no pre-trust. With resume args the resume attempt runs
 # first (shim exits 0, so the fallback never fires).
-echo -e "\n${BOLD}Test: codex agent gets its own command line, no claude flags${RESET}"
+section "codex agent gets its own command line, no claude flags"
 ISSUE_KEY9="${TEST_PREFIX}-950"
 WORKTREE_PATH9="$TMPDIR_ROOT/worktree9"
 CODEX_HOME="$TMPDIR_ROOT/codex-home"
@@ -589,7 +589,7 @@ tmux -L "$SHIM_SOCKET9" kill-server 2>/dev/null || true
 # prompt argument (init cmd + issue key) — no resume-fallback chain. The
 # resolver sends "" for agents without resume_args; when the flag is omitted
 # entirely the leaf script defaults to --continue for claude agents only.
-echo -e "\n${BOLD}Test: codex agent without resume args launches directly with prompt${RESET}"
+section "codex agent without resume args launches directly with prompt"
 ISSUE_KEY10="${TEST_PREFIX}-1000"
 WORKTREE_PATH10="$TMPDIR_ROOT/worktree10"
 ARGV_LOG10="$TMPDIR_ROOT/codex-argv-10.log"
@@ -620,7 +620,7 @@ tmux -L "$SHIM_SOCKET10" kill-server 2>/dev/null || true
 # The agent profile's model/effort flags arrive rendered and quoted by
 # resolve-agent-config.sh. They must reach the agent as separate literal
 # arguments, ahead of codex's `resume` subcommand.
-echo -e "\n${BOLD}Test: --agent-launch-flags reach the agent before its resume args${RESET}"
+section "--agent-launch-flags reach the agent before its resume args"
 ISSUE_KEY_LF="${TEST_PREFIX}-1050"
 WORKTREE_PATH_LF="$TMPDIR_ROOT/worktree-launch-flags"
 ARGV_LOG_LF="$TMPDIR_ROOT/codex-argv-launch-flags.log"
@@ -652,7 +652,7 @@ tmux -L "$SHIM_SOCKET_LF" kill-server 2>/dev/null || true
 
 # --agent-is-claude true forces claude treatment for a wrapper whose
 # basename isn't "claude" (e.g. a claude-local alias).
-echo -e "\n${BOLD}Test: --agent-is-claude true gives a wrapper the claude flags${RESET}"
+section "--agent-is-claude true gives a wrapper the claude flags"
 ISSUE_KEY11="${TEST_PREFIX}-1100"
 WORKTREE_PATH11="$TMPDIR_ROOT/worktree11"
 ARGV_LOG11="$TMPDIR_ROOT/wrapper-argv.log"
@@ -682,7 +682,7 @@ tmux -L "$SHIM_SOCKET11" kill-server 2>/dev/null || true
 
 # A live legacy claude-<repo>-<key> session is renamed to the
 # agent- name instead of a duplicate being created beside it.
-echo -e "\n${BOLD}Test: legacy claude-* session is renamed, not duplicated${RESET}"
+section "legacy claude-* session is renamed, not duplicated"
 ISSUE_KEY12="${TEST_PREFIX}-1200"
 WORKTREE_PATH12="$TMPDIR_ROOT/worktree12"
 mkdir -p "$WORKTREE_PATH12"
@@ -699,7 +699,7 @@ assert_no_session "legacy claude-* name is gone after rename" "$LEGACY_SESSION"
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "$RENAMED_SESSION" 2>/dev/null || true
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "companion-${TEST_REPO}-${ISSUE_KEY12}" 2>/dev/null || true
 
-echo -e "\n${BOLD}Test: the legacy name renamed is the one passed${RESET}"
+section "the legacy name renamed is the one passed"
 HAND_LEGACY="hand-legacy-${ISSUE_KEY12}"
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$HAND_LEGACY" -c "$WORKTREE_PATH12"
 start_session --issue-key "$ISSUE_KEY12" --repo-name "$TEST_REPO" --worktree "$WORKTREE_PATH12" \
@@ -712,7 +712,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${IS
 
 # With both names live, the agent- session is the one pappardelle attaches, so
 # the legacy one would run unseen.
-echo -e "\n${BOLD}Test: a legacy session beside its agent- session is killed${RESET}"
+section "a legacy session beside its agent- session is killed"
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$LEGACY_SESSION" -c "$WORKTREE_PATH12"
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-session -d -s "$RENAMED_SESSION" -c "$WORKTREE_PATH12"
 
@@ -729,7 +729,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${IS
 # bare `-t agent-<repo>-<KEY>1` lookup finds `agent-<repo>-<KEY>12`. Starting a
 # space whose sessions don't exist yet must create them, and must leave
 # another space's legacy session alone.
-echo -e "\n${BOLD}Test: session checks never match another space's sessions by prefix${RESET}"
+section "session checks never match another space's sessions by prefix"
 ISSUE_KEY13="${TEST_PREFIX}-130"
 OTHER_KEY13="${TEST_PREFIX}-1300"
 WORKTREE_PATH13="$TMPDIR_ROOT/worktree13"
@@ -755,7 +755,7 @@ tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-${TEST_REPO}-${IS
 
 # A named agent profile must come with its resolved claude treatment; the script no
 # longer guesses it from the command.
-echo -e "\n${BOLD}Test: --agent-command without --agent-is-claude is an error${RESET}"
+section "--agent-command without --agent-is-claude is an error"
 ISSUE_KEY14="${TEST_PREFIX}-1400"
 SHIM_SOCKET14="pappardelle_inner_shim14_$$"
 if PAPPARDELLE_TMUX_SOCKET="$SHIM_SOCKET14" start_session \
@@ -774,7 +774,7 @@ tmux -L "$SHIM_SOCKET14" kill-server 2>/dev/null || true
 # with the launch's process group, the login shell that follows never gets the
 # foreground: it spins at 100% CPU without reading input and outlives
 # kill-server as an orphan.
-echo -e "\n${BOLD}Test: a bash pane is a working shell after the launch exits${RESET}"
+section "a bash pane is a working shell after the launch exits"
 ISSUE_KEY15="${TEST_PREFIX}-1500"
 WORKTREE_PATH15="$TMPDIR_ROOT/worktree15"
 ARGV_LOG15="$TMPDIR_ROOT/codex-argv-15.log"
@@ -808,7 +808,7 @@ tmux -L "$SHIM_SOCKET15" kill-server 2>/dev/null || true
 # ==========================================================================
 # tmux next-3.9 starts every session in the server's own working directory
 # once that directory is deleted, whatever -c says.
-echo -e "\n${BOLD}Test: the inner server outlives the worktree it was started from${RESET}"
+section "the inner server outlives the worktree it was started from"
 WORKTREE_PATH16="$TMPDIR_ROOT/worktree16"
 WORKTREE_PATH17="$TMPDIR_ROOT/worktree17"
 mkdir -p "$WORKTREE_PATH16" "$WORKTREE_PATH17"
@@ -852,7 +852,7 @@ has_lines() {
 
 # agy refuses a bare prompt; --agent-prompt-args puts it behind -i on both
 # sides of the chain, after the resume args, as one word whatever it holds.
-echo -e "\n${BOLD}Test: --agent-prompt-args wraps the prompt on both sides of the chain${RESET}"
+section "--agent-prompt-args wraps the prompt on both sides of the chain"
 ISSUE_KEY_PA="${TEST_PREFIX}-1800"
 WORKTREE_PATH_PA="$TMPDIR_ROOT/worktree-prompt-args"
 ARGV_LOG_PA="$TMPDIR_ROOT/agy-argv-prompt-args.log"
@@ -875,7 +875,7 @@ assert_eq "fresh launch: -i and the prompt" \
     "$(sed -n 2p "$ARGV_LOG_PA" 2>/dev/null)"
 tmux -L "$SHIM_SOCKET_PA" kill-server 2>/dev/null || true
 
-echo -e "\n${BOLD}Test: --agent-prompt-args with no init command wraps the issue key${RESET}"
+section "--agent-prompt-args with no init command wraps the issue key"
 ISSUE_KEY_PK="${TEST_PREFIX}-1810"
 WORKTREE_PATH_PK="$TMPDIR_ROOT/worktree-prompt-key"
 ARGV_LOG_PK="$TMPDIR_ROOT/agy-argv-prompt-key.log"
@@ -897,7 +897,7 @@ NP_INDEX=0
 for np_case in "claude|true|--resume RESUME_FAIL|" "codex|false|resume RESUME_FAIL|" "agy|false|--conversation RESUME_FAIL|-i {prompt}"; do
     IFS='|' read -r np_agent np_is_claude np_resume np_prompt_args <<< "$np_case"
     NP_INDEX=$((NP_INDEX + 1))
-    echo -e "\n${BOLD}Test: --no-prompt launches $np_agent without a prompt after a failed resume${RESET}"
+    section "--no-prompt launches $np_agent without a prompt after a failed resume"
     np_key="${TEST_PREFIX}-19${NP_INDEX}0"
     np_worktree="$TMPDIR_ROOT/worktree-no-prompt-$np_agent"
     np_log="$TMPDIR_ROOT/$np_agent-argv-no-prompt.log"
@@ -921,7 +921,7 @@ done
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: sessions survive a tmux.conf that drops unattached sessions${RESET}"
+section "sessions survive a tmux.conf that drops unattached sessions"
 KEEP_KEY="${TEST_PREFIX}-keep"
 KEEP_HOME="$TMPDIR_ROOT/keep-home"
 KEEP_SOCKET="pappardelle_inner_keep_$$"
@@ -940,7 +940,7 @@ tmux -L "$KEEP_SOCKET" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: the inner server outlives its last space, so the next one starts${RESET}"
+section "the inner server outlives its last space, so the next one starts"
 EMPTY_KEY="${TEST_PREFIX}-empty"
 EMPTY_SOCKET="pappardelle_inner_empty_$$"
 mkdir -p "$TMPDIR_ROOT/empty-worktree"
@@ -959,7 +959,7 @@ tmux -L "$EMPTY_SOCKET" kill-server 2>/dev/null || true
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a worktree path that reads as a tmux format is where the space starts${RESET}"
+section "a worktree path that reads as a tmux format is where the space starts"
 HASH_KEY="${TEST_PREFIX}-hash"
 HASH_WORKTREE="$TMPDIR_ROOT/pasta#S"
 mkdir -p "$HASH_WORKTREE"

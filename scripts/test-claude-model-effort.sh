@@ -43,7 +43,7 @@ BASE_PROFILES="profiles:
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: off by default — no model/effort anywhere${RESET}"
+section "off by default — no model/effort anywhere"
 write_config_layers "version: 1
 claude:
   initialization_command: /do
@@ -61,7 +61,7 @@ assert_eq "effort is empty (with --profile)" "" "$(echo "$OUT" | field effort)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: top-level model/effort apply with and without --profile${RESET}"
+section "top-level model/effort apply with and without --profile"
 write_config_layers "version: 1
 claude:
   model: opus
@@ -76,7 +76,7 @@ assert_eq "profile without override → top-level effort" "high" "$(echo "$OUT" 
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: per-profile values beat top-level${RESET}"
+section "per-profile values beat top-level"
 write_config_layers "version: 1
 claude:
   model: opus
@@ -100,7 +100,7 @@ assert_eq "sibling profile inherits effort" "high" "$(echo "$OUT" | field effort
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a profile may set one field and inherit the other${RESET}"
+section "a profile may set one field and inherit the other"
 write_config_layers "version: 1
 claude:
   model: opus
@@ -117,7 +117,7 @@ assert_eq "effort overridden" "max" "$(echo "$OUT" | field effort)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: explicit empty string at profile level clears the global${RESET}"
+section "explicit empty string at profile level clears the global"
 write_config_layers "version: 1
 claude:
   model: opus
@@ -135,7 +135,7 @@ assert_eq "profile empty effort clears global" "" "$(echo "$OUT" | field effort)
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: unknown profile name falls back to top-level${RESET}"
+section "unknown profile name falls back to top-level"
 write_config_layers "version: 1
 claude:
   model: opus
@@ -147,7 +147,7 @@ assert_eq "unknown profile → top-level effort" "high" "$(echo "$OUT" | field e
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: config with no profiles: block at all${RESET}"
+section "config with no profiles: block at all"
 write_config_layers "version: 1
 claude:
   model: opus
@@ -158,7 +158,7 @@ assert_eq "empty profiles map → empty effort" "" "$(echo "$OUT" | field effort
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: layered configs — local beats project beats home${RESET}"
+section "layered configs — local beats project beats home"
 write_config_layers "version: 1
 claude:
   model: sonnet
@@ -175,7 +175,7 @@ assert_eq "project config wins for effort (local silent)" "medium" "$(echo "$OUT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: local config can override a profile's model${RESET}"
+section "local config can override a profile's model"
 write_config_layers "version: 1
 claude:
   model: opus
@@ -194,7 +194,7 @@ assert_eq "local profile override wins" "fable" "$(echo "$OUT" | field model)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home config supplies values when project config is silent${RESET}"
+section "home config supplies values when project config is silent"
 write_config_layers "version: 1
 $BASE_PROFILES" "" "version: 1
 claude:
@@ -206,7 +206,7 @@ assert_eq "home effort applies" "low" "$(echo "$OUT" | field effort)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home and local both apply when the project config is silent${RESET}"
+section "home and local both apply when the project config is silent"
 write_config_layers "version: 1
 $BASE_PROFILES" "version: 1
 claude:
@@ -226,7 +226,7 @@ assert_eq "local effort beats home effort" "max" "$(echo "$OUT" | field effort)"
 # it — the two resolvers disagreeing is the exact failure this file exists to
 # prevent.
 
-echo -e "\n${BOLD}Test: idow passes the home layer to the resolver${RESET}"
+section "idow passes the home layer to the resolver"
 # `|| true` on both counts: grep -c exits 1 when it matches nothing, and this
 # file runs under `set -e`. Without it the regression case this test exists to
 # catch — zero calls carrying --home-config — kills the suite mid-test instead
@@ -241,7 +241,7 @@ assert_eq "idow's home path matches getDefaultHomeConfigDir()" \
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: exotic model ids survive the JSON round-trip${RESET}"
+section "exotic model ids survive the JSON round-trip"
 write_config_layers "version: 1
 claude:
   model: \"claude-opus-5[1m]\"
@@ -253,7 +253,7 @@ assert_eq "xhigh effort intact" "xhigh" "$(echo "$OUT" | field effort)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: profile names with hyphens resolve correctly${RESET}"
+section "profile names with hyphens resolve correctly"
 write_config_layers "version: 1
 claude:
   model: opus
@@ -272,7 +272,7 @@ assert_eq "hyphenated profile effort" "medium" "$(echo "$OUT" | field effort)"
 # A skill is invoked as $name in codex and /name elsewhere, unless the agent
 # profile sets its own skill_prefix.
 
-echo -e "\n${BOLD}Test: agent profile skill prefix${RESET}"
+section "agent profile skill prefix"
 write_config_layers "version: 1
 agent_profiles:
   codex:
@@ -298,7 +298,7 @@ assert_eq "an agent profile's skill_prefix wins" "!" "$(resolve --profile wrappe
 # through built-in (claude, codex) or configured templates. The deprecated
 # claude block only fills in for claude agent profiles.
 
-echo -e "\n${BOLD}Test: agent profile model/effort and their flags${RESET}"
+section "agent profile model/effort and their flags"
 write_config_layers "version: 1
 claude:
   model: sonnet
@@ -391,7 +391,7 @@ assert_eq "fields after a trimmed one keep their values" "codex" "$(echo "$OUT" 
 # assembled inside AppleScript. The model/effort flags arrive rendered and
 # quoted by the resolver (pinned above); the launcher only orders them.
 
-echo -e "\n${BOLD}Test: open-iterm-agent.sh launch flags${RESET}"
+section "open-iterm-agent.sh launch flags"
 iterm_flags() {
     PAPPARDELLE_TMUX_SOCKET=pappardelle_inner "$SCRIPT_DIR/open-iterm-agent.sh" --worktree /tmp --issue-key STA-1 \
         --repo-name testrepo --agent-session agent-testrepo-STA-1 --companion-session companion-testrepo-STA-1 \
@@ -417,7 +417,7 @@ assert_eq "flag order: dsp → args → launch flags" \
 # AppleScript needs iTerm's scripting dictionary, so machines without iTerm
 # installed skip too.
 
-echo -e "\n${BOLD}Test: open-iterm-agent.sh assembled command line${RESET}"
+section "open-iterm-agent.sh assembled command line"
 iterm_command() {
     PAPPARDELLE_TMUX_SOCKET=pappardelle_inner "$SCRIPT_DIR/open-iterm-agent.sh" --worktree /tmp/wt --issue-key QA-1 \
         --repo-name testrepo --agent-session agent-testrepo-QA-1 --companion-session companion-testrepo-QA-1 \
@@ -486,7 +486,7 @@ fi
 # rendered launch flags after model/effort, one quoted word per item. The
 # profile list replaces the top-level one, an explicit [] on a profile clears
 # it, and other CLIs never get them.
-echo -e "\n${BOLD}Test: extra_args render into claude's launch flags, profile-first${RESET}"
+section "extra_args render into claude's launch flags, profile-first"
 write_config_layers "version: 1
 claude:
   effort: high

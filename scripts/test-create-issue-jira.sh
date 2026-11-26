@@ -52,14 +52,14 @@ acli_arg() {
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create_issue reports the issue acli created${RESET}"
+section "create_issue reports the issue acli created"
 jira_config "team_prefix: ENG"
 assert_eq "the key and URL come from acli's output" \
     '{"issue_key":"ENG-42","issue_url":"https://example.atlassian.net/browse/ENG-42"}' "$(create)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: the issue type${RESET}"
+section "the issue type"
 jira_config "team_prefix: ENG"
 create >/dev/null
 assert_eq "defaults to Task" "Task" "$(acli_arg --type)"
@@ -73,7 +73,7 @@ assert_eq "--issue-type beats the default" "Bug" "$(acli_arg --type)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: the project${RESET}"
+section "the project"
 jira_config "team_prefix: eng"
 create >/dev/null
 assert_eq "team_prefix from the config, uppercased" "ENG" "$(acli_arg --project)"

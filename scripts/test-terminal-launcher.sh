@@ -42,7 +42,7 @@ resolve() {
 
 NO_TERMINAL_SECTION='project: test'
 
-echo -e "${BOLD}Test: auto-detection${RESET}"
+section "auto-detection"
 
 write_config_layers "$NO_TERMINAL_SECTION"
 assert_eq "Ghostty env + scriptable bundle → Ghostty" "Ghostty" "$(resolve bundle-id "$SCRIPTABLE_BUNDLE")"
@@ -57,7 +57,7 @@ write_config_layers "terminal:
   app: auto"
 assert_eq "explicit auto behaves like no section" "Ghostty" "$(resolve bundle-id "$SCRIPTABLE_BUNDLE")"
 
-echo -e "\n${BOLD}Test: explicit values skip detection${RESET}"
+section "explicit values skip detection"
 
 write_config_layers "terminal:
   app: iTerm"
@@ -90,7 +90,7 @@ write_config_layers "terminal:
   app: AUTO"
 assert_eq "uppercase AUTO still detects" "Ghostty" "$(resolve bundle-id "$SCRIPTABLE_BUNDLE")"
 
-echo -e "\n${BOLD}Test: config layering${RESET}"
+section "config layering"
 
 write_config_layers "terminal:
   app: iTerm" "terminal:

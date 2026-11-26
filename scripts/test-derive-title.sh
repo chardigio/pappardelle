@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 DERIVE="$SCRIPT_DIR/derive-title.sh"
 
-echo -e "${BOLD}derive-title.sh${RESET}"
+section "derive-title.sh"
 
 assert_eq "short prompt is the title as is" \
     "Add dark mode to settings" \
