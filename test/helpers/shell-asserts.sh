@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The tally, assertions and summary every scripts/test-*.sh shares. Sourced, so
-# it sets no shell options: test-schedule-systemd.sh runs under set -u, the rest
-# under set -e. macOS runs these scripts with its /bin/bash 3.2.
+# it sets no shell options: some callers run under set -u, the rest under set -e.
+# macOS runs these scripts with its /bin/bash 3.2.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -16,7 +16,6 @@ pass() {
 	PASS=$((PASS + 1))
 }
 
-# fail <name> [detail...]
 fail() {
 	local name=$1 detail
 	shift
