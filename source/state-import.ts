@@ -138,11 +138,31 @@ function importFiles(
 	return done;
 }
 
-/** What no store imports: hook status and its pending-files scratch, and the pr-link stamp's file. */
+/**
+ * What no store imports: hook status and its pending-files scratch, the
+ * pr-link stamp's file, and the snapshot files status monitors wrote before
+ * the status daemon held them. A pane's lease beside them is still in use.
+ */
 function obsoleteFiles(stateDir: string): string[] {
-	return ['claude-status', 'pr-link.stamp'].map(name =>
-		path.join(stateDir, name),
-	);
+	const statusDir = path.join(stateDir, 'program-status');
+	return [
+		...['claude-status', 'pr-link.stamp'].map(name =>
+			path.join(stateDir, name),
+		),
+		...namesIn(statusDir).flatMap(repo =>
+			namesIn(path.join(statusDir, repo))
+				.filter(file => !file.endsWith('.lease'))
+				.map(file => path.join(statusDir, repo, file)),
+		),
+	];
+}
+
+function namesIn(dir: string): string[] {
+	try {
+		return fs.readdirSync(dir);
+	} catch {
+		return [];
+	}
 }
 
 function updateCheckFile(state: StateDb, stateDir: string): LegacyFile {

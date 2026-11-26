@@ -239,22 +239,17 @@ try {
 		`${pane.id}\t${pane.pid}\t0\t1\t${randomUUID()}`,
 		harness.socket,
 	)!;
-	const target = programStatusPath(
-		harness.statusDir(repo),
-		'race',
-		racePane.generation,
-	);
+	const lease = `${programStatusPath(harness.statusDir(repo), 'race', racePane.generation)}.lease`;
 	const ready = path.join(harness.root, 'publisher-ready');
 	const script = path.join(harness.root, 'paused-publisher.mjs');
-	writeFileSync(target, '{}');
-	writeFileSync(`${target}.lease`, '');
+	writeFileSync(lease, '');
 	writeFileSync(
 		script,
 		`
 import fs from 'node:fs';
 const {monitorPane} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-monitor.ts'))});
 const {daemonPublisher} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-daemon.ts'))});
-const publisher = daemonPublisher({dir: ${JSON.stringify(path.dirname(target))}, socketPath: ${JSON.stringify(harness.statusSocket)}});
+const publisher = daemonPublisher({dir: ${JSON.stringify(path.dirname(lease))}, socketPath: ${JSON.stringify(harness.statusSocket)}});
 monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(racePane)}, publisher);
 fs.writeFileSync(${JSON.stringify(ready)}, '');
 `,
@@ -276,8 +271,7 @@ fs.writeFileSync(${JSON.stringify(ready)}, '');
 	publisher.stdin?.write('\x1b]7501;state=working:app=fixture\x07');
 	await delay(500);
 
-	assert.equal(existsSync(target), false);
-	assert.equal(existsSync(`${target}.lease`), false);
+	assert.equal(existsSync(lease), false);
 	assert.equal(await harness.heldSnapshots(repo, 'race'), 0);
 	evidence['late-publication'] =
 		'revoked generation sends no snapshot to the daemon';

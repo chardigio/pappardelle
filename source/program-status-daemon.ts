@@ -3,22 +3,39 @@
 // process's copy. A pane's lease is a file, and is its permission to publish:
 // closing a space deletes it.
 
+import {Buffer} from 'node:buffer';
+import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
+import {createLogger} from './logger.ts';
 import {
-	attachStatusMonitor,
-	monitorStatusPane,
 	type LocatedStatusPane,
 	checkedProgramSnapshot,
+	listStatusPanes,
+	markerPid,
+	parseStatusPane,
 	programStatusDir,
 	programStatusLeased,
+	programStatusPath,
 	removeProgramStatusLeases,
+	runStatusTmux,
+	shellQuoteStatus,
+	STATUS_MONITOR_OPTION,
+	STATUS_PANE_FORMAT,
+	STATUS_PANE_OPTION,
+	statusMarker,
+	statusSocket,
+	statusTmuxArgs,
 	type ProgramStatusDao,
 	type SnapshotPublisher,
 	type StatusPane,
 	type StatusTmuxRunner,
 	type ProgramStatusSnapshot,
 } from './program-status-monitor.ts';
+import {internalEntryCommand} from './runtime.ts';
 import {firstChange, StatusClient} from './status-client.ts';
 import {backgroundTimers, type StatusTimers} from './status-protocol.ts';
+import {tmuxFormatLiteral} from './tmux-format.ts';
+
+const log = createLogger('program-status');
 
 export class DaemonProgramStatusDao implements ProgramStatusDao {
 	constructor(
@@ -35,17 +52,114 @@ export class DaemonProgramStatusDao implements ProgramStatusDao {
 		socket?: string,
 		run?: StatusTmuxRunner,
 	): Promise<StatusPane | null> {
-		return attachStatusMonitor(this, key, session, socket, run);
+		const panes = await listStatusPanes(socket, run);
+		return this.monitor(key, session, panes.get(session), socket, run);
 	}
 
 	async monitor(
 		key: string,
 		session: string,
 		located: LocatedStatusPane | undefined,
-		socket?: string,
-		run?: StatusTmuxRunner,
+		socket = statusSocket(),
+		run: StatusTmuxRunner = runStatusTmux,
 	): Promise<StatusPane | null> {
-		return monitorStatusPane(this, key, session, located, socket, run);
+		const {repo, dir} = this;
+		try {
+			if (!located?.pane) return null;
+			const target = `=${session}:`;
+			const {pinned} = located;
+			let {pane} = located;
+			const pin = pinned
+				? []
+				: ['set-option', '-t', target, STATUS_PANE_OPTION, pane.id];
+			if (pin.length > 0 && (pane.dead || pane.piped))
+				await run(statusTmuxArgs(pin, socket));
+			if (pane.dead) return pane;
+			if (pane.piped) {
+				if (markerPid(pane.marker) !== pane.pid)
+					log.debug(
+						`Status monitoring skipped for ${session}: pane already has a pipe`,
+					);
+				return pane;
+			}
+			const marker = statusMarker(pane.pid);
+			pane = parseStatusPane(
+				`${pane.id}\t${pane.pid}\t0\t0\t${marker}`,
+				socket,
+			)!;
+			mkdirSync(dir, {recursive: true});
+			const lease = `${programStatusPath(dir, key, pane.generation)}.lease`;
+			writeFileSync(lease, '');
+			const command = [
+				...internalEntryCommand(
+					'--internal-status-monitor',
+					'program-status-monitor-cli',
+				),
+				'watch',
+				repo,
+				key,
+				Buffer.from(JSON.stringify(pane)).toString('base64'),
+				dir,
+				process.env['PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR'] ?? '',
+				// pipe-pane starts the monitor with the tmux server's environment,
+				// which may name another socket than this process uses.
+				this.socketPath,
+			]
+				.map(value => shellQuoteStatus(value))
+				.join(' ');
+			const commands = [
+				...(pin.length > 0 ? [pin] : []),
+				['set-option', '-p', '-t', pane.id, STATUS_MONITOR_OPTION, marker],
+				[
+					'pipe-pane',
+					'-Oo',
+					'-t',
+					pane.id,
+					tmuxFormatLiteral(command.replaceAll('%', '%%')),
+				],
+			]
+				.map(args => args.map(value => shellQuoteStatus(value)).join(' '))
+				.join(' ; ');
+			// The tmux command queue keeps the pin, marker and pipe owned by the
+			// same attachment, and the read that follows sees what it left. tmux
+			// resolves a closed pane's id without error, so the condition checks
+			// the pane still exists before pinning the session to it. `!:` needs
+			// tmux 3.6, so the unpiped check is spelled with `==:`.
+			const attached = parseStatusPane(
+				await run(
+					statusTmuxArgs(
+						[
+							'if-shell',
+							'-F',
+							'-t',
+							pane.id,
+							'#{&&:#{pane_id},#{==:#{pane_pipe},0}}',
+							commands,
+							';',
+							'display-message',
+							'-p',
+							'-t',
+							pane.id,
+							STATUS_PANE_FORMAT,
+						],
+						socket,
+					),
+				),
+				socket,
+			);
+			if (attached?.generation === pane.generation) {
+				// A session has one status pane, so earlier generations' leases
+				// belong to panes that no longer exist.
+				await this.remove(key, pane.generation);
+			} else {
+				rmSync(lease, {force: true});
+			}
+
+			return attached;
+		} catch (error) {
+			log.debug(`Cannot monitor ${session}: ${String(error)}`);
+			return null;
+		}
 	}
 
 	monitored(key: string, generation: string): boolean {
@@ -61,12 +175,7 @@ export class DaemonProgramStatusDao implements ProgramStatusDao {
 		// The check rewrites the status of a snapshot whose pane has died, and
 		// the copy this process holds is checked again on the next read.
 		return held
-			? checkedProgramSnapshot(
-					() => structuredClone(held),
-					this.repo,
-					key,
-					pane,
-				)
+			? checkedProgramSnapshot(structuredClone(held), this.repo, key, pane)
 			: null;
 	}
 

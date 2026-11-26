@@ -348,12 +348,15 @@ test('a registry file that is not a registry stops the import until it is fixed'
 	expect(daos(stateDir, 'repo').registry.openSpaces()).toEqual(['A-1']);
 });
 
-test('a highlight request and hook statuses left in files are deleted, not imported', () => {
+test('a highlight request, hook statuses and program status snapshots left in files are deleted, not imported', () => {
 	const stateDir = fileHome();
 	const target = write(stateDir, 'repos/repo/highlight-target', 'A-1\tfocus\n');
+	const snapshot = `program-status/repo/A-1--${'a'.repeat(32)}.json`;
+	const lease = write(stateDir, `${snapshot}.lease`, '');
 	const left = [
 		write(stateDir, 'claude-status/repo-A-1.json', {status: 'working'}),
 		write(stateDir, 'pr-link.stamp', ''),
+		write(stateDir, snapshot, {version: 1}),
 	];
 
 	expect(daos(stateDir, 'repo').registry.openSpaces()).toEqual([]);
@@ -367,6 +370,7 @@ test('a highlight request and hook statuses left in files are deleted, not impor
 	).toEqual({requests: 0});
 	expect([target, ...left].filter(file => fs.existsSync(file))).toEqual([]);
 	expect(fs.existsSync(path.join(stateDir, 'claude-status'))).toBe(false);
+	expect(fs.existsSync(lease)).toBe(true);
 });
 
 // A status monitor started by an older build follows this file, and with the

@@ -151,10 +151,7 @@ export class StatusHarness {
 
 	/** The status files under the harness's root: every status goes to the daemon, so there are none. */
 	private statusFiles(): string[] {
-		const hookFiles = [
-			path.join(this.root, 'hooks'),
-			path.join(this.stateDir, 'claude-status'),
-		].flatMap(directory => jsonFilesIn(directory));
+		const hookFiles = jsonFilesIn(path.join(this.stateDir, 'claude-status'));
 		const snapshotRoot = path.join(this.root, 'status');
 		const snapshotFiles = entriesIn(snapshotRoot).flatMap(repo =>
 			jsonFilesIn(path.join(snapshotRoot, repo)),

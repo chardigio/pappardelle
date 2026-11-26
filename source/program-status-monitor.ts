@@ -1,5 +1,3 @@
-import {internalEntryCommand} from './runtime.ts';
-import {tmuxFormatLiteral} from './tmux-format.ts';
 import {Buffer} from 'node:buffer';
 import {execFile} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
@@ -9,7 +7,6 @@ import {
 	mkdirSync,
 	readdirSync,
 	rmSync,
-	writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import {isDeepStrictEqual, promisify} from 'node:util';
@@ -82,11 +79,11 @@ export function programStatusLeased(
 ): boolean {
 	return existsSync(`${programStatusPath(dir, key, generation)}.lease`);
 }
-/** The space key and pane generation a snapshot file is named after. */
-export function statusFileOf(
+/** The space key and pane generation a lease is named after. */
+function leaseOf(
 	filename: string,
 ): {key: string; generation: string} | undefined {
-	const match = /^(.*)--([a-f\d]{32})\.json$/.exec(filename);
+	const match = /^(.*)--([a-f\d]{32})\.json\.lease$/.exec(filename);
 	if (!match) return undefined;
 	try {
 		return {key: decodeURIComponent(match[1]!), generation: match[2]!};
@@ -183,17 +180,16 @@ export interface ProgramStatusSnapshot {
 }
 
 /**
- * What `load` returns when it is a snapshot `pane`'s monitor could have
- * written for this space, with the status a dead pane leaves behind.
+ * `value` when it is a snapshot `pane`'s monitor could have written for this
+ * space, with the status a dead pane leaves behind written into it.
  */
 export function checkedProgramSnapshot(
-	load: () => ProgramStatusSnapshot,
+	value: ProgramStatusSnapshot,
 	repo: string,
 	key: string,
 	pane: StatusPane,
 ): ProgramStatusSnapshot | null {
 	try {
-		const value = load();
 		if (
 			value.version !== 1 ||
 			value.repo !== repo ||
@@ -328,146 +324,9 @@ export interface ProgramStatusDao {
 	waitForChange(ms: number): Promise<void>;
 }
 
-/** What attaching a monitor needs from the store its snapshots go to. */
-type MonitorStore = {
-	repo: string;
-	dir: string;
-	/**
-	 * The status daemon's socket. A monitor is told where it is whatever the
-	 * flag says, because it outlives a change of the flag and then starts or
-	 * stops sending to the daemon by itself.
-	 */
-	socketPath: string;
-	remove(key: string, keepGeneration?: string): Promise<void>;
-};
-
-export async function attachStatusMonitor(
-	store: MonitorStore,
-	key: string,
-	session: string,
-	socket = statusSocket(),
-	run: StatusTmuxRunner = runStatusTmux,
-): Promise<StatusPane | null> {
-	const panes = await listStatusPanes(socket, run);
-	return monitorStatusPane(
-		store,
-		key,
-		session,
-		panes.get(session),
-		socket,
-		run,
-	);
-}
-
-/** Pins and pipes a located pane that has no monitor yet. */
-export async function monitorStatusPane(
-	store: MonitorStore,
-	key: string,
-	session: string,
-	located: LocatedStatusPane | undefined,
-	socket = statusSocket(),
-	run: StatusTmuxRunner = runStatusTmux,
-): Promise<StatusPane | null> {
-	const {repo, dir} = store;
-	try {
-		if (!located?.pane) return null;
-		const target = `=${session}:`;
-		const {pinned} = located;
-		let {pane} = located;
-		const pin = pinned
-			? []
-			: ['set-option', '-t', target, STATUS_PANE_OPTION, pane.id];
-		if (pin.length > 0 && (pane.dead || pane.piped))
-			await run(statusTmuxArgs(pin, socket));
-		if (pane.dead) return pane;
-		if (pane.piped) {
-			if (markerPid(pane.marker) !== pane.pid)
-				log.debug(
-					`Status monitoring skipped for ${session}: pane already has a pipe`,
-				);
-			return pane;
-		}
-		const marker = statusMarker(pane.pid);
-		pane = parseStatusPane(`${pane.id}\t${pane.pid}\t0\t0\t${marker}`, socket)!;
-		mkdirSync(dir, {recursive: true});
-		const lease = `${programStatusPath(dir, key, pane.generation)}.lease`;
-		writeFileSync(lease, '');
-		const command = [
-			...internalEntryCommand(
-				'--internal-status-monitor',
-				'program-status-monitor-cli',
-			),
-			'watch',
-			repo,
-			key,
-			Buffer.from(JSON.stringify(pane)).toString('base64'),
-			dir,
-			process.env['PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR'] ?? '',
-			// pipe-pane starts the monitor with the tmux server's environment,
-			// which may name another socket than this process uses.
-			store.socketPath,
-		]
-			.map(value => shellQuoteStatus(value))
-			.join(' ');
-		const commands = [
-			...(pin.length > 0 ? [pin] : []),
-			['set-option', '-p', '-t', pane.id, STATUS_MONITOR_OPTION, marker],
-			[
-				'pipe-pane',
-				'-Oo',
-				'-t',
-				pane.id,
-				tmuxFormatLiteral(command.replaceAll('%', '%%')),
-			],
-		]
-			.map(args => args.map(value => shellQuoteStatus(value)).join(' '))
-			.join(' ; ');
-		// The tmux command queue keeps the pin, marker and pipe owned by the
-		// same attachment, and the read that follows sees what it left. tmux
-		// resolves a closed pane's id without error, so the condition checks
-		// the pane still exists before pinning the session to it. `!:` needs
-		// tmux 3.6, so the unpiped check is spelled with `==:`.
-		const attached = parseStatusPane(
-			await run(
-				statusTmuxArgs(
-					[
-						'if-shell',
-						'-F',
-						'-t',
-						pane.id,
-						'#{&&:#{pane_id},#{==:#{pane_pipe},0}}',
-						commands,
-						';',
-						'display-message',
-						'-p',
-						'-t',
-						pane.id,
-						STATUS_PANE_FORMAT,
-					],
-					socket,
-				),
-			),
-			socket,
-		);
-		if (attached?.generation === pane.generation) {
-			// A session has one status pane, so earlier generations' files belong
-			// to panes that no longer exist.
-			await store.remove(key, pane.generation);
-		} else {
-			rmSync(lease, {force: true});
-		}
-
-		return attached;
-	} catch (error) {
-		log.debug(`Cannot monitor ${session}: ${String(error)}`);
-		return null;
-	}
-}
-
 /**
- * Revoke a space's leases except `keepGeneration`'s, and delete the snapshot
- * files monitors from before the status daemon left beside them. Returns the
- * pane generations whose leases it removed.
+ * Revoke a space's leases except `keepGeneration`'s. Returns the pane
+ * generations whose leases it removed.
  */
 export function removeProgramStatusLeases(
 	dir: string,
@@ -476,25 +335,15 @@ export function removeProgramStatusLeases(
 ): string[] {
 	const removed: string[] = [];
 	try {
-		const files = readdirSync(dir).flatMap(file => {
-			const statusFile = statusFileOf(
-				file.replace(/\.lease$|\.tmp\.\d+$/g, ''),
-			);
-			return statusFile?.key === key && statusFile.generation !== keepGeneration
-				? [{file, generation: statusFile.generation}]
-				: [];
-		});
-		for (const {file, generation} of files) {
-			if (!file.endsWith('.lease')) continue;
+		for (const file of readdirSync(dir)) {
+			const lease = leaseOf(file);
+			if (lease?.key !== key || lease.generation === keepGeneration) continue;
 			rmSync(path.join(dir, file), {force: true});
-			removed.push(generation);
+			removed.push(lease.generation);
 		}
-
-		for (const {file} of files.filter(({file}) => !file.endsWith('.lease')))
-			rmSync(path.join(dir, file), {force: true});
 	} catch (error) {
 		log.warn(
-			`Could not remove every program status file of ${key}`,
+			`Could not remove every program status lease of ${key}`,
 			error instanceof Error ? error : undefined,
 		);
 	}
