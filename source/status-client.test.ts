@@ -291,7 +291,7 @@ test('a state from the daemon the client was on replaces the replica: what the d
 	const last = {type: 'forget', repo: 'repo', key: 'C'} as const;
 	await client.send(last);
 	await waitUntil(() => received.at(-1)?.type === 'forget', 'the last line');
-	const subscribe = {type: 'subscribe', repo: 'repo'};
+	const subscribe = {type: 'subscribe', repo: 'repo'} as const;
 	expect(received).toStrictEqual([subscribe, subscribe, last]);
 });
 

@@ -90,7 +90,9 @@ function harness(
 	};
 }
 
-const keepGoing = (until: string | null = null): Job => ({
+const keepGoing = (
+	until: string | null = null,
+): Extract<Job, {kind: 'keep_going'}> => ({
 	kind: 'keep_going',
 	id: 'kg',
 	key: 'STA-1',
@@ -289,7 +291,12 @@ contractTest(
 	async state => {
 		const atLimit = {
 			...report('dialog', new Date(2026, 10, 9, 11, 58)),
-			codexDialog: {kind: 'model_switch' as const, title: 'Switch?'},
+			codexDialog: {
+				kind: 'model_switch' as const,
+				title: 'Switch?',
+				options: 2,
+				selected: 1,
+			},
 		};
 		const h = harness(state, [atLimit, atLimit]);
 		await h.store.save(afterLimit);
@@ -305,7 +312,10 @@ contractTest(
 	'keep_going leaves any other Codex dialog to a person',
 	async state => {
 		const h = harness(state, [
-			{...report('dialog'), codexDialog: {kind: 'other', title: 'Trust?'}},
+			{
+				...report('dialog'),
+				codexDialog: {kind: 'other', title: 'Trust?', options: 2, selected: 1},
+			},
 		]);
 		await h.store.save({...keepGoing(), idleChecks: 1});
 		expect(await h.fire(keepGoing())).toBe('waiting');
@@ -625,7 +635,7 @@ contractTest(
 		const at = harness(state, [draftReport], 'draft');
 		await at.store.save(atJobAgy);
 		expect(await at.fire(atJobAgy)).toBe('retrying');
-		expect(at.timers[0]?.arm).toBe(1);
+		expect(at.timers[0]).toMatchObject({arm: 1});
 	},
 );
 
@@ -651,7 +661,7 @@ contractTest(
 		const h = harness(state, [beforeReport, afterReport]);
 		await h.store.save(afterLimit);
 		expect(await h.fire(afterLimit, before)).toBe('waiting');
-		expect(h.timers[0]?.at).toBe('2026-11-24T09:11:11.000Z');
+		expect(h.timers[0]).toMatchObject({at: '2026-11-24T09:11:11.000Z'});
 		expect(await h.fire(afterLimit, after)).toBe('sent');
 		expect(h.sent).toStrictEqual(['continue']);
 	},

@@ -301,7 +301,7 @@ companion_command: |
 		['--init-cmd', '/do'],
 		['--agent-launch-flags', '--model opus --effort high'],
 		['--companion-command', 'echo companion'],
-	]) {
+	] as const) {
 		expect(args.includes(flag)).toBe(true);
 		expect(args[args.indexOf(flag) + 1]).toBe(value);
 	}

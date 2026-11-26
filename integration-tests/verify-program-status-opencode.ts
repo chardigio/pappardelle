@@ -72,7 +72,7 @@ try {
 		'-i',
 	]);
 	await harness.programStatus(repo).attach(key, session);
-	const statuses = await harness.mount(repo, key, session);
+	await harness.mount(repo, key, session);
 	const args = [agent, '--standalone', '--prompt', task];
 	console.log(`Fixture ${harness.root}; ${agent} ${version}`);
 	await harness.type(

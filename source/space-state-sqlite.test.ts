@@ -96,8 +96,8 @@ test('a rail poll that learns nothing new writes no row and no file', async () =
 	expect(f.signature('STA-1')).not.toBe(before.files[0]);
 	expect(f.row('STA-1')?.['updated_at']).toBe('2026-01-01T00:00:02.000Z');
 	expect(f.content('STA-1')['updatedAt']).toBe('2026-01-01T00:00:02.000Z');
-	expect(f.signature('STA-2')).toBe(before.files[1]);
-	expect(f.row('STA-2')).toStrictEqual(before.rows[1]);
+	expect(f.signature('STA-2')).toBe(before.files[1]!);
+	expect(f.row('STA-2')).toStrictEqual(before.rows[1]!);
 });
 
 test('recording the same PR link again writes nothing', async () => {

@@ -1,6 +1,4 @@
-import fs from 'node:fs';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import type {
 	ClaudeSessionState,

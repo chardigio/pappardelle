@@ -27,7 +27,7 @@ test('a close dialog too short for its spacing keeps every line of text', async 
 		const lines = await frame(
 			{
 				kind: 'close-space',
-				props: {spaceName: 'STA-123', currentIssue: null, tracker: null},
+				props: {spaceName: 'STA-123', currentIssue: null},
 			},
 			44,
 			height,

@@ -11,11 +11,12 @@ async function topRow(
 	width: number,
 ) {
 	const view = await render(
-		React.createElement(
-			PaneFrame,
-			{...props, isActive: true},
-			React.createElement('text', null, 'row'),
-		),
+		// eslint-disable-next-line react/no-children-prop -- createElement's types take a required children prop only in the props object
+		React.createElement(PaneFrame, {
+			...props,
+			isActive: true,
+			children: React.createElement('text', null, 'row'),
+		}),
 		{width, height: 3},
 	);
 	const {lines} = view.captureSpans();

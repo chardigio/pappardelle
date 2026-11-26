@@ -20,14 +20,16 @@ const socket = path.join(root, 'tmux.sock');
 const tmux = (args: string[]) =>
 	execFileSync('tmux', ['-S', socket, ...args], {encoding: 'utf8'});
 const {TMUX_PANE: _pane, ...cleanEnv} = process.env;
-delete cleanEnv.TMUX;
+delete cleanEnv['TMUX'];
 
 async function settles(promise: Promise<void>, ms: number) {
 	return Promise.race([promise.then(() => true), delay(ms).then(() => false)]);
 }
 
 function popupTtyPath(terminal: PopupTerminal) {
-	return readlinkSync(`/proc/self/fd/${terminal.input.fd}`);
+	// A tty.ReadStream carries its fd at runtime; @types/node does not declare it.
+	const input = terminal.input as typeof terminal.input & {fd: number};
+	return readlinkSync(`/proc/self/fd/${input.fd}`);
 }
 
 function fdsOn(ttyPath: string) {

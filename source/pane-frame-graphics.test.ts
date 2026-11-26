@@ -20,10 +20,10 @@ test('each tmux layer gets its own passthrough, with escapes doubled', () => {
 
 test('outside tmux a command is written as it came', () => {
 	const written: string[] = [];
-	const forwarder = new GraphicsForwarder(
-		sequence => written.push(sequence),
-		false,
-	);
+	const forwarder = new GraphicsForwarder(sequence => {
+		written.push(sequence);
+		return true;
+	}, false);
 	forwarder.probe();
 	forwarder.forward(command);
 	expect(written).toStrictEqual([command]);
@@ -31,10 +31,10 @@ test('outside tmux a command is written as it came', () => {
 
 test('inside tmux commands wait for the probe, then go out wrapped for the depth that answered', () => {
 	const written: string[] = [];
-	const forwarder = new GraphicsForwarder(
-		sequence => written.push(sequence),
-		true,
-	);
+	const forwarder = new GraphicsForwarder(sequence => {
+		written.push(sequence);
+		return true;
+	}, true);
 	forwarder.probe();
 	const probes = written.splice(0);
 	expect(probes.length).toBe(1);

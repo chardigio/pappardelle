@@ -89,7 +89,7 @@ test('text and JSON output keep only the last N turns', () => {
 	expect(turnsJson('STA-1', turns, 1)).toStrictEqual({
 		issueKey: 'STA-1',
 		totalTurns: 2,
-		turns: [turns[1]],
+		turns: turns.slice(-1),
 	});
 });
 

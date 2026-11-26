@@ -33,6 +33,8 @@ bun run test
 
 `install.sh` runs `bun run typecheck` before `bun run build`, since `bun build` doesn't typecheck; run from a clone, it installs a copy of the build to `~/.pappardelle/local/`.
 
+`bun run typecheck` checks the source the build ships. `bun run typecheck:test` checks it together with the tests, `test/helpers`, `scripts` and `integration-tests` (`tsconfig.test.json`), since bun strips types without checking them; `bun run test` runs it.
+
 `bun run build` embeds production React, OpenTUI, and Bun startup bytecode in
 `dist/pappardelle`, the only file it builds besides its source map. `bun run dev`
 keeps the source development workflow.

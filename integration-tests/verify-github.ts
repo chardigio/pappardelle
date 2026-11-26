@@ -138,7 +138,7 @@ async function verifyOrderingForBranch(provider: GitHubProvider) {
 		return;
 	}
 
-	let expected = allPrs[0];
+	let expected = allPrs[0]!;
 	for (const current of allPrs) {
 		if (current.updatedAt > expected.updatedAt) {
 			expected = current;

@@ -12,6 +12,8 @@ import {
 	setWorkspaceDiscovery,
 	type IssueTrackerConfig,
 	type TrackerIssue,
+	type TrackerProviderName,
+	type VcsProviderName,
 } from './providers/index.ts';
 import {claimIssue} from './tracker.ts';
 
@@ -73,8 +75,12 @@ test('createIssueTracker throws for jira without base_url', () => {
 	);
 });
 
+// Config validation rejects an unknown provider name; this test and the
+// createVcsHost one below cover the factories' throw for a name that got
+// past it.
 test('createIssueTracker throws for unknown provider', () => {
-	expect(() => createIssueTracker({provider: 'unknown'})).toThrow(
+	const provider = 'unknown' as unknown as TrackerProviderName;
+	expect(() => createIssueTracker({provider})).toThrow(
 		/Unknown issue tracker provider/,
 	);
 });
@@ -105,9 +111,8 @@ test('createVcsHost returns GitLabProvider for gitlab config', () => {
 });
 
 test('createVcsHost throws for unknown provider', () => {
-	expect(() => createVcsHost({provider: 'unknown'})).toThrow(
-		/Unknown VCS host provider/,
-	);
+	const provider = 'unknown' as unknown as VcsProviderName;
+	expect(() => createVcsHost({provider})).toThrow(/Unknown VCS host provider/);
 });
 
 test('createVcsHost returns singleton', () => {

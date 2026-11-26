@@ -38,7 +38,7 @@ import {
 	programStatusPath,
 	type ProgramStatusSnapshot,
 } from './program-status-monitor.ts';
-import type {ProgramReport} from './program-status.ts';
+import type {ProgramReport, ProgramState} from './program-status.ts';
 import {statusSocketPath} from './state-db.ts';
 import {StatusClient, type SendResult} from './status-client.ts';
 import type {ClientMessage} from './status-protocol.ts';
@@ -47,7 +47,7 @@ const execute = promisify(execFile);
 const pane = parseStatusPane('%1\t12\t0\t1\t12.owner', 'test-status')!;
 const target = {repo: 'repo', key: 'STA-1', pane};
 const at = 1_800_000_000_000;
-const report = (state: string): ProgramReport[] => [{state, id: ''}];
+const report = (state: ProgramState): ProgramReport[] => [{state, id: ''}];
 
 /** A monitor's publisher whose clock, flag and reconnects the test moves. */
 function testPublisher(
@@ -613,7 +613,7 @@ tmuxTest(
 			'the monitor to start a daemon',
 			60_000,
 		);
-		const [daemon] = daemons();
+		const started = daemons();
 		const rail = await subscribeRaw(statusSocket, 'repo');
 		const held = (key: string, exited: boolean) =>
 			rail.messages.some(message =>
@@ -640,7 +640,7 @@ tmuxTest(
 			'the second monitor’s snapshot',
 			30_000,
 		);
-		expect(daemons()).toStrictEqual([daemon]);
+		expect(daemons()).toStrictEqual(started);
 
 		tmux('kill-server');
 		await waitUntil(
@@ -652,7 +652,7 @@ tmuxTest(
 			() => held('STA-1', true) && held('STA-2', true),
 			'the snapshot each monitor sent as it stopped',
 		);
-		expect(daemons()).toStrictEqual([daemon]);
+		expect(daemons()).toStrictEqual(started);
 	},
 	120_000,
 );

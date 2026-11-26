@@ -7,7 +7,7 @@ import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {rejectionOf} from '../test/helpers/thrown.ts';
-import {parse, stringify} from 'yaml';
+import {stringify} from 'yaml';
 import {repoNameFromGitCommonDir} from './config.ts';
 import {newSpaceIdentity, protectedSessionNames} from './space-identity.ts';
 import {createStateDaos} from './state-daos.ts';

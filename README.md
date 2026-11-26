@@ -649,8 +649,9 @@ grep -lF "[$KEY]" ~/Library/Logs/stardust-workspace/idow-????????-??????.log
 bun run dev      # Watch mode (auto-rebuild on changes)
 bun run build    # Build the native executable
 bun run typecheck # Check TypeScript separately
+bun run typecheck:test # Check the tests, helpers, scripts and integration checks too
 bun start        # Run the built binary
-bun run test         # Lint + format check + tests
+bun run test         # Lint + format check + test typecheck + tests
 ```
 
 See the [OpenTUI migration report](docs/opentui-migration.md) for packaging choices, performance measurements, and validation.

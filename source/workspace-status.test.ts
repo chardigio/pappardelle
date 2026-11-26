@@ -407,7 +407,7 @@ test('a refresh locates every space with one tmux call and pipes only unmonitore
 		readWorktreePath: async () => null,
 		readMainWorktree: async () => ({path: '/repo', branch: 'main'}),
 		readDirty: async () => null,
-		statusKey: name => name,
+		statusKey: async name => name,
 		getCachedIssue: () => null,
 		async fetchIssues() {},
 		readEmoji: async () => undefined,

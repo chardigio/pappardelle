@@ -143,7 +143,6 @@ contractTest(
 contractTest(
 	'a working status is not read from a pane that has died, on any read, and a finished one is',
 	async state => {
-		const store = state.daos.programStatus;
 		const dead = {...current, dead: true};
 		await publishSnapshot(
 			state,

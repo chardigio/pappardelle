@@ -66,8 +66,9 @@ async function paneWidth(
 	pane: string,
 	run: (args: string[]) => Promise<string>,
 ) {
-	const dimensions = await getPaneDimensions(pane, run);
-	return dimensions.cols;
+	const {cols} = await getPaneDimensions(pane, run);
+	if (cols === undefined) throw new Error(`tmux reported no width for ${pane}`);
+	return cols;
 }
 
 test('isolated tmux preserves rail and companion drags, focus and inner sessions across zoom and orientation changes', async () => {

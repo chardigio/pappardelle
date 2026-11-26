@@ -78,7 +78,11 @@ test('interpolating the path into the command string executes it instead', async
 	const interpolated = expandTemplate(
 		`${JSON.stringify(bin)} "\${WORKTREE_PATH}"`,
 		{
+			ISSUE_KEY: 'STA-1',
 			WORKTREE_PATH: HOSTILE_PATH,
+			REPO_ROOT: dir,
+			MAIN_REPO_ROOT: dir,
+			REPO_NAME: 'repo',
 		},
 	);
 	await runIdeCommand(interpolated, {});

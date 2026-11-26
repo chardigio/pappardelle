@@ -30,8 +30,8 @@ test('a supervised wait ends early when a hook status or a native status changes
 		)) < 2000,
 	).toBe(true);
 	expect(
-		(await waited(3000, async () =>
-			publishSnapshot(
+		(await waited(3000, async () => {
+			await publishSnapshot(
 				state,
 				snapshotOf(
 					{
@@ -41,8 +41,8 @@ test('a supervised wait ends early when a hook status or a native status changes
 					},
 					[{state: 'working', id: ''}],
 				),
-			),
-		)) < 2000,
+			);
+		})) < 2000,
 	).toBe(true);
 });
 

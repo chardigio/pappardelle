@@ -5,7 +5,6 @@ import {once} from 'node:events';
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {fileURLToPath} from 'node:url';
 import {WorkspaceStatuses} from '../source/workspace-status.ts';
 import {
 	LIVENESS_CHECK_MS,

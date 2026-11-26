@@ -12,14 +12,15 @@
 import {JiraProvider} from '../source/providers/jira-provider.ts';
 import {loadConfig, matchProfileByProject} from '../source/config.ts';
 
-const BASE_URL = process.env['JIRA_BASE_URL'];
-if (!BASE_URL) {
+const baseUrl = process.env['JIRA_BASE_URL'];
+if (!baseUrl) {
 	console.error(
 		'❌ JIRA_BASE_URL is required. Example:\n  JIRA_BASE_URL=https://mycompany.atlassian.net bun integration-tests/verify-jira.ts',
 	);
 	process.exit(1);
 }
 
+const BASE_URL = baseUrl;
 const EXPLICIT_ISSUE = process.env['JIRA_ISSUE'];
 const STATUSES = (process.env['JIRA_STATUSES'] ?? 'To Do,In Progress')
 	.split(',')

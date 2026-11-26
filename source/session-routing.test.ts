@@ -55,6 +55,7 @@ test('resolves when issue key appears in spaces', () => {
 		idowArg: 'STA-464',
 		pendingTitle: 'Opening\u2026',
 		prevSpaceCount: 1,
+		inputIsIssueKey: true,
 	};
 	expect(isPendingSessionResolved(pending, ['STA-463', 'STA-464'])).toBe(true);
 });
@@ -66,6 +67,7 @@ test('does not resolve when issue key is absent from spaces', () => {
 		idowArg: 'STA-464',
 		pendingTitle: 'Opening\u2026',
 		prevSpaceCount: 1,
+		inputIsIssueKey: true,
 	};
 	expect(isPendingSessionResolved(pending, ['STA-463'])).toBe(false);
 });
@@ -77,6 +79,7 @@ test('resolves description session when space count increases', () => {
 		idowArg: 'add dark mode',
 		pendingTitle: 'Starting new session\u2026',
 		prevSpaceCount: 1,
+		inputIsIssueKey: false,
 	};
 	expect(isPendingSessionResolved(pending, ['STA-463', 'STA-464'])).toBe(true);
 });
@@ -88,6 +91,7 @@ test('does not resolve description session when count unchanged', () => {
 		idowArg: 'add dark mode',
 		pendingTitle: 'Starting new session\u2026',
 		prevSpaceCount: 1,
+		inputIsIssueKey: false,
 	};
 	expect(isPendingSessionResolved(pending, ['STA-463'])).toBe(false);
 });

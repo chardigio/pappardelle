@@ -45,7 +45,7 @@ test('plugin install answers --help and rejects flags instead of installing', ()
 });
 
 test('close, restart and update reject flags that are not theirs', () => {
-	const usages: Record<string, string> = {
+	const usages: Record<'close' | 'restart' | 'update', string> = {
 		close: 'Usage: pappardelle close <issue-key> [--yes]',
 		restart: 'Usage: pappardelle restart [--hard [--yes]]',
 		update: 'Usage: pappardelle update [--restart-tuis | --no-restart-tuis]',

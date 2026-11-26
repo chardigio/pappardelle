@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
@@ -10,10 +9,10 @@ import type {ApprovalPolicy} from './approve-policy.ts';
 import type {ClassifierVerdict} from './approve-classifier.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
 import type {Hold} from './holds.ts';
-import type {UsageLimit} from './agent-screen.ts';
 import type {SuperviseEntry} from './supervise-log.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 import {idowIdentities, testState} from '../test/helpers/state.ts';
+import {unreachable} from '../test/helpers/unreachable.ts';
 
 const fixtures = path.join(
 	import.meta.dirname,
@@ -59,12 +58,10 @@ function harness(
 	{
 		ignoresKeys = false,
 		caller = 'main',
-		app = null as string | null,
 		readAgyQuota,
 	}: {
 		ignoresKeys?: boolean;
 		caller?: string;
-		app?: string | null;
 		readAgyQuota?: SuperviseDeps['readAgyQuota'];
 	} = {},
 ) {
@@ -112,8 +109,10 @@ function harness(
 		readHook: async () => ({status: 'unknown'}),
 		readHookState: async () =>
 			hook ? {kind: 'state', state: hook} : {kind: 'none'},
-		readSnapshot: async () =>
-			app ? {app, status: 'idle', source: 'osc'} : null,
+		readSnapshot: () =>
+			unreachable(
+				'the harness lists no agent pane, so no status snapshot is read',
+			),
 		...(readAgyQuota ? {readAgyQuota} : {}),
 		runner,
 		serverRunner: () => ({status: 1, stdout: ''}),
@@ -149,7 +148,12 @@ function harness(
 		store: () => schedules,
 		holds: () => holds,
 		newHoldId: () => `h${++ids}`,
-		timers: () => ({create() {}, remove() {}}),
+		timers: () => ({
+			create() {},
+			remove() {},
+			exists: () =>
+				unreachable('supervise never asks whether a timer is loaded'),
+		}),
 		caller,
 		readStdin: () => undefined,
 		out: text => out.push(text),
@@ -851,7 +855,7 @@ test('a timeout past the cap and a missing --until are usage errors', () => {
 });
 
 test('state and answer handle agy question lists without misreading codexDialog', async () => {
-	const h = harness([fixture('agy-question')], {app: 'antigravity'});
+	const h = harness([fixture('agy-question')]);
 	expect(await h.run('state', 'STA-1', '--json')).toBe(0);
 	expect(JSON.parse(h.out[0]!)).toMatchObject({
 		state: 'question',
@@ -925,7 +929,6 @@ test('schedule --after-limit, state clearing, wait/watch isolation, and schedule
 		},
 	};
 	const h = harness([fixture('agy-idle')], {
-		app: 'antigravity',
 		async readAgyQuota() {
 			quotaCalls++;
 			return quotaResult;
@@ -1000,7 +1003,6 @@ test('schedule --after-limit, state clearing, wait/watch isolation, and schedule
 	let watchQuotaCalls = 0;
 	let limitQuota: AgyQuotaResult = {kind: 'unparsed'};
 	const hLimit = harness([limitScreen], {
-		app: 'antigravity',
 		async readAgyQuota() {
 			watchQuotaCalls++;
 			return limitQuota;
