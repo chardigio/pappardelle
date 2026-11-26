@@ -1,10 +1,11 @@
-import {execFile, execFileSync, spawnSync} from 'node:child_process';
+import {execFile, execFileSync} from 'node:child_process';
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {
 	killProcessesNaming,
@@ -554,7 +555,6 @@ test('a monitor that is stopping gives up on a daemon that does not take its las
 const monitorCli = fileURLToPath(
 	new URL('program-status-monitor-cli.ts', import.meta.url),
 );
-const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 // start-agent-session.sh waits for `attach`, so an `attach` that stays up
 // holds every agent launch. Each part is its own process here, as it is for
