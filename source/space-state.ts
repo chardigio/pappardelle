@@ -16,7 +16,7 @@ import {setImmediate as yieldToInput} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {resolveAgentProfileName, type PappardelleConfig} from './config.ts';
-import {isClaudeAgentProfile} from './config-launch-flags.ts';
+import {isAgyCommand, isClaudeAgentProfile} from './config-launch-flags.ts';
 import {PIPELINE_STATUSES, type PipelineStatus} from './providers/types.ts';
 import type {Unreadable} from './state-db.ts';
 
@@ -270,35 +270,6 @@ export async function findLatestSessionJsonl(
 
 export type SpaceAgentKind = 'claude' | 'agy' | 'other';
 
-const ENV_VALUE_FLAGS = new Set([
-	'-u',
-	'--unset',
-	'-C',
-	'--chdir',
-	'-S',
-	'--split-string',
-]);
-
-function unwrappedCommandBasename(command: string): string {
-	const tokens = command.trim().split(/\s+/).filter(Boolean);
-	for (let i = 0; i < tokens.length; i++) {
-		const token = tokens[i]!;
-		if (path.basename(token) === 'env') {
-			while (i + 1 < tokens.length && tokens[i + 1]!.startsWith('-')) {
-				const flag = tokens[++i]!;
-				if (ENV_VALUE_FLAGS.has(flag) && i + 1 < tokens.length) i++;
-			}
-
-			continue;
-		}
-
-		if (/^[A-Za-z_]\w*=/.test(token)) continue;
-		return path.basename(token);
-	}
-
-	return '';
-}
-
 export function resolveSpaceAgentKind(
 	state: SpaceState | null,
 	config?: PappardelleConfig | null,
@@ -315,7 +286,7 @@ export function resolveSpaceAgentKind(
 		(defined ? isClaudeAgentProfile(defined) : agentProfileName === 'claude');
 	if (isClaude) return {kind: 'claude', agentProfileName};
 	const isAgy = defined
-		? unwrappedCommandBasename(defined.command) === 'agy'
+		? isAgyCommand(defined.command)
 		: agentProfileName === 'agy';
 	return {kind: isAgy ? 'agy' : 'other', agentProfileName};
 }
