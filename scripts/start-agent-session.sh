@@ -285,12 +285,11 @@ if os.path.exists(target_path):
         sys.exit(0)
     settings = loaded
 
-if "trustedWorkspaces" in settings and settings["trustedWorkspaces"] is not None:
-    if not isinstance(settings["trustedWorkspaces"], list):
-        sys.exit(0)
-    trusted = settings["trustedWorkspaces"]
-else:
+trusted = settings.get("trustedWorkspaces")
+if trusted is None:
     trusted = []
+elif not isinstance(trusted, list):
+    sys.exit(0)
 if worktree in trusted:
     sys.exit(0)
 trusted.append(worktree)

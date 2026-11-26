@@ -11,7 +11,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {sessionNamesFor} from './space-identity.ts';
 import {test, expect, beforeAll, afterAll, beforeEach} from 'bun:test';
-import {teardown} from '../test/helpers/teardown.ts';
+import {setTestEnv, teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {LatestTask} from './latest-task.ts';
 import {
@@ -1155,44 +1155,33 @@ test("a new agent session carries its agent profile's env, one -e per variable",
 
 test('ensureAgentSession pre-trusts agy and wrapped agy commands without touching non-agy profiles', async () => {
 	const settingsPath = join(tempDir('ensure-agy-trust-'), 'settings.json');
-	const previous = process.env['PAPPARDELLE_AGY_SETTINGS_PATH'];
-	process.env['PAPPARDELLE_AGY_SETTINGS_PATH'] = settingsPath;
-	teardown(() => {
-		if (previous === undefined)
-			delete process.env['PAPPARDELLE_AGY_SETTINGS_PATH'];
-		else process.env['PAPPARDELLE_AGY_SETTINGS_PATH'] = previous;
-	});
+	setTestEnv('PAPPARDELLE_AGY_SETTINGS_PATH', settingsPath);
 
 	const run: AsyncTmuxRunner = async args => {
 		if (args.includes('has-session')) throw new Error('no session');
 		return '';
 	};
 
-	await ensureAgentSession('TEST-NEW', '/tmp/wt-codex', false, run, {
-		name: 'codex',
-		command: 'codex',
-		args: '',
-		isClaude: false,
-		model: '',
-		effort: '',
-	});
+	await ensureAgentSession(
+		'TEST-NEW',
+		'/tmp/wt-codex',
+		false,
+		run,
+		CODEX_PROFILE,
+	);
 	expect(existsSync(settingsPath)).toBe(false);
 
 	await ensureAgentSession('TEST-NEW', '/tmp/wt-agy', false, run, {
+		...DEFAULT_RESOLVED_AGENT_PROFILE,
 		name: 'agy',
 		command: 'agy',
-		args: '',
 		isClaude: false,
-		model: '',
-		effort: '',
 	});
 	await ensureAgentSession('TEST-NEW', '/tmp/wt-agy-wrap', false, run, {
+		...DEFAULT_RESOLVED_AGENT_PROFILE,
 		name: 'agy-wrap',
 		command: 'env FOO=1 agy',
-		args: '',
 		isClaude: false,
-		model: '',
-		effort: '',
 	});
 
 	expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toStrictEqual({

@@ -12,6 +12,20 @@ afterAll(async () => {
 	for (const step of stateTeardowns.reverse()) await step();
 });
 
+function sentKeys(calls: readonly string[][]): Array<string | undefined> {
+	return calls.filter(args => args[0] === 'send-keys').map(args => args.at(-1));
+}
+
+function agyScreen(footer: string, ...above: string[]): string {
+	return [
+		...above,
+		'────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────',
+		`${footer}    auto · Gemini 4 Hydrogen · medium`,
+	].join('\n');
+}
+
 function recorder(
 	sessions: string[],
 	failOn?: string,
@@ -76,9 +90,7 @@ test('--keys never answers a prompt; Escape still declines it', () => {
 	expect(press(['Enter'])).toBe('prompt');
 	expect(press(['Escape'])).toBe('sent');
 	expect(press(['1'], true)).toBe('sent');
-	expect(
-		calls.filter(args => args[0] === 'send-keys').map(args => args.at(-1)),
-	).toStrictEqual(['Escape', '1']);
+	expect(sentKeys(calls)).toStrictEqual(['Escape', '1']);
 });
 
 test('--keys never touches a Codex dialog, where Escape can quit Codex', () => {
@@ -123,11 +135,7 @@ test('--keys refuses every key (including Escape) on agy trust dialog, and refus
 	expect(
 		sendKeysToSpaceAgent('STA-1', ['Escape'], {runner: review.runner}),
 	).toBe('sent');
-	expect(
-		review.calls
-			.filter(args => args[0] === 'send-keys')
-			.map(args => args.at(-1)),
-	).toStrictEqual(['Escape']);
+	expect(sentKeys(review.calls)).toStrictEqual(['Escape']);
 });
 
 test('--keys adapts Escape and S-Tab/BTab for agy vim insert mode and announcement banner without affecting Claude or Codex', () => {
@@ -138,41 +146,14 @@ test('--keys adapts Escape and S-Tab/BTab for agy vim insert mode and announceme
 			runner,
 			pause: ms => pauses.push(ms),
 		});
-		return {
-			result,
-			sent: calls
-				.filter(args => args[0] === 'send-keys')
-				.map(args => args.at(-1)),
-			pauses,
-		};
+		return {result, sent: sentKeys(calls), pauses};
 	};
 
-	const agyWorkingInsert = [
-		'⣾  Running command... 2s',
-		'────────────────────',
-		'\u001B[94m>\u001B[39m',
-		'────────────────────',
-		'-- INSERT -- esc to cancel    auto · Gemini 4 Hydrogen · medium',
-	].join('\n');
-	const agyWorkingNormal = [
-		'⣾  Running command... 2s',
-		'────────────────────',
-		'\u001B[94m>\u001B[39m',
-		'────────────────────',
-		'esc to cancel    auto · Gemini 4 Hydrogen · medium',
-	].join('\n');
-	const agyIdleInsertNoBanner = [
-		'────────────────────',
-		'\u001B[94m>\u001B[39m',
-		'────────────────────',
-		'-- INSERT -- ? for shortcuts    auto · Gemini 4 Hydrogen · medium',
-	].join('\n');
-	const agyFactoryNoBanner = [
-		'────────────────────',
-		'\u001B[94m>\u001B[39m',
-		'────────────────────',
-		'? for shortcuts    auto · Gemini 4 Hydrogen · medium',
-	].join('\n');
+	const spinner = '⣾  Running command... 2s';
+	const agyWorkingInsert = agyScreen('-- INSERT -- esc to cancel', spinner);
+	const agyWorkingNormal = agyScreen('esc to cancel', spinner);
+	const agyIdleInsertNoBanner = agyScreen('-- INSERT -- ? for shortcuts');
+	const agyFactoryNoBanner = agyScreen('? for shortcuts');
 
 	// Working in vim insert mode: one supervisor Escape sends two with a pause.
 	const interrupt = send(agyWorkingInsert, ['Escape']);
@@ -182,14 +163,11 @@ test('--keys adapts Escape and S-Tab/BTab for agy vim insert mode and announceme
 
 	// Working with vim insert + announcement banner: S-Tab must NOT send Escape
 	// (which would cancel the running turn), only normalize to BTab.
-	const agyWorkingInsertWithBanner = [
+	const agyWorkingInsertWithBanner = agyScreen(
+		'-- INSERT -- esc to cancel',
 		' ┃ esc to dismiss',
-		'⣾  Running command... 2s',
-		'────────────────────',
-		'\u001B[94m>\u001B[39m',
-		'────────────────────',
-		'-- INSERT -- esc to cancel    auto · Gemini 4 Hydrogen · medium',
-	].join('\n');
+		spinner,
+	);
 	expect(send(agyWorkingInsertWithBanner, ['S-Tab']).sent).toStrictEqual([
 		'BTab',
 	]);

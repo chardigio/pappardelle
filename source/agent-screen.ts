@@ -450,22 +450,29 @@ function isAgyBottomAnchored(
 		.every(line => !line.trim() || AGY_BOTTOM_LINE.test(line));
 }
 
+const AGY_DIALOG_SPECS: ReadonlyArray<{
+	kind: AgyDialogKind;
+	footer: RegExp;
+	requireAbove?: RegExp;
+}> = [
+	{kind: 'subagent_manage', footer: AGY_MANAGE_FOOTER},
+	{kind: 'trust', footer: AGY_TRUST_FOOTER, requireAbove: AGY_TRUST_PROMPT},
+	{kind: 'artifact_review', footer: AGY_ARTIFACT_REVIEW_FOOTER},
+];
+
 function parseAgyDialogKind(lines: string[]): AgyDialogKind | null {
-	const manageAt = lastIndex(lines, line => AGY_MANAGE_FOOTER.test(line));
-	if (manageAt !== -1 && isAgyBottomAnchored(lines, manageAt))
-		return 'subagent_manage';
-	const trustAt = lastIndex(lines, line => AGY_TRUST_FOOTER.test(line));
-	if (
-		trustAt !== -1 &&
-		isAgyBottomAnchored(lines, trustAt) &&
-		lines.slice(0, trustAt).some(line => AGY_TRUST_PROMPT.test(line))
-	)
-		return 'trust';
-	const artifactAt = lastIndex(lines, line =>
-		AGY_ARTIFACT_REVIEW_FOOTER.test(line),
-	);
-	if (artifactAt !== -1 && isAgyBottomAnchored(lines, artifactAt))
-		return 'artifact_review';
+	for (const {kind, footer, requireAbove} of AGY_DIALOG_SPECS) {
+		const footerAt = lastIndex(lines, line => footer.test(line));
+		if (
+			footerAt !== -1 &&
+			isAgyBottomAnchored(lines, footerAt) &&
+			(!requireAbove ||
+				lines.slice(0, footerAt).some(line => requireAbove.test(line)))
+		) {
+			return kind;
+		}
+	}
+
 	return null;
 }
 

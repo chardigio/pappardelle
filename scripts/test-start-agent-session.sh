@@ -982,12 +982,21 @@ AGY_WT2="$TMPDIR_ROOT/agy-wt2"
 AGY_WT3="$TMPDIR_ROOT/agy-wt3"
 mkdir -p "$AGY_WT1" "$AGY_WT2" "$AGY_WT3"
 
+read_agy_settings() {
+    python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+trusted = ",".join(d.get("trustedWorkspaces", []))
+print(d.get("editorMode", "") + "|" + trusted if sys.argv[2] == "with-mode" else trusted)
+' "$1" "${2:-trusted}" 2>/dev/null
+}
+
 # Bare agy command creates parent directory and writes trustedWorkspaces.
 PAPPARDELLE_AGY_SETTINGS_PATH="$AGY_SETTINGS" \
     start_session --issue-key "${TEST_PREFIX}-agy1" --repo-name "$TEST_REPO" --worktree "$AGY_WT1" \
     --agent-command agy --agent-is-claude false --no-agent --companion-command '' 2>/dev/null
-assert_eq "agy pre-trust writes trustedWorkspaces entry" "[$AGY_WT1]" \
-    "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("[" + ",".join(d.get("trustedWorkspaces", [])) + "]")' "$AGY_SETTINGS" 2>/dev/null)"
+assert_eq "agy pre-trust writes trustedWorkspaces entry" "$AGY_WT1" \
+    "$(read_agy_settings "$AGY_SETTINGS")"
 
 # Wrapped `env FOO=1 agy` appends without duplicating or dropping other keys.
 python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["editorMode"]="vim"; json.dump(d, open(p,"w"))' "$AGY_SETTINGS"
@@ -995,14 +1004,14 @@ PAPPARDELLE_AGY_SETTINGS_PATH="$AGY_SETTINGS" \
     start_session --issue-key "${TEST_PREFIX}-agy2" --repo-name "$TEST_REPO" --worktree "$AGY_WT2" \
     --agent-command "env FOO=1 agy" --agent-is-claude false --no-agent --companion-command '' 2>/dev/null
 assert_eq "wrapped agy preserves existing keys and appends worktree" "vim|$AGY_WT1,$AGY_WT2" \
-    "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("editorMode","") + "|" + ",".join(d.get("trustedWorkspaces", [])))' "$AGY_SETTINGS" 2>/dev/null)"
+    "$(read_agy_settings "$AGY_SETTINGS" with-mode)"
 
 # Non-agy (codex) does not add to agy settings.
 PAPPARDELLE_AGY_SETTINGS_PATH="$AGY_SETTINGS" \
     start_session --issue-key "${TEST_PREFIX}-agy3" --repo-name "$TEST_REPO" --worktree "$AGY_WT3" \
     --agent-command codex --agent-is-claude false --no-agent --companion-command '' 2>/dev/null
 assert_eq "codex launch does not add to agy trustedWorkspaces" "$AGY_WT1,$AGY_WT2" \
-    "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(",".join(d.get("trustedWorkspaces", [])))' "$AGY_SETTINGS" 2>/dev/null)"
+    "$(read_agy_settings "$AGY_SETTINGS")"
 
 # Corrupt existing settings.json is left untouched (never clobbered).
 AGY_CORRUPT="$TMPDIR_ROOT/agy-corrupt.json"

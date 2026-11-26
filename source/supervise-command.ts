@@ -6,6 +6,7 @@ import {readFileSync} from 'node:fs';
 import {stripVTControlCharacters} from 'node:util';
 import {
 	captureAgentScreen,
+	isEndedAgentState,
 	listAgentKeys,
 	readAgentState,
 	WAIT_TARGETS,
@@ -153,8 +154,7 @@ async function readState(
 	if (
 		quota === 'never' ||
 		!deps.readAgyQuota ||
-		report.state === 'no_session' ||
-		report.state === 'exited'
+		isEndedAgentState(report.state)
 	) {
 		return report;
 	}
@@ -195,10 +195,6 @@ const AGY_DIALOG_LABELS: Record<AgyDialogKind, string> = {
 	subagent_manage: 'Subagent approval manage view',
 };
 
-function agyDialogLabel(dialog: AgyDialogKind): string {
-	return AGY_DIALOG_LABELS[dialog];
-}
-
 export function formatState(report: AgentStateReport): string {
 	const lines = [
 		`${report.key}: ${report.state}${report.app ? ` (${report.app})` : ''}`,
@@ -222,7 +218,7 @@ export function formatState(report: AgentStateReport): string {
 	if (report.codexDialog)
 		lines.push(`Codex dialog: ${report.codexDialog.title}`);
 	else if (report.agyDialog)
-		lines.push(`Dialog: ${agyDialogLabel(report.agyDialog)}`);
+		lines.push(`Dialog: ${AGY_DIALOG_LABELS[report.agyDialog]}`);
 	else if (
 		report.status?.status === 'blocked' &&
 		report.status.message === 'Approve plan'
@@ -326,8 +322,7 @@ async function waitFor(
 	// Nothing will change in a space whose agent has exited or closed, so don't wait it out.
 	if (
 		(command.until !== 'changed' && matches(first)) ||
-		first.state === 'no_session' ||
-		first.state === 'exited'
+		isEndedAgentState(first.state)
 	) {
 		return {...first, timedOut: false};
 	}
@@ -340,11 +335,7 @@ async function waitFor(
 			Math.min(SCREEN_POLL_MS, deadline - deps.now().getTime()),
 		);
 		report = await readState(key, deps, {quota: 'never'});
-		if (
-			matches(report) ||
-			report.state === 'no_session' ||
-			report.state === 'exited'
-		)
+		if (matches(report) || isEndedAgentState(report.state))
 			return {...report, timedOut: false};
 	}
 
@@ -507,7 +498,7 @@ function formatChange(change: SpaceChange): string {
 	if (change.codexDialog)
 		lines.push(`  Codex dialog: ${change.codexDialog.title}`);
 	if (change.agyDialog)
-		lines.push(`  Dialog: ${agyDialogLabel(change.agyDialog)}`);
+		lines.push(`  Dialog: ${AGY_DIALOG_LABELS[change.agyDialog]}`);
 	if (change.composer) lines.push(`  Composer: ${change.composer}`);
 	return lines.join('\n');
 }

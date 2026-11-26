@@ -14,7 +14,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import type {AgentStateReport} from './agent-state.ts';
+import {isEndedAgentState, type AgentStateReport} from './agent-state.ts';
 
 type OneShot = {
 	id: string;
@@ -294,7 +294,7 @@ async function fireOneShot(
 ): Promise<FireResult> {
 	const {now} = deps;
 	const report = await deps.readState(job.key);
-	if (report.state === 'no_session' || report.state === 'exited') {
+	if (isEndedAgentState(report.state)) {
 		await finish(job, deps);
 		return report.state;
 	}

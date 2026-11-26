@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import {
 	AGENT_STATES,
 	BLOCKED,
+	isEndedAgentState,
 	type AgentState,
 	type AgentStateReport,
 } from './agent-state.ts';
@@ -115,7 +116,6 @@ export function changesSince(
 			seenAs(report) !== baseline[report.key] &&
 			(targets === null ||
 				targets.has(report.state) ||
-				report.state === 'no_session' ||
-				report.state === 'exited'),
+				isEndedAgentState(report.state)),
 	);
 }

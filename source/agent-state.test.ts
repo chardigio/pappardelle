@@ -1,4 +1,5 @@
 import {agentScreenFixture as fixture} from '../test/helpers/agent-screens.ts';
+import {snapshotOf} from '../test/helpers/program-status.ts';
 import {idowIdentities} from '../test/helpers/state.ts';
 import {test, expect} from 'bun:test';
 import {thrownBy} from '../test/helpers/thrown.ts';
@@ -103,12 +104,42 @@ test('every blocked state counts as ready, and working never does', () => {
 	expect(WAIT_TARGETS.ready.includes('working')).toBe(false);
 });
 
+const paneRow = (
+	command: string,
+	{
+		pinned = '%1',
+		pid = '42',
+		dead = false,
+		piped = !dead,
+		marker = '42.marker',
+		createdSeconds,
+	}: {
+		pinned?: string;
+		pid?: string;
+		dead?: boolean;
+		piped?: boolean;
+		marker?: string;
+		createdSeconds?: number;
+	} = {},
+) =>
+	[
+		'11',
+		pinned,
+		'%1',
+		pid,
+		dead ? '1' : '0',
+		piped ? '1' : '0',
+		marker,
+		command,
+		...(createdSeconds === undefined ? [] : [String(createdSeconds)]),
+	].join('\t') + '\n';
+
 test('dead pane and exited-to-shell panes classify as exited, not idle or permission', async () => {
 	// Dead remain-on-exit pane overrides stale hook and frozen prompt on screen.
 	const dead = await state(
 		fixture('claude-permission-bash'),
 		{status: 'waiting_for_approval', tool: 'Bash'},
-		{paneListing: '11\t%1\t%1\t\t1\t0\t42.marker\tbash\n'},
+		{paneListing: paneRow('bash', {pid: '', dead: true})},
 	);
 	expect(dead.state).toBe('exited');
 	expect(dead.permission).toBe(null);
@@ -117,26 +148,24 @@ test('dead pane and exited-to-shell panes classify as exited, not idle or permis
 	const unmonitoredDead = await state(
 		fixture('claude-permission-bash'),
 		{status: 'waiting_for_approval', tool: 'Bash'},
-		{paneListing: '11\t\t%1\t\t1\t0\t\tbash\n'},
+		{
+			paneListing: paneRow('bash', {
+				pinned: '',
+				pid: '',
+				dead: true,
+				marker: '',
+			}),
+		},
 	);
 	expect(unmonitoredDead.state).toBe('exited');
 	expect(unmonitoredDead.permission).toBe(null);
 
 	// Alive pane back at login shell after OSC 133;A cleared idle classifies as exited.
 	const pane = parseStatusPane('%1\t42\t0\t1\t42.marker', statusSocket())!;
+	const target = {repo: 'repo', key: 'STA-1', pane};
 	const shellAfterOsc = await state('[user@host qa-a1]$ ', null, {
-		paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tzsh\n',
-		snapshot: {
-			version: 1,
-			repo: 'repo',
-			key: 'STA-1',
-			pane,
-			authoritative: true,
-			exited: false,
-			updatedAt: 0,
-			records: [],
-			info: {status: 'unknown'},
-		},
+		paneListing: paneRow('zsh'),
+		snapshot: snapshotOf(target, [], {updatedAt: 0}),
 	});
 	expect(shellAfterOsc.state).toBe('exited');
 
@@ -144,35 +173,29 @@ test('dead pane and exited-to-shell panes classify as exited, not idle or permis
 	const shellAfterHook = await state(
 		'[user@host qa-a1]$ ',
 		{status: 'ended'},
-		{paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n'},
+		{paneListing: paneRow('bash')},
 	);
 	expect(shellAfterHook.state).toBe('exited');
 
 	// Exited-to-shell after crash where OSC snapshot retained `done`.
 	const crashedAfterDone = await state('[user@host qa-a1]$ ', null, {
-		paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n',
-		snapshot: {
-			version: 1,
-			repo: 'repo',
-			key: 'STA-1',
-			pane,
-			authoritative: true,
-			exited: false,
-			updatedAt: 0,
-			records: [{state: 'done', id: '', app: 'antigravity'}],
-			info: {status: 'done', id: '', app: 'antigravity'},
-		},
+		paneListing: paneRow('bash'),
+		snapshot: snapshotOf(
+			target,
+			[{state: 'done', id: '', app: 'antigravity'}],
+			{updatedAt: 0},
+		),
 	});
 	expect(crashedAfterDone.state).toBe('exited');
 
 	// Live agent with a composer or non-shell process stays idle, never exited.
 	const liveComposer = await state(fixture('agy-idle'), null, {
-		paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n',
+		paneListing: paneRow('bash'),
 	});
 	expect(liveComposer.state).toBe('idle');
 
 	const nonShell = await state('', null, {
-		paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tagy\n',
+		paneListing: paneRow('agy'),
 	});
 	expect(nonShell.state).toBe('idle');
 });
@@ -181,26 +204,27 @@ test('a shell foreground with no prior agent status source does not classify as 
 	// A newly created space still running its login shell before the agent
 	// launches (or an unmonitored test stub) has no status source yet.
 	const noStatus = await state('', null, {
-		paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n',
+		paneListing: paneRow('bash'),
 	});
 	expect(noStatus.state).toBe('idle');
 
 	const unknownHook = await state(
 		'',
 		{status: 'unknown'},
-		{paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tzsh\n'},
+		{paneListing: paneRow('zsh')},
 	);
 	expect(unknownHook.state).toBe('idle');
 
 	// A respawned Claude space still starting in its shell has an older hook
 	// record on disk (lastUpdate < session_created): do not classify as exited.
 	const sessionCreatedSeconds = 1_764_162_700;
+	const createdListing = paneRow('bash', {
+		createdSeconds: sessionCreatedSeconds,
+	});
 	const staleHook = await state(
 		'',
 		{status: 'ended', lastUpdate: sessionCreatedSeconds * 1000 - 1000},
-		{
-			paneListing: `11\t%1\t%1\t42\t0\t1\t42.marker\tbash\t${sessionCreatedSeconds}\n`,
-		},
+		{paneListing: createdListing},
 	);
 	expect(staleHook.state).toBe('idle');
 
@@ -209,9 +233,7 @@ test('a shell foreground with no prior agent status source does not classify as 
 	const freshHook = await state(
 		'',
 		{status: 'ended', lastUpdate: sessionCreatedSeconds * 1000},
-		{
-			paneListing: `11\t%1\t%1\t42\t0\t1\t42.marker\tbash\t${sessionCreatedSeconds}\n`,
-		},
+		{paneListing: createdListing},
 	);
 	expect(freshHook.state).toBe('exited');
 });

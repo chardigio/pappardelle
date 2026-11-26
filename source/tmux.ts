@@ -2131,7 +2131,7 @@ export async function sendToSpaceAgent(
 // parser finishes decoding bare Escape before reading the next sequence.
 const AGY_KEY_SETTLE_MS = 80;
 
-function pauseSync(ms: number): void {
+export function sleepSync(ms: number): void {
 	if (ms <= 0) return;
 	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -2156,11 +2156,10 @@ function adaptAgySupervisorKeys(
 		return {keys: ['Escape', 'Escape'], settleAfterEscape: true};
 	}
 
-	const hasShiftTab = keys.some(key => key === 'S-Tab' || key === 'BTab');
-	if (!hasShiftTab) return {keys: [...keys], settleAfterEscape: false};
-
 	const normalized = keys.map(key => (key === 'S-Tab' ? 'BTab' : key));
 	const firstShiftTab = normalized.indexOf('BTab');
+	if (firstShiftTab === -1) return {keys: normalized, settleAfterEscape: false};
+
 	let leadingEscapes = 0;
 	for (let index = firstShiftTab - 1; index >= 0; index--) {
 		if (normalized[index] === 'Escape') leadingEscapes++;
@@ -2223,7 +2222,7 @@ export function sendKeysToSpaceAgent(
 		}
 	}
 
-	const pause = options.pause ?? pauseSync;
+	const pause = options.pause ?? sleepSync;
 	for (let index = 0; index < effectiveKeys.length; index++) {
 		const key = effectiveKeys[index]!;
 		const r = runner([
@@ -4247,21 +4246,14 @@ export function pretrustDirectoryForAgy(
 			settings = parsed as Record<string, unknown>;
 		}
 
-		const currentTrusted = settings['trustedWorkspaces'];
-		if (
-			currentTrusted !== undefined &&
-			currentTrusted !== null &&
-			!Array.isArray(currentTrusted)
-		) {
+		const existing = settings['trustedWorkspaces'] ?? [];
+		if (!Array.isArray(existing)) {
 			log.warn(
 				`Refusing to overwrite non-array trustedWorkspaces in agy settings (${targetPath})`,
 			);
 			return;
 		}
 
-		const existing = Array.isArray(currentTrusted)
-			? (currentTrusted as unknown[])
-			: [];
 		if (existing.includes(worktreePath)) return;
 
 		settings['trustedWorkspaces'] = [...existing, worktreePath];

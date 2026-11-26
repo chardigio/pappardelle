@@ -9,6 +9,7 @@ import {
 	type SuperviseDeps,
 } from './supervise-command.ts';
 import {POLICY_REFUSED_EXIT} from './answer-decision.ts';
+import type {AgentStateReport} from './agent-state.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 import type {ClassifierVerdict} from './approve-classifier.ts';
 import type {ClaudeSessionState, ClaudeStatusInfo} from './claude-status.ts';
@@ -1058,6 +1059,22 @@ test('agy trust dialog refuses answer without --force and formats as dialog', as
 	expect(h.pressed).toStrictEqual([]);
 	expect(h.err[0]!).toMatch(/shows an agy dialog; a person answers it/);
 
+	const stateReport = (
+		overrides: Partial<AgentStateReport>,
+	): AgentStateReport => ({
+		key: 'STA-1',
+		state: 'dialog',
+		app: 'antigravity',
+		status: null,
+		permission: null,
+		question: null,
+		usageLimit: null,
+		codexDialog: null,
+		agyDialog: null,
+		composer: null,
+		screen: '',
+		...overrides,
+	});
 	const approvePlanStatus = {
 		status: 'blocked' as const,
 		kind: 'permission' as const,
@@ -1066,53 +1083,21 @@ test('agy trust dialog refuses answer without --force and formats as dialog', as
 		source: 'osc' as const,
 	};
 	expect(
-		formatState({
-			key: 'STA-1',
-			state: 'idle',
-			app: 'antigravity',
-			status: approvePlanStatus,
-			permission: null,
-			question: null,
-			usageLimit: null,
-			codexDialog: null,
-			agyDialog: null,
-			composer: '',
-			screen: '',
-		}),
+		formatState(
+			stateReport({state: 'idle', status: approvePlanStatus, composer: ''}),
+		),
 	).toBe('STA-1: idle (antigravity)\nPending artifact review (/artifact)');
 
 	// Parsed agyDialog wins over any stale earlier OSC status message.
 	expect(
-		formatState({
-			key: 'STA-1',
-			state: 'dialog',
-			app: 'antigravity',
-			status: approvePlanStatus,
-			permission: null,
-			question: null,
-			usageLimit: null,
-			codexDialog: null,
-			agyDialog: 'subagent_manage',
-			composer: null,
-			screen: '',
-		}),
+		formatState(
+			stateReport({status: approvePlanStatus, agyDialog: 'subagent_manage'}),
+		),
 	).toBe('STA-1: dialog (antigravity)\nDialog: Subagent approval manage view');
 
-	expect(
-		formatState({
-			key: 'STA-1',
-			state: 'dialog',
-			app: 'antigravity',
-			status: null,
-			permission: null,
-			question: null,
-			usageLimit: null,
-			codexDialog: null,
-			agyDialog: 'artifact_review',
-			composer: null,
-			screen: '',
-		}),
-	).toBe('STA-1: dialog (antigravity)\nDialog: Artifact review (/artifact)');
+	expect(formatState(stateReport({agyDialog: 'artifact_review'}))).toBe(
+		'STA-1: dialog (antigravity)\nDialog: Artifact review (/artifact)',
+	);
 });
 
 test('wait returns immediately when the agent has exited or exits mid-wait', async () => {

@@ -294,7 +294,10 @@ contractTest(
 		await kg.store.save({...keepGoing(), idleChecks: 1});
 		expect(await kg.fire(keepGoing())).toBe('waiting');
 		expect(kg.sent).toStrictEqual([]);
-		expect(kg.store.load('kg')?.idleChecks).toBe(0);
+		expect(kg.store.load('kg')).toMatchObject({
+			kind: 'keep_going',
+			idleChecks: 0,
+		});
 
 		const oneShot = harness(state, [report('exited')]);
 		await oneShot.store.save(atJob);

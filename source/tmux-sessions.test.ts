@@ -15,7 +15,7 @@ import {
 	pretrustDirectoryForClaude,
 	buildAgentResumeCommand,
 } from './tmux.ts';
-import {teardown} from '../test/helpers/teardown.ts';
+import {setTestEnv} from '../test/helpers/teardown.ts';
 import {
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	type ResolvedAgentProfile,
@@ -170,13 +170,7 @@ test('pretrustDirectoryForAgy refuses to overwrite corrupt JSON', () => {
 
 test('pretrustDirectoryForAgy honors PAPPARDELLE_AGY_SETTINGS_PATH', () => {
 	const settingsPath = join(tempDir('pretrust-agy-env-'), 'settings.json');
-	const previous = process.env['PAPPARDELLE_AGY_SETTINGS_PATH'];
-	process.env['PAPPARDELLE_AGY_SETTINGS_PATH'] = settingsPath;
-	teardown(() => {
-		if (previous === undefined)
-			delete process.env['PAPPARDELLE_AGY_SETTINGS_PATH'];
-		else process.env['PAPPARDELLE_AGY_SETTINGS_PATH'] = previous;
-	});
+	setTestEnv('PAPPARDELLE_AGY_SETTINGS_PATH', settingsPath);
 
 	pretrustDirectoryForAgy('/tmp/worktree/STA-400');
 	expect(existsSync(settingsPath)).toBe(true);

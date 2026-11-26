@@ -34,3 +34,14 @@ export function teardown(step: Step): void {
 
 	steps.push(step);
 }
+
+/** Set an env var for the current test and restore its prior value on teardown. */
+export function setTestEnv(name: string, value: string | undefined): void {
+	const previous = process.env[name];
+	if (value === undefined) Reflect.deleteProperty(process.env, name);
+	else process.env[name] = value;
+	teardown(() => {
+		if (previous === undefined) Reflect.deleteProperty(process.env, name);
+		else process.env[name] = previous;
+	});
+}

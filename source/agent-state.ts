@@ -56,6 +56,13 @@ export const BLOCKED: readonly AgentState[] = [
 	'usage_limit',
 ];
 
+/** True when no live agent process is running in the space. */
+export function isEndedAgentState(
+	state: AgentState,
+): state is 'exited' | 'no_session' {
+	return state === 'exited' || state === 'no_session';
+}
+
 /** The states each `wait --until` target accepts; `changed` is any new state. */
 export const WAIT_TARGETS: Record<
 	Exclude<WaitTarget, 'changed'>,
