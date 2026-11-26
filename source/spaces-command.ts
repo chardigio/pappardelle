@@ -27,9 +27,9 @@ import type {SpaceRegistryDao} from './space-registry.ts';
 import {
 	findSpaceTranscript,
 	resolveSpaceAgentKind,
-	type AgentSessionsDao,
 	type SpaceStateDao,
 } from './space-state.ts';
+import type {AgentSessionsDao} from './agent-sessions.ts';
 import type {SpaceIdentity, SpaceIdentityDao} from './space-identity.ts';
 import {getIssues} from './tracker.ts';
 import {mergeProgramStatus} from './workspace-status.ts';

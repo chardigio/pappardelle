@@ -9,6 +9,7 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {resolveAgentProfileName, type PappardelleConfig} from './config.ts';
 import {isAgyCommand, isClaudeAgentProfile} from './config-launch-flags.ts';
+import type {AgentSessionsDao} from './agent-sessions.ts';
 import type {PipelineStatus} from './providers/types.ts';
 import type {Unreadable} from './state-db.ts';
 
@@ -91,23 +92,6 @@ export interface SpaceStateDao {
 	 * branch) has one link, so an earlier one for the same checkout is replaced.
 	 */
 	addPrLink(key: string, link: SpacePrLink): Promise<void>;
-}
-
-export function withPrLink(
-	links: SpacePrLink[],
-	link: SpacePrLink,
-): SpacePrLink[] {
-	return [
-		...links.filter(
-			item =>
-				!(
-					item.host === link.host &&
-					item.project === link.project &&
-					item.localBranch === link.localBranch
-				),
-		),
-		link,
-	];
 }
 
 /** Claude Code's transcript directory for a worktree. */
@@ -267,68 +251,6 @@ export async function findSpaceTranscript(options: {
 	} catch {
 		return null;
 	}
-}
-
-/** One agent profile's latest conversation in a space, as its hook records it. */
-export type AgentSession = {
-	sessionId: string;
-	/** The agent process that recorded the id, and when it started. */
-	pid: number | null;
-	started: string | null;
-};
-
-/** Each agent profile's recorded session id in one space. */
-export type AgentSessionsLookup =
-	| {kind: 'sessions'; sessions: Record<string, string>}
-	| Unreadable;
-
-/**
- * Each agent profile's latest conversation in a space, by agent profile name,
- * written only by the agent's SessionStart/UserPromptSubmit hook
- * (plugins/pappardelle/hooks/agent_session.py). It lives beside the space-state file rather than
- * in it: the TUI rewrites that file after every rail poll, and a hook write
- * landing between the TUI's read and its rename would be lost. Keyed by agent
- * profile so a one-launch override doesn't take the profile's own
- * conversation away. idow clears it when it creates a workspace for a new
- * issue, whose key can't own an earlier conversation.
- */
-export interface AgentSessionsDao {
-	/** The session id an agent profile recorded in a space. */
-	read(key: string, agentProfile: string): string | undefined;
-	sessions(key: string): AgentSessionsLookup;
-	/**
-	 * The agent profile whose agent started last in a space. An agent launched
-	 * before its space stored the agent profile it started with is running
-	 * this one.
-	 */
-	latestProfile(key: string): string | undefined;
-	/** The spaces that have recorded sessions. */
-	keys(): string[];
-	/**
-	 * Move the session recorded under `from` to `to`. Nothing changes when
-	 * `from` has none or `to` already has its own.
-	 */
-	renameProfile(key: string, from: string, to: string): Promise<void>;
-	/** Forget every session recorded in a space. */
-	clear(key: string): Promise<void>;
-}
-
-/**
- * The name whose agent started last. `started` is the agent process's start
- * time as the hook reads it from `ps -o lstart` (LC_ALL=C).
- */
-export function latestStarted(
-	entries: Iterable<[name: string, started: unknown]>,
-): string | undefined {
-	let latest: {name: string; started: number} | undefined;
-	for (const [name, value] of entries) {
-		const started = Date.parse(String(value));
-		if (!Number.isNaN(started) && (!latest || started > latest.started)) {
-			latest = {name, started};
-		}
-	}
-
-	return latest?.name;
 }
 
 const MAX_EXCERPT_LEN = 500;

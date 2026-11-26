@@ -10,7 +10,7 @@ import {
 	type AgentSession,
 	type AgentSessionsDao,
 	type AgentSessionsLookup,
-} from './space-state.ts';
+} from './agent-sessions.ts';
 import {GuardedReads, type StateDb} from './state-db.ts';
 
 const log = createLogger('agent-sessions');

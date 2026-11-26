@@ -217,7 +217,8 @@ import {listOpenSpaces, type SpaceRegistryDao} from './space-registry.ts';
 import {listKnownRepos} from './state-db.ts';
 import type {StateDaos} from './state-daos.ts';
 import {QaSimulatorCleanup} from './qa-simulator.ts';
-import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
+import type {AgentSessionsDao} from './agent-sessions.ts';
+import type {SpaceStateDao} from './space-state.ts';
 import {
 	legacyAgentSession,
 	sessionPrefix,

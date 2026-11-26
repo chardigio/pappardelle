@@ -9,7 +9,6 @@ import {isDeepStrictEqual} from 'node:util';
 import {createLogger} from './logger.ts';
 import type {PipelineStatus} from './providers/types.ts';
 import {
-	withPrLink,
 	type SpacePrLink,
 	type SpaceState,
 	type SpaceStateDao,
@@ -183,8 +182,7 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 
 	async addPrLink(key: string, link: SpacePrLink): Promise<void> {
 		await this.openDb().write(() => {
-			const links = this.links(key);
-			if (isDeepStrictEqual(withPrLink(links, link), links)) return;
+			if (isDeepStrictEqual(this.links(key).at(-1), link)) return;
 			this.putLink(key, link);
 		});
 	}

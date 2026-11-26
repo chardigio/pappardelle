@@ -19,8 +19,8 @@ import type {IdentityDefaults} from './space-identity.ts';
 import {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
 import type {WatchlistReservation} from './space-registry.ts';
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
+import type {AgentSession} from './agent-sessions.ts';
 import type {
-	AgentSession,
 	LaunchedAgentProfile,
 	SpacePrLink,
 	SpaceRecap,

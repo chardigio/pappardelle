@@ -32,7 +32,8 @@ import type {IdentityDefaults, SpaceIdentityDao} from './space-identity.ts';
 import {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
-import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
+import type {AgentSessionsDao} from './agent-sessions.ts';
+import type {SpaceStateDao} from './space-state.ts';
 import {SqliteSpaceStateDao} from './space-state-sqlite.ts';
 import {
 	checkpointOutsideWrites,
