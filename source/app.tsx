@@ -282,7 +282,7 @@ interface AppProps {
 	daos: StateDaos;
 	/** Reads started before the renderer loaded, for the first list drawn. */
 	initialWorkspaces?: {
-		registry: Promise<string[] | null>;
+		registry: Promise<string[]>;
 		mainWorktree: ReturnType<typeof getMainWorktreeInfo>;
 	};
 	firstRailPaint?: Promise<void>;

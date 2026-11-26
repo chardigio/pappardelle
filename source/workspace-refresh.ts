@@ -36,7 +36,7 @@ type MainWorktree = {path: string; branch: string};
 
 export interface WorkspaceRefreshDeps {
 	detailReady?: Promise<void>;
-	readRegistry: () => Promise<string[] | null>;
+	readRegistry: () => Promise<string[]>;
 	/** A reader whose reads share one tmux listing. */
 	statusReader: () => StatusReader;
 	readWorktreePath: (key: string) => Promise<string | null>;
@@ -156,7 +156,7 @@ export class WorkspaceRefresh {
 		if (this.stopped) return;
 		const generation = this.listGeneration;
 		const names = await this.deps.readRegistry();
-		if (this.stopped || generation !== this.listGeneration || !names) return;
+		if (this.stopped || generation !== this.listGeneration) return;
 		this.names = [...new Set(names)]
 			.filter(name => name !== MAIN_WORKTREE_KEY)
 			.sort(compareSpaceNames);

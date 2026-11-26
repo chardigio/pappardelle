@@ -307,9 +307,6 @@ test('metadata failures retain prior rows and a valid empty registry removes onl
 	await h.settle();
 	expect(h.spaces).toBe(before);
 	expect(h.errors.length).toBe(2);
-	h.deps.readRegistry = async () => null;
-	await h.settle();
-	expect(h.spaces).toBe(before);
 	h.deps.readRegistry = async () => ['STA-1', 'STA-2'];
 	h.deps.readMainWorktree = async () => ({path: '/repo', branch: 'master'});
 	h.deps.readDirty = async () => null;
