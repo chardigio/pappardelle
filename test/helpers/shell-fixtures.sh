@@ -60,6 +60,6 @@ wait_until() {
 # there is no tmux.
 run_under_tmux_guard() {
 	if [[ -z "${PAPPARDELLE_TEST_TMUX_REFUSALS:-}" ]] && command -v tmux >/dev/null 2>&1; then
-		exec "$SHELL_FIXTURES_HELPERS/tmux-guard-run.sh" "$@"
+		exec "$SHELL_FIXTURES_HELPERS/tmux-guard-run.sh" bash "$@"
 	fi
 }

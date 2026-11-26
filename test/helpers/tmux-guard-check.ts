@@ -5,7 +5,7 @@ import {TEST_TMUX_GUARD} from './test-run-env.ts';
  * Why the tmux on PATH is not the test tmux guard's wrapper, or undefined when
  * it is or there is no tmux.
  */
-export function unguardedTmux(): string | undefined {
+function unguardedTmux(): string | undefined {
 	const tmux = Bun.which('tmux');
 	if (
 		tmux === null ||

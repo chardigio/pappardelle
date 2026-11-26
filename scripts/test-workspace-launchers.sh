@@ -153,6 +153,7 @@ open_viewer
 assert_eq "the last session on the server is the same one afterwards" "$BEFORE" \
     "$(vtmux display-message -p -t "$VIEWER" '#{pid} #{session_id}' 2>/dev/null)"
 assert_eq "it has the agent and companion panes" "2" "$(vtmux list-panes -t "$VIEWER" 2>/dev/null | wc -l | tr -d ' ')"
+# shellcheck disable=SC2329  # invoked through wait_until
 both_panes_attached() { [[ "$(grep -c '' "$VIEW_TMP/inner" 2>/dev/null)" == 2 ]]; }
 wait_until both_panes_attached || true
 assert_eq "both panes attach to the inner sessions" \

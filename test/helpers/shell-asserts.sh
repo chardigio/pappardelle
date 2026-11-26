@@ -60,24 +60,12 @@ assert_not_contains() {
 	fi
 }
 
-assert_file_exists() {
-	if [[ -f "$2" ]]; then
-		pass "$1"
-	else
-		fail "$1" "Expected file to exist: $2"
-	fi
-}
-
 assert_file_not_exists() {
 	if [[ ! -f "$2" ]]; then
 		pass "$1"
 	else
 		fail "$1" "Expected file to NOT exist: $2"
 	fi
-}
-
-assert_file_content() {
-	assert_eq "$1" "$3" "$(cat "$2" 2>/dev/null)"
 }
 
 summarize() {

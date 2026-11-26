@@ -291,6 +291,7 @@ start_session --issue-key "$ISSUE_KEY5" --repo-name "$TEST_REPO" --worktree "$WO
 
 # The fresh launch runs only after --continue failed and the erase ran.
 shim_calls_for_key5() { grep -F -- "$ISSUE_KEY5" "$CLAUDE_SHIM_LOG" 2>/dev/null || true; }
+# shellcheck disable=SC2329  # invoked through wait_until
 fresh_launch_ran5() { shim_calls_for_key5 | grep -qv -- '--continue'; }
 wait_until fresh_launch_ran5 || true
 # The erase was printed before the fresh launch; give tmux time to draw it.
@@ -846,6 +847,7 @@ SHIM
 }
 
 # has_lines <file> <count>: the file has at least count lines.
+# shellcheck disable=SC2329  # invoked through wait_until
 has_lines() {
     [[ -f "$1" && $(wc -l < "$1") -ge "$2" ]]
 }

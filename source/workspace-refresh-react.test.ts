@@ -51,6 +51,14 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	);
 	teardown(() => refresh.stop());
 	const frame = () => view.lastFrame();
+	// The checks after these waits are for what must not happen (a second
+	// commit of a row, a stray attachment), which would land after the frame
+	// the wait saw.
+	async function settled(check: () => boolean) {
+		await until(check, {frame});
+		await delay(30);
+	}
+
 	await refresh.refresh();
 	await refresh.idle();
 	await until(
@@ -71,7 +79,7 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 
 	// Rebuilding every row was the old polling behavior, and defeats React.memo.
 	selection.setSpaces(spaces => spaces.map(space => ({...space})));
-	await until(() => rowCommits === before + 101, {frame});
+	await settled(() => rowCommits >= before + 101);
 	expect(rowCommits - before).toBe(101);
 	expect(attachments).toStrictEqual([]);
 
@@ -81,12 +89,12 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	});
 	keys = [...keys.filter(key => key !== 'STA-100'), 'STA-101'];
 	await refresh.refresh();
-	await until(() => view.lastFrame()!.includes('STA-101'), {frame});
+	await settled(() => view.lastFrame()!.includes('STA-101'));
 	expect(view.lastFrame()!.includes('Selected: STA-50')).toBe(true);
 	expect(attachments).toStrictEqual([]);
 	keys = keys.filter(key => key !== 'STA-50');
 	await refresh.refreshListOnly();
-	await until(() => view.lastFrame()!.includes('Selected: STA-49'), {frame});
+	await settled(() => view.lastFrame()!.includes('Selected: STA-49'));
 	expect(attachments).toStrictEqual(['STA-49']);
 	finishDirty(false);
 	await refresh.idle();
