@@ -1,9 +1,11 @@
 import {execFileSync, spawnSync} from 'node:child_process';
 import {mkdirSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {test, expect} from 'bun:test';
+import {expect} from 'bun:test';
+import {tmuxOn, tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {until} from '../test/helpers/wait.ts';
 import {sessionNamesFor} from './space-identity.ts';
 import {
 	exactSessionTarget,
@@ -15,8 +17,6 @@ import {
 import {tmuxFormatLiteral} from './tmux-format.ts';
 import {reviveTui} from './tui-sessions.ts';
 
-const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
-
 function privateDefaultServer(): void {
 	const dir = tempDir('pappardelle-tmux-');
 	const saved = process.env['TMUX_TMPDIR'];
@@ -26,11 +26,6 @@ function privateDefaultServer(): void {
 		if (saved === undefined) delete process.env['TMUX_TMPDIR'];
 		else process.env['TMUX_TMPDIR'] = saved;
 	});
-}
-
-function tmuxOn(socket: string, conf = '/dev/null') {
-	return (...args: string[]) =>
-		spawnSync('tmux', ['-S', socket, '-f', conf, ...args], {encoding: 'utf8'});
 }
 
 // The TUI's pappardelle-<repo> session shares the default socket with the
@@ -111,7 +106,7 @@ tmuxTest(
 // and the next launch reruns it there instead of creating the session again.
 tmuxTest(
 	'a dead TUI is rerun in its own session, which never goes away',
-	() => {
+	async () => {
 		privateDefaultServer();
 		const session = 'pappardelle-revive';
 		const repo = join(tempDir('pappardelle-revive-'), 'pasta#S');
@@ -143,9 +138,11 @@ tmuxTest(
 				],
 				{encoding: 'utf8'},
 			).trim();
-		for (let i = 0; i < 50 && !pane().startsWith('1|'); i++)
-			execFileSync('sleep', ['0.05']);
-		expect(pane()).toMatch(/^1\|/);
+		await until(() => pane().startsWith('1|'), {
+			what: 'the first TUI to exit',
+			frame: pane,
+			intervalMs: 50,
+		});
 		// The TUI's own pane can be gone, leaving a viewer started elsewhere.
 		// The session's own directory is not where the TUI is launched from.
 		const viewer = execFileSync(

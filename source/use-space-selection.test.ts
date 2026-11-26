@@ -4,6 +4,7 @@ import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
+import {until} from '../test/helpers/wait.ts';
 import {useSpaceSelection} from './use-space-selection.ts';
 
 const spaces = (names: string[]) =>
@@ -16,17 +17,15 @@ async function setup() {
 	async function update(action: () => void) {
 		const previous = selection;
 		action();
-		const deadline = Date.now() + 2000;
 		const hasCommitted = () =>
-			committed &&
+			committed !== undefined &&
 			committed !== previous &&
 			view.lastFrame() ===
 				(committed.spaces[committed.selectedIndex]?.name ?? 'empty');
-		while (!hasCommitted()) {
-			if (Date.now() > deadline)
-				throw new Error('Workspace view did not commit');
-			await delay(10);
-		}
+		await until(hasCommitted, {
+			what: 'the workspace view to commit',
+			timeoutMs: 2000,
+		});
 	}
 	function WorkspaceView() {
 		selection = useSpaceSelection();

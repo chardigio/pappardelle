@@ -1,6 +1,7 @@
 import {Buffer} from 'node:buffer';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
+import {until} from '../test/helpers/wait.ts';
 import {EmbeddedTerminalRenderable, type TerminalColors} from '@opentui/core';
 import {createTestRenderer, ManualClock} from '@opentui/core/testing';
 import {
@@ -267,14 +268,6 @@ test('a palette entry the terminal stops reporting goes back to the built-in col
 	expect(after).not.toBe(SOLARIZED_CYAN);
 });
 
-async function until(condition: () => boolean): Promise<void> {
-	for (let attempt = 0; attempt < 200 && !condition(); attempt++) {
-		await new Promise(resolve => {
-			setTimeout(resolve, 10);
-		});
-	}
-}
-
 async function rendererSource() {
 	const setup = await createTestRenderer({width: 20, height: 2});
 	const written: string[] = [];
@@ -337,9 +330,9 @@ test('text already on screen repaints in the colors of a dark-to-light switch', 
 	// test renderer can't send that query, so the answer comes unasked.
 	reply(DARK_REPLY);
 	reply(LIGHT_REPLY);
-	await until(() => written.length === 2);
+	await until(() => written.length === 2, {what: 'the second color query'});
 	reply(LIGHT_REPLY + STATUS);
-	await until(() => applies === 2);
+	await until(() => applies === 2, {what: 'the light palette to apply'});
 	await setup.renderOnce();
 
 	const thinking = setup.captureSpans().lines[0]!.spans[0]!;
