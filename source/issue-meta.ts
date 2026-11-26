@@ -1,10 +1,5 @@
 // Which issues Pappardelle created itself, as opposed to opening an issue
 // that already existed. idow records it when it creates one.
-//
-// Layout: ~/.pappardelle/repos/{repoName}/issue-meta/{ISSUE-KEY}.json
-
-import fs from 'node:fs';
-import path from 'node:path';
 
 export type IssueMeta = {createdByPappardelle: boolean; createdAt: string};
 
@@ -28,15 +23,6 @@ export function parseIssueMeta(content: string): IssueMeta {
 	return {createdByPappardelle, createdAt};
 }
 
-export function renderIssueMeta(meta: IssueMeta): string {
-	return (
-		JSON.stringify({
-			created_by_pappardelle: meta.createdByPappardelle,
-			created_at: meta.createdAt,
-		}) + '\n'
-	);
-}
-
 /** The time as idow has always written it: UTC, to the second. */
 export function createdNow(clock: () => Date): IssueMeta {
 	return {
@@ -45,28 +31,4 @@ export function createdNow(clock: () => Date): IssueMeta {
 			.toISOString()
 			.replace(/\.\d{3}Z$/, 'Z'),
 	};
-}
-
-export class JsonIssueMetaDao implements IssueMetaDao {
-	constructor(
-		private readonly dir: string,
-		private readonly clock: () => Date,
-	) {}
-
-	file(key: string): string {
-		return path.join(this.dir, `${key}.json`);
-	}
-
-	read(key: string): IssueMeta | null {
-		try {
-			return parseIssueMeta(fs.readFileSync(this.file(key), 'utf8'));
-		} catch {
-			return null;
-		}
-	}
-
-	async markCreated(key: string): Promise<void> {
-		fs.mkdirSync(this.dir, {recursive: true});
-		fs.writeFileSync(this.file(key), renderIssueMeta(createdNow(this.clock)));
-	}
 }

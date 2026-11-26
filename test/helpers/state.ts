@@ -9,10 +9,15 @@ import {
 	worktreePathFor,
 	type SpaceIdentityDao,
 } from '../../source/space-identity.ts';
-import {getRegistryPathForRepo} from '../../source/space-registry.ts';
-import {createStateDaos, type StateDaos} from '../../source/state-daos.ts';
+import type {SqliteSpaceIdentityDao} from '../../source/space-identity-sqlite.ts';
+import {
+	createStateDaos,
+	openImportedStateDb,
+	type StateDaos,
+} from '../../source/state-daos.ts';
 import {
 	closeStateDb,
+	openStateDb,
 	stateDbPath,
 	statusSocketPath,
 } from '../../source/state-db.ts';
@@ -21,24 +26,17 @@ import {sendHookEvent, serveTestHub} from './status-daemon.ts';
 import {teardown, type Cleanup} from './teardown.ts';
 import {until} from './wait.ts';
 
-/** Whether this test run keeps state in SQLite (PAPPARDELLE_SQLITE_STATE=1). */
-export const sqliteRun = process.env['PAPPARDELLE_SQLITE_STATE'] === '1';
-
 export type TestState = {
 	daos: StateDaos;
 	repo: string;
 	stateDir: string;
-	registryFile: string;
-	/** Whether these stores keep rows. */
-	sqlite: boolean;
 };
 
 /**
- * Stores on a temp directory of the test's own, in the run's mode unless
- * `sqlite` says otherwise. `spaces` is written as a registry file, the way a
- * process without the database would have left it. With `sqlite` on, a
- * status daemon's hub serves the directory's socket from this process, so
- * nothing the test reads or sends status through starts a daemon.
+ * Stores on a temp directory of the test's own, with `spaces` open and named
+ * as idow names them. A status daemon's hub serves the directory's socket
+ * from this process, so nothing the test reads or sends status through
+ * starts a daemon.
  */
 export function testState(
 	options: {
@@ -46,7 +44,6 @@ export function testState(
 		/** A directory to keep the state in, in place of a new temp directory. */
 		stateDir?: string;
 		spaces?: string[];
-		sqlite?: boolean;
 		clock?: () => Date;
 		home?: string;
 		env?: NodeJS.ProcessEnv;
@@ -60,17 +57,11 @@ export function testState(
 	const stateDir =
 		options.stateDir ??
 		fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'papp-test-state-')));
-	const registryFile = getRegistryPathForRepo(repo, stateDir);
-	fs.mkdirSync(path.dirname(registryFile), {recursive: true});
-	if (options.spaces)
-		fs.writeFileSync(registryFile, JSON.stringify(options.spaces));
-
-	const sqlite = options.sqlite ?? sqliteRun;
-	if (sqlite) serveTestHub(statusSocketPath(stateDir), cleanup);
+	fs.mkdirSync(stateDir, {recursive: true});
+	serveTestHub(statusSocketPath(stateDir), cleanup);
 	const daos = createStateDaos({
 		repo,
 		stateDir,
-		sqlite,
 		clock: options.clock,
 		home: options.home,
 		env: options.env,
@@ -81,32 +72,37 @@ export function testState(
 		closeStateDb(stateDbPath(stateDir));
 		fs.rmSync(stateDir, {recursive: true, force: true});
 	});
-	return {daos, repo, stateDir, registryFile, sqlite};
+	if (options.spaces) openSpaces(daos, repo, stateDir, options.spaces);
+	return {daos, repo, stateDir};
+}
+
+/** Open `keys` in one write, as the registry's own writes would leave them. */
+function openSpaces(
+	daos: StateDaos,
+	repo: string,
+	stateDir: string,
+	keys: readonly string[],
+): void {
+	const state = openImportedStateDb(stateDbPath(stateDir), stateDir);
+	state.db.transaction(() => {
+		const insert = state.db.query(
+			`INSERT INTO spaces (repo, key, state, owner_pid) VALUES (?, ?, 'open', NULL)`,
+		);
+		for (const key of keys) insert.run(repo, key);
+		(daos.spaceIdentities as SqliteSpaceIdentityDao).fillMissing(keys);
+	})();
 }
 
 const STATUS_ARRIVAL_TIMEOUT_MS = 5000;
 
-export const claudeStatusFile = (state: TestState, statusKey: string) =>
-	path.join(state.stateDir, 'claude-status', `${statusKey}.json`);
-
 /**
- * Report a hook status the way the hook does in this state's mode: its
- * status file, or with `sqlite` on a line to the status daemon. Returns once
- * the state's stores read it.
+ * Report a hook status the way the hook does, as a line to the status
+ * daemon. Returns once the state's stores read it.
  */
 export async function writeClaudeStatus(
 	state: TestState,
 	reported: ClaudeSessionState,
 ): Promise<void> {
-	if (!state.sqlite) {
-		const file = claudeStatusFile(state, reported.workspaceName);
-		const temporary = `${file}.tmp.${process.pid}`;
-		fs.mkdirSync(path.dirname(file), {recursive: true});
-		fs.writeFileSync(temporary, JSON.stringify(reported, null, 2));
-		fs.renameSync(temporary, file);
-		return;
-	}
-
 	await sendHookEvent(statusSocketPath(state.stateDir), reported);
 	// What arrives has no key for a field that was left undefined.
 	const sent = Object.fromEntries(
@@ -197,4 +193,41 @@ export function idowIdentities(
 			identities: keys().map(key => identity(key)),
 		}),
 	};
+}
+
+export type RecordedSession = {
+	sessionId: string;
+	pid?: number | null;
+	started?: string | null;
+};
+
+/**
+ * Replace a space's agent sessions in the database at `dbPath` as the agent's
+ * hook records them, which no store method does. A string is a session id.
+ */
+export function recordAgentSessions(
+	dbPath: string,
+	repo: string,
+	key: string,
+	sessions: Record<string, RecordedSession | string>,
+): void {
+	const {db} = openStateDb(dbPath);
+	db.transaction(() => {
+		db.query('DELETE FROM agent_sessions WHERE repo = ? AND key = ?').run(
+			repo,
+			key,
+		);
+		const insert = db.query(
+			`INSERT INTO agent_sessions (repo, key, agent_profile, session_id, pid, started)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+		);
+		for (const [profile, session] of Object.entries(sessions)) {
+			const {
+				sessionId,
+				pid = 1,
+				started = null,
+			} = typeof session === 'string' ? {sessionId: session} : session;
+			insert.run(repo, key, profile, sessionId, pid, started);
+		}
+	})();
 }

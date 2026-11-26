@@ -66,8 +66,7 @@ test('relocated executable renders and exits without Bun, Node, or node_modules'
 		});
 	teardown(() => {
 		spawnSync(tmux, ['-S', socket, 'kill-server'], {env, stdio: 'ignore'});
-		// With experimental.sqliteState on, the TUI started a status daemon
-		// that outlives it.
+		// The TUI started a status daemon that outlives it.
 		killProcessesNaming(path.join(home, '.pappardelle', 'status-1.sock'));
 		fs.rmSync(root, {
 			recursive: true,

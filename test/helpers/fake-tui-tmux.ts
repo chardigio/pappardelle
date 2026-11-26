@@ -6,7 +6,6 @@ import {stateDaosByRepo} from '../../source/state-daos.ts';
 import {closeStateDb, stateDbPath} from '../../source/state-db.ts';
 import type {OuterTmuxRunner} from '../../source/tmux.ts';
 import type {TuiMarkerDao} from '../../source/tui-marker.ts';
-import {sqliteRun} from './state.ts';
 
 const stateDirs: string[] = [];
 afterAll(() => {
@@ -30,7 +29,7 @@ export function tuiStateRoot(repos: string[]): {
 	for (const repo of repos)
 		fs.mkdirSync(path.join(repoStateRoot, repo), {recursive: true});
 	fs.mkdirSync(repoStateRoot, {recursive: true});
-	const daosFor = stateDaosByRepo({stateDir, sqlite: sqliteRun});
+	const daosFor = stateDaosByRepo({stateDir});
 	return {repoStateRoot, tuiMarker: repo => daosFor(repo).tuiMarker};
 }
 

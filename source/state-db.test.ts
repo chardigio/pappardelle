@@ -1,6 +1,7 @@
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {rejectionOf, thrownBy} from '../test/helpers/thrown.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
+import {thrownBy} from '../test/helpers/thrown.ts';
 import {Database} from 'bun:sqlite';
 import {execFile} from 'node:child_process';
 import fs from 'node:fs';
@@ -12,14 +13,13 @@ import {
 	checkpointOutsideWrites,
 	closeStateDb,
 	isBusyError,
+	listKnownRepos,
 	openStateDb,
 	stateDbPath,
 	statusSocketPath,
 	DEFAULT_STATE_DIR,
-	type JsonMirror,
 	type StateDb,
 } from './state-db.ts';
-import {sqliteRun} from '../test/helpers/state.ts';
 
 const run = promisify(execFile);
 
@@ -34,136 +34,11 @@ function fixture() {
 		closeStateDb(dbPath);
 		fs.rmSync(dir, {recursive: true, force: true});
 	});
-	return {dir, dbPath, state, file: path.join(dir, 'notes.json')};
+	return {dbPath, state};
 }
-
-/** A store of name → body pairs mirrored in one JSON object. */
-function notes(state: StateDb, file: string) {
-	let imports = 0;
-	const mirror: JsonMirror = {
-		file,
-		importRows(content) {
-			imports++;
-			// Deleting first means a bad file is only harmless if the import is
-			// undone as a whole.
-			state.db.query('DELETE FROM notes WHERE file = ?').run(file);
-			const parsed: unknown = content === null ? {} : JSON.parse(content);
-			if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-				throw new Error('not a notes file');
-			for (const [name, body] of Object.entries(parsed))
-				state.db
-					.query('INSERT INTO notes VALUES (?, ?, ?)')
-					.run(file, name, String(body));
-		},
-	};
-	const rows = () =>
-		Object.fromEntries(
-			state.db
-				.query<{name: string; body: string}, [string]>(
-					'SELECT name, body FROM notes WHERE file = ? ORDER BY name',
-				)
-				.all(file)
-				.map(row => [row.name, row.body]),
-		);
-	return {
-		mirror,
-		rows,
-		imports: () => imports,
-		read() {
-			state.sync(mirror);
-			return rows();
-		},
-		async set(name: string, body: string) {
-			await state.write(tx => {
-				tx.sync(mirror);
-				state.db
-					.query('INSERT OR REPLACE INTO notes VALUES (?, ?, ?)')
-					.run(file, name, body);
-				tx.mirror(file, JSON.stringify(rows()));
-			});
-		},
-	};
-}
-
-test('a write keeps the file and the rows the same, and a later read imports nothing', async () => {
-	const {state, file} = fixture();
-	const store = notes(state, file);
-	await store.set('a', 'one');
-	expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toStrictEqual({a: 'one'});
-	expect(store.read()).toStrictEqual({a: 'one'});
-	expect(store.imports()).toBe(0);
-});
-
-test('a file edited outside the database replaces its rows on the next read', async () => {
-	const {state, file} = fixture();
-	const store = notes(state, file);
-	await store.set('a', 'one');
-	fs.writeFileSync(file, JSON.stringify({a: 'edited', b: 'new'}));
-	expect(store.read()).toStrictEqual({a: 'edited', b: 'new'});
-	expect(store.imports()).toBe(1);
-	store.read();
-	expect(store.imports()).toBe(1);
-});
-
-test('the first write to a file that already exists keeps what was in it', async () => {
-	const {state, file} = fixture();
-	fs.writeFileSync(file, JSON.stringify({kept: 'from before'}));
-	const store = notes(state, file);
-	await store.set('added', 'now');
-	expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toStrictEqual({
-		added: 'now',
-		kept: 'from before',
-	});
-});
-
-test('a file that is not readable as state keeps the stored rows', async () => {
-	const {state, file} = fixture();
-	const store = notes(state, file);
-	await store.set('a', 'one');
-	fs.writeFileSync(file, '{"a": "tru');
-	expect(state.sync(store.mirror)).toBe('malformed');
-	expect(store.rows()).toStrictEqual({a: 'one'});
-	const importsAfterFirstLook = store.imports();
-	expect(state.sync(store.mirror)).toBe('malformed');
-	expect(store.imports()).toBe(importsAfterFirstLook);
-});
-
-test('a transaction that fails after writing its file ends with rows that match the file', async () => {
-	const {state, file} = fixture();
-	const store = notes(state, file);
-	await store.set('a', 'one');
-	await rejectionOf(
-		state.write(tx => {
-			tx.sync(store.mirror);
-			state.db
-				.query('INSERT OR REPLACE INTO notes VALUES (?, ?, ?)')
-				.run(file, 'a', 'two');
-			tx.mirror(file, JSON.stringify({a: 'two'}));
-			throw new Error('disk full');
-		}),
-	).then(error => {
-		expect(error.message).toBe('disk full');
-	});
-	expect(store.rows()).toStrictEqual({a: 'one'});
-	expect(store.read()).toStrictEqual({a: 'two'});
-});
-
-test('removing a mirrored file forgets it, so a read does not import its absence', async () => {
-	const {state, file} = fixture();
-	const store = notes(state, file);
-	await store.set('a', 'one');
-	await state.write(tx => {
-		state.db.query('DELETE FROM notes WHERE file = ?').run(file);
-		tx.mirror(file, null);
-	});
-	expect(fs.existsSync(file)).toBe(false);
-	expect(store.read()).toStrictEqual({});
-	expect(store.imports()).toBe(0);
-});
 
 test('a write waits for another writer on a timer, without holding the event loop', async () => {
-	const {state, dbPath, file} = fixture();
-	const store = notes(state, file);
+	const {state, dbPath} = fixture();
 	const other = new Database(dbPath);
 	other.run('BEGIN IMMEDIATE');
 	const busy = thrownBy(() => state.tryWrite(() => null));
@@ -180,7 +55,11 @@ test('a write waits for another writer on a timer, without holding the event loo
 		other.run('COMMIT');
 		events.push('lock released');
 	}, 300);
-	await store.set('a', 'after the lock');
+	await state.write(() =>
+		state.db
+			.query('INSERT INTO notes VALUES (?, ?, ?)')
+			.run('notes', 'a', 'after the lock'),
+	);
 	events.push('write landed');
 	other.close();
 
@@ -189,21 +68,9 @@ test('a write waits for another writer on a timer, without holding the event loo
 		'lock released',
 		'write landed',
 	]);
-	expect(store.rows()).toStrictEqual({a: 'after the lock'});
-});
-
-test('a read that cannot take the lock serves the stored rows', async () => {
-	const {state, dbPath, file} = fixture();
-	const store = notes(state, file);
-	await store.set('a', 'one');
-	fs.writeFileSync(file, JSON.stringify({a: 'edited'}));
-	const other = new Database(dbPath);
-	other.run('BEGIN IMMEDIATE');
-	expect(state.sync(store.mirror)).toBe('busy');
-	expect(store.rows()).toStrictEqual({a: 'one'});
-	other.run('COMMIT');
-	other.close();
-	expect(store.read()).toStrictEqual({a: 'edited'});
+	expect(state.db.query('SELECT body FROM notes').all()).toStrictEqual([
+		{body: 'after the lock'},
+	]);
 });
 
 test('two processes opening a new database at once both end up with the schema', async () => {
@@ -225,7 +92,7 @@ test('two processes opening a new database at once both end up with the schema',
 	);
 	for (const {stdout} of outputs) {
 		const opened = JSON.parse(stdout) as {tables: string[]; mode: string};
-		expect(opened.tables.includes('json_sync')).toBe(true);
+		expect(opened.tables.includes('json_import')).toBe(true);
 		expect(opened.mode).toBe('wal');
 	}
 });
@@ -268,12 +135,32 @@ test('the status socket is beside the database, unless the variable or a state d
 	expect(statusSocketPath('/explicit', named)).toBe('/explicit/status-1.sock');
 });
 
-(sqliteRun ? test : test.skip)(
-	'a test run with the database on has its status socket with its database, outside the user’s state directory',
-	() => {
-		const directory = path.dirname(statusSocketPath(undefined, {}));
+test('a test run has its status socket with its database, outside the user’s state directory', () => {
+	const directory = path.dirname(statusSocketPath(undefined, {}));
 
-		expect(directory).toBe(path.dirname(stateDbPath(undefined, {})));
-		expect(directory).not.toBe(DEFAULT_STATE_DIR);
-	},
-);
+	expect(directory).toBe(path.dirname(stateDbPath(undefined, {})));
+	expect(directory).not.toBe(DEFAULT_STATE_DIR);
+});
+
+test('a repo is known by its rows in the database or by its directory under repos', () => {
+	const stateDir = tempDir('papp-known-repos-');
+	const dbPath = path.join(stateDir, 'state.db');
+	teardown(() => {
+		closeStateDb(dbPath);
+	});
+	fs.mkdirSync(path.join(stateDir, 'repos', 'from-files'), {recursive: true});
+	const {db} = openStateDb(dbPath);
+	db.query(
+		`INSERT INTO spaces (repo, key, state) VALUES ('open-space', 'A-1', 'open')`,
+	).run();
+	db.query(
+		`INSERT INTO tui_markers (repo, pid, cli_path, sha, pane_id, started_at)
+		VALUES ('tui-only', 1, '/cli', 'sha', '%1', 1)`,
+	).run();
+
+	expect(listKnownRepos(dbPath, stateDir)).toEqual([
+		'from-files',
+		'open-space',
+		'tui-only',
+	]);
+});

@@ -1,13 +1,12 @@
-// Issue metadata as rows, with each issue's file kept beside its row.
+// Issue metadata as rows.
 
+import path from 'node:path';
 import {createLogger} from './logger.ts';
 import {
 	createdNow,
 	parseIssueMeta,
-	renderIssueMeta,
 	type IssueMeta,
 	type IssueMetaDao,
-	type JsonIssueMetaDao,
 } from './issue-meta.ts';
 import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 
@@ -21,13 +20,19 @@ export class SqliteIssueMetaDao implements IssueMetaDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		private readonly json: JsonIssueMetaDao,
+		/** Where each issue's JSON file was, for the one-time import. */
+		private readonly jsonDir: string,
 		private readonly clock: () => Date,
 	) {}
 
+	jsonMirrors(): JsonMirror[] {
+		return this.openDb()
+			.jsonKeysIn(this.jsonDir, '.json')
+			.map(key => this.mirror(key));
+	}
+
 	read(key: string): IssueMeta | null {
 		return this.reads.or(null, () => {
-			this.openDb().sync(this.mirror(key));
 			const row = this.openDb()
 				.db.query<MetaRow, [string, string]>(
 					`SELECT created_by_pappardelle, created_at FROM issue_meta
@@ -44,18 +49,15 @@ export class SqliteIssueMetaDao implements IssueMetaDao {
 	}
 
 	async markCreated(key: string): Promise<void> {
-		const mirror = this.mirror(key);
 		const meta = createdNow(this.clock);
-		await this.openDb().write(tx => {
-			tx.sync(mirror);
+		await this.openDb().write(() => {
 			this.put(key, meta);
-			tx.mirror(mirror.file, renderIssueMeta(meta));
 		});
 	}
 
 	private mirror(key: string): JsonMirror {
 		return {
-			file: this.json.file(key),
+			file: path.join(this.jsonDir, `${key}.json`),
 			importRows: content => {
 				if (content === null) {
 					this.openDb()

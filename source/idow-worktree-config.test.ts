@@ -13,13 +13,13 @@ import {repoNameFromGitCommonDir} from './config.ts';
 import {newSpaceIdentity, protectedSessionNames} from './space-identity.ts';
 import {createStateDaos} from './state-daos.ts';
 import {closeStateDb, stateDbPath} from './state-db.ts';
-import {sqliteRun} from '../test/helpers/state.ts';
 import {
 	cleanupOrphanedInnerSessions,
 	initTmuxState,
 	type OuterTmuxRunner,
 } from './tmux.ts';
 import {setup, writeScript} from '../test/helpers/idow-fixture.ts';
+import {IDOW_REPO, idowState} from '../test/helpers/idow-state.ts';
 
 test('idow creates and reopens real worktrees in the main repository namespace', async () => {
 	const fixture = setup(true);
@@ -37,18 +37,7 @@ test('idow creates and reopens real worktrees in the main repository namespace',
 	expect(args.includes('--agent-launch-flags\n--model linked-model\n')).toBe(
 		true,
 	);
-	expect(
-		fs.existsSync(
-			path.join(
-				fixture.home,
-				'.pappardelle',
-				'repos',
-				path.basename(fixture.main),
-				'space-state',
-				'test-abc.json',
-			),
-		),
-	).toBe(true);
+	expect(idowState(fixture).daos.spaceState.read('test-abc')).not.toBe(null);
 	const reopened = await fixture.run();
 	expect(
 		reopened.includes(`Worktree exists: ${fixture.workspace}`),
@@ -131,35 +120,33 @@ test('idow names a space the same from a linked worktree as from the main checko
 			agent: after('--agent-session'),
 			companion: after('--companion-session'),
 		});
-		if (sqliteRun) {
-			const db = new Database(
-				path.join(fixture.home, '.pappardelle', 'state.db'),
-				{readonly: true},
-			);
-			teardown(() => {
-				db.close();
-			});
-			expect(
-				db
-					.query(
-						'SELECT repo, key, agent_session, companion_session FROM space_identities ORDER BY key',
-					)
-					.all(),
-			).toStrictEqual([
-				{
-					repo: 'main checkout',
-					key: 'main',
-					agent_session: 'agent-main checkout-main',
-					companion_session: 'companion-main checkout-main',
-				},
-				{
-					repo: 'main checkout',
-					key: 'test-abc',
-					agent_session: 'agent-main checkout-test-abc',
-					companion_session: 'companion-main checkout-test-abc',
-				},
-			]);
-		}
+		const db = new Database(
+			path.join(fixture.home, '.pappardelle', 'state.db'),
+			{readonly: true},
+		);
+		teardown(() => {
+			db.close();
+		});
+		expect(
+			db
+				.query(
+					'SELECT repo, key, agent_session, companion_session FROM space_identities ORDER BY key',
+				)
+				.all(),
+		).toStrictEqual([
+			{
+				repo: 'main checkout',
+				key: 'main',
+				agent_session: 'agent-main checkout-main',
+				companion_session: 'companion-main checkout-main',
+			},
+			{
+				repo: 'main checkout',
+				key: 'test-abc',
+				agent_session: 'agent-main checkout-test-abc',
+				companion_session: 'companion-main checkout-test-abc',
+			},
+		]);
 	}
 
 	expect(named).toStrictEqual([
@@ -176,99 +163,83 @@ test('idow names a space the same from a linked worktree as from the main checko
 	]);
 });
 
-if (sqliteRun) {
-	test('a space idow opened from a linked worktree survives the reap of a TUI started from another', async () => {
-		const fixture = setup();
-		await fixture.run({
-			projectRoot: false,
-			cwd: fixture.linked,
-			extraEnv: {PAPPARDELLE_REGISTER_SPACE: '1'},
-		});
-		const other = path.join(path.dirname(fixture.main), 'other linked');
-		execFileSync('git', [
-			'-C',
-			fixture.main,
-			'worktree',
-			'add',
-			'-b',
-			'other',
-			other,
-		]);
-		const repo = repoNameFromGitCommonDir(
-			execFileSync(
-				'git',
-				['rev-parse', '--path-format=absolute', '--git-common-dir'],
-				{cwd: other, encoding: 'utf8'},
-			).trim(),
-		);
-		const stateDir = path.join(fixture.home, '.pappardelle');
-		const daos = createStateDaos({
-			repo,
-			stateDir,
-			sqlite: true,
-			home: fixture.home,
-			mainRoot: () => fixture.main,
-		});
-		teardown(() => {
-			daos.disconnectStatusDaemon();
-			closeStateDb(stateDbPath(stateDir));
-		});
-		initTmuxState(daos);
-		const owned = protectedSessionNames(daos.registry, daos.spaceIdentities);
-		if (owned.kind !== 'names') {
-			expect.unreachable(`the reap would be skipped: ${JSON.stringify(owned)}`);
-			return;
-		}
+test('a space idow opened from a linked worktree survives the reap of a TUI started from another', async () => {
+	const fixture = setup();
+	await fixture.run({
+		projectRoot: false,
+		cwd: fixture.linked,
+		extraEnv: {PAPPARDELLE_REGISTER_SPACE: '1'},
+	});
+	const other = path.join(path.dirname(fixture.main), 'other linked');
+	execFileSync('git', [
+		'-C',
+		fixture.main,
+		'worktree',
+		'add',
+		'-b',
+		'other',
+		other,
+	]);
+	const repo = repoNameFromGitCommonDir(
+		execFileSync(
+			'git',
+			['rev-parse', '--path-format=absolute', '--git-common-dir'],
+			{cwd: other, encoding: 'utf8'},
+		).trim(),
+	);
+	const stateDir = path.join(fixture.home, '.pappardelle');
+	const daos = createStateDaos({
+		repo,
+		stateDir,
+		home: fixture.home,
+		mainRoot: () => fixture.main,
+	});
+	teardown(() => {
+		daos.disconnectStatusDaemon();
+		closeStateDb(stateDbPath(stateDir));
+	});
+	initTmuxState(daos);
+	const owned = protectedSessionNames(daos.registry, daos.spaceIdentities);
+	if (owned.kind !== 'names') {
+		expect.unreachable(`the reap would be skipped: ${JSON.stringify(owned)}`);
+		return;
+	}
 
-		const live = [
-			'agent-main checkout-test-abc',
-			'companion-main checkout-test-abc',
-			'agent-main checkout-main',
-			'agent-main checkout-gone-1',
-		];
-		const killed: string[] = [];
-		const runner: OuterTmuxRunner = args => {
-			if (args[0] === 'kill-session') killed.push(args[2]!);
-			return {
-				status: 0,
-				stdout: args[0] === 'list-sessions' ? live.join('\n') : '',
-			};
+	const live = [
+		'agent-main checkout-test-abc',
+		'companion-main checkout-test-abc',
+		'agent-main checkout-main',
+		'agent-main checkout-gone-1',
+	];
+	const killed: string[] = [];
+	const runner: OuterTmuxRunner = args => {
+		if (args[0] === 'kill-session') killed.push(args[2]!);
+		return {
+			status: 0,
+			stdout: args[0] === 'list-sessions' ? live.join('\n') : '',
 		};
-		expect(cleanupOrphanedInnerSessions(owned, repo, runner, [repo])).toBe(1);
-		expect(killed).toStrictEqual(['=agent-main checkout-gone-1:']);
-	});
-}
+	};
+	expect(cleanupOrphanedInnerSessions(owned, repo, runner, [repo])).toBe(1);
+	expect(killed).toStrictEqual(['=agent-main checkout-gone-1:']);
+});
 
-if (sqliteRun) {
-	test('idow opens a space in the worktree the stores name', async () => {
-		const fixture = setup();
-		const stateDir = path.join(fixture.home, '.pappardelle');
-		const daos = createStateDaos({
-			repo: path.basename(fixture.main),
-			stateDir,
-			sqlite: true,
-			home: fixture.home,
-			mainRoot: () => fixture.main,
-		});
-		teardown(() => {
-			daos.disconnectStatusDaemon();
-			closeStateDb(stateDbPath(stateDir));
-		});
-		const stored = path.join(fixture.home, 'elsewhere', 'login');
-		await daos.spaceIdentities.record(
-			newSpaceIdentity({
-				repo: path.basename(fixture.main),
-				key: 'test-abc',
-				worktreePath: stored,
-				socket: 'pappardelle_inner',
-			}),
-		);
-		await fixture.run();
-		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
-		expect(args[args.indexOf('--worktree') + 1]).toBe(stored);
-		expect(fs.existsSync(stored)).toBe(true);
-	});
-}
+test('idow opens a space in the worktree the stores name', async () => {
+	const fixture = setup();
+	const {daos} = idowState(fixture);
+	const stored = path.join(fixture.home, 'elsewhere', 'login');
+	await daos.spaceIdentities.record(
+		newSpaceIdentity({
+			repo: IDOW_REPO,
+			key: 'test-abc',
+			worktreePath: stored,
+			socket: 'pappardelle_inner',
+		}),
+	);
+	await fixture.run();
+	const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
+	expect(args[args.indexOf('--worktree') + 1]).toBe(stored);
+	expect(fs.existsSync(stored)).toBe(true);
+});
 
 test('idow prefers a worktree project config while falling back for local config', async () => {
 	const fixture = setup();
@@ -474,13 +445,8 @@ test('an explicit profile pick on an existing space is persisted and reused', as
 			profiles: {other: {display_name: 'Other', agent_profile: 'codex'}},
 		}),
 	);
-	const statePath = path.join(
-		fixture.home,
-		'.pappardelle/repos/main checkout/space-state/test-abc.json',
-	);
-	const persisted = () =>
-		(JSON.parse(fs.readFileSync(statePath, 'utf8')) as {profile: string})
-			.profile;
+	const {daos} = idowState(fixture);
+	const persisted = () => daos.spaceState.read('test-abc')?.profile;
 	const agentCommand = () => {
 		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
 		return args[args.indexOf('--agent-command') + 1];

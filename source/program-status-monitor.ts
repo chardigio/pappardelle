@@ -7,11 +7,8 @@ import {
 	existsSync,
 	appendFileSync,
 	mkdirSync,
-	readFileSync,
 	readdirSync,
-	renameSync,
 	rmSync,
-	watch,
 	writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -23,7 +20,6 @@ import {
 	type ProgramReport,
 	type ProgramStatusInfo,
 } from './program-status.ts';
-import {waitForDirChange} from './file-watch.ts';
 import {createLogger} from './logger.ts';
 
 const execute = promisify(execFile);
@@ -468,138 +464,47 @@ export async function monitorStatusPane(
 	}
 }
 
-export class JsonProgramStatusDao implements ProgramStatusDao {
-	constructor(
-		readonly repo: string,
-		readonly dir: string,
-		readonly socketPath: string,
-	) {}
+/**
+ * Revoke a space's leases except `keepGeneration`'s, and delete the snapshot
+ * files monitors from before the status daemon left beside them. Returns the
+ * pane generations whose leases it removed.
+ */
+export function removeProgramStatusLeases(
+	dir: string,
+	key: string,
+	keepGeneration?: string,
+): string[] {
+	const removed: string[] = [];
+	try {
+		const files = readdirSync(dir).flatMap(file => {
+			const statusFile = statusFileOf(
+				file.replace(/\.lease$|\.tmp\.\d+$/g, ''),
+			);
+			return statusFile?.key === key && statusFile.generation !== keepGeneration
+				? [{file, generation: statusFile.generation}]
+				: [];
+		});
+		for (const {file, generation} of files) {
+			if (!file.endsWith('.lease')) continue;
+			rmSync(path.join(dir, file), {force: true});
+			removed.push(generation);
+		}
 
-	async attach(
-		key: string,
-		session: string,
-		socket?: string,
-		run?: StatusTmuxRunner,
-	): Promise<StatusPane | null> {
-		return attachStatusMonitor(this, key, session, socket, run);
-	}
-
-	async monitor(
-		key: string,
-		session: string,
-		located: LocatedStatusPane | undefined,
-		socket?: string,
-		run?: StatusTmuxRunner,
-	): Promise<StatusPane | null> {
-		return monitorStatusPane(this, key, session, located, socket, run);
-	}
-
-	monitored(key: string, generation: string): boolean {
-		return programStatusLeased(this.dir, key, generation);
-	}
-
-	async read(
-		key: string,
-		pane: StatusPane,
-	): Promise<ProgramStatusSnapshot | null> {
-		return checkedProgramSnapshot(
-			() =>
-				JSON.parse(
-					readFileSync(
-						programStatusPath(this.dir, key, pane.generation),
-						'utf8',
-					),
-				) as ProgramStatusSnapshot,
-			this.repo,
-			key,
-			pane,
+		for (const {file} of files.filter(({file}) => !file.endsWith('.lease')))
+			rmSync(path.join(dir, file), {force: true});
+	} catch (error) {
+		log.warn(
+			`Could not remove every program status file of ${key}`,
+			error instanceof Error ? error : undefined,
 		);
 	}
 
-	async remove(key: string, keepGeneration?: string): Promise<void> {
-		this.removeFiles(key, keepGeneration);
-	}
-
-	/** Returns the pane generations whose leases it removed. */
-	removeFiles(key: string, keepGeneration?: string): string[] {
-		const removed: string[] = [];
-		try {
-			const files = readdirSync(this.dir).flatMap(file => {
-				const statusFile = statusFileOf(
-					file.replace(/\.lease$|\.tmp\.\d+$/g, ''),
-				);
-				return statusFile?.key === key &&
-					statusFile.generation !== keepGeneration
-					? [{file, generation: statusFile.generation}]
-					: [];
-			});
-			for (const {file, generation} of files) {
-				if (!file.endsWith('.lease')) continue;
-				rmSync(path.join(this.dir, file), {force: true});
-				removed.push(generation);
-			}
-
-			for (const {file} of files.filter(({file}) => !file.endsWith('.lease')))
-				rmSync(path.join(this.dir, file), {force: true});
-		} catch (error) {
-			log.warn(
-				`Could not remove every program status file of ${key}`,
-				error instanceof Error ? error : undefined,
-			);
-		}
-
-		return removed;
-	}
-
-	watch(listener: (key: string) => void): () => void {
-		mkdirSync(this.dir, {recursive: true});
-		const watcher = watch(this.dir, (_event, filename) => {
-			const statusFile = filename ? statusFileOf(filename) : undefined;
-			if (statusFile !== undefined) listener(statusFile.key);
-		});
-		return () => {
-			watcher.close();
-		};
-	}
-
-	async waitForChange(ms: number): Promise<void> {
-		await waitForDirChange([this.dir], ms);
-	}
-}
-
-/**
- * Write a pane's snapshot file for its readers. The lease is the pane's
- * permission to publish: closing a space deletes it, and a publisher that
- * was already writing then takes its own snapshot back.
- */
-export function publishProgramSnapshot(
-	dir: string,
-	snapshot: ProgramStatusSnapshot,
-): void {
-	const target = programStatusPath(dir, snapshot.key, snapshot.pane.generation);
-	const temp = `${target}.tmp.${process.pid}`;
-	const leased = () =>
-		programStatusLeased(dir, snapshot.key, snapshot.pane.generation);
-	if (!leased()) return;
-	try {
-		writeFileSync(temp, JSON.stringify(snapshot));
-		renameSync(temp, target);
-		if (!leased()) rmSync(target, {force: true});
-	} catch {
-		try {
-			rmSync(temp, {force: true});
-		} catch {}
-	}
+	return removed;
 }
 
 /** Where a pane's monitor sends its snapshots. */
 export interface SnapshotPublisher {
 	publish(snapshot: ProgramStatusSnapshot): void;
-	/**
-	 * Runs on the monitor's liveness check. An agent can sit idle for hours,
-	 * and its status still has to move when experimental.sqliteState changes.
-	 */
-	followFlag(): void;
 	/** Settles once the last snapshot has gone out, or cannot. */
 	close(): Promise<void>;
 }
@@ -660,7 +565,6 @@ export function monitorPane(
 	repo: string,
 	key: string,
 	pane: StatusPane,
-	dir: string,
 	publisher: SnapshotPublisher,
 	traceDir?: string,
 ): void {
@@ -718,7 +622,6 @@ export function monitorPane(
 	// leave the pipe open, so no EOF arrives. Usually the pane's process is
 	// gone by then.
 	const liveness = setInterval(() => {
-		publisher.followFlag();
 		try {
 			process.kill(Number(pane.pid), 0);
 		} catch (error) {
@@ -737,5 +640,5 @@ export function monitorPane(
 	process.stdin.on('error', stop);
 	process.once('SIGTERM', stop);
 	process.once('SIGHUP', stop);
-	if (!existsSync(programStatusPath(dir, key, pane.generation))) publish();
+	publish();
 }

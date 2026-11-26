@@ -42,8 +42,8 @@ export interface WorkspaceRefreshDeps {
 	readWorktreePath: (key: string) => Promise<string | null>;
 	readMainWorktree: () => Promise<MainWorktree | null>;
 	readDirty: (path: string) => Promise<boolean | null>;
-	/** Hook status key of a space; the main space's is read with its branch. */
-	statusKey: (key: string, mainBranch?: string) => Promise<string>;
+	/** Hook status key of a space. */
+	statusKey: (key: string) => Promise<string>;
 	getCachedIssue: (key: string) => TrackerIssue | null;
 	fetchIssues: (keys: string[]) => Promise<unknown>;
 	readEmoji: (
@@ -311,7 +311,7 @@ export class WorkspaceRefresh {
 		);
 		const info = await this.deps.readMainWorktree();
 		if (!info || this.stopped) return;
-		const statusKey = await this.deps.statusKey(MAIN_WORKTREE_KEY, info.branch);
+		const statusKey = await this.deps.statusKey(MAIN_WORKTREE_KEY);
 		if (this.stopped) return;
 		this.publish(previous => {
 			const current = previous.find(space => space.isMainWorktree);

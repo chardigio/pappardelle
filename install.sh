@@ -16,7 +16,8 @@
 #    ~/.pappardelle/local/, so later builds in the clone don't go live until
 #    the next install
 # 4. Links `pappardelle` and `idow` in ~/.local/bin/ to the installed build
-# 5. Creates required directories (~/.worktrees/, ~/.pappardelle/claude-status/)
+# 5. Creates required directories (~/.worktrees/, ~/.pappardelle/), and moves
+#    state an older build kept in files into the state database
 # 6. Installs skill helper scripts to ~/.pappardelle/scripts/
 # 7. Installs the Pappardelle plugin (skills and hooks) from the installed
 #    build into Claude Code, Codex and agy (`pappardelle plugin install`), and adds
@@ -453,7 +454,6 @@ fi
 # Create Required Directories
 # ============================================================================
 
-mkdir -p "$PAPPARDELLE_DIR/claude-status"
 mkdir -p "$PAPPARDELLE_DIR/repos"
 mkdir -p "$PAPPARDELLE_DIR/logs"
 mkdir -p "$WORKTREES_DIR"
@@ -464,6 +464,20 @@ print_status "Created directories (~/.pappardelle/, ~/.worktrees/)"
 # ============================================================================
 
 install_skill_scripts
+
+# ============================================================================
+# Move State Into the Database
+# ============================================================================
+
+# Before the plugin install: its hooks only write to a database that exists.
+# State an older build kept in files is imported once, and the files deleted.
+if "$LOCAL_BIN/pappardelle" --internal-state migrate "$PAPPARDELLE_DIR/state.db"; then
+    print_status "State database ready"
+    print_info "Restart any running Pappardelle TUI: one on an older build no longer sees its spaces' state"
+else
+    print_error "Could not set up the state database at $PAPPARDELLE_DIR/state.db"
+    exit 1
+fi
 
 # ============================================================================
 # Install the Plugin

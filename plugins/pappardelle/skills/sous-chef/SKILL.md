@@ -333,4 +333,4 @@ The chef doesn't remember issue numbers or beads hashes. Every time you mention 
 
 ## Repo Configuration
 
-The tools detect the repo from the directory this session started in. For a space's worktree path, branch, profile, tmux session names and targets, pane ids or stored state, call `space_get` with the key as `space`, and `field` for one value such as `worktreePath`. Never build them from the key or read Pappardelle's state files.
+The tools detect the repo from the directory this session started in. For a space's worktree path, branch, profile, tmux session names and targets, pane ids or stored state, call `space_get` with the key as `space`, and `field` for one value such as `worktreePath`. Never build them from the key or read Pappardelle's state database.

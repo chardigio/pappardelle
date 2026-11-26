@@ -3,26 +3,25 @@ import {buildSessionEnvArgs, buildSpawnEnv} from './spawn-env.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 test('buildSpawnEnv includes PAPPARDELLE_PROJECT_ROOT', () => {
-	const env = buildSpawnEnv('/tmp/fake-project', {registerSpace: false});
+	const env = buildSpawnEnv('/tmp/fake-project');
 	expect(env['PAPPARDELLE_PROJECT_ROOT']).toBe('/tmp/fake-project');
 });
 
 test('buildSpawnEnv preserves existing env vars', () => {
-	const env = buildSpawnEnv('/tmp/fake-project', {registerSpace: false});
+	const env = buildSpawnEnv('/tmp/fake-project');
 	// Should still have PATH from process.env
 	expect(env['PATH']).toBeTruthy();
 });
 
 test('buildSpawnEnv does not mutate process.env', () => {
 	const before = process.env['PAPPARDELLE_PROJECT_ROOT'];
-	buildSpawnEnv('/tmp/fake-project', {registerSpace: false});
+	buildSpawnEnv('/tmp/fake-project');
 	expect(process.env['PAPPARDELLE_PROJECT_ROOT']).toBe(before);
 });
 
 test('buildSpawnEnv passes the main repo root when given one', () => {
 	const env = buildSpawnEnv('/tmp/fake-project', {
 		mainRepoRoot: '/tmp/fake-main',
-		registerSpace: false,
 	});
 	expect(env['PAPPARDELLE_MAIN_REPO_ROOT']).toBe('/tmp/fake-main');
 });
@@ -32,8 +31,7 @@ test('buildSpawnEnv omits the main repo root when there is none', () => {
 	delete process.env['PAPPARDELLE_MAIN_REPO_ROOT'];
 	try {
 		expect(
-			'PAPPARDELLE_MAIN_REPO_ROOT' in
-				buildSpawnEnv('/tmp/fake-project', {registerSpace: false}),
+			'PAPPARDELLE_MAIN_REPO_ROOT' in buildSpawnEnv('/tmp/fake-project'),
 		).toBe(false);
 	} finally {
 		if (before !== undefined)
@@ -41,26 +39,18 @@ test('buildSpawnEnv omits the main repo root when there is none', () => {
 	}
 });
 
-// idow starts the binary to record the space only when it is told to. A
-// registry that keeps no lifecycle has nothing to record.
-test('buildSpawnEnv tells idow to record the space only for a registry that records spaces being set up', () => {
+// idow records the space before it starts any session only when it is told
+// a Pappardelle that lists spaces started it.
+test('buildSpawnEnv tells idow to record the space', () => {
 	const before = process.env['PAPPARDELLE_REGISTER_SPACE'];
-	// What a Pappardelle started from inside another one's session inherits.
-	process.env['PAPPARDELLE_REGISTER_SPACE'] = '1';
+	delete process.env['PAPPARDELLE_REGISTER_SPACE'];
 	try {
 		expect(
-			buildSpawnEnv('/tmp/fake-project', {registerSpace: true})[
-				'PAPPARDELLE_REGISTER_SPACE'
-			],
+			buildSpawnEnv('/tmp/fake-project')['PAPPARDELLE_REGISTER_SPACE'],
 		).toBe('1');
-		expect(
-			buildSpawnEnv('/tmp/fake-project', {registerSpace: false})[
-				'PAPPARDELLE_REGISTER_SPACE'
-			],
-		).toBe(undefined);
 	} finally {
-		if (before === undefined) delete process.env['PAPPARDELLE_REGISTER_SPACE'];
-		else process.env['PAPPARDELLE_REGISTER_SPACE'] = before;
+		if (before !== undefined)
+			process.env['PAPPARDELLE_REGISTER_SPACE'] = before;
 	}
 });
 
@@ -87,8 +77,7 @@ test('buildSessionEnvArgs adds the main repo root when given one', () => {
 });
 
 test('buildSessionEnvArgs does not name the main space', () => {
-	// The main checkout can change branch while its session lives on, so a
-	// fixed space name would go stale. The hook's cwd logic follows the branch.
+	// The hook finds main from its stored worktree.
 	expect(
 		buildSessionEnvArgs(MAIN_WORKTREE_KEY, 'repo', '/tmp/fake-main'),
 	).toStrictEqual([

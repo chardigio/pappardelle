@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import {test, expect, beforeEach, afterEach} from 'bun:test';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {
@@ -36,15 +35,10 @@ test('returns 1 for a single registered space', () => {
 	expect(getActiveSpaceCount()).toBe(1);
 });
 
-test('returns 0 when registry file does not exist', () => {
-	testTmuxState();
-	expect(getActiveSpaceCount()).toBe(0);
-});
-
-test('returns correct count after registry file changes', () => {
-	const {registryFile} = testTmuxState({spaces: ['STA-100']});
+test('returns the count after a space opens', async () => {
+	const {daos} = testTmuxState({spaces: ['STA-100']});
 	expect(getActiveSpaceCount()).toBe(1);
-	fs.writeFileSync(registryFile, JSON.stringify(['STA-100', 'STA-200']));
+	await daos.registry.add('STA-200');
 	expect(getActiveSpaceCount()).toBe(2);
 });
 

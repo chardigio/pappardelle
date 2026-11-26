@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import {test, expect} from 'bun:test';
 import {unreachable} from '../test/helpers/unreachable.ts';
 import {testState} from '../test/helpers/state.ts';
@@ -10,10 +9,7 @@ import {
 	type SleepFn,
 } from './providers/linear-provider.ts';
 import type {TrackerIssue} from './providers/types.ts';
-import {
-	StateColorCache,
-	getStateColorsPath,
-} from './providers/state-color-cache.ts';
+import {StateColorCache} from './providers/state-color-cache.ts';
 
 // ============================================================================
 // Helper: build a fake issue JSON string
@@ -51,13 +47,10 @@ function tempCache(): StateColorCache {
 	return new StateColorCache();
 }
 
-/** A color store on a temp directory, and the file it keeps. */
+/** A color store on a temp directory. */
 function colorStore() {
-	const {daos, stateDir} = testState();
-	return {
-		dao: daos.stateColors,
-		cachePath: getStateColorsPath('repo', stateDir),
-	};
+	const {daos} = testState();
+	return {dao: daos.stateColors};
 }
 
 // ============================================================================
@@ -375,8 +368,8 @@ test('createComment with ENOENT — fails immediately, no retry', async () => {
 // main worktree color works even when no active issue has "Done" state.
 // ============================================================================
 
-test('getIssue persists state colors to disk', async () => {
-	const {dao, cachePath} = colorStore();
+test('getIssue stores the state colors it reads', async () => {
+	const {dao} = colorStore();
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-900', 'Persist test', 'In Progress', '#f2c94c');
 
@@ -387,24 +380,14 @@ test('getIssue persists state colors to disk', async () => {
 	);
 	await provider.getIssue('STA-900');
 
-	// Verify file was written
-	expect(fs.existsSync(cachePath), 'state-colors.json should be created').toBe(
-		true,
-	);
-	const data = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-	expect(data['In Progress']).toBe('#f2c94c');
+	expect(dao.load()).toEqual({'In Progress': '#f2c94c'});
 });
 
-test('new provider loads persisted state colors from disk', () => {
-	const {dao, cachePath} = colorStore();
+test('a new provider starts with the stored state colors', async () => {
+	const {dao} = colorStore();
+	await dao.set('Done', '#74d09f');
+	await dao.set('In Progress', '#f2c94c');
 
-	// Seed the cache file with state colors
-	fs.writeFileSync(
-		cachePath,
-		JSON.stringify({Done: '#74d09f', 'In Progress': '#f2c94c'}) + '\n',
-	);
-
-	// New provider should load colors from disk immediately
 	const provider = new LinearProvider(
 		undefined,
 		undefined,
@@ -447,13 +430,8 @@ test('persisted colors survive across provider instances', async () => {
 });
 
 test('state color update overwrites previous persisted value', async () => {
-	const {dao, cachePath} = colorStore();
-
-	// Seed with old color
-	fs.writeFileSync(
-		cachePath,
-		JSON.stringify({'In Progress': '#old0000'}) + '\n',
-	);
+	const {dao} = colorStore();
+	await dao.set('In Progress', '#old0000');
 
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-920', 'Color update', 'In Progress', '#new1111');
@@ -469,23 +447,7 @@ test('state color update overwrites previous persisted value', async () => {
 	// Fetch issue with updated color
 	await provider.getIssue('STA-920');
 	expect(provider.getWorkflowStateColor('In Progress')).toBe('#new1111');
-
-	// Verify disk was updated
-	const data = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-	expect(data['In Progress']).toBe('#new1111');
-});
-
-test('persisted cache with invalid JSON is silently ignored', () => {
-	const {dao, cachePath} = colorStore();
-	fs.writeFileSync(cachePath, 'not valid json!!!');
-
-	// Should not throw — just start with empty map
-	const provider = new LinearProvider(
-		undefined,
-		undefined,
-		new StateColorCache(dao),
-	);
-	expect(provider.getWorkflowStateColor('Done')).toBe(null);
+	expect(dao.load()).toEqual({'In Progress': '#new1111'});
 });
 
 // ============================================================================
@@ -982,27 +944,26 @@ test('getIssues GraphQL path skips entirely when all keys are cache-fresh', asyn
 	);
 });
 
-test('persistence does not write when color unchanged', async () => {
-	const {dao, cachePath} = colorStore();
+test('an unchanged color is not stored again', async () => {
+	const {dao} = colorStore();
+	let sets = 0;
+	const counted = {
+		load: () => dao.load(),
+		async set(name: string, color: string) {
+			sets++;
+			await dao.set(name, color);
+		},
+	};
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-930', 'No-op', 'In Progress', '#f2c94c');
 
 	const provider = new LinearProvider(
 		exec,
 		noopSleep,
-		new StateColorCache(dao),
+		new StateColorCache(counted),
 	);
 	await provider.getIssue('STA-930');
-
-	// Record file mtime
-	const stat1 = fs.statSync(cachePath);
-
-	// Fetch same issue again (cache hit, same color) — should not rewrite
 	await provider.getIssue('STA-930');
-	const stat2 = fs.statSync(cachePath);
 
-	expect(
-		stat1.mtimeMs,
-		'file should not be rewritten when color is unchanged',
-	).toBe(stat2.mtimeMs);
+	expect(sets).toBe(1);
 });

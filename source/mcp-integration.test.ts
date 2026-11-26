@@ -14,6 +14,8 @@ import {test, expect} from 'bun:test';
 import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {until, untilValue} from '../test/helpers/wait.ts';
+import {createStateDaos} from './state-daos.ts';
+import {closeStateDb, stateDbPath} from './state-db.ts';
 
 const entry = path.join(import.meta.dirname, 'mcp-cli.ts');
 
@@ -42,13 +44,11 @@ profiles:
 		);
 	}
 
-	// This suite may itself run inside a space. The run's state mode is kept,
-	// and so is a status socket the run names. The children's database is
-	// under their throwaway HOME.
+	// This suite may itself run inside a space. A status socket the run names
+	// is kept. The children's database is under their throwaway HOME.
 	const inherited = Object.fromEntries(
 		Object.entries(process.env).filter(
 			([name]) =>
-				name === 'PAPPARDELLE_SQLITE_STATE' ||
 				name === 'PAPPARDELLE_STATUS_SOCKET' ||
 				!/^(TMUX|PAPPARDELLE_)/.test(name),
 		),
@@ -207,20 +207,13 @@ echo '{"state":"open","number":7,"head":{"repo":{"full_name":"o/child"},"ref":"s
 	});
 
 	expect(result.isError, text(result)).toBeFalsy();
-	const state = JSON.parse(
-		fs.readFileSync(
-			path.join(
-				f.home,
-				'.pappardelle',
-				'repos',
-				'project',
-				'space-state',
-				'KEY-5.json',
-			),
-			'utf8',
-		),
-	) as {prLinks: Array<Record<string, unknown>>};
-	expect(state.prLinks[0]).toMatchObject({
+	const stateDir = path.join(f.home, '.pappardelle');
+	const daos = createStateDaos({repo: 'project', stateDir, home: f.home});
+	teardown(() => {
+		daos.disconnectStatusDaemon();
+		closeStateDb(stateDbPath(stateDir));
+	});
+	expect(daos.spaceState.read('KEY-5')?.prLinks?.[0]).toMatchObject({
 		project: 'o/child',
 		localBranch: 'nested',
 		remoteBranch: 'sd-child',

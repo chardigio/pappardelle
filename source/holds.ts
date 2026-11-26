@@ -1,17 +1,9 @@
 // Prompts space_answer declined for the chef: an agent asked for something
 // past a hard stop, or the model check said no. Each hold waits here until the
 // chef approves or dismisses it. An approved hold lets space_answer approve
-// that same prompt once more, when the agent retries it. Holds live in
-// ~/.pappardelle/repos/{repo}/holds/, one file each.
+// that same prompt once more, when the agent retries it.
 
 import {randomUUID} from 'node:crypto';
-import {
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	renameSync,
-	writeFileSync,
-} from 'node:fs';
 import path from 'node:path';
 
 export const HOLD_STATES = ['open', 'approved', 'dismissed', 'used'] as const;
@@ -53,10 +45,6 @@ export function holdsDir(repoName: string, baseDir: string): string {
 
 export function newHoldId(): string {
 	return `h${randomUUID().slice(0, 7)}`;
-}
-
-export function renderHold(hold: Hold): string {
-	return JSON.stringify(hold, null, '\t') + '\n';
 }
 
 const isString = (value: unknown): value is string => typeof value === 'string';
@@ -135,47 +123,4 @@ export function holdFor(
 		holds.find(hold => hold.state === state && isSamePrompt(hold, prompt)) ??
 		null
 	);
-}
-
-export class JsonHoldDao implements HoldDao {
-	constructor(private readonly dir: string) {}
-
-	holdFile(id: string): string {
-		return path.join(this.dir, `${id}.json`);
-	}
-
-	ids(): string[] {
-		let files: string[];
-		try {
-			files = readdirSync(this.dir);
-		} catch {
-			return [];
-		}
-
-		return files
-			.filter(file => file.endsWith('.json'))
-			.map(file => file.slice(0, -5));
-	}
-
-	async save(hold: Hold): Promise<void> {
-		mkdirSync(this.dir, {recursive: true});
-		const file = this.holdFile(hold.id);
-		writeFileSync(`${file}.tmp`, renderHold(hold));
-		renameSync(`${file}.tmp`, file);
-	}
-
-	load(id: string): Hold | null {
-		try {
-			return parseHold(readFileSync(this.holdFile(id), 'utf8'));
-		} catch {
-			return null;
-		}
-	}
-
-	list(): Hold[] {
-		return this.ids()
-			.map(id => this.load(id))
-			.filter((hold): hold is Hold => hold !== null)
-			.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-	}
 }

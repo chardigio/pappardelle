@@ -1,19 +1,17 @@
-// Agent sessions as rows, with each space's file kept beside them.
+// Agent sessions as rows.
 //
 // The file has two writers: the agent's hook, which records a session id, and
 // a config migration, which moves an id to a renamed agent profile. Each read
 // the whole file and wrote it back, so one could undo the other. Here both
 // do their read and write inside one write transaction.
 
+import path from 'node:path';
 import {createLogger} from './logger.ts';
 import {
 	latestStarted,
 	parseAgentSessions,
-	renderAgentSessions,
-	type AgentSession,
 	type AgentSessionsDao,
 	type AgentSessionsLookup,
-	type JsonAgentSessionsDao,
 } from './space-state.ts';
 import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 
@@ -32,11 +30,14 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		private readonly json: JsonAgentSessionsDao,
+		/** Where each space's JSON file was, for the one-time import. */
+		private readonly jsonDir: string,
 	) {}
 
-	file(key: string): string {
-		return this.json.file(key);
+	jsonMirrors(): JsonMirror[] {
+		return this.openDb()
+			.jsonKeysIn(this.jsonDir, '.agent-sessions.json')
+			.map(key => this.mirror(key));
 	}
 
 	read(key: string, agentProfile: string): string | undefined {
@@ -46,7 +47,6 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 
 	sessions(key: string): AgentSessionsLookup {
 		try {
-			this.openDb().sync(this.mirror(key));
 			return {
 				kind: 'sessions',
 				sessions: Object.fromEntries(
@@ -65,20 +65,12 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 	}
 
 	keys(): string[] {
-		return this.reads.or([], () => {
-			// A hook without the database leaves a file with no rows yet, and a
-			// process that reads the files removes one without touching its rows.
-			for (const key of new Set([...this.json.keys(), ...this.storedKeys()]))
-				this.openDb().sync(this.mirror(key));
-			return this.storedKeys();
-		});
+		return this.reads.or([], () => this.storedKeys());
 	}
 
 	async renameProfile(key: string, from: string, to: string): Promise<void> {
-		const mirror = this.mirror(key);
 		try {
-			await this.openDb().write(tx => {
-				if (tx.sync(mirror) === 'malformed') return;
+			await this.openDb().write(() => {
 				const names = new Set(this.rows(key).map(row => row.agent_profile));
 				if (!names.has(from) || names.has(to)) return;
 				this.openDb()
@@ -87,7 +79,6 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 						WHERE repo = ? AND key = ? AND agent_profile = ?`,
 					)
 					.run(to, this.repo, key, from);
-				tx.mirror(mirror.file, this.render(key));
 			});
 		} catch (error) {
 			// The space relaunches with --continue instead.
@@ -99,27 +90,20 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 	}
 
 	async clear(key: string): Promise<void> {
-		const mirror = this.mirror(key);
-		await this.openDb().write(tx => {
+		await this.openDb().write(() => {
 			this.delete(key);
-			tx.mirror(mirror.file, null);
 		});
 	}
 
 	private guardedRows(key: string): SessionRow[] {
-		return this.reads.or([], () => {
-			this.openDb().sync(this.mirror(key));
-			return this.rows(key);
-		});
+		return this.reads.or([], () => this.rows(key));
 	}
 
 	private mirror(key: string): JsonMirror {
 		return {
-			file: this.json.file(key),
+			file: path.join(this.jsonDir, `${key}.agent-sessions.json`),
 			importRows: content => {
 				this.delete(key);
-				// idow removes the file of a new issue on purpose, so its
-				// sessions go with it.
 				if (content === null) return;
 				const insert = this.openDb().db.query(
 					`INSERT INTO agent_sessions
@@ -138,15 +122,6 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 				}
 			},
 		};
-	}
-
-	private render(key: string): string {
-		return renderAgentSessions(
-			this.rows(key).map((row): [string, AgentSession] => [
-				row.agent_profile,
-				{sessionId: row.session_id, pid: row.pid, started: row.started},
-			]),
-		);
 	}
 
 	private rows(key: string): SessionRow[] {

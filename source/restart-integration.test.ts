@@ -1,11 +1,10 @@
 import {execFileSync, spawnSync} from 'node:child_process';
-import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {expect} from 'bun:test';
 import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
-import {sqliteRun} from '../test/helpers/state.ts';
 import {until} from '../test/helpers/wait.ts';
 import {restartRepo, type RestartCommandDeps} from './restart-command.ts';
 import {stateDaosByRepo} from './state-daos.ts';
@@ -66,14 +65,14 @@ tmuxTest(
 		});
 
 		const repoStateRoot = join(dir, 'repos');
-		mkdirSync(join(repoStateRoot, 'itest'), {recursive: true});
-		const daosFor = stateDaosByRepo({stateDir: dir, sqlite: sqliteRun});
-		const stub = join(dir, 'stub-tui.cjs');
+		const daosFor = stateDaosByRepo({stateDir: dir});
+		const stub = join(dir, 'stub-tui.mjs');
 		writeFileSync(
 			stub,
-			`require('node:fs').writeFileSync(${JSON.stringify(
-				join(repoStateRoot, 'itest', 'tui.json'),
-			)}, JSON.stringify({pid: process.pid, cliPath: __filename, sha: 'stub', paneId: process.env.TMUX_PANE, startedAt: Date.now()}));
+			`import {createStateDaos} from ${JSON.stringify(
+				new URL('state-daos.ts', import.meta.url).href,
+			)};
+await createStateDaos({repo: 'itest', stateDir: ${JSON.stringify(dir)}}).tuiMarker.write({pid: process.pid, cliPath: process.argv[1], sha: 'stub', paneId: process.env.TMUX_PANE, startedAt: Date.now()});
 setInterval(() => {}, 1000);`,
 		);
 		const launchCommand = `${shellQuote(process.execPath)} ${shellQuote(stub)}`;
@@ -121,6 +120,7 @@ setInterval(() => {}, 1000);`,
 				return {status: 0, stdout: ''};
 			},
 			repoStateRoot,
+			knownRepos: () => ['itest'],
 			tuiMarker: repo => daosFor(repo).tuiMarker,
 			launchCommand,
 			cliPath: stub,
@@ -168,7 +168,7 @@ setInterval(() => {}, 1000);`,
 
 		expect(
 			printed.filter(line =>
-				/^pappardelle-itest is running .*stub-tui\.cjs \(stub\)$/.test(line),
+				/^pappardelle-itest is running .*stub-tui\.mjs \(stub\)$/.test(line),
 			).length,
 		).toBe(3);
 		expect(innerCalls).toStrictEqual([]);

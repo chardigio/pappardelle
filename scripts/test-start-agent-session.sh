@@ -15,9 +15,9 @@ source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 run_under_tmux_guard "$0" "$@"
 
 # A run inside a space inherits that space's PAPPARDELLE_*, and the state ones
-# (PAPPARDELLE_STATE_DB, PAPPARDELLE_STATUS_SOCKET, PAPPARDELLE_STATUS_DIR)
-# would point the hooks past the throwaway HOME below.
-for name in $(compgen -e | grep '^PAPPARDELLE_' | grep -v '^PAPPARDELLE_SQLITE_STATE$\|^PAPPARDELLE_TEST_'); do unset "$name"; done
+# (PAPPARDELLE_STATE_DB, PAPPARDELLE_STATUS_SOCKET) would point the hooks past
+# the throwaway HOME below.
+for name in $(compgen -e | grep '^PAPPARDELLE_' | grep -v '^PAPPARDELLE_TEST_'); do unset "$name"; done
 
 # Unique prefix to avoid collisions with real sessions
 TEST_PREFIX="test-$$"

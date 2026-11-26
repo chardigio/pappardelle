@@ -5,24 +5,24 @@ import path from 'node:path';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {until, untilValue} from '../test/helpers/wait.ts';
+import {testState} from '../test/helpers/state.ts';
+import {until, untilValue, watcherReady} from '../test/helpers/wait.ts';
 import {installSousChefKey} from './tmux.ts';
-import {
-	getHighlightFilePath,
-	highlightWriteCommand,
-	parseHighlightTarget,
-} from './highlight.ts';
+import {highlightShellCommand, type HighlightRequest} from './highlight.ts';
 
 const exec = promisify(execFile);
 
 // Each case runs its own tmux server with an attached control client, so keys
-// are pressed through the client's key tables the way a user's would be.
+// are pressed through the client's key tables the way a user's would be. The
+// server's HOME is the case's directory, so the request the key makes lands
+// in a state directory of the case's own.
 async function fixture() {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-sous-chef-'));
 	const socket = path.join(dir, 'outer');
+	const env = {...process.env, TMUX: '', HOME: dir};
 	const run = async (args: string[]) => {
 		const {stdout} = await exec('tmux', ['-S', socket, ...args], {
-			env: {...process.env, TMUX: ''},
+			env,
 			timeout: 5000,
 		});
 		return stdout.trim();
@@ -51,7 +51,7 @@ async function fixture() {
 		'tmux',
 		['-S', socket, '-C', 'attach', '-t', 'fixture'],
 		{
-			env: {...process.env, TMUX: ''},
+			env,
 			stdio: ['pipe', 'ignore', 'ignore'],
 		},
 	);
@@ -87,13 +87,15 @@ async function fixture() {
 
 	const repoName = 'fixture-repo';
 	const request = {issueKey: 'main', focus: true};
-	const target = getHighlightFilePath(repoName, dir);
-	const command = highlightWriteCommand(target, request);
-	fs.mkdirSync(path.dirname(target), {recursive: true});
-	const jumped = () =>
-		fs.existsSync(target)
-			? parseHighlightTarget(fs.readFileSync(target, 'utf8'))
-			: null;
+	const command = highlightShellCommand(repoName, request);
+	const state = testState({
+		repo: repoName,
+		stateDir: path.join(dir, '.pappardelle'),
+	});
+	const requests: HighlightRequest[] = [];
+	teardown(state.daos.highlight.watch(made => requests.push(made)));
+	await watcherReady();
+	const jumped = () => requests.at(-1) ?? null;
 
 	const press = async (window: number, key: string) => {
 		await run(['select-window', '-t', `fixture:${window}`]);

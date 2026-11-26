@@ -3,8 +3,8 @@ import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {thrownBy} from '../test/helpers/thrown.ts';
-import {contractTest} from '../test/helpers/dao-contract.ts';
-import {testState, type TestState} from '../test/helpers/state.ts';
+import {storeTest} from '../test/helpers/dao-contract.ts';
+import {testState} from '../test/helpers/state.ts';
 import {
 	agyTranscriptPath,
 	extractRecapFromJsonl,
@@ -21,18 +21,6 @@ import {tempDir} from '../test/helpers/temp-dir.ts';
 // SpaceStateDao
 // ============================================================================
 
-const stateFile = (s: TestState, key: string) =>
-	path.join(s.stateDir, 'repos', 'repo', 'space-state', `${key}.json`);
-
-const fileContent = (s: TestState, key: string) =>
-	JSON.parse(fs.readFileSync(stateFile(s, key), 'utf8')) as SpaceState;
-
-/** A state file as a process that does not use the database leaves it. */
-function writeStateFile(s: TestState, key: string, state: unknown): void {
-	fs.mkdirSync(path.dirname(stateFile(s, key)), {recursive: true});
-	fs.writeFileSync(stateFile(s, key), JSON.stringify(state, null, 2) + '\n');
-}
-
 const link = (rest: Partial<SpacePrLink> = {}): SpacePrLink => ({
 	host: 'github.com',
 	project: 'user/repo',
@@ -43,20 +31,11 @@ const link = (rest: Partial<SpacePrLink> = {}): SpacePrLink => ({
 	...rest,
 });
 
-contractTest('a space with nothing recorded reads as null', s => {
+storeTest('a space with nothing recorded reads as null', s => {
 	expect(s.daos.spaceState.read('STA-999')).toBe(null);
-	expect(s.daos.spaceState.file('STA-999')).toBe(
-		path.join(s.stateDir, 'repos', 'repo', 'space-state', 'STA-999.json'),
-	);
 });
 
-contractTest('a file that is not JSON reads as nothing recorded', s => {
-	fs.mkdirSync(path.dirname(stateFile(s, 'STA-100')), {recursive: true});
-	fs.writeFileSync(stateFile(s, 'STA-100'), 'not json{{{');
-	expect(s.daos.spaceState.read('STA-100')).toBe(null);
-});
-
-contractTest(
+storeTest(
 	'a lookup tells a recorded space from one with nothing recorded',
 	async s => {
 		expect(s.daos.spaceState.lookup('STA-1')).toStrictEqual({kind: 'none'});
@@ -65,49 +44,6 @@ contractTest(
 		expect(lookup.kind === 'state' ? lookup.state.profile : undefined).toBe(
 			'dev',
 		);
-	},
-);
-
-test('json: a lookup of a file that cannot be read is unreadable, not nothing recorded', () => {
-	const s = testState({sqlite: false});
-	writeStateFile(s, 'STA-1', {});
-	fs.writeFileSync(stateFile(s, 'STA-1'), 'not json{{{');
-	fs.mkdirSync(stateFile(s, 'STA-2'), {recursive: true});
-	expect(s.daos.spaceState.lookup('STA-1').kind).toBe('unreadable');
-	expect(s.daos.spaceState.lookup('STA-2').kind).toBe('unreadable');
-});
-
-// Another build, or a hand edit, can leave a value this build does not use.
-// The rail rewrites the file on its next poll, from what was read.
-contractTest(
-	'a file with a field that cannot be used keeps its other fields, through a rail write too',
-	async s => {
-		const {spaceState} = s.daos;
-		writeStateFile(s, 'STA-150', {
-			profile: 'codex',
-			prLinks: [link()],
-			pipeline: 'purple',
-			prNumber: null,
-			recap: {customTitle: 5, lastPrompt: 'Prompt'},
-		});
-		const expected = {
-			profile: 'codex',
-			prLinks: [link()],
-			recap: {lastPrompt: 'Prompt'},
-		};
-		expect(spaceState.read('STA-150')).toMatchObject(expected);
-
-		await spaceState.writeMany([
-			{key: 'STA-150', patch: {unresolvedCommentCount: 4}},
-		]);
-		expect(spaceState.read('STA-150')).toMatchObject({
-			...expected,
-			unresolvedCommentCount: 4,
-		});
-		expect(fileContent(s, 'STA-150')).toMatchObject({
-			...expected,
-			unresolvedCommentCount: 4,
-		});
 	},
 );
 
@@ -157,29 +93,25 @@ test('parseSpaceState leaves out each value that is not what its field holds, an
 	}
 });
 
-for (const sqlite of [false, true]) {
-	test(`${sqlite ? 'sqlite' : 'json'}: a write records its fields with the time of the write, in the store and in the file`, async () => {
-		const s = testState({
-			sqlite,
-			clock: () => new Date('2026-01-02T03:04:05.678Z'),
-		});
-		await s.daos.spaceState.write('STA-200', {
-			pipeline: 'passing',
-			unresolvedCommentCount: 2,
-			hasConflict: false,
-		});
-		const expected: SpaceState = {
-			pipeline: 'passing',
-			unresolvedCommentCount: 2,
-			hasConflict: false,
-			updatedAt: '2026-01-02T03:04:05.678Z',
-		};
-		expect(s.daos.spaceState.read('STA-200')).toStrictEqual(expected);
-		expect(fileContent(s, 'STA-200')).toStrictEqual(expected);
+test('a write records its fields with the time of the write', async () => {
+	const s = testState({
+		clock: () => new Date('2026-01-02T03:04:05.678Z'),
 	});
-}
+	await s.daos.spaceState.write('STA-200', {
+		pipeline: 'passing',
+		unresolvedCommentCount: 2,
+		hasConflict: false,
+	});
+	const expected: SpaceState = {
+		pipeline: 'passing',
+		unresolvedCommentCount: 2,
+		hasConflict: false,
+		updatedAt: '2026-01-02T03:04:05.678Z',
+	};
+	expect(s.daos.spaceState.read('STA-200')).toStrictEqual(expected);
+});
 
-contractTest(
+storeTest(
 	'a write keeps the fields its patch does not name',
 	async ({daos: {spaceState}}) => {
 		await spaceState.write('STA-300', {
@@ -198,7 +130,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'the issue title is read back, and kept through a profile write and a rail poll',
 	async s => {
 		const {spaceState} = s.daos;
@@ -207,17 +139,16 @@ contractTest(
 		await spaceState.writeMany([
 			{key: 'STA-320', patch: {pipeline: 'passing'}},
 		]);
-		for (const state of [spaceState.read('STA-320'), fileContent(s, 'STA-320')])
-			expect(state).toMatchObject({
-				issueTitle: 'Fix the rail',
-				profile: 'dev',
-				pipeline: 'passing',
-			});
+		expect(spaceState.read('STA-320')).toMatchObject({
+			issueTitle: 'Fix the rail',
+			profile: 'dev',
+			pipeline: 'passing',
+		});
 	},
 );
 
-contractTest(
-	'the launched agent profile is read back from the store and from a file written without it, and kept through a rail poll',
+storeTest(
+	'the launched agent profile is read back, and kept through a rail poll',
 	async s => {
 		const {spaceState} = s.daos;
 		const agentProfile = {name: 'codex-high', isClaude: false};
@@ -228,19 +159,10 @@ contractTest(
 		expect(spaceState.read('STA-330')?.agentProfile).toStrictEqual(
 			agentProfile,
 		);
-		expect(fileContent(s, 'STA-330').agentProfile).toStrictEqual(agentProfile);
-
-		writeStateFile(s, 'STA-331', {
-			agentProfile: {name: 'opus', isClaude: true},
-		});
-		expect(spaceState.read('STA-331')?.agentProfile).toStrictEqual({
-			name: 'opus',
-			isClaude: true,
-		});
 	},
 );
 
-contractTest(
+storeTest(
 	'a patch key with no value removes the field, and a recap replaces the whole recap',
 	async s => {
 		const {spaceState} = s.daos;
@@ -256,19 +178,15 @@ contractTest(
 			prNumber: undefined,
 			recap: {lastPrompt: 'Newer prompt'},
 		});
-		for (const state of [
-			spaceState.read('STA-310'),
-			fileContent(s, 'STA-310'),
-		]) {
-			expect('prNumber' in state!).toBe(false);
-			expect(state?.recap).toStrictEqual({lastPrompt: 'Newer prompt'});
-		}
+		const state = spaceState.read('STA-310');
+		expect('prNumber' in state!).toBe(false);
+		expect(state?.recap).toStrictEqual({lastPrompt: 'Newer prompt'});
 	},
 );
 
 // `pappardelle spaces` prints pipeline as null for a branch with no PR and
 // leaves it out for a space the rail has not polled.
-contractTest(
+storeTest(
 	'a pipeline of null is kept apart from no pipeline at all',
 	async s => {
 		const {spaceState} = s.daos;
@@ -277,23 +195,17 @@ contractTest(
 			unresolvedCommentCount: 0,
 		});
 		await spaceState.write('UNPOLLED', {profile: 'dev'});
-		for (const state of [spaceState.read('POLLED'), fileContent(s, 'POLLED')]) {
-			expect('pipeline' in state!).toBe(true);
-			expect(state?.pipeline).toBe(null);
-		}
-
-		for (const state of [
-			spaceState.read('UNPOLLED'),
-			fileContent(s, 'UNPOLLED'),
-		])
-			expect('pipeline' in state!).toBe(false);
+		const polled = spaceState.read('POLLED');
+		expect('pipeline' in polled!).toBe(true);
+		expect(polled?.pipeline).toBe(null);
+		expect('pipeline' in spaceState.read('UNPOLLED')!).toBe(false);
 
 		await spaceState.write('POLLED', {pipeline: undefined});
 		expect('pipeline' in spaceState.read('POLLED')!).toBe(false);
 	},
 );
 
-contractTest(
+storeTest(
 	'a rail poll leaves the profile, the recap and the PR links as they were',
 	async s => {
 		const {spaceState} = s.daos;
@@ -326,23 +238,22 @@ contractTest(
 				},
 			},
 		]);
-		for (const state of [spaceState.read('STA-1'), fileContent(s, 'STA-1')]) {
-			expect(state).toMatchObject({
-				profile: 'stardust_jams',
-				pipeline: 'failing',
-				unresolvedCommentCount: 3,
-				hasConflict: true,
-				recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
-				prLinks: [link()],
-			});
-			expect('prNumber' in state!).toBe(false);
-		}
+		const state = spaceState.read('STA-1');
+		expect(state).toMatchObject({
+			profile: 'stardust_jams',
+			pipeline: 'failing',
+			unresolvedCommentCount: 3,
+			hasConflict: true,
+			recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
+			prLinks: [link()],
+		});
+		expect('prNumber' in state!).toBe(false);
 
 		expect(spaceState.read('STA-2')?.pipeline).toBe(null);
 	},
 );
 
-contractTest(
+storeTest(
 	'a PR link replaces the one for the same checkout and becomes the newest',
 	async s => {
 		const {spaceState} = s.daos;
@@ -353,116 +264,12 @@ contractTest(
 
 		const republished = link({remoteBranch: 'published-again', number: 2});
 		await spaceState.addPrLink('STA-1', republished);
-		for (const state of [spaceState.read('STA-1'), fileContent(s, 'STA-1')])
-			expect(state?.prLinks).toStrictEqual([nested, republished]);
+		expect(spaceState.read('STA-1')?.prLinks).toStrictEqual([
+			nested,
+			republished,
+		]);
 	},
 );
-
-contractTest(
-	'a file written by a process without the database is what the next read returns',
-	async s => {
-		const {spaceState} = s.daos;
-		await spaceState.write('STA-1', {profile: 'dev', prNumber: 4});
-		const edited = {
-			profile: 'other',
-			issueTitle: 'Renamed by hand',
-			pipeline: null,
-			unresolvedCommentCount: 2,
-			hasConflict: true,
-			recap: {lastAssistantExcerpt: 'Done'},
-			prLinks: [link()],
-			updatedAt: '2026-05-06T07:08:09Z',
-		};
-		writeStateFile(s, 'STA-1', edited);
-		expect(spaceState.read('STA-1')).toStrictEqual(edited);
-
-		await spaceState.write('STA-1', {prNumber: 9});
-		const {updatedAt, ...kept} = edited;
-		const {updatedAt: rewrittenAt, ...rewritten} = fileContent(s, 'STA-1');
-		expect(rewritten).toStrictEqual({...kept, prNumber: 9});
-		expect(rewrittenAt).not.toBe(updatedAt);
-	},
-);
-
-contractTest('a space whose file was deleted has nothing recorded', async s => {
-	const {spaceState} = s.daos;
-	await spaceState.write('STA-1', {profile: 'dev'});
-	await spaceState.addPrLink('STA-1', link());
-	fs.rmSync(stateFile(s, 'STA-1'));
-	expect(spaceState.read('STA-1')).toBe(null);
-
-	await spaceState.write('STA-1', {prNumber: 3});
-	expect(Object.keys(fileContent(s, 'STA-1')).sort()).toStrictEqual([
-		'prNumber',
-		'updatedAt',
-	]);
-});
-
-test('both stores leave the same files for the same writes', async () => {
-	const files = async (sqlite: boolean) => {
-		const s = testState({sqlite});
-		const {spaceState} = s.daos;
-		await spaceState.write('STA-1', {profile: 'dev'});
-		await spaceState.write('STA-1', {
-			agentProfile: {name: 'claude', isClaude: true},
-		});
-		await spaceState.writeMany([
-			{
-				key: 'STA-1',
-				patch: {
-					pipeline: 'passing',
-					unresolvedCommentCount: 0,
-					prNumber: 7,
-					hasConflict: false,
-					recap: {customTitle: 'Title', lastAssistantExcerpt: 'Excerpt'},
-				},
-			},
-			{
-				key: 'STA-2',
-				patch: {
-					pipeline: null,
-					unresolvedCommentCount: 0,
-					prNumber: undefined,
-					hasConflict: false,
-				},
-			},
-		]);
-		await spaceState.addPrLink('STA-1', link());
-		await spaceState.addPrLink('STA-1', link({remoteBranch: 'again'}));
-		await spaceState.addPrLink('STA-3', link({localBranch: 'STA-3'}));
-		await spaceState.writeMany([
-			{
-				key: 'STA-1',
-				patch: {
-					pipeline: 'failing',
-					unresolvedCommentCount: 2,
-					prNumber: undefined,
-					hasConflict: true,
-				},
-			},
-		]);
-		const dir = path.dirname(stateFile(s, 'STA-1'));
-		return Object.fromEntries(
-			fs
-				.readdirSync(dir)
-				.sort()
-				.map(name => {
-					const {updatedAt, ...rest} = JSON.parse(
-						fs.readFileSync(path.join(dir, name), 'utf8'),
-					) as SpaceState;
-					return [name, rest];
-				}),
-		);
-	};
-
-	const json = await files(false);
-	expect(Object.keys(json)).toStrictEqual([
-		'STA-1.json',
-		'STA-2.json',
-		'STA-3.json',
-	]);
-	expect(await files(true)).toStrictEqual(json);
-});
 
 // ============================================================================
 // extractRecapFromJsonl

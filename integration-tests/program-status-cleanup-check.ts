@@ -35,7 +35,6 @@ try {
 	const daos = createStateDaos({
 		repo: getRepoName(),
 		stateDir: path.join(harness.root, 'state'),
-		sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
 	});
 	initTmuxState(daos);
 	const bin = path.join(harness.root, 'bin');
@@ -62,14 +61,9 @@ try {
 		writeFileSync(file, 'other workspace message');
 		writeFileSync(`${file}.lease`, '');
 	}
-	/**
-	 * Whether the pane's snapshot is where its monitor publishes it: its file,
-	 * or with the flag on the status daemon.
-	 */
-	const published = async (key: string, target: string) =>
-		harness.sqlite
-			? (await harness.heldSnapshots(repo, key)) > 0
-			: existsSync(target);
+	/** Whether the status daemon holds the pane's snapshot. */
+	const published = async (key: string) =>
+		(await harness.heldSnapshots(repo, key)) > 0;
 	// No space is open, and none of these sessions is main's.
 	const nothing = {names: new Set<string>(), keys: new Set<string>()};
 	const findings: string[] = [];
@@ -111,8 +105,7 @@ try {
 			key,
 			pane.generation,
 		);
-		if (harness.sqlite) assert.ok(await published(key, target));
-		else assert.ok(readFileSync(target, 'utf8').includes('fixture'));
+		assert.ok(await published(key));
 		if (mode === 'orphan') {
 			assert.equal(
 				cleanupOrphanedInnerSessions(nothing, repo, undefined, []),
@@ -224,7 +217,7 @@ try {
 		),
 		1,
 	);
-	assert.ok(await published(key, target));
+	assert.ok(await published(key));
 	assert.ok(existsSync(`${target}.lease`));
 	assert.equal(cleanupOrphanedInnerSessions(nothing, repo, undefined, []), 1);
 	assert.ok(!existsSync(`${target}.lease`));

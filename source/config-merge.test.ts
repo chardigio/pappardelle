@@ -8,7 +8,6 @@ import {
 	deepMerge,
 	mergeConfigLayers,
 	loadConfigFromPaths,
-	readHomeSqliteState,
 	getTeamPrefix,
 	getInitializationCommand,
 	getAgentProfile,
@@ -19,7 +18,6 @@ import {
 } from './config.ts';
 import {validateConfig} from './config-validation.ts';
 import {ConfigNotFoundError, ConfigValidationError} from './config-errors.ts';
-import {getRecentErrors} from './logger.ts';
 
 // ============================================================================
 // deepMerge — pure utility tests
@@ -1852,110 +1850,4 @@ agent_profiles:
 	} finally {
 		cleanup();
 	}
-});
-
-// ============================================================================
-// experimental.sqliteState: home layer only
-// ============================================================================
-
-const minimalConfig = `version: 1
-profiles:
-  t:
-    display_name: T
-`;
-const sqliteStateOn = `experimental:
-  sqliteState: true
-`;
-
-test('experimental.sqliteState is accepted from the home config', () => {
-	const {dir, cleanup} = setupTempDir({
-		'home/.pappardelle.yml': minimalConfig + sqliteStateOn,
-	});
-	try {
-		const config = loadConfigFromPaths({homeConfigDir: path.join(dir, 'home')});
-		expect(config.experimental?.sqliteState).toBe(true);
-		expect(readHomeSqliteState(path.join(dir, 'home'))).toBe(true);
-	} finally {
-		cleanup();
-	}
-});
-
-for (const file of ['.pappardelle.yml', '.pappardelle.local.yml']) {
-	test(`experimental.sqliteState in ${file} is rejected by name`, () => {
-		const {dir, cleanup} = setupTempDir({
-			'home/.pappardelle.yml': minimalConfig,
-			[`project/${file}`]: sqliteStateOn,
-		});
-		try {
-			const error = thrownBy(
-				() =>
-					loadConfigFromPaths({
-						homeConfigDir: path.join(dir, 'home'),
-						projectDir: path.join(dir, 'project'),
-					}),
-				ConfigValidationError,
-			);
-			expect(
-				error?.message.includes(
-					`${file}: experimental.sqliteState can only be set in ~/.pappardelle/.pappardelle.yml`,
-				),
-			).toBe(true);
-		} finally {
-			cleanup();
-		}
-	});
-}
-
-test('the home flag is false when the home config leaves it out or is missing', () => {
-	const {dir, cleanup} = setupTempDir({
-		'home/.pappardelle.yml': minimalConfig + sqliteStateOn,
-		'bare/.pappardelle.yml': minimalConfig,
-	});
-	try {
-		expect(readHomeSqliteState(path.join(dir, 'home'))).toBe(true);
-		expect(readHomeSqliteState(path.join(dir, 'bare'))).toBe(false);
-		expect(readHomeSqliteState(path.join(dir, 'missing'))).toBe(false);
-		expect(
-			getRecentErrors().filter(entry =>
-				entry.message.includes(path.join(dir, 'missing')),
-			),
-		).toStrictEqual([]);
-	} finally {
-		cleanup();
-	}
-});
-
-test('a home config that does not parse leaves the flag off and says so', () => {
-	const {dir, cleanup} = setupTempDir({
-		'home/.pappardelle.yml': 'experimental: {sqliteState: true',
-	});
-	try {
-		expect(readHomeSqliteState(path.join(dir, 'home'))).toBe(false);
-		const warnings = getRecentErrors().filter(entry =>
-			entry.message.includes(path.join(dir, 'home', '.pappardelle.yml')),
-		);
-		expect(warnings).toMatchObject([{level: 'warn'}]);
-		expect(warnings.length).toBe(1);
-		expect(warnings[0]!.message).toMatch(
-			/Could not read experimental\.sqliteState/,
-		);
-		expect(warnings[0]!.error).toBeTruthy();
-	} finally {
-		cleanup();
-	}
-});
-
-test('experimental.sqliteState must be a boolean', () => {
-	const error = thrownBy(
-		() =>
-			validateConfig({
-				version: 1,
-				profiles: {t: {display_name: 'T'}},
-				experimental: {sqliteState: 'yes'},
-			}),
-		ConfigValidationError,
-	);
-	expect(
-		error?.message.includes('experimental.sqliteState: must be a boolean'),
-	).toBe(true);
 });

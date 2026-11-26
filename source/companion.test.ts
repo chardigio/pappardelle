@@ -18,15 +18,15 @@ import {
 	type TestState,
 } from '../test/helpers/state.ts';
 
-// tmux.ts names a space's sessions from the stores. Without the database they
-// are the names idow gives a space, which is all this file needs.
+// tmux.ts names a space's sessions from the stores, as idow names them when
+// it opens a space.
 const stateTeardowns: Array<() => unknown> = [];
 let derived: TestState;
 beforeAll(() => {
 	derived = testTmuxState({
 		cleanup: fn => stateTeardowns.push(fn),
 		repo: 'repo',
-		sqlite: false,
+		spaces: ['STA-1'],
 	});
 });
 afterAll(async () => {
@@ -386,7 +386,7 @@ test('read returns only the last N lines of what tmux captured', () => {
 });
 
 test('the companion verbs target the companion session stored for the space', async () => {
-	const stored = testState({repo: 'repo', sqlite: true});
+	const stored = testState({repo: 'repo'});
 	await stored.daos.spaceIdentities.record({
 		repo: 'repo',
 		key: 'STA-1',

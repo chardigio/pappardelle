@@ -1,15 +1,9 @@
-// The update check's cached answer as a row, with update-check.json kept
-// beside it.
-//
-// The benchmarks and the compiled-binary tests write that file before they
-// start Pappardelle so that it makes no network call. A file written that
-// way is imported when it is read.
+// The update check's cached answer as a row.
 
 import {createLogger} from './logger.ts';
 import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 import {
 	parseCachedCheck,
-	renderCachedCheck,
 	type CacheEntry,
 	type UpdateCheckDao,
 } from './update-check.ts';
@@ -17,28 +11,29 @@ import {
 const log = createLogger('update-check');
 
 export class SqliteUpdateCheckDao implements UpdateCheckDao {
-	private readonly mirror: JsonMirror;
 	private readonly reads = new GuardedReads(log, 'the update check');
 
 	constructor(
 		private readonly openDb: () => StateDb,
-		file: string,
-	) {
-		this.mirror = {
-			file,
-			importRows: content => {
-				// A file that is gone or unreadable means nothing is cached,
-				// as it does to a process that reads the file.
-				const entry = content === null ? null : parseCachedCheck(content);
-				if (entry) this.put(entry);
-				else this.openDb().db.run('DELETE FROM update_check');
+		/** Where update-check.json was, for the one-time import. */
+		private readonly jsonFile: string,
+	) {}
+
+	jsonMirrors(): JsonMirror[] {
+		return [
+			{
+				file: this.jsonFile,
+				importRows: content => {
+					const entry = content === null ? null : parseCachedCheck(content);
+					if (entry) this.put(entry);
+					else this.openDb().db.run('DELETE FROM update_check');
+				},
 			},
-		};
+		];
 	}
 
 	read(): CacheEntry | null {
 		return this.reads.or(null, () => {
-			this.openDb().sync(this.mirror);
 			const row = this.openDb()
 				.db.query<
 					{checked_at: number; latest_version: string},
@@ -53,9 +48,8 @@ export class SqliteUpdateCheckDao implements UpdateCheckDao {
 
 	async write(entry: CacheEntry): Promise<void> {
 		try {
-			await this.openDb().write(tx => {
+			await this.openDb().write(() => {
 				this.put(entry);
-				tx.mirror(this.mirror.file, renderCachedCheck(entry));
 			});
 		} catch (error) {
 			log.warn(

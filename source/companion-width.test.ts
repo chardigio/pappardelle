@@ -1,10 +1,8 @@
 import {execFile} from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {contractTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {watcherReady} from '../test/helpers/wait.ts';
 import {
@@ -17,18 +15,12 @@ import {openStateDb, stateDbPath} from './state-db.ts';
 const exec = promisify(execFile);
 const daosUrl = new URL('state-daos.ts', import.meta.url).href;
 
-const widthsFile = (state: TestState) =>
-	path.join(state.stateDir, 'repos', 'repo', 'companion-widths.json');
-
-const requestFiles = (state: TestState) => {
-	try {
-		return fs.readdirSync(
-			path.join(state.stateDir, 'repos', 'repo', 'companion-requests'),
-		);
-	} catch {
-		return [];
-	}
-};
+/** The ids of the requests still stored. */
+const requestRows = (state: TestState) =>
+	openStateDb(stateDbPath(state.stateDir))
+		.db.query<{id: string}, []>('SELECT id FROM companion_requests')
+		.all()
+		.map(row => row.id);
 
 /** A running TUI that answers every request it sees with `answer`. */
 function fakeTui(
@@ -50,7 +42,7 @@ const requestOptions = (state: TestState) => ({
 	requests: state.daos.companionRequests,
 });
 
-contractTest(
+storeTest(
 	'widths are stored per space and reset removes only that space',
 	async state => {
 		const widths = state.daos.companionWidths;
@@ -66,33 +58,7 @@ contractTest(
 	},
 );
 
-contractTest('invalid entries in the store are ignored', state => {
-	const file = widthsFile(state);
-	fs.mkdirSync(path.dirname(file), {recursive: true});
-	fs.writeFileSync(file, JSON.stringify({A: 60, B: 'wide', C: -4, D: '25%'}));
-	expect(state.daos.companionWidths.all()).toStrictEqual({A: 60, D: '25%'});
-});
-
-contractTest(
-	'a width stored by a process that only writes the file is read next',
-	async state => {
-		const widths = state.daos.companionWidths;
-		await widths.set('A', 60);
-		expect(widths.get('A')).toBe(60);
-		fs.writeFileSync(widthsFile(state), JSON.stringify({A: 44, B: '20%'}));
-		expect(widths.all()).toStrictEqual({A: 44, B: '20%'});
-		await widths.set('C', 30);
-		expect(
-			JSON.parse(fs.readFileSync(widthsFile(state), 'utf8')),
-		).toStrictEqual({
-			A: 44,
-			B: '20%',
-			C: 30,
-		});
-	},
-);
-
-contractTest('concurrent writers to different spaces all land', async state => {
+storeTest('concurrent writers to different spaces all land', async state => {
 	const widths = state.daos.companionWidths;
 	const keys = Array.from({length: 12}, (_, i) => `S-${i}`);
 	await Promise.all(keys.map(async (key, i) => widths.set(key, 30 + i)));
@@ -100,53 +66,27 @@ contractTest('concurrent writers to different spaces all land', async state => {
 });
 
 // The CLI stores a width while the TUI stores another space's after a drag.
-for (const sqlite of [false, true]) {
-	test(`${sqlite ? 'sqlite' : 'json'}: two processes storing widths both keep theirs`, async () => {
-		const state = testState({sqlite});
-		const worker = async (prefix: string) =>
-			exec(
-				process.execPath,
-				[
-					'--input-type=module',
-					'-e',
-					`
+test('two processes storing widths both keep theirs', async () => {
+	const state = testState();
+	const worker = async (prefix: string) =>
+		exec(
+			process.execPath,
+			[
+				'--input-type=module',
+				'-e',
+				`
 import {createStateDaos} from ${JSON.stringify(daosUrl)};
-const {companionWidths} = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(state.stateDir)}, sqlite: ${sqlite}});
+const {companionWidths} = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(state.stateDir)}});
 for (let i = 0; i < 15; i++) await companionWidths.set(${JSON.stringify(prefix)} + i, 30 + i);
 `,
-				],
-				{timeout: 30_000},
-			);
-		await Promise.all([worker('A-'), worker('B-')]);
-		const stored = state.daos.companionWidths.all();
-		expect(Object.keys(stored).length).toBe(30);
-		expect(
-			JSON.parse(fs.readFileSync(widthsFile(state), 'utf8')),
-		).toStrictEqual(stored);
-	});
-}
-
-test('the two stores leave the same widths file for the same history', async () => {
-	const files = [];
-	for (const sqlite of [false, true]) {
-		const state = testState({sqlite});
-		const widths = state.daos.companionWidths;
-		await widths.set('missing', null);
-		files.push(fs.readFileSync(widthsFile(state), 'utf8'));
-		await widths.set('A', 60);
-		await widths.set('B', '30%');
-		await widths.set('C', 45);
-		await widths.set('A', 62);
-		await widths.set('B', null);
-		await widths.set('C', 45);
-		files.push(fs.readFileSync(widthsFile(state), 'utf8'));
-	}
-
-	expect(files.slice(0, 2)).toStrictEqual(files.slice(2));
-	expect(files[1]).toBe('{"A":62,"C":45}\n');
+			],
+			{timeout: 30_000},
+		);
+	await Promise.all([worker('A-'), worker('B-')]);
+	expect(Object.keys(state.daos.companionWidths.all()).length).toBe(30);
 });
 
-contractTest(
+storeTest(
 	'with no TUI running the width is stored and says so',
 	async state => {
 		const result = await requestCompanionWidth({
@@ -157,7 +97,7 @@ contractTest(
 		});
 		expect(result).toStrictEqual({outcome: 'no-tui'});
 		expect(state.daos.companionWidths.get('A')).toBe(50);
-		expect(requestFiles(state)).toStrictEqual([]);
+		expect(requestRows(state)).toStrictEqual([]);
 	},
 );
 
@@ -172,23 +112,20 @@ for (const [name, answer, expected] of [
 	['no-pane', {result: 'no-pane'}, {outcome: 'no-pane'}],
 	['deferred', {result: 'deferred'}, {outcome: 'deferred'}],
 ] as const) {
-	contractTest(
-		`the TUI's ${name} answer comes back to the CLI`,
-		async state => {
-			const seen = fakeTui(state, () => answer);
-			const result = await requestCompanionWidth({
-				...requestOptions(state),
-				space: 'A',
-				width: 50,
-				tuiIsRunning: () => true,
-			});
-			expect(result).toStrictEqual(expected);
-			expect(seen.includes('width:A')).toBe(true);
-		},
-	);
+	storeTest(`the TUI's ${name} answer comes back to the CLI`, async state => {
+		const seen = fakeTui(state, () => answer);
+		const result = await requestCompanionWidth({
+			...requestOptions(state),
+			space: 'A',
+			width: 50,
+			tuiIsRunning: () => true,
+		});
+		expect(result).toStrictEqual(expected);
+		expect(seen.includes('width:A')).toBe(true);
+	});
 }
 
-contractTest(
+storeTest(
 	'an applied answer without the column width is a failure',
 	async state => {
 		fakeTui(state, () => ({result: 'applied'}));
@@ -203,7 +140,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a TUI that never answers ends in no-ack after the retries',
 	async state => {
 		const {companionRequests} = state.daos;
@@ -233,7 +170,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a TUI that missed the request answers when it is made again',
 	async state => {
 		const {companionRequests} = state.daos;
@@ -261,7 +198,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a request left by a CLI that stopped waiting is not handed to a TUI that starts later',
 	async state => {
 		const {companionRequests} = state.daos;
@@ -286,7 +223,7 @@ contractTest(
 	},
 );
 
-contractTest('quick requests each get their own answer', async state => {
+storeTest('quick requests each get their own answer', async state => {
 	const {companionRequests} = state.daos;
 	// Answers each request once, after a pause long enough for the other
 	// request to be made meanwhile.
@@ -312,10 +249,10 @@ contractTest('quick requests each get their own answer', async state => {
 		});
 	const results = await Promise.all([request('A'), request('B')]);
 	expect(results).toStrictEqual([{outcome: 'applied'}, {outcome: 'stored'}]);
-	expect(requestFiles(state)).toStrictEqual([]);
+	expect(requestRows(state)).toStrictEqual([]);
 });
 
-contractTest('a layout request leaves the widths store alone', async state => {
+storeTest('a layout request leaves the widths store alone', async state => {
 	await state.daos.companionWidths.set('A', 50);
 	const seen = fakeTui(state, () => ({result: 'no-pane'}));
 	expect(
@@ -329,7 +266,7 @@ contractTest('a layout request leaves the widths store alone', async state => {
 	expect(state.daos.companionWidths.all()).toStrictEqual({A: 50});
 });
 
-contractTest(
+storeTest(
 	'an answer to a request the CLI stopped waiting for is not kept',
 	async state => {
 		const {companionRequests} = state.daos;
@@ -356,34 +293,19 @@ contractTest(
 		expect(late.size).toBe(1);
 		const [[id, answer]] = [...late] as [[string, () => Promise<void>]];
 		await answer();
-		expect(requestFiles(state)).toStrictEqual([]);
+		expect(requestRows(state)).toStrictEqual([]);
 		expect(companionRequests.answerTo(id)).toBe(null);
 	},
 );
 
-contractTest(
-	'a request and its answer are files while the CLI waits, and gone after',
+storeTest(
+	'a request keeps its answer while the CLI waits, and both are gone once withdrawn',
 	async state => {
 		const {companionRequests} = state.daos;
 		const request = {id: 'r1', space: 'A', kind: 'width'} as const;
 		await companionRequests.send(request);
+		expect(companionRequests.answerTo('r1')).toBe(null);
 		await companionRequests.answer({id: 'r1', result: 'applied', columns: 48});
-		expect(requestFiles(state).sort()).toStrictEqual([
-			'r1.ack.json',
-			'r1.json',
-		]);
-		const dir = path.join(
-			state.stateDir,
-			'repos',
-			'repo',
-			'companion-requests',
-		);
-		expect(
-			JSON.parse(fs.readFileSync(path.join(dir, 'r1.json'), 'utf8')),
-		).toStrictEqual(request);
-		expect(
-			JSON.parse(fs.readFileSync(path.join(dir, 'r1.ack.json'), 'utf8')),
-		).toStrictEqual({id: 'r1', result: 'applied', columns: 48});
 		expect(companionRequests.answerTo('r1')).toStrictEqual({
 			id: 'r1',
 			result: 'applied',
@@ -393,14 +315,14 @@ contractTest(
 		await companionRequests.send(request);
 		expect(companionRequests.answerTo('r1')?.result).toBe('applied');
 		await companionRequests.withdraw('r1');
-		expect(requestFiles(state)).toStrictEqual([]);
+		expect(requestRows(state)).toStrictEqual([]);
 		expect(companionRequests.answerTo('r1')).toBe(null);
 	},
 );
 
 // The TUI and the CLI are different processes.
-test('sqlite: a request made by another process reaches the watcher, and its answer the other process', async () => {
-	const state = testState({sqlite: true});
+test('a request made by another process reaches the watcher, and its answer the other process', async () => {
+	const state = testState();
 	const seen = fakeTui(state, () => ({result: 'applied', columns: 51}));
 	const {stdout} = await exec(
 		process.execPath,
@@ -410,7 +332,7 @@ test('sqlite: a request made by another process reaches the watcher, and its ans
 			`
 import {createStateDaos} from ${JSON.stringify(daosUrl)};
 import {requestCompanionWidth} from ${JSON.stringify(new URL('companion-width.ts', import.meta.url).href)};
-const daos = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(state.stateDir)}, sqlite: true});
+const daos = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(state.stateDir)}});
 console.log(JSON.stringify(await requestCompanionWidth({
 	widths: daos.companionWidths, requests: daos.companionRequests,
 	space: 'A', width: '40%', tuiIsRunning: () => true,
@@ -422,10 +344,5 @@ console.log(JSON.stringify(await requestCompanionWidth({
 	expect(JSON.parse(stdout)).toStrictEqual({outcome: 'applied', columns: 51});
 	expect(seen.includes('width:A')).toBe(true);
 	expect(state.daos.companionWidths.get('A')).toBe('40%');
-	expect(
-		openStateDb(stateDbPath(state.stateDir))
-			.db.query('SELECT * FROM companion_requests')
-			.all(),
-	).toStrictEqual([]);
-	expect(requestFiles(state)).toStrictEqual([]);
+	expect(requestRows(state)).toStrictEqual([]);
 });

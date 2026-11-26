@@ -45,7 +45,7 @@ try {
 	writeFileSync(registry, JSON.stringify([key]));
 	const dbPath = path.join(stateDir, 'state.db');
 	writeFileSync(dbPath, 'not a database '.repeat(600));
-	const daos = createStateDaos({repo, stateDir, sqlite: true});
+	const daos = createStateDaos({repo, stateDir});
 	initTmuxState(daos);
 	const issue: TrackerIssue = {
 		identifier: key,

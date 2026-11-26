@@ -1,16 +1,14 @@
 import {Buffer} from 'node:buffer';
 import {
 	createProgramStatusDao,
-	followedPublisher,
+	daemonPublisher,
 } from './program-status-daemon.ts';
 import {monitorPane, type StatusPane} from './program-status-monitor.ts';
 import {DEFAULT_STATE_DIR, statusSocketPath} from './state-db.ts';
-import {readResolvedSqliteState} from './state-flag.ts';
 import {StatusClient} from './status-client.ts';
 
 // This entry runs once per agent launch and stays up for the life of each
-// agent pane, so it reads the flag the CLI recorded and does not load the
-// config.
+// agent pane.
 
 const [command, ...args] = process.argv.slice(2);
 if (command === 'attach') {
@@ -21,9 +19,7 @@ if (command === 'attach') {
 			repo,
 			stateDir: DEFAULT_STATE_DIR,
 			socketPath,
-			statusClient: readResolvedSqliteState()
-				? new StatusClient(socketPath)
-				: undefined,
+			statusClient: new StatusClient(socketPath),
 		}).attach(key, session, socket);
 	} else process.exitCode = 1;
 } else if (command === 'watch') {
@@ -33,12 +29,7 @@ if (command === 'attach') {
 			repo,
 			key,
 			JSON.parse(Buffer.from(pane, 'base64').toString('utf8')) as StatusPane,
-			dir,
-			followedPublisher({
-				dir,
-				socketPath: statusSocket,
-				daemonMode: () => readResolvedSqliteState(),
-			}),
+			daemonPublisher({dir, socketPath: statusSocket}),
 			traceDir || undefined,
 		);
 	else process.exitCode = 1;

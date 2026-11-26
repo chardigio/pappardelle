@@ -1,4 +1,3 @@
-import {Database} from 'bun:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
@@ -7,9 +6,8 @@ import {stringify} from 'yaml';
 import {agentRulesFlags} from './companion-rules.ts';
 import {BUILTIN_AGENTS} from './builtin-agents.ts';
 import {idowSkippedAgentOverride} from './session-routing.ts';
-import type {SpaceState} from './space-state.ts';
-import {sqliteRun} from '../test/helpers/state.ts';
 import {setup, writeScript} from '../test/helpers/idow-fixture.ts';
+import {idowState} from '../test/helpers/idow-state.ts';
 
 test('idow launches Codex with the companion rules and writes agy its rule file', async () => {
 	const fixture = setup();
@@ -138,18 +136,19 @@ test('the profile is persisted before post_workspace_init runs', async () => {
 		stringify({
 			post_workspace_init: [
 				{
-					run: 'cp "$HOME/.pappardelle/repos/main checkout/space-state/test-abc.json" "$WORKTREE_PATH/state-during-init.json"',
+					run: 'pappardelle-state --internal-state space get --repo "main checkout" --field profile test-abc > "$WORKTREE_PATH/profile-during-init"',
 				},
 			],
 		}),
 	);
 
 	await fixture.run();
-	const seen = fs.readFileSync(
-		path.join(fixture.workspace, 'state-during-init.json'),
-		'utf8',
-	);
-	expect((JSON.parse(seen) as {profile: string}).profile).toBe('dev');
+	expect(
+		fs.readFileSync(
+			path.join(fixture.workspace, 'profile-during-init'),
+			'utf8',
+		),
+	).toBe('dev\n');
 });
 
 test('--agent-profile launches another agent profile for that run only', async () => {
@@ -162,13 +161,9 @@ test('--agent-profile launches another agent profile for that run only', async (
 		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
 		return args[args.indexOf(flag) + 1];
 	};
-	const statePath = path.join(
-		fixture.home,
-		'.pappardelle/repos/main checkout/space-state/test-abc.json',
-	);
+	const {daos} = idowState(fixture);
 	// The agent's hook records its session id under this.
-	const launched = () =>
-		(JSON.parse(fs.readFileSync(statePath, 'utf8')) as SpaceState).agentProfile;
+	const launched = () => daos.spaceState.read('test-abc')?.agentProfile;
 
 	const stdout = await fixture.run({agentProfile: 'codex'});
 	expect(launchArg('--agent-command')).toBe('codex');
@@ -215,16 +210,9 @@ test('--agent-profile on a space whose agent is running says it was not applied'
 	const stdout = await fixture.run({agentProfile: 'codex'});
 	expect(stdout).toMatch(/Agent session already running/);
 	expect(idowSkippedAgentOverride(stdout)).toBe(true);
-	const state = JSON.parse(
-		fs.readFileSync(
-			path.join(
-				fixture.home,
-				'.pappardelle/repos/main checkout/space-state/test-abc.json',
-			),
-			'utf8',
-		),
-	) as SpaceState;
-	expect('agentProfile' in state).toBe(false);
+	const {daos} = idowState(fixture);
+	expect(daos.spaceState.read('test-abc')).not.toBe(null);
+	expect(daos.spaceState.read('test-abc')?.agentProfile).toBe(undefined);
 });
 
 test('an unknown --agent-profile stops idow before any setup', async () => {
@@ -264,23 +252,9 @@ test('a reopened space resumes the session its agent recorded', async () => {
 			profiles: {other: {display_name: 'Other', agent_profile: 'codex'}},
 		}),
 	);
-	const sessionsPath = path.join(
-		fixture.home,
-		'.pappardelle/repos/main checkout/space-state/test-abc.agent-sessions.json',
-	);
+	const state = idowState(fixture);
 	const record = (agentSessions: Record<string, string>) => {
-		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
-		fs.writeFileSync(
-			sessionsPath,
-			JSON.stringify(
-				Object.fromEntries(
-					Object.entries(agentSessions).map(([profile, id]) => [
-						profile,
-						{session_id: id, pid: 1},
-					]),
-				),
-			),
-		);
+		state.recordSessions('test-abc', agentSessions);
 	};
 	const launchArg = (flag: string) => {
 		const args = fs.readFileSync(fixture.launchArgs, 'utf8').split('\n');
@@ -305,14 +279,6 @@ test('a reopened space resumes the session its agent recorded', async () => {
 	await fixture.run({open: true});
 	expect(launchArg('--agent-resume-args')).toBe('');
 
-	// A hand-edited, non-string id is skipped, as the TUI does.
-	fs.writeFileSync(
-		sessionsPath,
-		JSON.stringify({codex: {session_id: 123, pid: 1}}),
-	);
-	await fixture.run({open: true});
-	expect(launchArg('--agent-resume-args')).toBe('');
-
 	// An override launch resumes its own agent profile's conversation, and the
 	// profile's agent still finds its own afterwards.
 	record({codex: 'thread-1', claude: 'thread-2'});
@@ -322,43 +288,14 @@ test('a reopened space resumes the session its agent recorded', async () => {
 	expect(launchArg('--agent-resume-args')).toBe('resume thread-1');
 });
 
-// The JSON files only mirror the database while the flag exists, so a
-// reopen must read the profile from the stores, not from the file.
-if (sqliteRun) {
-	test('a reopen picks the profile the database holds when no state file mirrors it', async () => {
-		const fixture = setup();
-		fs.writeFileSync(
-			path.join(fixture.main, '.pappardelle.local.yml'),
-			stringify({profiles: {other: {display_name: 'Other'}}}),
-		);
-		const stateFile = path.join(
-			fixture.home,
-			'.pappardelle/repos/main checkout/space-state/test-abc.json',
-		);
-		await fixture.run({profile: 'other'});
-		fs.rmSync(stateFile);
-		const db = new Database(path.join(fixture.home, '.pappardelle/state.db'));
-		db.query('DELETE FROM json_sync WHERE path = ?').run(stateFile);
-		db.close();
-		fs.mkdirSync(path.join(fixture.home, '.worktrees/main checkout/test-abc'), {
-			recursive: true,
-		});
-
-		const output = await fixture.run();
-		expect(output.includes('Profile:   Other'), output).toBe(true);
-	});
-}
-
 // Taking an unreadable store for a space with no saved profile would launch
 // the default agent in a space created with another.
 test('a state store that cannot be read stops idow before any session starts', async () => {
 	const fixture = setup();
-	fs.mkdirSync(
-		path.join(
-			fixture.home,
-			'.pappardelle/repos/main checkout/space-state/test-abc.json',
-		),
-		{recursive: true},
+	fs.mkdirSync(path.join(fixture.home, '.pappardelle'));
+	fs.writeFileSync(
+		path.join(fixture.home, '.pappardelle/state.db'),
+		'not a database',
 	);
 
 	const error = await rejectionOf(fixture.run());

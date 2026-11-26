@@ -1,8 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import {test, expect} from 'bun:test';
-import {testTmuxState} from '../test/helpers/state.ts';
+import {recordAgentSessions, testTmuxState} from '../test/helpers/state.ts';
 import type {PappardelleConfig} from './config.ts';
+import {stateDbPath} from './state-db.ts';
 import {
 	runningAgentProfile,
 	spaceAgentName,
@@ -44,24 +43,23 @@ test('a space runs the agent profile its agent session was last started with', a
 });
 
 test('an agent launched before its space stored the agent profile gets the one that started last', async () => {
-	const {daos} = testTmuxState();
+	const {daos, repo, stateDir} = testTmuxState();
 	const config: PappardelleConfig = {
 		version: 1,
 		agent_profiles: {codex: {command: 'codex'}, pi: {command: 'pi'}},
 		profiles: {},
 	};
+	/** Sessions as the session hook records them. */
 	const record = (key: string, started: Record<string, string>) => {
-		const file = daos.agentSessions.file(key);
-		fs.mkdirSync(path.dirname(file), {recursive: true});
-		fs.writeFileSync(
-			file,
-			JSON.stringify(
-				Object.fromEntries(
-					Object.entries(started).map(([name, at]) => [
-						name,
-						{session_id: name, pid: 7, started: at},
-					]),
-				),
+		recordAgentSessions(
+			stateDbPath(stateDir),
+			repo,
+			key,
+			Object.fromEntries(
+				Object.entries(started).map(([name, at]) => [
+					name,
+					{sessionId: name, pid: 7, started: at},
+				]),
 			),
 		);
 	};

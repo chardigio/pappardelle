@@ -51,7 +51,6 @@ _tracker_spec = importlib.util.spec_from_file_location("tracker_config", _tracke
 if _tracker_spec and _tracker_spec.loader:
     _tracker_mod = importlib.util.module_from_spec(_tracker_spec)
     _tracker_spec.loader.exec_module(_tracker_mod)
-    find_issue_key = _tracker_mod.find_issue_key
     get_main_repo_root = _tracker_mod.get_main_repo_root
     get_tracker_provider = _tracker_mod.get_tracker_provider
 else:
@@ -69,20 +68,13 @@ else:
 
 
 def get_issue_key() -> Optional[str]:
-    """The issue of the space the hook runs in, None in the main checkout.
-
-    With experimental.sqliteState on it is the stored space whose worktree
-    holds cwd. Without it, the key is read from the path
-    (~/.worktrees/stardust-labs/STA-123/...).
-    """
-    db_path = state_db_path()
-    if db_path is None:
-        return find_issue_key()
+    """The issue of the space the hook runs in: the stored space whose
+    worktree holds cwd, None in the main checkout."""
     try:
         cwd = os.getcwd()
     except OSError:
         return None
-    row = space_at_path(db_path, cwd)
+    row = space_at_path(state_db_path(), cwd)
     return row.key if row and row.key != "main" else None
 
 

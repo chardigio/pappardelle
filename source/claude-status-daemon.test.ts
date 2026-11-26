@@ -19,9 +19,9 @@ const hook = fileURLToPath(
 	new URL('../plugins/pappardelle/hooks/update-status.py', import.meta.url),
 );
 
-// The whole path of a status change with the flag on, each part in its own
-// process as in production: the Python hook, the daemon, and a reader.
-test('a hook event sent to a running daemon reaches a watch in another process, and leaves no status file', async () => {
+// The whole path of a status change, each part in its own process as in
+// production: the Python hook, the daemon, and a reader.
+test('a hook event sent to a running daemon reaches a watch in another process', async () => {
 	const stateDir = path.dirname(testSocketPath());
 	const socketPath = statusSocketPath(stateDir);
 	// Nothing of the session these tests run in: its variables name the
@@ -31,9 +31,7 @@ test('a hook event sent to a running daemon reaches a watch in another process, 
 		// tmux falls back to the live tmux directory without it.
 		TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
 		HOME: stateDir,
-		PAPPARDELLE_SQLITE_STATE: '1',
 		PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
-		PAPPARDELLE_STATUS_DIR: path.join(stateDir, 'claude-status'),
 	};
 	const daemon = spawnStatusDaemon(socketPath, env)!;
 	teardown(() => {
@@ -53,7 +51,6 @@ test('a hook event sent to a running daemon reaches a watch in another process, 
 			const {claudeStatus} = createStateDaos({
 				repo: 'repo',
 				stateDir: process.argv[1],
-				sqlite: true,
 			});
 			claudeStatus.watch(async statusKey => {
 				const stored = await claudeStatus.readState(statusKey);
@@ -109,5 +106,4 @@ test('a hook event sent to a running daemon reaches a watch in another process, 
 			cwd: '/work/STA-1',
 		},
 	});
-	expect(fs.existsSync(path.join(stateDir, 'claude-status'))).toBe(false);
 });

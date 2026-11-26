@@ -31,10 +31,10 @@ import {
 import type {ProgramStatusInfo} from './program-status.ts';
 import type {SpaceData} from './types.ts';
 
-function setup(options: {sqlite?: boolean} = {}) {
+function setup() {
 	const oldSocket = process.env['PAPPARDELLE_TMUX_SOCKET'];
 	process.env['PAPPARDELLE_TMUX_SOCKET'] = 'test-status';
-	const state = testState(options);
+	const state = testState();
 	const {claudeStatus, programStatus} = state.daos;
 	teardown(() => {
 		if (oldSocket === undefined)
@@ -229,7 +229,7 @@ test('new pane identities reject late old snapshots and same keys in other repos
 	expect(await readField(h.status, 'TASK-1', 'source')).toBe('hook');
 });
 
-test('main workspace OSC uses its stable session key while the hook follows its branch', async () => {
+test('main workspace OSC uses its session key while the hook uses its status key', async () => {
 	const h = setup();
 	await h.writeHook('waiting_for_input', undefined, Date.now(), 'repo-main');
 	await h.writeOsc({status: 'working', app: 'claude-code'}, {key: 'main'});
@@ -256,7 +256,7 @@ test('both status sources trigger resolved updates and closing cancels queued pu
 		key => key === 'TASK-1',
 	);
 	teardown(stop);
-	// The first fixture write can otherwise precede filesystem watch registration.
+	// The first fixture write can otherwise precede the watch's subscription.
 	await delay(0);
 	const hookPublished = nextPublication();
 	await h.writeHook('processing');
@@ -501,62 +501,57 @@ const monitorCli = fileURLToPath(
 );
 
 // A pane's monitor is another process than the rail that shows its status.
-for (const sqlite of [false, true]) {
-	test(`${sqlite ? 'sqlite' : 'json'}: a status published by a pane's monitor reaches a watching rail`, async () => {
-		const h = setup({sqlite});
-		const pane = h.pane();
-		const file = snapshotFile(h.state, {repo: 'repo', key: 'TASK-1', pane});
-		mkdirSync(path.dirname(file), {recursive: true});
-		writeFileSync(`${file}.lease`, '');
-		const monitor = spawn(
-			process.execPath,
-			[
-				monitorCli,
-				'watch',
-				'repo',
-				'TASK-1',
-				Buffer.from(JSON.stringify(pane)).toString('base64'),
-				path.dirname(file),
-				'',
-				statusSocketPath(h.state.stateDir),
-			],
-			{
-				stdio: ['pipe', 'ignore', 'inherit'],
-				env: {
-					...process.env,
-					HOME: h.state.stateDir,
-					PAPPARDELLE_SQLITE_STATE: sqlite ? '1' : '0',
-				},
+test("a status published by a pane's monitor reaches a watching rail", async () => {
+	const h = setup();
+	const pane = h.pane();
+	const file = snapshotFile(h.state, {repo: 'repo', key: 'TASK-1', pane});
+	mkdirSync(path.dirname(file), {recursive: true});
+	writeFileSync(`${file}.lease`, '');
+	const monitor = spawn(
+		process.execPath,
+		[
+			monitorCli,
+			'watch',
+			'repo',
+			'TASK-1',
+			Buffer.from(JSON.stringify(pane)).toString('base64'),
+			path.dirname(file),
+			'',
+			statusSocketPath(h.state.stateDir),
+		],
+		{
+			stdio: ['pipe', 'ignore', 'inherit'],
+			env: {
+				...process.env,
+				HOME: h.state.stateDir,
 			},
-		);
-		teardown(() => {
-			monitor.kill('SIGKILL');
-		});
-		await h.status.read('TASK-1');
-		const latest = new Map<string, ProgramStatusInfo>();
-		const stop = h.status.watch(
-			updates => {
-				for (const [key, info] of updates) latest.set(key, info);
-			},
-			key => key === 'TASK-1',
-		);
-		teardown(stop);
-		await delay(0);
-		monitor.stdin.write(
-			'\u001B]7501;state=blocked:app=fixture:kind=auth\u0007',
-		);
-		await until(() => latest.get('TASK-1')?.status === 'blocked', {
-			what: 'a status update',
-			timeoutMs: 10_000,
-		});
-		expect(latest.get('TASK-1')).toMatchObject({
-			source: 'osc',
-			app: 'fixture',
-			kind: 'auth',
-		});
-		rmSync(`${file}.lease`);
+		},
+	);
+	teardown(() => {
+		monitor.kill('SIGKILL');
 	});
-}
+	await h.status.read('TASK-1');
+	const latest = new Map<string, ProgramStatusInfo>();
+	const stop = h.status.watch(
+		updates => {
+			for (const [key, info] of updates) latest.set(key, info);
+		},
+		key => key === 'TASK-1',
+	);
+	teardown(stop);
+	await delay(0);
+	monitor.stdin.write('\u001B]7501;state=blocked:app=fixture:kind=auth\u0007');
+	await until(() => latest.get('TASK-1')?.status === 'blocked', {
+		what: 'a status update',
+		timeoutMs: 10_000,
+	});
+	expect(latest.get('TASK-1')).toMatchObject({
+		source: 'osc',
+		app: 'fixture',
+		kind: 'auth',
+	});
+	rmSync(`${file}.lease`);
+});
 
 async function readField(
 	status: WorkspaceStatuses,

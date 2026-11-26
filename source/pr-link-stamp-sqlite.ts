@@ -1,11 +1,7 @@
-// The pr-link stamp as a row, with the stamp file still touched beside it.
-//
-// The rail reads the stamp on every lookup, so the read is the row alone:
-// a stamp file touched by a process without the database is not looked at,
-// and a rail waits out its backoff in that case.
+// The pr-link stamp as a row.
 
 import {createLogger} from './logger.ts';
-import type {JsonPrLinkStampDao, PrLinkStampDao} from './pr-link-stamp.ts';
+import type {PrLinkStampDao} from './pr-link-stamp.ts';
 import {GuardedReads, type StateDb} from './state-db.ts';
 
 const log = createLogger('pr-link-stamp');
@@ -15,7 +11,6 @@ export class SqlitePrLinkStampDao implements PrLinkStampDao {
 
 	constructor(
 		private readonly openDb: () => StateDb,
-		private readonly json: JsonPrLinkStampDao,
 		private readonly clock: () => Date,
 	) {}
 
@@ -27,7 +22,6 @@ export class SqlitePrLinkStampDao implements PrLinkStampDao {
 					ON CONFLICT (id) DO UPDATE SET touched_at = excluded.touched_at`,
 				)
 				.run(this.clock().getTime());
-			this.json.touchFile();
 		});
 	}
 

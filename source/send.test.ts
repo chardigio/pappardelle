@@ -8,11 +8,7 @@ import {test, expect, beforeAll, afterAll} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
 import {agyBlockedSnapshot} from '../test/helpers/program-status.ts';
-import {
-	sqliteRun,
-	testTmuxSpaces,
-	type TestState,
-} from '../test/helpers/state.ts';
+import {testTmuxSpaces, type TestState} from '../test/helpers/state.ts';
 import {resolveSpaceKey} from './issue-utils.ts';
 import {
 	CLEAR_COMPOSER_ROUNDS,
@@ -644,30 +640,28 @@ test('the keys sent before a prompt empty a multi-line draft wherever the cursor
 	}
 });
 
-if (sqliteRun) {
-	test('sendToSpaceAgent sends to the agent session stored for the space', async () => {
-		await state.daos.spaceIdentities.record({
-			repo: 'r',
-			key: 'HAND-1',
-			worktreePath: '/w/HAND-1',
-			tmux: {
-				socket: 'pappardelle_inner',
-				agentSession: 'hand-named-agent',
-				companionSession: 'hand-named-companion',
-			},
-		});
-		const {runner, calls} = makeRunner({
-			sessions: ['hand-named-agent', 'agent-r-HAND-1'],
-		});
-		expect(await sendToSpaceAgent('HAND-1', 'hi', {runner, lockDir})).toBe(
-			'sent',
-		);
-		expect(calls.find(args => args[0] === 'paste-buffer')?.at(-1)).toBe(
-			'=hand-named-agent:',
-		);
-		expect(calls.some(args => args.includes('=agent-r-HAND-1:'))).toBe(false);
+test('sendToSpaceAgent sends to the agent session stored for the space', async () => {
+	await state.daos.spaceIdentities.record({
+		repo: 'r',
+		key: 'HAND-1',
+		worktreePath: '/w/HAND-1',
+		tmux: {
+			socket: 'pappardelle_inner',
+			agentSession: 'hand-named-agent',
+			companionSession: 'hand-named-companion',
+		},
 	});
-}
+	const {runner, calls} = makeRunner({
+		sessions: ['hand-named-agent', 'agent-r-HAND-1'],
+	});
+	expect(await sendToSpaceAgent('HAND-1', 'hi', {runner, lockDir})).toBe(
+		'sent',
+	);
+	expect(calls.find(args => args[0] === 'paste-buffer')?.at(-1)).toBe(
+		'=hand-named-agent:',
+	);
+	expect(calls.some(args => args.includes('=agent-r-HAND-1:'))).toBe(false);
+});
 
 test('sendToSpaceAgent leaves an agy draft alone unless forced, and never sends i in insert or factory mode', async () => {
 	for (const name of ['agy-draft', 'agy-draft-normal', 'agy-draft-factory']) {

@@ -38,7 +38,6 @@ import {
 import {callerFromEnv, recordSupervision} from './supervise-log.ts';
 import {createLogger} from './logger.ts';
 import {
-	getMainWorktreeInfo,
 	getWorktreePath,
 	spaceSessionNames,
 	resolveInnerSessionTargetSync,
@@ -178,9 +177,7 @@ const PASSED_TO_TIMERS = [
 	'PATH',
 	'TMUX_TMPDIR',
 	'PAPPARDELLE_TMUX_SOCKET',
-	'PAPPARDELLE_STATUS_DIR',
 	'PAPPARDELLE_PROGRAM_STATUS_DIR',
-	'PAPPARDELLE_SQLITE_STATE',
 	'PAPPARDELLE_STATE_DB',
 	'PAPPARDELLE_STATUS_SOCKET',
 ];
@@ -331,11 +328,7 @@ export function defaultSuperviseDeps(
 		repo: getRepoName,
 		identities: spaceIdentities,
 		resolveKey,
-		hookKey: async key =>
-			spaceStatusKey(claudeStatus, getRepoName(), key, async () => {
-				const main = await getMainWorktreeInfo();
-				return main?.branch;
-			}),
+		hookKey: async key => spaceStatusKey(claudeStatus, getRepoName(), key),
 		readHook: async hookKey => claudeStatus.read(hookKey),
 		readHookState: async hookKey => claudeStatus.readState(hookKey),
 		readSnapshot: async (key, pane) => programStatus.read(key, pane),

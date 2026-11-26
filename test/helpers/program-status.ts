@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import {
 	programStatusDir,
 	programStatusPath,
-	publishProgramSnapshot,
 	type ProgramStatusSnapshot,
 	type StatusPane,
 } from '../../source/program-status-monitor.ts';
@@ -95,15 +94,14 @@ export function grantLease(
 }
 
 /**
- * Publish `snapshot` as the monitor of a leased pane does in this state's
- * mode: its file, or with `sqlite` on a line to the status daemon. Returns
- * where the pane's file is, once the state's stores read what was published.
+ * Publish `snapshot` as the monitor of a leased pane does: a line to the
+ * status daemon. Returns where the pane's lease is named after, once the
+ * state's stores read what was published.
  */
 export async function publishSnapshot(
 	state: TestState,
 	snapshot: ProgramStatusSnapshot,
 ): Promise<string> {
-	if (!state.sqlite) return publishSnapshotFile(state, snapshot);
 	grantLease(state, snapshot);
 	const socketPath = statusSocketPath(state.stateDir);
 	// The stores are pushed the snapshots of their own repo only.
@@ -139,17 +137,4 @@ export async function readStatus(
 ): Promise<ProgramStatusInfo['status'] | undefined> {
 	const snapshot = await state.daos.programStatus.read(key, pane);
 	return snapshot?.info.status;
-}
-
-/** `publishSnapshot` by a monitor that writes files only. */
-export function publishSnapshotFile(
-	state: TestState,
-	snapshot: ProgramStatusSnapshot,
-): string {
-	grantLease(state, snapshot);
-	publishProgramSnapshot(
-		programStatusDir(snapshot.repo, state.stateDir),
-		snapshot,
-	);
-	return snapshotFile(state, snapshot);
 }

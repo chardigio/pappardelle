@@ -1,10 +1,5 @@
 // Claude Code status tracking
-import {existsSync, mkdirSync, watch} from 'node:fs';
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
-import {waitForDirChange} from './file-watch.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 const CLAUDE_STATUSES = [
 	'processing',
@@ -55,22 +50,13 @@ export function hookStatusKey(repoName: string, name: string): string {
 	return `${repoName}-${name}`.replaceAll('/', '-');
 }
 
-/**
- * The status key to read a space's hook status under. Where the main
- * checkout's hook reports under its branch, the branch is looked up only for
- * main.
- */
+/** The status key to read a space's hook status under. */
 export async function spaceStatusKey(
-	claudeStatus: Pick<ClaudeStatusDao, 'readableKey' | 'mainKeyedByBranch'>,
+	claudeStatus: Pick<ClaudeStatusDao, 'readableKey'>,
 	repoName: string,
 	key: string,
-	mainBranch: () => Promise<string | undefined>,
 ): Promise<string> {
-	const name =
-		key === MAIN_WORKTREE_KEY && claudeStatus.mainKeyedByBranch
-			? ((await mainBranch()) ?? MAIN_WORKTREE_KEY)
-			: key;
-	return claudeStatus.readableKey(repoName, name);
+	return claudeStatus.readableKey(repoName, key);
 }
 
 export interface ClaudeStatusInfo {
@@ -91,12 +77,6 @@ export type StoredClaudeStatus =
  * the only writer.
  */
 export interface ClaudeStatusDao {
-	/**
-	 * Whether the main checkout's hook reports under its branch. Without the
-	 * database the hook names its space from the path, and main's path names
-	 * no space; with it, main is a stored space reported under its key.
-	 */
-	readonly mainKeyedByBranch: boolean;
 	/**
 	 * The status key to read a space under. An agent started before status
 	 * keys were qualified by repo still writes under the bare name until it
@@ -127,10 +107,6 @@ export function statusInfo(state: ClaudeSessionState): ClaudeStatusInfo {
 		tool: state.currentTool,
 		lastUpdate: state.lastUpdate,
 	};
-}
-
-function parseStatus(content: string): ClaudeStatusInfo {
-	return statusInfo(JSON.parse(content) as ClaudeSessionState);
 }
 
 /** A record holding only the optional fields that were reported. */
@@ -217,69 +193,6 @@ export async function readableStatusKey(
 	const qualified = hookStatusKey(repoName, name);
 	if (await recorded(qualified)) return qualified;
 	return (await recorded(name)) ? name : qualified;
-}
-
-export class JsonClaudeStatusDao implements ClaudeStatusDao {
-	get mainKeyedByBranch(): boolean {
-		return true;
-	}
-
-	private readonly dir: string;
-
-	constructor(dir: string) {
-		this.dir = path.resolve(dir);
-	}
-
-	private file(statusKey: string): string {
-		return path.join(this.dir, `${statusKey}.json`);
-	}
-
-	async readableKey(repoName: string, name: string): Promise<string> {
-		return readableStatusKey(repoName, name, statusKey =>
-			existsSync(this.file(statusKey)),
-		);
-	}
-
-	async read(statusKey: string): Promise<ClaudeStatusInfo | null> {
-		try {
-			return parseStatus(await readFile(this.file(statusKey), 'utf-8'));
-		} catch (err) {
-			return (err as NodeJS.ErrnoException).code === 'ENOENT'
-				? {status: 'unknown'}
-				: null;
-		}
-	}
-
-	async readState(statusKey: string): Promise<StoredClaudeStatus> {
-		let content: string;
-		try {
-			content = await readFile(this.file(statusKey), 'utf8');
-		} catch (error) {
-			return (error as NodeJS.ErrnoException).code === 'ENOENT'
-				? {kind: 'none'}
-				: {kind: 'unreadable'};
-		}
-
-		try {
-			return {kind: 'state', state: parseSessionState(content)};
-		} catch {
-			return {kind: 'unreadable'};
-		}
-	}
-
-	watch(listener: (statusKey: string) => void): () => void {
-		mkdirSync(this.dir, {recursive: true});
-		const watcher = watch(this.dir, (_event, filename) => {
-			if (filename?.endsWith('.json')) listener(filename.slice(0, -5));
-		});
-		return () => {
-			watcher.close();
-		};
-	}
-
-	async waitForChange(ms: number): Promise<void> {
-		await waitForDirChange([this.dir], ms);
-	}
 }
 
 /**

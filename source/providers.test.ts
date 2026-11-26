@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import {test, expect, beforeEach} from 'bun:test';
 import {testState} from '../test/helpers/state.ts';
 import {trackerIssue} from '../test/helpers/space-fixtures.ts';
@@ -236,19 +234,6 @@ test('a title read from the tracker is stored when it changed, and a failed read
 		issueTitle: 'Renamed',
 		updatedAt: new Date(1000).toISOString(),
 	});
-});
-
-test('a title is not written over a state file that cannot be read', async () => {
-	const {spaceState} = testState({sqlite: false}).daos;
-	setIssueTitles(spaceState);
-	const file = spaceState.file('STA-1');
-	fs.mkdirSync(path.dirname(file), {recursive: true});
-	const halfWritten = '{"profile": "dev", "prLinks": [';
-	fs.writeFileSync(file, halfWritten);
-
-	await recordIssueTitles([['STA-1', trackerIssue({title: 'First'})]]);
-
-	expect(fs.readFileSync(file, 'utf8')).toBe(halfWritten);
 });
 
 // ============================================================================

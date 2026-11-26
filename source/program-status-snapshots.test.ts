@@ -1,9 +1,9 @@
-import {existsSync, readdirSync} from 'node:fs';
+import {readdirSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {contractTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/dao-contract.ts';
 import {
 	publishSnapshot,
 	readStatus,
@@ -44,7 +44,7 @@ const leases = (state: TestState) =>
 		.filter(file => file.endsWith('.lease'))
 		.sort();
 
-contractTest(
+storeTest(
 	'a new generation prunes only its own key’s earlier generations',
 	async state => {
 		const store = state.daos.programStatus;
@@ -69,7 +69,6 @@ contractTest(
 				)
 				.sort(),
 		);
-		expect(existsSync(snapshotFile(state, snapshots.old))).toBe(false);
 		expect(
 			await eventually(
 				async () => store.read('STA-1', old),
@@ -83,7 +82,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'closing a space removes every generation of its key and no other key',
 	async state => {
 		const store = state.daos.programStatus;
@@ -113,7 +112,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a snapshot is read only for the pane and the repo it was published for',
 	async state => {
 		const store = state.daos.programStatus;
@@ -140,7 +139,7 @@ contractTest(
 
 // A reader checks a snapshot against the pane as tmux reports it now, which
 // can have died since its monitor last published.
-contractTest(
+storeTest(
 	'a working status is not read from a pane that has died, on any read, and a finished one is',
 	async state => {
 		const dead = {...current, dead: true};
@@ -164,7 +163,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a snapshot its monitor published on exit reads as exited, with no working status',
 	async state => {
 		const store = state.daos.programStatus;
@@ -182,14 +181,12 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a published snapshot reaches a watch with its space key, and ends a wait for a change',
 	async state => {
 		const store = state.daos.programStatus;
 		const seen: string[] = [];
 		teardown(store.watch(key => seen.push(key)));
-		// A file watch that has just begun can miss a write made right after.
-		await delay(50);
 		const started = performance.now();
 		const waiting = store.waitForChange(5000);
 
@@ -205,10 +202,8 @@ contractTest(
 	},
 );
 
-// A monitor outlives a change of experimental.sqliteState, so it is told
-// where the status daemon listens even while the flag is off.
-contractTest(
-	'a monitor is started with the snapshot directory and the status socket',
+storeTest(
+	'a monitor is started with the lease directory and the status socket',
 	async state => {
 		const commands: string[] = [];
 		const pane = await state.daos.programStatus.attach(

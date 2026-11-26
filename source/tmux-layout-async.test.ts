@@ -85,7 +85,7 @@ tmuxTest(
 			});
 			return stdout;
 		};
-		const {registryFile} = testTmuxState();
+		const {daos} = testTmuxState();
 		teardown(async () => {
 			for (const target of [socket, inner]) {
 				try {
@@ -196,9 +196,8 @@ tmuxTest(
 		if (!layout) return;
 		expect(layout.companionViewerPaneId).toBe('');
 		expect(await paneWidth(pane, run)).toBe(80);
-		fs.writeFileSync(
-			registryFile,
-			JSON.stringify(Array.from({length: 8}, (_, i) => `TEST-${i}`)),
+		await Promise.all(
+			Array.from({length: 8}, async (_, i) => daos.registry.add(`TEST-${i}`)),
 		);
 		await reconcilePaneLayout(layout, false, run);
 		const narrowDimensions = await getPaneDimensions(pane, run);

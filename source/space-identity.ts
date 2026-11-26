@@ -5,7 +5,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {statusSocket} from './program-status-monitor.ts';
-import {sameFile} from './same-file.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
 import type {Unreadable} from './state-db.ts';
@@ -187,82 +186,6 @@ export function defaultIdentity(
 				: worktreePathFor(defaults.home, defaults.repo, key),
 		socket: defaults.socket,
 	});
-}
-
-/** Identities without the database: every space is called what idow would call it. */
-export class JsonSpaceIdentityDao implements SpaceIdentityDao {
-	constructor(
-		private readonly defaults: IdentityDefaults,
-		private readonly registry: Pick<SpaceRegistryDao, 'openSpaces'>,
-	) {}
-
-	get(key: string): SpaceIdentityLookup {
-		try {
-			return {kind: 'identity', identity: defaultIdentity(this.defaults, key)};
-		} catch (error) {
-			return {kind: 'unreadable', error};
-		}
-	}
-
-	list(): SpaceIdentityList {
-		try {
-			const keys = [MAIN_WORKTREE_KEY, ...(this.registry.openSpaces() ?? [])];
-			return {
-				kind: 'identities',
-				identities: keys.map(key => defaultIdentity(this.defaults, key)),
-			};
-		} catch (error) {
-			return {kind: 'unreadable', error};
-		}
-	}
-
-	atPath(at: string): SpaceIdentityLookup {
-		const {home, repo} = this.defaults;
-		let mainRoot: string;
-		try {
-			mainRoot = this.defaults.mainRoot();
-		} catch (error) {
-			return {kind: 'unreadable', error};
-		}
-
-		const worktrees = worktreesDir(home, repo);
-		let directory: string;
-		try {
-			directory = fs.realpathSync(at);
-		} catch {
-			return {kind: 'unknown'};
-		}
-
-		for (;;) {
-			if (sameFile(directory, mainRoot)) {
-				try {
-					if (!this.isPappardelleRepo(mainRoot)) return {kind: 'unknown'};
-				} catch (error) {
-					return {kind: 'unreadable', error};
-				}
-
-				return this.get(MAIN_WORKTREE_KEY);
-			}
-
-			const parent = path.dirname(directory);
-			if (parent === directory) return {kind: 'unknown'};
-			if (sameFile(parent, worktrees))
-				return this.get(path.basename(directory));
-			if (isCheckoutRoot(directory)) return {kind: 'unknown'};
-			directory = parent;
-		}
-	}
-
-	private isPappardelleRepo(mainRoot: string): boolean {
-		if (fs.existsSync(path.join(mainRoot, '.pappardelle.yml'))) return true;
-		return this.registry.openSpaces() !== null;
-	}
-
-	async record(): Promise<void> {}
-
-	async moveMain(): Promise<void> {}
-
-	async respellFormatSessions(): Promise<void> {}
 }
 
 /**

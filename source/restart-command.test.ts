@@ -76,6 +76,7 @@ function harness(
 		tmux,
 		innerTmux,
 		repoStateRoot,
+		knownRepos: () => options.repos ?? [],
 		tuiMarker,
 		launchCommand: COMMAND,
 		cliPath: FAKE_CLI_PATH,

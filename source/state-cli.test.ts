@@ -4,8 +4,11 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {sqliteRun, testState} from '../test/helpers/state.ts';
+import {testState} from '../test/helpers/state.ts';
+import {teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {until} from '../test/helpers/wait.ts';
+import type {HighlightRequest} from './highlight.ts';
 
 const helper = fileURLToPath(
 	new URL('../scripts/state-cli.sh', import.meta.url),
@@ -35,7 +38,7 @@ test('a script can ask the binary to create the database', () => {
 	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
 	const db = new Database(dbPath, {readonly: true});
 	expect(
-		db.query("SELECT name FROM sqlite_master WHERE name = 'json_sync'").get(),
+		db.query("SELECT name FROM sqlite_master WHERE name = 'json_import'").get(),
 	).toBeTruthy();
 	db.close();
 });
@@ -277,8 +280,38 @@ test('prepare-space --register without an owner records nothing', () => {
 		'pappardelle --internal-state: prepare-space: --register needs --owner <pid>',
 	);
 	expect(fs.existsSync(stateDir)).toBe(false);
-	if (sqliteRun)
-		expect(testState({stateDir}).daos.spaceIdentities.get('STA-1').kind).toBe(
-			'unknown',
-		);
+	expect(testState({stateDir}).daos.spaceIdentities.get('STA-1').kind).toBe(
+		'unknown',
+	);
+});
+
+test('a highlight request made through the highlight verb reaches the TUI watching that repo', async () => {
+	const home = tempDir('papp-state-cli-');
+	const stateDir = path.join(home, '.pappardelle');
+	const {highlight} = testState({stateDir}).daos;
+	const seen: HighlightRequest[] = [];
+	teardown(highlight.watch(request => seen.push(request)));
+
+	const result = spawnSync(
+		process.execPath,
+		[
+			fileURLToPath(new URL('state-cli.ts', import.meta.url)),
+			'highlight',
+			'--repo',
+			'repo',
+			'STA-1',
+			'--focus',
+		],
+		{
+			encoding: 'utf8',
+			env: {
+				...process.env,
+				HOME: home,
+				PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
+			},
+		},
+	);
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	await until(() => seen.length > 0, {what: 'the request to reach the watch'});
+	expect(seen).toStrictEqual([{issueKey: 'STA-1', focus: true}]);
 });

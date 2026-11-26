@@ -1,18 +1,10 @@
 // Wake-ups for a supervised space: a message at a set time, `continue` once a
 // Codex usage limit resets, or a job that keeps an agent working by nudging it
-// when it sits idle. Jobs live in ~/.pappardelle/repos/{repo}/schedules/, and
-// an OS user timer runs `pappardelle schedule fire ID` for each.
+// when it sits idle. An OS user timer runs `pappardelle schedule fire ID` for
+// each job.
 
 import type {SendToSpaceAgentResult} from './tmux.ts';
 import {randomUUID} from 'node:crypto';
-import {
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	writeFileSync,
-} from 'node:fs';
 import path from 'node:path';
 import {isEndedAgentState, type AgentStateReport} from './agent-state.ts';
 
@@ -93,10 +85,6 @@ export function newJobId(): string {
 	return randomUUID().slice(0, 8);
 }
 
-export function renderJob(job: Job): string {
-	return JSON.stringify(job, null, '\t') + '\n';
-}
-
 const isString = (value: unknown): value is string => typeof value === 'string';
 
 /** A job file as `save` leaves it. Throws when `content` is anything else. */
@@ -144,78 +132,6 @@ export function parseJob(content: string): Job {
 			? {deferCount: deferCount as number}
 			: {}),
 	};
-}
-
-export class JsonScheduleDao implements ScheduleDao {
-	constructor(
-		private readonly jobsDir: string,
-		private readonly queueDir: string,
-	) {}
-
-	jobFile(id: string): string {
-		return path.join(this.jobsDir, `${id}.json`);
-	}
-
-	queueFile(key: string): string {
-		return path.join(this.queueDir, `${encodeURIComponent(key)}.txt`);
-	}
-
-	/** The ids of the job files on disk. */
-	ids(): string[] {
-		let files: string[];
-		try {
-			files = readdirSync(this.jobsDir);
-		} catch {
-			return [];
-		}
-
-		return files
-			.filter(file => file.endsWith('.json'))
-			.map(file => file.slice(0, -5));
-	}
-
-	async save(job: Job): Promise<void> {
-		mkdirSync(this.jobsDir, {recursive: true});
-		const file = this.jobFile(job.id);
-		writeFileSync(`${file}.tmp`, renderJob(job));
-		// Renamed into place, so a timer firing mid-write never reads half a job.
-		renameSync(`${file}.tmp`, file);
-	}
-
-	load(id: string): Job | null {
-		try {
-			return JSON.parse(readFileSync(this.jobFile(id), 'utf8')) as Job;
-		} catch {
-			return null;
-		}
-	}
-
-	list(): Job[] {
-		return this.ids()
-			.map(id => this.load(id))
-			.filter((job): job is Job => job !== null);
-	}
-
-	async delete(id: string): Promise<void> {
-		rmSync(this.jobFile(id), {force: true});
-	}
-
-	async queue(key: string, text: string): Promise<void> {
-		mkdirSync(this.queueDir, {recursive: true});
-		writeFileSync(this.queueFile(key), text);
-	}
-
-	queued(key: string): string | null {
-		try {
-			return readFileSync(this.queueFile(key), 'utf8');
-		} catch {
-			return null;
-		}
-	}
-
-	async clearQueued(key: string): Promise<void> {
-		rmSync(this.queueFile(key), {force: true});
-	}
 }
 
 const DURATION = /^(\d+)([smh])$/;

@@ -46,7 +46,6 @@ import {
 	readBeadsIssuePrefix,
 	getTeamPrefix,
 	getProfileTeamPrefix,
-	validateHomeOnlySqliteState,
 } from './config.ts';
 import {
 	formatConfigErrors,
@@ -322,8 +321,6 @@ function checkConfig(): void {
 			);
 			process.exit(1);
 		}
-
-		validateHomeOnlySqliteState();
 	} catch (error) {
 		if (error instanceof ConfigNotFoundError) {
 			console.error(
@@ -366,7 +363,7 @@ if (cli.input[0] === 'link-pr') {
 			},
 		);
 		console.log(
-			`Linked ${result.link.url} (${result.link.remoteBranch}) in ${result.file}`,
+			`Linked ${result.link.url} (${result.link.remoteBranch}) to ${result.issueKey}`,
 		);
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : String(error));
@@ -593,7 +590,6 @@ if (cli.input.length > 0) {
 		cwd: getRepoRoot(),
 		env: buildSpawnEnv(getRepoRoot(), {
 			mainRepoRoot: getMainRepoRoot(),
-			registerSpace: daos.registry.keepsLifecycle,
 		}),
 		registry: daos.registry,
 		waitForAgent: cli.flags.wait
@@ -799,7 +795,7 @@ const firstRailPaint = new Promise<void>(resolve => {
 // Read while tmux and the renderer are set up, for the first list the rail
 // draws.
 function startWorkspaceReads() {
-	const registry = daos.registry.openSpacesAsync();
+	const registry = Promise.resolve().then(() => daos.registry.openSpaces());
 	// App reports a failed read when it takes this over.
 	registry.catch(() => null);
 	return {registry, mainWorktree: getMainWorktreeInfo()};

@@ -1,10 +1,10 @@
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import fs, {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import {contractTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/dao-contract.ts';
 import {testState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
@@ -273,7 +273,7 @@ test('resolveDisplayVersion: defaults installedRoot to ~/.pappardelle/repo', () 
 // Cache IO
 // ============================================================================
 
-contractTest(
+storeTest(
 	'a cached check reads back, and a later one replaces it',
 	async state => {
 		const {updateCheck} = state.daos;
@@ -291,59 +291,6 @@ contractTest(
 		expect(updateCheck.read()).toStrictEqual(later);
 	},
 );
-
-// The benchmarks and the compiled-binary tests write the file before they
-// start Pappardelle, so that it makes no network call.
-contractTest(
-	'a cache file written before Pappardelle starts is honored',
-	state => {
-		const seeded = {checkedAt: 1_700_000_000_000, latestVersion: 'v0.0.0'};
-		fs.writeFileSync(
-			path.join(state.stateDir, 'update-check.json'),
-			JSON.stringify(seeded),
-		);
-		expect(state.daos.updateCheck.read()).toStrictEqual(seeded);
-	},
-);
-
-contractTest(
-	'a cache file that is malformed, incomplete or removed reads as nothing cached',
-	async state => {
-		const {updateCheck} = state.daos;
-		const file = path.join(state.stateDir, 'update-check.json');
-		await updateCheck.write({checkedAt: 1, latestVersion: '0.2.0'});
-
-		fs.writeFileSync(file, 'not json');
-		expect(updateCheck.read()).toBe(null);
-
-		fs.writeFileSync(file, JSON.stringify({checkedAt: 123}));
-		expect(updateCheck.read()).toBe(null);
-
-		await updateCheck.write({checkedAt: 2, latestVersion: '0.2.0'});
-		fs.rmSync(file);
-		expect(updateCheck.read()).toBe(null);
-	},
-);
-
-test('the two stores leave the same cache file', async () => {
-	const files = [];
-	for (const sqlite of [false, true]) {
-		const state = testState({sqlite});
-		await state.daos.updateCheck.write({
-			checkedAt: 1_700_000_000_000,
-			latestVersion: '0.2.0',
-		});
-		files.push(
-			fs.readFileSync(path.join(state.stateDir, 'update-check.json'), 'utf8'),
-		);
-	}
-
-	expect(files[0]).toBe(files[1]);
-	expect(JSON.parse(files[0]!)).toStrictEqual({
-		checkedAt: 1_700_000_000_000,
-		latestVersion: '0.2.0',
-	});
-});
 
 // ============================================================================
 // isLocalMode

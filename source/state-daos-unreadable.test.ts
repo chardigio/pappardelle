@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {rejectionOf} from '../test/helpers/thrown.ts';
 import {testState} from '../test/helpers/state.ts';
 import {until} from '../test/helpers/wait.ts';
 import {clearRecentErrors, subscribeToErrors} from './logger.ts';
@@ -9,9 +8,9 @@ import {stateDbPath} from './state-db.ts';
 import {onStateDbChange} from './state-db-watch.ts';
 import {WorkspaceStatuses} from './workspace-status.ts';
 
-/** Stores with the flag on, over a state.db that SQLite refuses to open. */
+/** Stores over a state.db that SQLite refuses to open. */
 function unreadable() {
-	const state = testState({sqlite: true});
+	const state = testState();
 	const dbPath = stateDbPath(state.stateDir);
 	fs.writeFileSync(dbPath, 'not a database '.repeat(600));
 	return {...state, dbPath};
@@ -63,11 +62,10 @@ test('a read over a database that cannot be read answers nothing known, and each
 	);
 });
 
-test('the registry reports a database that cannot be read as a failed read, not as no spaces', async () => {
+test('the registry reports a database that cannot be read as a failed read, not as no spaces', () => {
 	const {daos} = unreadable();
 	expect(daos.registry.protectedSpaces().ok).toBe(false);
 	expect(() => daos.registry.openSpaces()).toThrow();
-	await rejectionOf(daos.registry.openSpacesAsync());
 	expect(daos.registry.has('STA-1')).toBe(true);
 });
 

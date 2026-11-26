@@ -18,8 +18,7 @@ import {
 	type ConfigPaths,
 } from './config.ts';
 import {formatConfigErrors} from './config-errors.ts';
-import {createStateDaos} from './state-daos.ts';
-import {openStateDb} from './state-db.ts';
+import {createStateDaos, openImportedStateDb} from './state-daos.ts';
 
 type Verb = (args: string[]) => number | Promise<number>;
 
@@ -247,13 +246,33 @@ const verbs: Record<string, Verb> = {
 		return 1;
 	},
 
-	/** Create or upgrade the database at a path, for the hooks' tests. */
+	/** `pappardelle highlight` for the sous-chef key: `--repo <name> <key> [--focus]`. */
+	async highlight(args) {
+		const {values, positionals} = parseArgs({
+			args,
+			allowPositionals: true,
+			options: {repo: {type: 'string'}, focus: {type: 'boolean'}},
+		});
+		const [issueKey] = positionals;
+		if (!values.repo || !issueKey || positionals.length !== 1)
+			return usage('highlight needs --repo <name> and one issue key');
+		await createStateDaos({repo: values.repo}).highlight.request({
+			issueKey,
+			focus: values.focus === true,
+		});
+		return 0;
+	},
+
+	/**
+	 * Create or upgrade the database at a path, importing the JSON state
+	 * beside the default one the first time. For install.sh and the hooks' tests.
+	 */
 	migrate(args) {
 		const {positionals} = parseArgs({args, allowPositionals: true});
 		const [dbPath] = positionals;
 		if (!dbPath || positionals.length !== 1)
 			return usage('migrate needs one database path');
-		openStateDb(dbPath);
+		openImportedStateDb(dbPath);
 		return 0;
 	},
 };

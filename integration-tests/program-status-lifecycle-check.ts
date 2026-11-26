@@ -245,9 +245,6 @@ try {
 		racePane.generation,
 	);
 	const ready = path.join(harness.root, 'publisher-ready');
-	const paused = path.join(harness.root, 'publisher-paused');
-	const resume = path.join(harness.root, 'publisher-resume');
-	const done = path.join(harness.root, 'publisher-done');
 	const script = path.join(harness.root, 'paused-publisher.mjs');
 	writeFileSync(target, '{}');
 	writeFileSync(`${target}.lease`, '');
@@ -255,28 +252,11 @@ try {
 		script,
 		`
 import fs from 'node:fs';
-import {mock} from 'bun:test';
-const original = fs.writeFileSync;
-let intercepted = false;
-const interceptedWrite = function(file, ...args) {
-  if (!intercepted && String(file).startsWith(${JSON.stringify(`${target}.tmp.`)})) {
-    intercepted = true;
-    original(${JSON.stringify(paused)}, '');
-    const deadline = Date.now() + 10000;
-    while (!fs.existsSync(${JSON.stringify(resume)})) {
-      if (Date.now() > deadline) throw new Error('Publisher was not resumed');
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-    }
-    setImmediate(() => original(${JSON.stringify(done)}, ''));
-  }
-  return original(file, ...args);
-};
-mock.module('node:fs', () => ({...fs, writeFileSync: interceptedWrite}));
 const {monitorPane} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-monitor.ts'))});
-const {followedPublisher} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-daemon.ts'))});
-const publisher = followedPublisher({dir: ${JSON.stringify(path.dirname(target))}, socketPath: ${JSON.stringify(harness.statusSocket)}, daemonMode: () => ${JSON.stringify(harness.sqlite)}});
-monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(racePane)}, ${JSON.stringify(path.dirname(target))}, publisher);
-original(${JSON.stringify(ready)}, '');
+const {daemonPublisher} = await import(${JSON.stringify(path.join(projectRoot, 'source/program-status-daemon.ts'))});
+const publisher = daemonPublisher({dir: ${JSON.stringify(path.dirname(target))}, socketPath: ${JSON.stringify(harness.statusSocket)}});
+monitorPane(${JSON.stringify(repo)}, 'race', ${JSON.stringify(racePane)}, publisher);
+fs.writeFileSync(${JSON.stringify(ready)}, '');
 `,
 	);
 	publisher = spawn(process.execPath, [script], {
@@ -286,39 +266,21 @@ original(${JSON.stringify(ready)}, '');
 	publisher.stdin?.write(
 		'\x1b]7501;state=idle:app=fixture:msg=cmVjb3JkZWQgbWVzc2FnZQ==\x07',
 	);
-	if (harness.sqlite) {
-		// With the flag on the publisher writes no file to pause in. What a
-		// revoked lease has to stop is its next send.
-		await untilSeen(
-			async () => harness.heldSnapshots(repo, 'race'),
-			held => held === 1,
-			'publisher sends its snapshot to the daemon',
-		);
-		await untilSeen(
-			() => existsSync(target),
-			retained => !retained,
-			'publisher removes the snapshot file it found',
-		);
-		await programStatus.remove('race');
-		publisher.stdin?.write('\x1b]7501;state=working:app=fixture\x07');
-		await delay(500);
-	} else {
-		await untilSeen(
-			() => existsSync(paused),
-			Boolean,
-			'publication pauses after initial lease check',
-		);
-		await programStatus.remove('race');
-		writeFileSync(resume, '');
-		await untilSeen(() => existsSync(done), Boolean, 'publication resumes');
-	}
+	// What a revoked lease has to stop is the publisher's next send.
+	await untilSeen(
+		async () => harness.heldSnapshots(repo, 'race'),
+		held => held === 1,
+		'publisher sends its snapshot to the daemon',
+	);
+	await programStatus.remove('race');
+	publisher.stdin?.write('\x1b]7501;state=working:app=fixture\x07');
+	await delay(500);
 
 	assert.equal(existsSync(target), false);
 	assert.equal(existsSync(`${target}.lease`), false);
 	assert.equal(await harness.heldSnapshots(repo, 'race'), 0);
-	evidence['late-publication'] = harness.sqlite
-		? 'revoked generation sends no snapshot to the daemon'
-		: 'revoked generation cannot recreate its snapshot after rename';
+	evidence['late-publication'] =
+		'revoked generation sends no snapshot to the daemon';
 	console.log(
 		'PASS revoked lease prevents an in-flight publisher recreating a snapshot',
 	);

@@ -62,8 +62,8 @@ function setup(
 
 const app = {session: 'pappardelle-app', repo: 'app'};
 
-test('only pappardelle sessions with a repo state dir count as TUIs', () => {
-	const {repoStateRoot: root, tuiMarker} = tuiStateRoot(['app', 'web']);
+test('only pappardelle sessions of a known repo count as TUIs', () => {
+	const {tuiMarker} = tuiStateRoot(['app', 'web']);
 	const {tmux} = fakeTuiTmux({
 		tuiMarker,
 		sessions: [
@@ -74,20 +74,20 @@ test('only pappardelle sessions with a repo state dir count as TUIs', () => {
 		],
 	});
 
-	expect(listRunningTuis(tmux, root)).toStrictEqual([
+	expect(listRunningTuis(tmux, ['app', 'web'])).toStrictEqual([
 		{session: 'pappardelle-app', repo: 'app'},
 		{session: 'pappardelle-web', repo: 'web'},
 	]);
 });
 
 test('a dotted repo name matches with or without tmux rewriting the dot', () => {
-	const {repoStateRoot: root, tuiMarker} = tuiStateRoot(['my.repo', 'next.js']);
+	const {tuiMarker} = tuiStateRoot(['my.repo', 'next.js']);
 	const {tmux} = fakeTuiTmux({
 		tuiMarker,
 		sessions: ['pappardelle-my_repo', 'pappardelle-next.js'],
 	});
 
-	expect(listRunningTuis(tmux, root)).toStrictEqual([
+	expect(listRunningTuis(tmux, ['my.repo', 'next.js'])).toStrictEqual([
 		{session: 'pappardelle-my_repo', repo: 'my.repo'},
 		{session: 'pappardelle-next.js', repo: 'next.js'},
 	]);
@@ -98,13 +98,13 @@ test('when two repos could own a session, the one named exactly like it does', (
 		['my.app', 'my_app'],
 		['my_app', 'my.app'],
 	]) {
-		const {repoStateRoot: root, tuiMarker} = tuiStateRoot(repos);
+		const {tuiMarker} = tuiStateRoot(repos);
 		const {tmux} = fakeTuiTmux({
 			tuiMarker,
 			sessions: ['pappardelle-my_app'],
 		});
-		// Readdir order is the filesystem's; neither order may change the answer.
-		expect(listRunningTuis(tmux, root)).toStrictEqual([
+		// Neither order may change the answer.
+		expect(listRunningTuis(tmux, repos)).toStrictEqual([
 			{session: 'pappardelle-my_app', repo: 'my_app'},
 		]);
 	}

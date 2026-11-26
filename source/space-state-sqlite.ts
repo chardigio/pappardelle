@@ -1,18 +1,17 @@
-// Per-space state as rows, with each space's file kept beside them.
+// Per-space state as rows.
 //
 // The file had four writers doing unlocked read-modify-write: the rail poll,
 // the profile backfill, link-pr and idow. Here each of them changes only its
 // own columns inside one transaction, so none can undo another's write, and
-// a write that changes nothing leaves the row and the file alone.
+// a write that changes nothing leaves the row alone.
 
+import path from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
 import {createLogger} from './logger.ts';
 import type {PipelineStatus} from './providers/types.ts';
 import {
 	parseSpaceState,
-	renderSpaceState,
 	withPrLink,
-	type JsonSpaceStateDao,
 	type SpacePrLink,
 	type SpaceState,
 	type SpaceStateDao,
@@ -164,24 +163,29 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		private readonly json: JsonSpaceStateDao,
+		/** Where each space's JSON file was, for the one-time import. */
+		private readonly jsonDir: string,
 		private readonly clock: () => Date,
 	) {}
 
-	file(key: string): string {
-		return this.json.file(key);
+	jsonMirrors(): JsonMirror[] {
+		return this.openDb()
+			.jsonKeysIn(this.jsonDir, '.json', ['.agent-sessions.json'])
+			.map(key => ({
+				file: path.join(this.jsonDir, `${key}.json`),
+				importRows: content => {
+					this.delete(key);
+					if (content !== null) this.insert(key, parseSpaceState(content));
+				},
+			}));
 	}
 
 	read(key: string): SpaceState | null {
-		return this.reads.or(null, () => {
-			this.openDb().sync(this.mirror(key));
-			return this.stored(key);
-		});
+		return this.reads.or(null, () => this.stored(key));
 	}
 
 	lookup(key: string): SpaceStateLookup {
 		try {
-			this.openDb().sync(this.mirror(key));
 			const state = this.stored(key);
 			return state ? {kind: 'state', state} : {kind: 'none'};
 		} catch (error) {
@@ -194,13 +198,10 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 	}
 
 	async addPrLink(key: string, link: SpacePrLink): Promise<void> {
-		const mirror = this.mirror(key);
-		await this.openDb().write(tx => {
-			tx.sync(mirror);
+		await this.openDb().write(() => {
 			const links = this.links(key);
 			if (isDeepStrictEqual(withPrLink(links, link), links)) return;
 			this.putLink(key, link);
-			tx.mirror(mirror.file, this.render(key));
 		});
 	}
 
@@ -208,13 +209,9 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 		entries: Array<{key: string; patch: SpaceStatePatch}>,
 	): Promise<void> {
 		const updatedAt = this.clock().toISOString();
-		await this.openDb().write(tx => {
-			for (const {key, patch} of entries) {
-				const mirror = this.mirror(key);
-				tx.sync(mirror);
-				if (this.apply(key, columnsOf(patch), updatedAt))
-					tx.mirror(mirror.file, this.render(key));
-			}
+		await this.openDb().write(() => {
+			for (const {key, patch} of entries)
+				this.apply(key, columnsOf(patch), updatedAt);
 		});
 	}
 
@@ -248,24 +245,8 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 		return true;
 	}
 
-	private mirror(key: string): JsonMirror {
-		return {
-			file: this.json.file(key),
-			importRows: content => {
-				this.delete(key);
-				// A space-state file is only ever removed on purpose, by a process
-				// that reads the files, so its record goes with it.
-				if (content !== null) this.insert(key, parseSpaceState(content));
-			},
-		};
-	}
-
 	private stored(key: string): SpaceState | null {
 		return toState(this.row(key), this.links(key));
-	}
-
-	private render(key: string): string {
-		return renderSpaceState(this.stored(key) ?? {});
 	}
 
 	private row(key: string): Row | null {

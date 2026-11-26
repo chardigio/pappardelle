@@ -53,14 +53,7 @@ pip install pytest
 test/helpers/tmux-guard-run.sh pytest plugins/pappardelle/hooks/ -v
 ```
 
-State can live in JSON files or, with `experimental.sqliteState`, in SQLite with the files kept beside it. With the flag on, hook status and program status are stored nowhere: they go through the status daemon, which keeps them in memory. CI runs every suite both ways. `PAPPARDELLE_SQLITE_STATE=1` selects the second for a run, and each test process then gets a database and a status socket of its own, never yours:
-
-```bash
-PAPPARDELLE_SQLITE_STATE=1 bun run test:unit
-PAPPARDELLE_SQLITE_STATE=1 test/helpers/tmux-guard-run.sh pytest plugins/pappardelle/hooks/ -v
-```
-
-The hook tests need `bun` on `PATH` for that run: the CLI creates the database they write to.
+Hook status and program status go through the status daemon, which keeps them in memory; the rest of the state is in SQLite. Each test process gets a database and a status socket of its own, never yours. The hook tests need `bun` on `PATH`: the CLI creates the database they write to.
 
 `scripts/unit-tests.ts` runs `bun test --parallel`: test files spread across worker processes, each file in a fresh global with its own copy of every module, and the tests within a file one after another. Run the unit tests through it, not with a bare `bun test`: `test/helpers/test-guard.ts`, preloaded into every test file by `bunfig.toml`, stops any file that runs outside the environment it sets up.
 

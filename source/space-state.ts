@@ -1,16 +1,8 @@
-// Persisted per-space state file.
-//
-// Pappardelle caches derived-but-expensive-to-refetch data here so the
+// Per-space state: data that is expensive to fetch again, kept so the
 // sous-chef skill (and any other consumer) can brief the chef without
-// shelling out to gh or reading the raw conversation jsonl itself.
-//
-// Layout: ~/.pappardelle/repos/{repoName}/space-state/{ISSUE-KEY}.json
-//
-// Written by the Pappardelle TUI after each rail-status poll. Reads are
-// cheap and failure-tolerant — consumers should treat missing/malformed
-// files the same as "no cached data yet".
+// shelling out to gh or reading the raw conversation jsonl itself. The TUI
+// writes it after each rail-status poll.
 
-import {randomUUID} from 'node:crypto';
 import fs from 'node:fs';
 import {setImmediate as yieldToInput} from 'node:timers/promises';
 import {homedir} from 'node:os';
@@ -87,8 +79,6 @@ export type SpaceStateLookup =
 
 /** One repo's per-space state, a record per space key. */
 export interface SpaceStateDao {
-	/** The file that holds a space's record, for messages that name it. */
-	file(key: string): string;
 	/** Null when nothing is recorded, or the record cannot be read. */
 	read(key: string): SpaceState | null;
 	/** `read` for a caller that must not take an unreadable record for none. */
@@ -120,10 +110,6 @@ export function withPrLink(
 		),
 		link,
 	];
-}
-
-export function renderSpaceState(state: SpaceState): string {
-	return JSON.stringify(state, null, 2) + '\n';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -405,8 +391,6 @@ export type AgentSessionsLookup =
  * issue, whose key can't own an earlier conversation.
  */
 export interface AgentSessionsDao {
-	/** The file the hook writes for a space. */
-	file(key: string): string;
 	/** The session id an agent profile recorded in a space. */
 	read(key: string, agentProfile: string): string | undefined;
 	sessions(key: string): AgentSessionsLookup;
@@ -426,8 +410,6 @@ export interface AgentSessionsDao {
 	/** Forget every session recorded in a space. */
 	clear(key: string): Promise<void>;
 }
-
-const AGENT_SESSIONS_SUFFIX = '.agent-sessions.json';
 
 /**
  * An agent-sessions file as the hook leaves it. Throws when `content` is not
@@ -452,18 +434,6 @@ export function parseAgentSessions(content: string): Map<string, AgentSession> {
 	return sessions;
 }
 
-export function renderAgentSessions(
-	sessions: Iterable<[string, AgentSession]>,
-): string {
-	const entries = Object.fromEntries(
-		[...sessions].map(([name, {sessionId, pid, started}]) => [
-			name,
-			{session_id: sessionId, pid, started},
-		]),
-	);
-	return JSON.stringify(entries, null, 2) + '\n';
-}
-
 /**
  * The name whose agent started last. `started` is the agent process's start
  * time as the hook reads it from `ps -o lstart` (LC_ALL=C).
@@ -480,196 +450,6 @@ export function latestStarted(
 	}
 
 	return latest?.name;
-}
-
-export class JsonAgentSessionsDao implements AgentSessionsDao {
-	constructor(private readonly dir: string) {}
-
-	file(key: string): string {
-		return path.join(this.dir, `${key}${AGENT_SESSIONS_SUFFIX}`);
-	}
-
-	read(key: string, agentProfile: string): string | undefined {
-		const entry = this.entries(key)[agentProfile];
-		const id =
-			entry && typeof entry === 'object'
-				? (entry as Record<string, unknown>)['session_id']
-				: undefined;
-		return typeof id === 'string' ? id : undefined;
-	}
-
-	sessions(key: string): AgentSessionsLookup {
-		let content: string;
-		try {
-			content = fs.readFileSync(this.file(key), 'utf8');
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-				return {kind: 'sessions', sessions: {}};
-			return {kind: 'unreadable', error};
-		}
-
-		try {
-			return {
-				kind: 'sessions',
-				sessions: Object.fromEntries(
-					[...parseAgentSessions(content)].map(([name, session]) => [
-						name,
-						session.sessionId,
-					]),
-				),
-			};
-		} catch (error) {
-			return {kind: 'unreadable', error};
-		}
-	}
-
-	latestProfile(key: string): string | undefined {
-		return latestStarted(
-			Object.entries(this.entries(key)).map(([name, entry]) => [
-				name,
-				entry && typeof entry === 'object'
-					? (entry as Record<string, unknown>)['started']
-					: undefined,
-			]),
-		);
-	}
-
-	keys(): string[] {
-		let files: string[];
-		try {
-			files = fs.readdirSync(this.dir);
-		} catch {
-			return [];
-		}
-
-		return files
-			.filter(
-				file =>
-					file.endsWith(AGENT_SESSIONS_SUFFIX) &&
-					file.length > AGENT_SESSIONS_SUFFIX.length,
-			)
-			.map(file => file.slice(0, -AGENT_SESSIONS_SUFFIX.length));
-	}
-
-	async renameProfile(key: string, from: string, to: string): Promise<void> {
-		const file = this.file(key);
-		try {
-			const sessions: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-			if (!isRecord(sessions) || !(from in sessions) || to in sessions) return;
-			const moved = Object.fromEntries(
-				Object.entries(sessions).map(([name, entry]) => [
-					name === from ? to : name,
-					entry,
-				]),
-			);
-			const temporary = `${file}.tmp.${process.pid}`;
-			fs.writeFileSync(temporary, JSON.stringify(moved, null, 2) + '\n');
-			fs.renameSync(temporary, file);
-		} catch {
-			// The space relaunches with --continue instead.
-		}
-	}
-
-	async clear(key: string): Promise<void> {
-		fs.rmSync(this.file(key), {force: true});
-	}
-
-	private entries(key: string): Record<string, unknown> {
-		try {
-			const sessions: unknown = JSON.parse(
-				fs.readFileSync(this.file(key), 'utf-8'),
-			);
-			return sessions && typeof sessions === 'object'
-				? (sessions as Record<string, unknown>)
-				: {};
-		} catch {
-			return {};
-		}
-	}
-}
-
-export class JsonSpaceStateDao implements SpaceStateDao {
-	constructor(
-		private readonly dir: string,
-		private readonly clock: () => Date,
-	) {}
-
-	file(key: string): string {
-		return path.join(this.dir, `${key}.json`);
-	}
-
-	read(key: string): SpaceState | null {
-		try {
-			const raw = fs.readFileSync(this.file(key), 'utf-8');
-			const parsed = JSON.parse(raw);
-			if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-				return parsed as SpaceState;
-			}
-		} catch {
-			// File missing, unreadable, or malformed — treat as "no state".
-		}
-
-		return null;
-	}
-
-	lookup(key: string): SpaceStateLookup {
-		let content: string;
-		try {
-			content = fs.readFileSync(this.file(key), 'utf8');
-		} catch (error) {
-			return (error as NodeJS.ErrnoException).code === 'ENOENT'
-				? {kind: 'none'}
-				: {kind: 'unreadable', error};
-		}
-
-		try {
-			return {kind: 'state', state: parseSpaceState(content)};
-		} catch (error) {
-			return {kind: 'unreadable', error};
-		}
-	}
-
-	/**
-	 * Merge `patch` into the existing state (if any) and write.
-	 * Fields in `patch` overwrite existing values; fields not present are preserved.
-	 * Always refreshes `updatedAt` to now.
-	 */
-	async write(key: string, patch: SpaceStatePatch): Promise<void> {
-		const existing = this.read(key) ?? {};
-		const next: SpaceState = {
-			...existing,
-			...patch,
-			updatedAt: this.clock().toISOString(),
-		};
-
-		const p = this.file(key);
-		try {
-			fs.mkdirSync(path.dirname(p), {recursive: true});
-			fs.writeFileSync(p, renderSpaceState(next));
-		} catch {
-			// Non-critical — cache will be rebuilt on next poll.
-		}
-	}
-
-	async writeMany(
-		entries: Array<{key: string; patch: SpaceStatePatch}>,
-	): Promise<void> {
-		for (const {key, patch} of entries) await this.write(key, patch);
-	}
-
-	async addPrLink(key: string, link: SpacePrLink): Promise<void> {
-		const state = this.read(key) ?? {};
-		state.prLinks = withPrLink(state.prLinks ?? [], link);
-		const file = this.file(key);
-		fs.mkdirSync(path.dirname(file), {recursive: true});
-		const temporary = `${file}.${randomUUID()}.tmp`;
-		try {
-			fs.writeFileSync(temporary, renderSpaceState(state));
-			fs.renameSync(temporary, file);
-		} finally {
-			fs.rmSync(temporary, {force: true});
-		}
-	}
 }
 
 const MAX_EXCERPT_LEN = 500;

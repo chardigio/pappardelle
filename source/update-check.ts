@@ -1,5 +1,5 @@
 import {bunForChildren} from './runtime.ts';
-import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {execFileSync, spawnSync} from 'node:child_process';
 import path from 'node:path';
@@ -185,33 +185,6 @@ export function parseCachedCheck(content: string): CacheEntry | null {
 		return null;
 	} catch {
 		return null;
-	}
-}
-
-export function renderCachedCheck(entry: CacheEntry): string {
-	return JSON.stringify(entry, null, 2);
-}
-
-export class JsonUpdateCheckDao implements UpdateCheckDao {
-	constructor(readonly file: string) {}
-
-	read(): CacheEntry | null {
-		try {
-			return parseCachedCheck(readFileSync(this.file, 'utf8'));
-		} catch {
-			return null;
-		}
-	}
-
-	async write(entry: CacheEntry): Promise<void> {
-		try {
-			mkdirSync(path.dirname(this.file), {recursive: true});
-			writeFileSync(this.file, renderCachedCheck(entry));
-		} catch (err) {
-			log.warn(
-				`Failed to write update-check cache: ${err instanceof Error ? err.message : String(err)}`,
-			);
-		}
 	}
 }
 

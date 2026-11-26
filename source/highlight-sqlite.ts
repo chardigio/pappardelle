@@ -1,15 +1,9 @@
-// Highlight requests as rows, with the target file kept beside each.
-//
-// The file only holds the key that was asked for, so its watcher acts on
-// every write. A row also holds when it was asked for, which is how a watcher
-// of the database tells a second request for the same key from one it has
-// already acted on.
+// Highlight requests as rows. A row holds when it was asked for, which is how
+// a watcher tells a second request for the same key from one it has already
+// acted on.
 
-import {watchFileContent} from './file-watch.ts';
 import {
-	highlightWriteCommand,
 	parseHighlightTarget,
-	renderHighlightTarget,
 	type HighlightDao,
 	type HighlightRequest,
 } from './highlight.ts';
@@ -22,46 +16,42 @@ const log = createLogger('highlight');
 type TargetRow = {key: string; focus: number; requested_at: number};
 
 export class SqliteHighlightDao implements HighlightDao {
-	private readonly mirror: JsonMirror;
 	private readonly reads = new GuardedReads(log, 'highlight requests');
 
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly dbPath: string,
 		private readonly repo: string,
-		private readonly file: string,
+		/** Where the highlight target file was, for the one-time import. */
+		private readonly jsonFile: string,
 		private readonly clock: () => Date,
-	) {
-		this.mirror = {
-			file,
-			importRows: content => {
-				// A file that changed is a request from a process without the
-				// database. One that is gone or empty asks for nothing, as it
-				// does for a process that watches the file.
-				const request = content ? parseHighlightTarget(content) : null;
-				if (request) this.put(request);
-				else this.delete();
+	) {}
+
+	jsonMirrors(): JsonMirror[] {
+		return [
+			{
+				file: this.jsonFile,
+				importRows: content => {
+					const request = content ? parseHighlightTarget(content) : null;
+					if (request) this.put(request);
+					else this.delete();
+				},
 			},
-		};
+		];
 	}
 
 	async request(request: HighlightRequest): Promise<void> {
-		await this.openDb().write(tx => {
+		await this.openDb().write(() => {
 			this.put(request);
-			tx.mirror(this.file, renderHighlightTarget(request));
 		});
-	}
-
-	shellRequest(request: HighlightRequest): string {
-		return highlightWriteCommand(this.file, request);
 	}
 
 	watch(listener: (request: HighlightRequest) => void): () => void {
 		// Undefined until a read works. A request that read finds is not
 		// reported, as one already there when the watch begins is not.
-		let last = this.reads.or(undefined, () => this.target());
+		let last = this.reads.or(undefined, () => this.row());
 		const check = () => {
-			const target = this.reads.or(undefined, () => this.target());
+			const target = this.reads.or(undefined, () => this.row());
 			if (target === undefined) return;
 			const isNew =
 				last !== undefined &&
@@ -71,26 +61,13 @@ export class SqliteHighlightDao implements HighlightDao {
 			if (isNew) listener({issueKey: target.key, focus: target.focus === 1});
 		};
 
-		const unwatchRows = onStateDbChange(this.dbPath, check);
-		// The sous-chef key's shell line writes the file and commits nothing,
-		// so the database's bell never rings for it.
-		const unwatchFile = watchFileContent(this.file, check);
-		return () => {
-			unwatchRows();
-			unwatchFile();
-		};
+		return onStateDbChange(this.dbPath, check);
 	}
 
 	async clear(): Promise<void> {
-		await this.openDb().write(tx => {
+		await this.openDb().write(() => {
 			this.delete();
-			tx.mirror(this.file, null);
 		});
-	}
-
-	private target(): TargetRow | null {
-		this.openDb().sync(this.mirror);
-		return this.row();
 	}
 
 	private row(): TargetRow | null {

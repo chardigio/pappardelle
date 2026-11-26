@@ -1,24 +1,21 @@
-"""The hooks' side of Pappardelle's experimental.sqliteState.
+"""The hooks' side of Pappardelle's SQLite state.
 
-With the flag on, a hook that writes a state file also writes its rows to the
-SQLite database, in one transaction, so readers of either see the same thing.
-The schema belongs to the TypeScript side (source/state-db.ts): nothing here
-creates the database or a table, and a hook that cannot use the database
-still writes its file.
+A hook writes its rows to the database. The schema belongs to the TypeScript
+side (source/state-db.ts): nothing here creates the database or a table, and
+a hook that cannot use the database logs that and records nothing.
 
-Status is the exception: with the flag on it goes to the status daemon
-(status_socket.py) and is stored nowhere.
+Status is the exception: it goes to the status daemon (status_socket.py) and
+is stored nowhere.
 """
 
-import json
 import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping, NamedTuple, Optional, Sequence, Union
+from typing import Any, Callable, Mapping, NamedTuple, Optional, Sequence
 
 # A hook runs inside the agent's turn, so it gives up on a busy database
-# quickly. The file it still writes is imported by the next reader.
+# quickly.
 BUSY_TIMEOUT_SECONDS = 0.1
 LOG_INTERVAL_SECONDS = 60
 
@@ -29,50 +26,29 @@ def state_dir() -> Path:
     return Path.home() / ".pappardelle"
 
 
-def _recorded_flag() -> dict[str, Any]:
-    """What the CLI last read from the home config (source/state-flag.ts)."""
-    try:
-        with open(state_dir() / "state-flag.json") as f:
-            recorded = json.load(f)
-        return recorded if isinstance(recorded, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def state_db_path(environ: Mapping[str, str] = os.environ) -> Optional[str]:
-    """The database to write to, or None while the flag is off."""
-    override = environ.get("PAPPARDELLE_SQLITE_STATE")
-    recorded = _recorded_flag()
-    if override == "0":
-        return None
-    if override != "1" and recorded.get("sqliteState") is not True:
-        return None
-    return (
-        environ.get("PAPPARDELLE_STATE_DB")
-        or recorded.get("db")
-        or str(state_dir() / "state.db")
-    )
+def state_db_path(environ: Mapping[str, str] = os.environ) -> str:
+    """The database, where stateDbPath (source/state-db.ts) puts it."""
+    return environ.get("PAPPARDELLE_STATE_DB") or str(state_dir() / "state.db")
 
 
 # The number is the protocol's (STATUS_SOCKET_NAME in source/state-db.ts).
 STATUS_SOCKET_NAME = "status-1.sock"
 
 
-def status_socket_path(environ: Mapping[str, str] = os.environ) -> Optional[str]:
-    """The status daemon's socket, or None while the flag is off.
+def status_socket_path(environ: Mapping[str, str] = os.environ) -> str:
+    """The status daemon's socket.
 
     It is beside the database unless PAPPARDELLE_STATUS_SOCKET names another
     place, so whatever moves the database moves the daemon with it, as in
     statusSocketPath (source/state-db.ts).
     """
-    db_path = state_db_path(environ)
-    if db_path is None:
-        return None
-    return environ.get("PAPPARDELLE_STATUS_SOCKET") or os.path.join(os.path.dirname(db_path), STATUS_SOCKET_NAME)
+    return environ.get("PAPPARDELLE_STATUS_SOCKET") or os.path.join(
+        os.path.dirname(state_db_path(environ)), STATUS_SOCKET_NAME
+    )
 
 
 def _log_failure(message: str) -> None:
-    """Log a failed database write, at most once a minute across all hooks.
+    """Log a failed database read or write, at most once a minute across all hooks.
 
     Some failures last until the user changes something (a Python whose
     SQLite cannot read the schema, a database that was removed), and every
@@ -94,34 +70,20 @@ def _log_failure(message: str) -> None:
         pass
 
 
-def write_through(
-    db_path: str,
-    file_path: Path,
-    write_file: Callable[[], Optional[os.stat_result]],
-    statements: Union[Statements, Callable[[], Statements]],
-) -> None:
-    """Write a state file and the rows that mirror it.
-
-    `write_file` replaces the file and returns the stat of what it wrote,
-    taken before the rename so it cannot be another writer's. It runs inside
-    the write transaction, which keeps the order of files the same as the
-    order of commits across processes, and lets it read the file it replaces
-    without another writer changing it in between. It returns None when it
-    decided to leave the file alone, and then no rows change either.
-    `statements` may be a function, asked once the file is written, for rows
-    that depend on what was written. If the database cannot be used, the file
-    is written alone.
+def write_rows(db_path: str, label: str, statements: Callable[[Any], Statements]) -> bool:
+    """Run one write transaction. `statements` gets the open connection, to
+    read what the rows hold under the write lock, and returns the statements
+    to run. False when the database could not be used, which is logged under
+    `label`.
     """
     try:
-        # Imported here so a hook pays for it only while the flag is on.
+        # Imported here so a hook that writes nothing never pays for it.
         import sqlite3
     except ImportError as error:
         # Python can be built without SQLite.
-        _log_failure(f"State database write failed for {file_path}: {error}")
-        write_file()
-        return
+        _log_failure(f"State database write failed for {label}: {error}")
+        return False
 
-    wrote = False
     connection = None
     try:
         # mode=rw: a missing database is the TypeScript side's to create.
@@ -133,34 +95,21 @@ def write_through(
         )
         connection.execute("PRAGMA synchronous = NORMAL")
         connection.execute("BEGIN IMMEDIATE")
-        written = write_file()
-        wrote = True
-        if written is None:
+        changes = statements(connection)
+        if not changes:
+            # Nothing changed, so no TUI has anything to read again.
             connection.execute("ROLLBACK")
-            return
-        for sql, parameters in statements() if callable(statements) else statements:
+            return True
+        for sql, parameters in changes:
             connection.execute(sql, parameters)
-        connection.execute(
-            """INSERT INTO json_sync (path, ino, size, mtime_ns, malformed)
-            VALUES (?, ?, ?, ?, 0)
-            ON CONFLICT (path) DO UPDATE SET ino = excluded.ino,
-                size = excluded.size, mtime_ns = excluded.mtime_ns,
-                malformed = 0""",
-            (
-                os.path.abspath(file_path),
-                str(written.st_ino),
-                written.st_size,
-                str(written.st_mtime_ns),
-            ),
-        )
         connection.execute("COMMIT")
         _ring_bell(db_path)
+        return True
     except sqlite3.Error as error:
-        _log_failure(f"State database write failed for {file_path}: {error}")
+        _log_failure(f"State database write failed for {label}: {error}")
         if connection is not None and connection.in_transaction:
             connection.execute("ROLLBACK")
-        if not wrote:
-            write_file()
+        return False
     finally:
         if connection is not None:
             connection.close()
@@ -196,7 +145,8 @@ def _read(db_path: str, sql: str, parameters: Sequence[Any] = ()) -> Optional[li
     """The rows a query returns, or None when the database cannot be read."""
     try:
         import sqlite3
-    except ImportError:
+    except ImportError as error:
+        _log_failure(f"State database read failed: {error}")
         return None
     try:
         connection = sqlite3.connect(
@@ -208,7 +158,8 @@ def _read(db_path: str, sql: str, parameters: Sequence[Any] = ()) -> Optional[li
             return connection.execute(sql, parameters).fetchall()
         finally:
             connection.close()
-    except sqlite3.Error:
+    except sqlite3.Error as error:
+        _log_failure(f"State database read failed: {error}")
         return None
 
 
@@ -262,3 +213,22 @@ def launched_agent_profile(db_path: str, repo: str, key: str) -> Optional[tuple[
         (repo, key),
     )
     return (rows[0][0], rows[0][1] == 1) if rows else None
+
+
+_SESSION_ENTRY = """SELECT session_id, pid, started FROM agent_sessions
+    WHERE repo = ? AND key = ? AND agent_profile = ?"""
+
+
+def _session_entry(row: Optional[Sequence[Any]]) -> Optional[dict[str, Any]]:
+    return {"session_id": row[0], "pid": row[1], "started": row[2]} if row else None
+
+
+def agent_session_entry(db_path: str, repo: str, key: str, agent_profile: str) -> Optional[dict[str, Any]]:
+    """The session recorded for one agent profile of a space, or None."""
+    rows = _read(db_path, _SESSION_ENTRY, (repo, key, agent_profile))
+    return _session_entry(rows[0] if rows else None)
+
+
+def agent_session_row(connection: Any, repo: str, key: str, agent_profile: str) -> Optional[dict[str, Any]]:
+    """`agent_session_entry` on a connection inside its write transaction."""
+    return _session_entry(connection.execute(_SESSION_ENTRY, (repo, key, agent_profile)).fetchone())

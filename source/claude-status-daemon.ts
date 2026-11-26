@@ -1,10 +1,5 @@
 // Claude hook statuses as the status daemon holds them: in memory only. The
 // hook sends each event to the daemon, and this reads this process's copy.
-//
-// A status file can still be there beside it: the hook writes one while the
-// flag is off, and deletes it once the daemon has an event of its own. A
-// reader takes whichever of the two is newer, so a daemon that outlived an
-// off period does not answer with what it held before it.
 
 import {
 	readableStatusKey,
@@ -15,22 +10,12 @@ import {
 } from './claude-status.ts';
 import {firstChange, type StatusClient} from './status-client.ts';
 
-type StatusFiles = Pick<ClaudeStatusDao, 'readState'>;
-
 /**
- * With no daemon running a key reads as its status file says, and as never
- * reported when it has none. That is what the daemon itself would answer after
- * a restart, until each agent's next event.
+ * With no daemon running a key reads as never reported. That is what the
+ * daemon itself answers after a restart, until each agent's next event.
  */
 export class DaemonClaudeStatusDao implements ClaudeStatusDao {
-	get mainKeyedByBranch(): boolean {
-		return false;
-	}
-
-	constructor(
-		private readonly client: StatusClient,
-		private readonly files: StatusFiles,
-	) {}
+	constructor(private readonly client: StatusClient) {}
 
 	async readableKey(repoName: string, name: string): Promise<string> {
 		return readableStatusKey(repoName, name, async statusKey => {
@@ -58,12 +43,8 @@ export class DaemonClaudeStatusDao implements ClaudeStatusDao {
 
 	async readState(statusKey: string): Promise<StoredClaudeStatus> {
 		await this.client.ready();
-		const file = await this.files.readState(statusKey);
 		const held = this.client.hook(statusKey);
-		if (!held) return file;
-		return file.kind === 'state' && file.state.lastUpdate >= held.lastUpdate
-			? file
-			: {kind: 'state', state: held};
+		return held ? {kind: 'state', state: held} : {kind: 'none'};
 	}
 
 	watch(listener: (statusKey: string) => void): () => void {

@@ -1,15 +1,8 @@
-// Holds as rows, with each one's file kept beside it, as the schedules are:
-// a hold can be approved by a process started without the flag.
+// Holds as rows.
 
+import path from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
-import {
-	parseHold,
-	renderHold,
-	type Hold,
-	type HoldDao,
-	type HoldState,
-	type JsonHoldDao,
-} from './holds.ts';
+import {parseHold, type Hold, type HoldDao, type HoldState} from './holds.ts';
 import {createLogger} from './logger.ts';
 import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
 
@@ -54,30 +47,29 @@ export class SqliteHoldDao implements HoldDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		private readonly json: JsonHoldDao,
+		/** Where each hold's JSON file was, for the one-time import. */
+		private readonly jsonDir: string,
 	) {}
 
+	jsonMirrors(): JsonMirror[] {
+		return this.openDb()
+			.jsonKeysIn(this.jsonDir, '.json')
+			.map(id => this.mirror(id));
+	}
+
 	async save(hold: Hold): Promise<void> {
-		const mirror = this.mirror(hold.id);
-		await this.openDb().write(tx => {
-			tx.sync(mirror);
+		await this.openDb().write(() => {
 			if (isDeepStrictEqual(this.row(hold.id), hold)) return;
 			this.put(hold);
-			tx.mirror(mirror.file, renderHold(hold));
 		});
 	}
 
 	load(id: string): Hold | null {
-		return this.reads.or(null, () => {
-			this.openDb().sync(this.mirror(id));
-			return this.row(id);
-		});
+		return this.reads.or(null, () => this.row(id));
 	}
 
 	list(): Hold[] {
 		return this.reads.or([], () => {
-			for (const id of new Set([...this.json.ids(), ...this.storedIds()]))
-				this.openDb().sync(this.mirror(id));
 			return this.openDb()
 				.db.query<HoldRow, [string]>(
 					`SELECT ${HOLD_COLUMNS} FROM holds WHERE repo = ? ORDER BY created_at, id`,
@@ -89,7 +81,7 @@ export class SqliteHoldDao implements HoldDao {
 
 	private mirror(id: string): JsonMirror {
 		return {
-			file: this.json.holdFile(id),
+			file: path.join(this.jsonDir, `${id}.json`),
 			importRows: content => {
 				if (content === null) this.deleteRow(id);
 				else this.put(parseHold(content));
@@ -105,13 +97,6 @@ export class SqliteHoldDao implements HoldDao {
 			>(`SELECT ${HOLD_COLUMNS} FROM holds WHERE repo = ? AND id = ?`)
 			.get(this.repo, id);
 		return row ? toHold(row) : null;
-	}
-
-	private storedIds(): string[] {
-		return this.openDb()
-			.db.query<{id: string}, [string]>('SELECT id FROM holds WHERE repo = ?')
-			.all(this.repo)
-			.map(row => row.id);
 	}
 
 	private put(hold: Hold): void {

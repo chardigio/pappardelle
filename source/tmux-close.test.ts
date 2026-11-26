@@ -2,17 +2,12 @@ import {test, expect, beforeAll, afterAll} from 'bun:test';
 import {unreachable} from '../test/helpers/unreachable.ts';
 import {tearDownSpace} from './space-utils.ts';
 import {innerKillSession, killSpaceSessions, innerTmuxArgs} from './tmux.ts';
-import {testTmuxState} from '../test/helpers/state.ts';
+import {testTmuxSpaces} from '../test/helpers/state.ts';
 
-// tmux.ts names a space's sessions from the stores. Without the database they
-// are the names idow gives a space, which is all this file needs.
+// tmux.ts names a space's sessions from the stores.
 const stateTeardowns: Array<() => unknown> = [];
-beforeAll(() => {
-	testTmuxState({
-		cleanup: fn => stateTeardowns.push(fn),
-		repo: 'fixture',
-		sqlite: false,
-	});
+beforeAll(async () => {
+	await testTmuxSpaces('fixture', ['A'], fn => stateTeardowns.push(fn));
 });
 afterAll(async () => {
 	for (const step of stateTeardowns.reverse()) await step();

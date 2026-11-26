@@ -3,13 +3,8 @@ import {teardown} from '../test/helpers/teardown.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-	loadProviderConfigs,
-	readConfig,
-	readHomeSqliteState,
-} from './config.ts';
+import {loadProviderConfigs, readConfig} from './config.ts';
 import {inlineConfigErrors} from './config-errors.ts';
-import {getRecentErrors} from './logger.ts';
 
 function layers(files: Record<string, string>) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pappardelle-read-'));
@@ -177,14 +172,4 @@ test("loadProviderConfigs reports a scalar layer's error", () => {
 		'.pappardelle.local.yml: the top level must be a map',
 	]);
 	expect(providers.issue_tracker).toStrictEqual({provider: 'beads'});
-});
-
-test('a scalar home config leaves the sqlite flag off and says so', () => {
-	const {dir} = layers({'home/.pappardelle.yml': 'true\n'});
-	expect(readHomeSqliteState(path.join(dir, 'home'))).toBe(false);
-	expect(
-		getRecentErrors().filter(entry =>
-			entry.message.includes(path.join(dir, 'home', '.pappardelle.yml')),
-		),
-	).toMatchObject([{level: 'warn'}]);
 });

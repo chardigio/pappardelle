@@ -67,16 +67,11 @@ fi
 
 # This may itself run inside a space, whose PAPPARDELLE_* would point the
 # timer at that space's repo.
-SQLITE_STATE="${PAPPARDELLE_SQLITE_STATE:-}"
 for name in $(compgen -e | grep '^PAPPARDELLE_' | grep -v '^PAPPARDELLE_TEST_'); do unset "$name"; done
-# The run keeps its state mode. This test runs under the real $HOME, so the
-# database and the status daemon's socket are its own, and the timer it starts
-# is handed all three.
+# This test runs under the real $HOME, so the database and the status
+# daemon's socket are its own, and the timer it starts is handed both.
 export PAPPARDELLE_STATE_DB="$ROOT/state.db"
 export PAPPARDELLE_STATUS_SOCKET="$ROOT/status-1.sock"
-if [[ -n "$SQLITE_STATE" ]]; then
-    export PAPPARDELLE_SQLITE_STATE="$SQLITE_STATE"
-fi
 
 # The jobs the test's database holds for this repo.
 stored_jobs() {
@@ -92,7 +87,7 @@ pappardelle() {
 }
 
 echo "schedule --at"
-# Register QA-1's identity so sqliteState=1 resolves its tmux session.
+# Register QA-1's identity, which the timer resolves its tmux session from.
 if (cd "$REPO" && env -u TMUX -u TMUX_PANE bun "$PROJECT/source/state-cli.ts" prepare-space --repo "$REPO_NAME" --worktree "$ROOT/worktrees/QA-1" --main-root "$REPO" QA-1) >/dev/null; then
     pass "prepared QA-1 identity"
 else
@@ -106,10 +101,8 @@ else
 fi
 units="$(systemctl --user list-timers --all --plain --no-legend "pappardelle-$REPO_NAME-*" | wc -l)"
 if [[ "$units" -eq 1 ]]; then pass "one timer loaded"; else fail "expected one timer, found $units"; fi
-if [[ "$SQLITE_STATE" == 1 ]]; then
-    jobs="$(stored_jobs)"
-    if [[ "$jobs" -eq 1 ]]; then pass "the job is a row in the test's database"; else fail "expected one stored job, found $jobs"; fi
-fi
+jobs="$(stored_jobs)"
+if [[ "$jobs" -eq 1 ]]; then pass "the job is a row in the test's database"; else fail "expected one stored job, found $jobs"; fi
 
 seen=""
 for _ in $(seq 1 40); do
@@ -123,10 +116,8 @@ if [[ -n "$seen" ]]; then pass "the timer typed the message into the session"; e
 sleep 2
 left="$(pappardelle schedules)"
 if [[ "$left" == "No scheduled wake-ups" ]]; then pass "the fired job removed itself"; else fail "jobs left: $left"; fi
-if [[ "$SQLITE_STATE" == 1 ]]; then
-    jobs="$(stored_jobs)"
-    if [[ "$jobs" -eq 0 ]]; then pass "the timer's process removed the row"; else fail "$jobs stored jobs left"; fi
-fi
+jobs="$(stored_jobs)"
+if [[ "$jobs" -eq 0 ]]; then pass "the timer's process removed the row"; else fail "$jobs stored jobs left"; fi
 if bun -e '
     import {readFileSync} from "node:fs";
     const entries = readFileSync(process.argv[1], "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line));

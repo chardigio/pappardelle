@@ -232,7 +232,7 @@ import {
 } from './space-state.ts';
 import {useRailStatusPolling} from './use-rail-status-polling.ts';
 import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
-import {findSpaceIndexByIssueKey} from './highlight.ts';
+import {findSpaceIndexByIssueKey, highlightShellCommand} from './highlight.ts';
 import {skillRoots, skillSnapshot} from './skill-completion.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {SpaceData, PaneLayout} from './types.ts';
@@ -703,14 +703,13 @@ export default function App({
 							error instanceof Error ? error : undefined,
 						);
 					});
-				return registry.openSpacesAsync();
+				return registry.openSpaces();
 			}),
 			statusReader: () => workspaceStatuses.reader(),
 			readWorktreePath: async key => getWorktreePathAsync(key),
 			readMainWorktree: firstFrom(early?.mainWorktree, getMainWorktreeInfo),
 			readDirty: isWorktreeDirty,
-			statusKey: async (key, mainBranch) =>
-				spaceStatusKey(claudeStatus, repoName, key, async () => mainBranch),
+			statusKey: async key => spaceStatusKey(claudeStatus, repoName, key),
 			getCachedIssue: getIssueCached,
 			fetchIssues: getIssues,
 			async readEmoji(issueKey, cachedIssue) {
@@ -815,12 +814,12 @@ export default function App({
 		void installSousChefKey(
 			listPaneId,
 			getSousChefKey(configMemo),
-			highlight.shellRequest({
+			highlightShellCommand(repoName, {
 				issueKey: MAIN_WORKTREE_KEY,
 				focus: true,
 			}),
 		);
-	}, [listPaneId, configMemo, highlight]);
+	}, [listPaneId, configMemo, repoName]);
 
 	// Not undone on unmount: quitting unmounts App, and a signal arriving during
 	// that teardown must still find a listener.
@@ -1136,7 +1135,12 @@ export default function App({
 			.run(async signal => {
 				queued?.();
 				if (closingSpacesRef.current.has(selectedSpaceName)) return;
-				const registered = await registry.openSpacesAsync().catch(() => null);
+				let registered: string[] | null;
+				try {
+					registered = registry.openSpaces();
+				} catch {
+					registered = null;
+				}
 				if (signal.aborted) return;
 				if (
 					!shouldAttach(
@@ -1918,7 +1922,6 @@ export default function App({
 							cwd: getRepoRoot(),
 							env: buildSpawnEnv(getRepoRoot(), {
 								mainRepoRoot: getMainRepoRoot(),
-								registerSpace: registry.keepsLifecycle,
 							}),
 						},
 					);
@@ -2053,14 +2056,13 @@ export default function App({
 					const sourceId = watchlistSourceId(profileName);
 					let toSpawn = unclaimed;
 					if (max !== undefined && unclaimed.length > 0) {
-						// Capacity is checked under the shared registry lock.
+						// Capacity is checked in the registry's write transaction.
 						const sorted = sortIssuesByCreatedAt(unclaimed);
 						const {reserved, occupied, claimedElsewhere} =
 							await registry.tryReserveWatchlistSlots(
 								sourceId,
 								sorted.map(issue => issue.identifier),
 								max,
-								{signal: pollAbort.signal},
 							);
 						if (pollAbort.signal.aborted) {
 							await Promise.all(
@@ -2216,9 +2218,6 @@ export default function App({
 					}
 
 					if (result.outcome === 'unregister-failed') {
-						// A registry with no record of the close still lists the
-						// space, so the failure is handled as it always was.
-						if (!registry.keepsLifecycle) throw result.error;
 						// The sessions are gone and the space is recorded as
 						// closing, which nothing reattaches to. The next refresh
 						// removes it.
@@ -2466,7 +2465,6 @@ export default function App({
 				cwd: getRepoRoot(),
 				env: buildSpawnEnv(getRepoRoot(), {
 					mainRepoRoot: getMainRepoRoot(),
-					registerSpace: registry.keepsLifecycle,
 				}),
 			},
 		);

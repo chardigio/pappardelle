@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import {test, expect} from 'bun:test';
 import {testState} from '../test/helpers/state.ts';
 import {
@@ -8,10 +7,7 @@ import {
 	type CliExecutor,
 	type SleepFn,
 } from './providers/jira-provider.ts';
-import {
-	StateColorCache,
-	getStateColorsPath,
-} from './providers/state-color-cache.ts';
+import {StateColorCache} from './providers/state-color-cache.ts';
 
 function makeEnoentError(): Error & {code: string} {
 	const err = new Error('spawn acli ENOENT') as Error & {code: string};
@@ -27,13 +23,10 @@ function tempCache(): StateColorCache {
 	return new StateColorCache();
 }
 
-/** A color store on a temp directory, and the file it keeps. */
+/** A color store on a temp directory. */
 function colorStore() {
-	const {daos, stateDir} = testState();
-	return {
-		dao: daos.stateColors,
-		cachePath: getStateColorsPath('repo', stateDir),
-	};
+	const {daos} = testState();
+	return {dao: daos.stateColors};
 }
 
 // ============================================================================
@@ -621,8 +614,8 @@ test('createComment with ENOENT — fails immediately, no retry', async () => {
 // State color disk persistence (STA-590)
 // ============================================================================
 
-test('getIssue persists state colors to disk via shared cache', async () => {
-	const {dao, cachePath} = colorStore();
+test('getIssue stores the state colors it reads', async () => {
+	const {dao} = colorStore();
 	const exec: CliExecutor = async () =>
 		makeJiraResponse('CHEX-800', 'Persist test', 'In Progress', 'In Progress');
 
@@ -634,11 +627,7 @@ test('getIssue persists state colors to disk via shared cache', async () => {
 	);
 	await provider.getIssue('CHEX-800');
 
-	expect(fs.existsSync(cachePath), 'state-colors.json should be created').toBe(
-		true,
-	);
-	const data = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-	expect(data['In Progress']).toBe('#4b9fea');
+	expect(dao.load()).toEqual({'In Progress': '#4b9fea'});
 });
 
 // ============================================================================
@@ -1243,12 +1232,10 @@ test('searchAssignedIssues returns empty array on CLI error', async () => {
 	expect(result).toStrictEqual([]);
 });
 
-test('new Jira provider loads persisted state colors from disk', () => {
-	const {dao, cachePath} = colorStore();
-	fs.writeFileSync(
-		cachePath,
-		JSON.stringify({Done: '#custom00', 'In Progress': '#custom11'}) + '\n',
-	);
+test('a new Jira provider starts with the stored state colors', async () => {
+	const {dao} = colorStore();
+	await dao.set('Done', '#custom00');
+	await dao.set('In Progress', '#custom11');
 
 	const provider = new JiraProvider(
 		'https://example.com',

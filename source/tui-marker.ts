@@ -1,17 +1,11 @@
-import {
-	mkdirSync,
-	readFileSync,
-	renameSync,
-	unlinkSync,
-	writeFileSync,
-} from 'node:fs';
+import {mkdirSync, readFileSync, unlinkSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 
-// A running TUI records itself in ~/.pappardelle/repos/<repo>/tui.json once it
-// has rendered, so `pappardelle restart` can tell which build came up in the
-// pane it respawned. restart.lock in the same directory keeps two restarts of
-// one repo's TUI from overlapping.
+// A running TUI records itself once it has rendered, so `pappardelle restart`
+// can tell which build came up in the pane it respawned.
+// ~/.pappardelle/repos/<repo>/restart.lock keeps two restarts of one repo's
+// TUI from overlapping.
 
 export const DEFAULT_REPO_STATE_ROOT = path.join(
 	homedir(),
@@ -37,10 +31,6 @@ export interface TuiMarkerDao {
 	write(marker: TuiMarker): Promise<void>;
 }
 
-export function renderTuiMarker(marker: TuiMarker): string {
-	return JSON.stringify(marker) + '\n';
-}
-
 export function parseTuiMarker(content: string): TuiMarker | null {
 	try {
 		const parsed: unknown = JSON.parse(content);
@@ -62,26 +52,6 @@ export function parseTuiMarker(content: string): TuiMarker | null {
 		return {pid, cliPath, sha, paneId, startedAt};
 	} catch {
 		return null;
-	}
-}
-
-export class JsonTuiMarkerDao implements TuiMarkerDao {
-	constructor(readonly file: string) {}
-
-	read(): TuiMarker | null {
-		try {
-			return parseTuiMarker(readFileSync(this.file, 'utf8'));
-		} catch {
-			return null;
-		}
-	}
-
-	async write(marker: TuiMarker): Promise<void> {
-		mkdirSync(path.dirname(this.file), {recursive: true});
-		// A reader polling mid-write must never see half a file.
-		const temporary = `${this.file}.${marker.pid}.tmp`;
-		writeFileSync(temporary, renderTuiMarker(marker));
-		renameSync(temporary, this.file);
 	}
 }
 

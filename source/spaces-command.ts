@@ -241,7 +241,7 @@ async function withTimeout<T>(
 export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 	const {repoName, home} = deps;
 	const now = deps.now ?? Date.now();
-	let keys: string[] | null;
+	let keys: string[];
 	try {
 		keys = deps.registry.openSpaces();
 	} catch (error) {
@@ -252,8 +252,6 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 			spaces: [],
 		};
 	}
-
-	if (!keys) return {error: 'No open spaces file found', spaces: []};
 
 	const identities = new Map<string, SpaceIdentity>();
 	for (const key of keys) {

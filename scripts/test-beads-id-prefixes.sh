@@ -13,8 +13,7 @@
 # - is_beads_issue_key (prefix anchoring, last-hyphen split so hyphenated
 #   prefixes survive, underscores, hierarchical .N children)
 #
-# The prefix set must agree with getBeadsPrefixes in source/config.ts and
-# get_beads_prefixes in plugins/pappardelle/hooks/tracker_config.py.
+# The prefix set must agree with getBeadsPrefixes in source/config.ts.
 #
 # Usage: ./test-beads-id-prefixes.sh
 

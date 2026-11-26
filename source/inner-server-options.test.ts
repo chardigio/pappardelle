@@ -10,14 +10,13 @@ import {testTmuxState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {getRepoName} from './config.ts';
 
-// tmux.ts names a space's sessions from the stores. Without the database they
-// are the names idow gives a space, which is all this file needs.
+// tmux.ts names a space's sessions from the stores.
 const stateTeardowns: Array<() => unknown> = [];
 beforeAll(() => {
 	testTmuxState({
 		cleanup: fn => stateTeardowns.push(fn),
 		repo: getRepoName(),
-		sqlite: false,
+		spaces: ['KEEP-1', 'KEEP-2', 'HASH-1', 'EMPTY-1', 'EMPTY-2'],
 	});
 });
 afterAll(async () => {

@@ -1,11 +1,10 @@
 import {execFile} from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {Database} from 'bun:sqlite';
 import {test, expect} from 'bun:test';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
-import {contractTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/dao-contract.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
@@ -17,7 +16,6 @@ import {
 } from './agent-state.ts';
 import {
 	fireJob,
-	JsonScheduleDao,
 	parseJob,
 	parseWhen,
 	rearmMissingTimers,
@@ -110,7 +108,7 @@ const keepGoing = (
 	idleChecks: 0,
 });
 
-contractTest(
+storeTest(
 	'keep_going nudges on the second idle check in a row, not the first',
 	async state => {
 		const h = harness(state, [report('idle'), report('idle')]);
@@ -122,23 +120,16 @@ contractTest(
 	},
 );
 
-contractTest(
-	'working between idle checks starts the count over',
-	async state => {
-		const h = harness(state, [
-			report('idle'),
-			report('working'),
-			report('idle'),
-		]);
-		await h.store.save(keepGoing());
-		await h.fire(keepGoing());
-		expect(await h.fire(keepGoing())).toBe('skipped_working');
-		expect(await h.fire(keepGoing())).toBe('waiting');
-		expect(h.sent).toStrictEqual([]);
-	},
-);
+storeTest('working between idle checks starts the count over', async state => {
+	const h = harness(state, [report('idle'), report('working'), report('idle')]);
+	await h.store.save(keepGoing());
+	await h.fire(keepGoing());
+	expect(await h.fire(keepGoing())).toBe('skipped_working');
+	expect(await h.fire(keepGoing())).toBe('waiting');
+	expect(h.sent).toStrictEqual([]);
+});
 
-contractTest(
+storeTest(
 	'a queued message goes out in place of the nudge, once',
 	async state => {
 		const h = harness(state, [report('idle'), report('idle')]);
@@ -152,18 +143,15 @@ contractTest(
 	},
 );
 
-contractTest(
-	'a queued message survives a send that was refused',
-	async state => {
-		const h = harness(state, [report('idle')], 'draft');
-		await h.store.save({...keepGoing(), idleChecks: 1});
-		await h.store.queue('STA-1', 'the next step');
-		expect(await h.fire(keepGoing())).toBe('skipped_draft');
-		expect(h.store.queued('STA-1')).toBe('the next step');
-	},
-);
+storeTest('a queued message survives a send that was refused', async state => {
+	const h = harness(state, [report('idle')], 'draft');
+	await h.store.save({...keepGoing(), idleChecks: 1});
+	await h.store.queue('STA-1', 'the next step');
+	expect(await h.fire(keepGoing())).toBe('skipped_draft');
+	expect(h.store.queued('STA-1')).toBe('the next step');
+});
 
-contractTest(
+storeTest(
 	'keep_going waits out a usage limit, then sends continue',
 	async state => {
 		const reset = new Date(2026, 10, 9, 12, 30);
@@ -180,14 +168,14 @@ contractTest(
 	},
 );
 
-contractTest('keep_going never types over a draft', async state => {
+storeTest('keep_going never types over a draft', async state => {
 	const h = harness(state, [report('draft')]);
 	await h.store.save({...keepGoing(), idleChecks: 1});
 	expect(await h.fire(keepGoing())).toBe('skipped_draft');
 	expect(h.sent).toStrictEqual([]);
 });
 
-contractTest('keep_going past its end removes itself', async state => {
+storeTest('keep_going past its end removes itself', async state => {
 	const job = keepGoing(new Date(2026, 10, 9, 11, 0).toISOString());
 	const h = harness(state, []);
 	await h.store.save(job);
@@ -196,7 +184,7 @@ contractTest('keep_going past its end removes itself', async state => {
 	expect(h.removed).toStrictEqual(['kg']);
 });
 
-contractTest(
+storeTest(
 	'after_limit sends once the reset has passed, though Codex still shows the limit',
 	async state => {
 		const job: Job = {
@@ -231,7 +219,7 @@ const afterLimit: Job = {
 	arm: 0,
 };
 
-contractTest(
+storeTest(
 	'after_limit moves to a later reset, keeping its id under a new timer',
 	async state => {
 		const later = new Date(2026, 10, 10, 4, 28);
@@ -251,7 +239,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a one-shot whose send is refused tries again in five minutes',
 	async state => {
 		const h = harness(
@@ -279,7 +267,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a one-shot whose text stays unsubmitted in the input box is done, so a retry never sends it twice',
 	async state => {
 		const h = harness(state, [report('idle')], 'unsubmitted');
@@ -292,7 +280,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a one-shot for a space with no agent session is dropped',
 	async state => {
 		const h = harness(state, [report('no_session')]);
@@ -303,7 +291,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'schedules never send into an exited pane: keep_going waits and one-shots drop',
 	async state => {
 		const kg = harness(state, [report('exited')]);
@@ -324,7 +312,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a wake-up keeps the current model when Codex offers to switch, then sends',
 	async state => {
 		const atLimit = {
@@ -346,7 +334,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a wake-up dismisses agy Models & Quota panel with Escape before sending',
 	async state => {
 		const openQuota = {
@@ -416,7 +404,7 @@ test('parseJob stays backward-compatible with job files lacking defer fields', (
 	});
 });
 
-test('SQLite v7 schedules table migrates cleanly to v8 with defer columns', async () => {
+test('a schedules table from before the defer columns keeps its jobs and stores deferrals', async () => {
 	const dir = tempDir('schedule-migrate-');
 	const dbPath = path.join(dir, 'state.sqlite');
 	const raw = new Database(dbPath, {create: true});
@@ -454,10 +442,6 @@ test('SQLite v7 schedules table migrates cleanly to v8 with defer columns', asyn
 		closeStateDb(dbPath);
 	});
 	expect(
-		stateDb.db.query<{user_version: number}, []>('PRAGMA user_version').get()
-			?.user_version,
-	).toBe(8);
-	expect(
 		stateDb.db
 			.query<
 				{defer_reason: string | null; defer_count: number | null},
@@ -466,19 +450,10 @@ test('SQLite v7 schedules table migrates cleanly to v8 with defer columns', asyn
 			.get('old1'),
 	).toStrictEqual({defer_reason: null, defer_count: null});
 
-	const json = new JsonScheduleDao(
-		path.join(dir, 'schedules'),
-		path.join(dir, 'queued'),
-	);
-	await json.save({
-		kind: 'at',
-		id: 'old1',
-		key: 'STA-1',
-		at: NOW.toISOString(),
-		message: 'ping',
-		arm: 0,
+	const dao = new SqliteScheduleDao(() => stateDb, 'repo', {
+		jobs: path.join(dir, 'schedules'),
+		queue: path.join(dir, 'queued'),
 	});
-	const dao = new SqliteScheduleDao(() => stateDb, 'repo', json);
 	expect(dao.load('old1')).toStrictEqual({
 		kind: 'at',
 		id: 'old1',
@@ -505,7 +480,7 @@ test('SQLite v7 schedules table migrates cleanly to v8 with defer columns', asyn
 	});
 });
 
-contractTest(
+storeTest(
 	'keep_going leaves any other Codex dialog to a person',
 	async state => {
 		const h = harness(state, [
@@ -521,7 +496,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'jobs whose timers a reboot dropped get new ones; a missed time fires soon',
 	async state => {
 		const store = state.daos.schedules;
@@ -656,17 +631,10 @@ const atJob: Job = {
 	arm: 0,
 };
 
-const repoDir = (state: TestState) =>
-	path.join(state.stateDir, 'repos', 'repo');
-const jobFile = (state: TestState, id: string) =>
-	path.join(repoDir(state), 'schedules', `${id}.json`);
-const queueFile = (state: TestState, key: string) =>
-	path.join(repoDir(state), 'queued', `${encodeURIComponent(key)}.txt`);
-
 const byId = (jobs: Job[]) =>
 	[...jobs].sort((a, b) => a.id.localeCompare(b.id));
 
-contractTest(
+storeTest(
 	'a job of each kind is saved, listed, replaced and deleted',
 	async state => {
 		const store = state.daos.schedules;
@@ -687,7 +655,6 @@ contractTest(
 
 		await store.delete('at1');
 		expect(store.load('at1')).toBe(null);
-		expect(fs.existsSync(jobFile(state, 'at1'))).toBe(false);
 		expect(
 			store
 				.list()
@@ -698,26 +665,7 @@ contractTest(
 	},
 );
 
-contractTest(
-	'a job file written or removed by another writer is what is read next',
-	async state => {
-		const store = state.daos.schedules;
-		await store.save(atJob);
-		expect(store.list()).toStrictEqual([atJob]);
-		// A timer service running without the database re-arms the job, and
-		// another saves a second one.
-		const rearmed = {...atJob, arm: 3};
-		fs.writeFileSync(jobFile(state, 'at1'), JSON.stringify(rearmed));
-		fs.writeFileSync(jobFile(state, 'kg'), JSON.stringify(keepGoing()));
-		expect(store.load('at1')).toStrictEqual(rearmed);
-		expect(byId(store.list())).toStrictEqual(byId([rearmed, keepGoing()]));
-		fs.rmSync(jobFile(state, 'at1'));
-		expect(store.load('at1')).toBe(null);
-		expect(store.list()).toStrictEqual([keepGoing()]);
-	},
-);
-
-contractTest(
+storeTest(
 	'a queued message is kept per space until it is cleared',
 	async state => {
 		const store = state.daos.schedules;
@@ -727,72 +675,27 @@ contractTest(
 		await store.queue('STA-1', 'replaced');
 		expect(store.queued('STA-1')).toBe('replaced');
 		expect(store.queued('team/space 2')).toBe('other');
-		expect(fs.readFileSync(queueFile(state, 'team/space 2'), 'utf8')).toBe(
-			'other',
-		);
 		await store.clearQueued('STA-1');
 		expect(store.queued('STA-1')).toBe(null);
-		expect(fs.existsSync(queueFile(state, 'STA-1'))).toBe(false);
 		expect(store.queued('team/space 2')).toBe('other');
-
-		// A process without the database queues and clears through the files.
-		fs.writeFileSync(queueFile(state, 'STA-1'), 'from a file');
-		expect(store.queued('STA-1')).toBe('from a file');
-		fs.rmSync(queueFile(state, 'team/space 2'));
-		expect(store.queued('team/space 2')).toBe(null);
 	},
 );
 
-test('the two stores leave the same job and queue files for the same history', async () => {
-	const files = [];
-	for (const sqlite of [false, true]) {
-		const state = testState({sqlite});
-		const store = state.daos.schedules;
-		await store.save(atJob);
-		await store.save(keepGoing('2026-11-10T08:00:00.000Z'));
-		await store.save(afterLimit);
-		await store.save({...afterLimit, arm: 1});
-		await store.delete('at1');
-		await store.queue('STA-1', 'next');
-		await store.queue('STA-2', 'gone');
-		await store.clearQueued('STA-2');
-		const read = (dir: string) =>
-			Object.fromEntries(
-				fs
-					.readdirSync(path.join(repoDir(state), dir))
-					.sort()
-					.map(file => [
-						file,
-						fs.readFileSync(path.join(repoDir(state), dir, file), 'utf8'),
-					]),
-			);
-		files.push({schedules: read('schedules'), queued: read('queued')});
-	}
-
-	expect(files[0]).toStrictEqual(files[1]);
-	expect(Object.keys(files[0]!.schedules)).toStrictEqual([
-		'al.json',
-		'kg.json',
-	]);
-	expect(files[0]!.queued).toStrictEqual({'STA-1.txt': 'next'});
-});
-
 // `schedule fire` runs from a timer service, a process of its own.
-for (const sqlite of [false, true]) {
-	test(`${sqlite ? 'sqlite' : 'json'}: a job saved by one process is read, re-armed and removed by another`, async () => {
-		const state = testState({sqlite});
-		const store = state.daos.schedules;
-		await store.save(atJob);
-		await store.save(keepGoing());
-		await store.queue('STA-2', 'queued for the timer');
-		const {stdout} = await exec(
-			process.execPath,
-			[
-				'--input-type=module',
-				'-e',
-				`
+test('a job saved by one process is read, re-armed and removed by another', async () => {
+	const state = testState();
+	const store = state.daos.schedules;
+	await store.save(atJob);
+	await store.save(keepGoing());
+	await store.queue('STA-2', 'queued for the timer');
+	const {stdout} = await exec(
+		process.execPath,
+		[
+			'--input-type=module',
+			'-e',
+			`
 import {createStateDaos} from ${JSON.stringify(daosUrl)};
-const {schedules} = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(state.stateDir)}, sqlite: ${sqlite}});
+const {schedules} = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(state.stateDir)}});
 const job = schedules.load('at1');
 const queued = schedules.queued(job.key);
 await schedules.save({...job, arm: job.arm + 1});
@@ -800,43 +703,36 @@ await schedules.delete('kg');
 await schedules.clearQueued(job.key);
 console.log(JSON.stringify({job, queued}));
 `,
-			],
-			{timeout: 30_000},
-		);
-		expect(JSON.parse(stdout)).toStrictEqual({
-			job: atJob,
-			queued: 'queued for the timer',
-		});
-		expect(store.list()).toStrictEqual([{...atJob, arm: 1}]);
-		expect(store.queued('STA-2')).toBe(null);
+		],
+		{timeout: 30_000},
+	);
+	expect(JSON.parse(stdout)).toStrictEqual({
+		job: atJob,
+		queued: 'queued for the timer',
 	});
-}
+	expect(store.list()).toStrictEqual([{...atJob, arm: 1}]);
+	expect(store.queued('STA-2')).toBe(null);
+});
 
-contractTest(
-	'keep_going skips and at retries over an agy draft',
-	async state => {
-		const screen = parseAgentScreen(
-			agentScreenFixture('agy-draft-normal'),
-			NOW,
-		);
-		const draftReport: AgentStateReport = {
-			...report(classifyAgent(null, screen)),
-			composer: screen.composer,
-		};
-		const kg = harness(state, [draftReport]);
-		await kg.store.save({...keepGoing(), idleChecks: 1});
-		expect(await kg.fire(keepGoing())).toBe('skipped_draft');
-		expect(kg.sent).toStrictEqual([]);
+storeTest('keep_going skips and at retries over an agy draft', async state => {
+	const screen = parseAgentScreen(agentScreenFixture('agy-draft-normal'), NOW);
+	const draftReport: AgentStateReport = {
+		...report(classifyAgent(null, screen)),
+		composer: screen.composer,
+	};
+	const kg = harness(state, [draftReport]);
+	await kg.store.save({...keepGoing(), idleChecks: 1});
+	expect(await kg.fire(keepGoing())).toBe('skipped_draft');
+	expect(kg.sent).toStrictEqual([]);
 
-		const atJobAgy: Job = {...atJob, id: 'at-agy', key: 'STA-1'};
-		const at = harness(state, [draftReport], 'draft');
-		await at.store.save(atJobAgy);
-		expect(await at.fire(atJobAgy)).toBe('retrying');
-		expect(at.timers[0]).toMatchObject({arm: 1});
-	},
-);
+	const atJobAgy: Job = {...atJob, id: 'at-agy', key: 'STA-1'};
+	const at = harness(state, [draftReport], 'draft');
+	await at.store.save(atJobAgy);
+	expect(await at.fire(atJobAgy)).toBe('retrying');
+	expect(at.timers[0]).toMatchObject({arm: 1});
+});
 
-contractTest(
+storeTest(
 	'after_limit with an agy ISO reset waits before reset and sends continue after',
 	async state => {
 		const before = new Date('2026-11-24T09:00:00Z');

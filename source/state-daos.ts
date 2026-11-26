@@ -1,20 +1,14 @@
-// The composition root for Pappardelle's stores.
-//
-// Each store is a DAO with a file-backed implementation and one for
-// experimental.sqliteState: SQLite-backed, or for the two status signals the
-// status daemon. This is the one place that decides which a process gets, so
-// nothing else reads the flag, and removing the flag changes this file.
+// The composition root for Pappardelle's stores: SQLite-backed, or for the
+// two status signals the status daemon.
 
+import fs from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {SqliteAgentSessionsDao} from './agent-sessions-sqlite.ts';
-import {JsonClaudeStatusDao, type ClaudeStatusDao} from './claude-status.ts';
+import type {ClaudeStatusDao} from './claude-status.ts';
 import {DaemonClaudeStatusDao} from './claude-status-daemon.ts';
 import {
-	companionRequestsDir,
 	companionWidthsPath,
-	JsonCompanionRequestDao,
-	JsonCompanionWidthDao,
 	type CompanionRequestDao,
 	type CompanionWidthDao,
 } from './companion-width.ts';
@@ -22,56 +16,39 @@ import {
 	SqliteCompanionRequestDao,
 	SqliteCompanionWidthDao,
 } from './companion-width-sqlite.ts';
-import {getMainRepoRoot, readHomeSqliteState} from './config.ts';
-import {holdsDir, JsonHoldDao, type HoldDao} from './holds.ts';
+import {getMainRepoRoot} from './config.ts';
+import {holdsDir, type HoldDao} from './holds.ts';
 import {SqliteHoldDao} from './holds-sqlite.ts';
-import {
-	getHighlightFilePath,
-	JsonHighlightDao,
-	type HighlightDao,
-} from './highlight.ts';
+import {getHighlightFilePath, type HighlightDao} from './highlight.ts';
 import {SqliteHighlightDao} from './highlight-sqlite.ts';
-import {JsonIssueMetaDao, type IssueMetaDao} from './issue-meta.ts';
+import {type IssueMetaDao} from './issue-meta.ts';
 import {SqliteIssueMetaDao} from './issue-meta-sqlite.ts';
-import {
-	JsonPrLinkStampDao,
-	prLinkStampPath,
-	type PrLinkStampDao,
-} from './pr-link-stamp.ts';
+import {createLogger} from './logger.ts';
+import {type PrLinkStampDao} from './pr-link-stamp.ts';
 import {SqlitePrLinkStampDao} from './pr-link-stamp-sqlite.ts';
 import {createProgramStatusDao} from './program-status-daemon.ts';
 import {statusSocket, type ProgramStatusDao} from './program-status-monitor.ts';
 import {
 	getStateColorsPath,
-	JsonStateColorDao,
 	migrateLegacyStateColors,
 	type StateColorDao,
 } from './providers/state-color-cache.ts';
 import {SqliteStateColorDao} from './providers/state-color-cache-sqlite.ts';
-import {
-	JsonScheduleDao,
-	queuedMessagesDir,
-	schedulesDir,
-	type ScheduleDao,
-} from './schedule.ts';
+import {queuedMessagesDir, schedulesDir, type ScheduleDao} from './schedule.ts';
 import {SqliteScheduleDao} from './schedule-sqlite.ts';
 import {
-	JsonSpaceIdentityDao,
 	type IdentityDefaults,
 	type SpaceIdentityDao,
 } from './space-identity.ts';
 import {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
 import {
 	getRegistryPathForRepo,
-	JsonSpaceRegistryDao,
 	migrateLegacyRegistry,
 	type SpaceRegistryDao,
 } from './space-registry.ts';
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
 import {
 	getSpaceStateDir,
-	JsonAgentSessionsDao,
-	JsonSpaceStateDao,
 	type AgentSessionsDao,
 	type SpaceStateDao,
 } from './space-state.ts';
@@ -81,23 +58,17 @@ import {
 	DEFAULT_STATE_DIR,
 	openStateDb,
 	stateDbPath,
-	type JsonMirror,
 	statusSocketPath,
+	type JsonMirror,
+	type StateDb,
 } from './state-db.ts';
-import {readStateEnv} from './state-env.ts';
 import {StatusClient} from './status-client.ts';
-import {
-	JsonTuiMarkerDao,
-	tuiMarkerPath,
-	type TuiMarkerDao,
-} from './tui-marker.ts';
+import {tuiMarkerPath, type TuiMarkerDao} from './tui-marker.ts';
 import {SqliteTuiMarkerDao} from './tui-marker-sqlite.ts';
-import {
-	JsonUpdateCheckDao,
-	updateCheckPath,
-	type UpdateCheckDao,
-} from './update-check.ts';
+import {updateCheckPath, type UpdateCheckDao} from './update-check.ts';
 import {SqliteUpdateCheckDao} from './update-check-sqlite.ts';
+
+const log = createLogger('state-db');
 
 export type StateDaos = {
 	registry: SpaceRegistryDao;
@@ -139,8 +110,6 @@ export type StateDaoOptions = {
 	/** Where the state files live, and the database unless `dbPath` says otherwise. */
 	stateDir?: string;
 	dbPath?: string;
-	/** Which implementation to build. Defaults to experimental.sqliteState. */
-	sqlite?: boolean;
 	/** The time recorded on a write. */
 	clock?: () => Date;
 	/** The home whose `~/.worktrees` holds the spaces idow creates. */
@@ -151,149 +120,246 @@ export type StateDaoOptions = {
 	mainRoot?: () => string;
 };
 
-let configured: boolean | undefined;
+type Stores = Omit<
+	StateDaos,
+	| 'claudeStatus'
+	| 'programStatus'
+	| 'deferCheckpoints'
+	| 'allowStatusDaemonStart'
+	| 'disconnectStatusDaemon'
+> & {
+	/** Every JSON file this repo's stores kept before the database held them. */
+	jsonMirrors(): JsonMirror[];
+};
 
-/** experimental.sqliteState for this process: the override, then the home config. */
-export function sqliteStateEnabled(): boolean {
-	configured ??= readStateEnv().sqliteState ?? readHomeSqliteState();
-	return configured;
+function sqliteStores(
+	openDb: () => StateDb,
+	options: {
+		dbPath: string;
+		/** Where the JSON files were, for the one-time import. */
+		stateDir: string;
+		identityDefaults: IdentityDefaults;
+		clock: () => Date;
+	},
+): Stores {
+	const {dbPath, stateDir, identityDefaults, clock} = options;
+	const {repo} = identityDefaults;
+	const spaceIdentities = new SqliteSpaceIdentityDao(openDb, identityDefaults);
+	const registryFile = getRegistryPathForRepo(repo, stateDir);
+	const registry = new SqliteSpaceRegistryDao(
+		openDb,
+		repo,
+		{
+			registry: registryFile,
+			reservations: path.join(
+				path.dirname(registryFile),
+				'watchlist-spawns.json',
+			),
+		},
+		spaceIdentities,
+	);
+	const spaceStateDir = getSpaceStateDir(repo, stateDir);
+	const spaceState = new SqliteSpaceStateDao(
+		openDb,
+		repo,
+		spaceStateDir,
+		clock,
+	);
+	const issueMeta = new SqliteIssueMetaDao(
+		openDb,
+		repo,
+		path.join(stateDir, 'repos', repo, 'issue-meta'),
+		clock,
+	);
+	const highlight = new SqliteHighlightDao(
+		openDb,
+		dbPath,
+		repo,
+		getHighlightFilePath(repo, stateDir),
+		clock,
+	);
+	const stateColors = new SqliteStateColorDao(
+		openDb,
+		repo,
+		getStateColorsPath(repo, stateDir),
+	);
+	const agentSessions = new SqliteAgentSessionsDao(openDb, repo, spaceStateDir);
+	const companionWidths = new SqliteCompanionWidthDao(
+		openDb,
+		repo,
+		companionWidthsPath(repo, stateDir),
+	);
+	const schedules = new SqliteScheduleDao(openDb, repo, {
+		jobs: schedulesDir(repo, stateDir),
+		queue: queuedMessagesDir(repo, stateDir),
+	});
+	const holds = new SqliteHoldDao(openDb, repo, holdsDir(repo, stateDir));
+	const tuiMarker = new SqliteTuiMarkerDao(
+		openDb,
+		repo,
+		tuiMarkerPath(path.join(stateDir, 'repos'), repo),
+	);
+	return {
+		registry,
+		spaceIdentities,
+		spaceState,
+		issueMeta,
+		highlight,
+		stateColors,
+		agentSessions,
+		companionWidths,
+		companionRequests: new SqliteCompanionRequestDao(openDb, dbPath, repo),
+		schedules,
+		holds,
+		prLinkStamp: new SqlitePrLinkStampDao(openDb, clock),
+		tuiMarker,
+		updateCheck: new SqliteUpdateCheckDao(openDb, updateCheckPath(stateDir)),
+		jsonMirrors: () => [
+			...registry.jsonMirrors(),
+			...spaceState.jsonMirrors(),
+			...agentSessions.jsonMirrors(),
+			...issueMeta.jsonMirrors(),
+			...highlight.jsonMirrors(),
+			...stateColors.jsonMirrors(),
+			...companionWidths.jsonMirrors(),
+			...schedules.jsonMirrors(),
+			...holds.jsonMirrors(),
+			...tuiMarker.jsonMirrors(),
+		],
+	};
+}
+
+const imported = new Set<string>();
+
+/**
+ * Import the JSON files every repo under `stateDir` kept before the database
+ * held its state, once, and delete them. A database moved away from
+ * `stateDir` is not the one those files belong to, so it imports none of them.
+ */
+function importJsonState(
+	state: StateDb,
+	stateDir: string,
+	defaults: Omit<IdentityDefaults, 'repo'>,
+): void {
+	if (imported.has(state.path)) return;
+	if (state.hasJsonToImport()) {
+		const ownsFiles =
+			path.resolve(state.path) ===
+			path.join(path.resolve(stateDir), 'state.db');
+		const files = state.importJson(() => {
+			if (!ownsFiles) return [];
+			const update = new SqliteUpdateCheckDao(
+				() => state,
+				updateCheckPath(stateDir),
+			);
+			return [
+				...update.jsonMirrors(),
+				...reposToImport(state, stateDir).flatMap(repo => {
+					migrateLegacyRegistry(repo, stateDir);
+					migrateLegacyStateColors(repo, stateDir);
+					return sqliteStores(() => state, {
+						dbPath: state.path,
+						stateDir,
+						identityDefaults: {...defaults, repo},
+						clock: () => new Date(),
+					}).jsonMirrors();
+				}),
+			];
+		});
+		for (const file of files) {
+			try {
+				fs.rmSync(file, {force: true});
+			} catch (error) {
+				log.warn(
+					`Could not delete ${file} after importing it`,
+					error instanceof Error ? error : undefined,
+				);
+			}
+		}
+	}
+
+	imported.add(state.path);
+}
+
+/**
+ * The repos with a directory under `<stateDir>/repos`, and those whose files
+ * a write through the database recorded, even if a process without the
+ * database has since removed them.
+ */
+function reposToImport(state: StateDb, stateDir: string): string[] {
+	const reposDir = path.join(stateDir, 'repos');
+	const repos = new Set<string>();
+	try {
+		for (const entry of fs.readdirSync(reposDir, {withFileTypes: true}))
+			if (entry.isDirectory()) repos.add(entry.name);
+	} catch {}
+
+	for (const {path: file} of state.db
+		.query<{path: string}, []>('SELECT path FROM json_sync')
+		.all()) {
+		const [repo, ...rest] = path.relative(reposDir, file).split(path.sep);
+		if (repo && repo !== '..' && rest.length > 0) repos.add(repo);
+	}
+
+	return [...repos].sort();
+}
+
+/** Open the database at `dbPath`, importing the JSON state beside it the first time. */
+export function openImportedStateDb(
+	dbPath: string,
+	stateDir = DEFAULT_STATE_DIR,
+	defaults?: Omit<IdentityDefaults, 'repo'>,
+): StateDb {
+	const state = openStateDb(dbPath);
+	importJsonState(
+		state,
+		stateDir,
+		defaults ?? {
+			home: homedir(),
+			socket: statusSocket(),
+			mainRoot: getMainRepoRoot,
+		},
+	);
+	return state;
 }
 
 export function createStateDaos(options: StateDaoOptions): StateDaos {
 	const {repo} = options;
 	const stateDir = options.stateDir ?? DEFAULT_STATE_DIR;
-	migrateLegacyRegistry(repo, stateDir);
-	migrateLegacyStateColors(repo, stateDir);
-	const jsonRegistry = new JsonSpaceRegistryDao(
-		getRegistryPathForRepo(repo, stateDir),
-	);
 	const identityDefaults: IdentityDefaults = {
 		repo,
 		home: options.home ?? homedir(),
 		socket: statusSocket(options.env),
 		mainRoot: options.mainRoot ?? getMainRepoRoot,
 	};
-	const jsonClaudeStatus = new JsonClaudeStatusDao(
-		readStateEnv().claudeStatusDir ?? path.join(stateDir, 'claude-status'),
-	);
 	const clock = options.clock ?? (() => new Date());
-	const jsonSpaceState = new JsonSpaceStateDao(
-		getSpaceStateDir(repo, stateDir),
-		clock,
-	);
-	const jsonIssueMeta = new JsonIssueMetaDao(
-		path.join(stateDir, 'repos', repo, 'issue-meta'),
-		clock,
-	);
-	const highlightFile = getHighlightFilePath(repo, stateDir);
-	const stateColorsFile = getStateColorsPath(repo, stateDir);
-	const jsonAgentSessions = new JsonAgentSessionsDao(
-		getSpaceStateDir(repo, stateDir),
-	);
-	const jsonCompanionWidths = new JsonCompanionWidthDao(
-		companionWidthsPath(repo, stateDir),
-	);
-	const jsonCompanionRequests = new JsonCompanionRequestDao(
-		companionRequestsDir(repo, stateDir),
-	);
-	const jsonSchedules = new JsonScheduleDao(
-		schedulesDir(repo, stateDir),
-		queuedMessagesDir(repo, stateDir),
-	);
-	const jsonHolds = new JsonHoldDao(holdsDir(repo, stateDir));
-	const jsonPrLinkStamp = new JsonPrLinkStampDao(
-		prLinkStampPath(stateDir),
-		clock,
-	);
 	const dbPath = options.dbPath ?? stateDbPath(options.stateDir);
-	const sqlite = options.sqlite ?? sqliteStateEnabled();
 	// Applied when a store first opens the connection, so that asking for it
 	// does not open a database nothing has used yet.
 	let checkpointsDeferred = false;
 	const openDb = () => {
-		const state = openStateDb(dbPath);
+		const state = openImportedStateDb(dbPath, stateDir, identityDefaults);
 		if (checkpointsDeferred) checkpointOutsideWrites(state);
 		return state;
 	};
 	const socketPath = statusSocketPath(options.stateDir);
-	const statusClient = sqlite
-		? new StatusClient(socketPath, {repo})
-		: undefined;
+	const statusClient = new StatusClient(socketPath, {repo});
 	const programStatus = createProgramStatusDao({
 		repo,
 		stateDir,
 		socketPath,
 		statusClient,
 	});
-	const tuiMarkerFile = tuiMarkerPath(path.join(stateDir, 'repos'), repo);
-	const updateCheckFile = updateCheckPath(stateDir);
-	if (!statusClient) {
-		return {
-			registry: jsonRegistry,
-			spaceIdentities: new JsonSpaceIdentityDao(identityDefaults, jsonRegistry),
-			claudeStatus: jsonClaudeStatus,
-			spaceState: jsonSpaceState,
-			issueMeta: jsonIssueMeta,
-			highlight: new JsonHighlightDao(highlightFile),
-			stateColors: new JsonStateColorDao(stateColorsFile),
-			agentSessions: jsonAgentSessions,
-			companionWidths: jsonCompanionWidths,
-			companionRequests: jsonCompanionRequests,
-			schedules: jsonSchedules,
-			holds: jsonHolds,
-			prLinkStamp: jsonPrLinkStamp,
-			programStatus,
-			tuiMarker: new JsonTuiMarkerDao(tuiMarkerFile),
-			updateCheck: new JsonUpdateCheckDao(updateCheckFile),
-			deferCheckpoints() {},
-			allowStatusDaemonStart() {},
-			disconnectStatusDaemon() {},
-		};
-	}
-
-	const spaceIdentities = new SqliteSpaceIdentityDao(
-		openDb,
+	const {jsonMirrors: _jsonMirrors, ...stores} = sqliteStores(openDb, {
+		dbPath,
+		stateDir,
 		identityDefaults,
-		(): JsonMirror => registry.mirror,
-	);
-	const registry = new SqliteSpaceRegistryDao(
-		openDb,
-		repo,
-		jsonRegistry,
-		spaceIdentities,
-	);
+		clock,
+	});
 	return {
-		registry,
-		spaceIdentities,
-		claudeStatus: new DaemonClaudeStatusDao(statusClient, jsonClaudeStatus),
-		spaceState: new SqliteSpaceStateDao(openDb, repo, jsonSpaceState, clock),
-		issueMeta: new SqliteIssueMetaDao(openDb, repo, jsonIssueMeta, clock),
-		highlight: new SqliteHighlightDao(
-			openDb,
-			dbPath,
-			repo,
-			highlightFile,
-			clock,
-		),
-		stateColors: new SqliteStateColorDao(openDb, repo, stateColorsFile),
-		agentSessions: new SqliteAgentSessionsDao(openDb, repo, jsonAgentSessions),
-		companionWidths: new SqliteCompanionWidthDao(
-			openDb,
-			repo,
-			jsonCompanionWidths,
-		),
-		companionRequests: new SqliteCompanionRequestDao(
-			openDb,
-			dbPath,
-			repo,
-			jsonCompanionRequests,
-		),
-		schedules: new SqliteScheduleDao(openDb, repo, jsonSchedules),
-		holds: new SqliteHoldDao(openDb, repo, jsonHolds),
-		prLinkStamp: new SqlitePrLinkStampDao(openDb, jsonPrLinkStamp, clock),
+		...stores,
+		claudeStatus: new DaemonClaudeStatusDao(statusClient),
 		programStatus,
-		tuiMarker: new SqliteTuiMarkerDao(openDb, repo, tuiMarkerFile),
-		updateCheck: new SqliteUpdateCheckDao(openDb, updateCheckFile),
 		deferCheckpoints() {
 			checkpointsDeferred = true;
 		},

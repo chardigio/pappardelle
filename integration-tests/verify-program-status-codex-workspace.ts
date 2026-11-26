@@ -5,7 +5,6 @@ import {
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
-	readdirSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -17,6 +16,8 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import type {ProgramStatusSnapshot} from '../source/program-status-monitor.ts';
+import {createStateDaos} from '../source/state-daos.ts';
+import {subscribeRaw} from '../test/helpers/status-daemon.ts';
 import {untilSeen} from './program-status-harness.ts';
 
 assert.ok(
@@ -37,6 +38,8 @@ const codexHome = path.join(root, 'codex-home');
 const outer = 'codex-rail-outer';
 const inner = 'pappardelle_codex_rail';
 const branch = 'sd-codex-rail';
+const stateDir = path.join(home, '.pappardelle');
+const statusSocket = path.join(root, 'status-1.sock');
 const frames: Array<{
 	scenario: string;
 	frame: string;
@@ -50,7 +53,8 @@ const env = {
 	SHELL: '/bin/bash',
 	PAPPARDELLE_PROGRAM_STATUS_DIR: path.join(root, 'status'),
 	PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR: path.join(root, 'trace'),
-	PAPPARDELLE_STATUS_DIR: path.join(root, 'hooks'),
+	PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
+	PAPPARDELLE_STATUS_SOCKET: statusSocket,
 	PAPPARDELLE_TMUX_SOCKET: inner,
 };
 Reflect.deleteProperty(env, 'TMUX');
@@ -65,18 +69,24 @@ function tmux(socket: string, ...args: string[]) {
 	});
 }
 
-function snapshot() {
-	const dir = path.join(root, 'status', 'workspace');
-	if (!existsSync(dir)) return undefined;
-	return readdirSync(dir)
-		.filter(file => file.endsWith('.json'))
-		.map(
-			file =>
-				JSON.parse(
-					readFileSync(path.join(dir, file), 'utf8'),
-				) as ProgramStatusSnapshot,
-		)
-		.find(value => value?.key === 'main');
+/** Main's snapshot as the TUI's status daemon holds it. */
+async function snapshot(): Promise<ProgramStatusSnapshot | undefined> {
+	const closers: Array<() => void> = [];
+	try {
+		const subscription = await subscribeRaw(
+			statusSocket,
+			path.basename(repo),
+			close => closers.push(close),
+		);
+		return subscription.messages
+			.flatMap(message => (message.type === 'state' ? message.snapshots : []))
+			.findLast(value => value.key === 'main');
+	} catch {
+		// The TUI starts the daemon after its first frame.
+		return undefined;
+	} finally {
+		for (const close of closers) close();
+	}
 }
 
 function rail() {
@@ -91,7 +101,7 @@ async function expect(
 ) {
 	const accepted = typeof status === 'string' ? [status] : status;
 	const result = await untilSeen(
-		() => ({frame: rail(), snapshot: snapshot()}),
+		async () => ({frame: rail(), snapshot: await snapshot()}),
 		value =>
 			value.snapshot?.authoritative === true &&
 			accepted.includes(value.snapshot.info.status) &&
@@ -197,21 +207,9 @@ profiles:
 		.find(name => name.startsWith('agent-'));
 	assert.ok(agent);
 	assert.equal(
-		(
-			JSON.parse(
-				readFileSync(
-					path.join(
-						home,
-						'.pappardelle',
-						'repos',
-						path.basename(repo),
-						'space-state',
-						'main.json',
-					),
-					'utf8',
-				),
-			) as {agentProfile?: {name: string}}
-		).agentProfile?.name,
+		createStateDaos({repo: path.basename(repo), stateDir}).spaceState.read(
+			'main',
+		)?.agentProfile?.name,
 		'codex-rail',
 	);
 	await prompt(

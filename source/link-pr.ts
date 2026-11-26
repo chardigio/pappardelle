@@ -148,5 +148,5 @@ export async function linkPr(
 	const {spaceState, prLinkStamp} = options.daosFor(repoName);
 	await spaceState.addPrLink(issueKey, link);
 	await prLinkStamp.touch();
-	return {file: spaceState.file(issueKey), link};
+	return {issueKey, link};
 }
