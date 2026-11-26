@@ -14,13 +14,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
+# The fixture repos commit, and a runner has no git identity of its own.
+export GIT_AUTHOR_NAME=Test GIT_AUTHOR_EMAIL=test@example.com
+export GIT_COMMITTER_NAME=Test GIT_COMMITTER_EMAIL=test@example.com
 
 assert_valid_json() {
     local test_name="$1"
@@ -114,29 +113,35 @@ create_worktree() {
     "$SCRIPT_DIR/create-worktree.sh" "${args[@]}"
 }
 
-# Set up a fresh temp git repo with a local "origin" remote
+# Set up a fresh temp git repo with a local "origin" remote whose default
+# branch is $1 (master when not given)
 setup_repo() {
-    TMPDIR_ROOT=$(mktemp -d)
+    local branch="${1:-master}"
+    test_tmpdir TMPDIR_ROOT
     export MAIN_REPO="$TMPDIR_ROOT/repo"
     export WORKTREES_ROOT="$TMPDIR_ROOT/worktrees"
 
     local bare_repo="$TMPDIR_ROOT/origin.git"
-    git init --bare --quiet --initial-branch=master "$bare_repo"
+    git init --bare --quiet --initial-branch="$branch" "$bare_repo"
 
     git clone --quiet "$bare_repo" "$MAIN_REPO" 2>/dev/null
     cd "$MAIN_REPO"
-    git checkout -b master --quiet
+    git checkout -b "$branch" --quiet
 
     echo "initial" > README.md
     git add README.md
     git commit -m "initial commit" --quiet
-    git push --quiet -u origin master 2>/dev/null
+    git push --quiet -u origin "$branch" 2>/dev/null
 }
 
 teardown_repo() {
     cd /
-    rm -rf "$TMPDIR_ROOT"
     unset MAIN_REPO WORKTREES_ROOT
+}
+
+# The repository a worktree was added to.
+common_dir() {
+    git -C "$1" rev-parse --path-format=absolute --git-common-dir
 }
 
 # ==========================================================================
@@ -334,19 +339,7 @@ teardown_repo
 
 echo -e "\n${BOLD}Test: create-worktree with main-based repo (not master)${RESET}"
 
-TMPDIR_ROOT=$(mktemp -d)
-export MAIN_REPO="$TMPDIR_ROOT/repo"
-export WORKTREES_ROOT="$TMPDIR_ROOT/worktrees"
-
-bare_repo="$TMPDIR_ROOT/origin.git"
-git init --bare --quiet --initial-branch=main "$bare_repo"
-git clone --quiet "$bare_repo" "$MAIN_REPO" 2>/dev/null
-cd "$MAIN_REPO"
-git checkout -b main --quiet
-echo "initial" > README.md
-git add README.md
-git commit -m "initial commit" --quiet
-git push --quiet -u origin main 2>/dev/null
+setup_repo main
 
 snapshot_main_repo
 OUTPUT=$(create_worktree --issue-key "CHEX-100" --project-key "test" 2>/dev/null)
@@ -363,9 +356,7 @@ else
     fail "worktree directory exists" "Expected: $EXPECTED_PATH"
 fi
 
-cd /
-rm -rf "$TMPDIR_ROOT"
-unset MAIN_REPO WORKTREES_ROOT
+teardown_repo
 
 # ==========================================================================
 
@@ -426,11 +417,7 @@ fi
 assert_valid_json "stdout is valid JSON (stale index.lock)" "$OUTPUT"
 assert_json_field "issue_key is correct (stale index.lock)" "$OUTPUT" "issue_key" "STA-700"
 
-if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
-    pass "stale index.lock was removed"
-else
-    fail "stale index.lock was removed"
-fi
+assert_file_not_exists "stale index.lock was removed" "$MAIN_REPO/.git/index.lock"
 
 teardown_repo
 
@@ -455,11 +442,7 @@ fi
 assert_valid_json "stdout is valid JSON (index.lock, clean repo)" "$OUTPUT"
 assert_json_field "issue_key is correct (index.lock, clean repo)" "$OUTPUT" "issue_key" "STA-800"
 
-if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
-    pass "stale index.lock was removed (clean repo)"
-else
-    fail "stale index.lock was removed (clean repo)"
-fi
+assert_file_not_exists "stale index.lock was removed (clean repo)" "$MAIN_REPO/.git/index.lock"
 
 teardown_repo
 
@@ -486,11 +469,7 @@ fi
 # step runs before any git operation that would observe the lock.
 MAIN_REPO="$WORKTREE_EXTRA" create_worktree --issue-key "STA-900" --project-key "test" >/dev/null 2>&1 || true
 
-if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
-    pass "stale index.lock removed via git-common-dir resolution"
-else
-    fail "stale index.lock removed via git-common-dir resolution"
-fi
+assert_file_not_exists "stale index.lock removed via git-common-dir resolution" "$MAIN_REPO/.git/index.lock"
 
 teardown_repo
 
@@ -506,6 +485,31 @@ assert_json_field "worktree_path is the path given" "$OUTPUT" "worktree_path" "$
 assert_eq "worktree is a checkout of the branch" "STA-950" "$(git -C "$TOLD" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-951" --project-key "test" 2>&1 || true)
 assert_eq "--worktree is required" "Error: --worktree is required" "$OUTPUT"
+teardown_repo
+
+# ==========================================================================
+
+# idow exports PAPPARDELLE_PROJECT_ROOT and runs the script from wherever it
+# was started, which need not be inside the repository.
+echo -e "\n${BOLD}Test: PAPPARDELLE_PROJECT_ROOT names the repository when MAIN_REPO is unset${RESET}"
+setup_repo
+PROJECT_REPO="$MAIN_REPO"
+(cd / && env -u MAIN_REPO -u PAPPARDELLE_MAIN_REPO_ROOT PAPPARDELLE_PROJECT_ROOT="$PROJECT_REPO" \
+    "$SCRIPT_DIR/create-worktree.sh" --issue-key STA-960 --project-key test \
+    --worktree "$WORKTREES_ROOT/repo/STA-960" >/dev/null 2>&1) || true
+assert_eq "the worktree is added to PAPPARDELLE_PROJECT_ROOT" "$(common_dir "$PROJECT_REPO")" \
+    "$(common_dir "$WORKTREES_ROOT/repo/STA-960" 2>/dev/null)"
+teardown_repo
+
+echo -e "\n${BOLD}Test: MAIN_REPO wins over PAPPARDELLE_PROJECT_ROOT${RESET}"
+setup_repo
+PROJECT_REPO="$MAIN_REPO"
+setup_repo
+(cd / && env -u PAPPARDELLE_MAIN_REPO_ROOT PAPPARDELLE_PROJECT_ROOT="$PROJECT_REPO" \
+    "$SCRIPT_DIR/create-worktree.sh" --issue-key STA-970 --project-key test \
+    --worktree "$WORKTREES_ROOT/repo/STA-970" >/dev/null 2>&1) || true
+assert_eq "the worktree is added to MAIN_REPO" "$(common_dir "$MAIN_REPO")" \
+    "$(common_dir "$WORKTREES_ROOT/repo/STA-970" 2>/dev/null)"
 teardown_repo
 
 # ==========================================================================
