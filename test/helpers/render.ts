@@ -8,6 +8,10 @@ const views = new Set<Awaited<ReturnType<typeof renderOpenTui>>>();
 afterAll(async () => {
 	await Promise.all([...views].map(view => view.unmount()));
 });
+/**
+ * More than 10 live OpenTUI renderers trip MaxListeners on the shared console
+ * cache, so render rows one at a time.
+ */
 export async function render(...args: Parameters<typeof renderOpenTui>) {
 	const view = await renderOpenTui(...args);
 	views.add(view);
