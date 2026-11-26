@@ -9,10 +9,7 @@ import {
 import {validateConfig} from './config-validation.ts';
 import {ConfigValidationError} from './config-errors.ts';
 import {buildAgentResumeCommand} from './tmux.ts';
-import {
-	DEFAULT_RESOLVED_AGENT_PROFILE,
-	type ResolvedAgentProfile,
-} from './config.ts';
+import {DEFAULT_RESOLVED_AGENT_PROFILE} from './config.ts';
 
 // ============================================================================
 // Helpers

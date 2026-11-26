@@ -421,7 +421,7 @@ test('new provider loads persisted state colors from disk', () => {
 });
 
 test('persisted colors survive across provider instances', async () => {
-	const {dao, cachePath} = colorStore();
+	const {dao} = colorStore();
 	const exec: CliExecutor = async () =>
 		makeIssueJson('STA-910', 'Cross-instance', 'Done', '#74d09f');
 

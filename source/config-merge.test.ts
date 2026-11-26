@@ -10,7 +10,6 @@ import {
 	loadConfigFromPaths,
 	readHomeSqliteState,
 	getTeamPrefix,
-	getProfileTeamPrefix,
 	getInitializationCommand,
 	getAgentProfile,
 	getDangerouslySkipPermissions,

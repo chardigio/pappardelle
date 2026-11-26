@@ -8,14 +8,13 @@ import {
 	getLogDir,
 	isCaughtBoundaryReport,
 } from './logger.ts';
-import {setTimeout as delay} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import React from 'react';
 import {terminalView} from '../test/helpers/terminal-view.ts';
 import {LatestTask} from './latest-task.ts';
-import {quitOnCtrlC, quitOnSignals} from './render-tui.ts';
+import {quitOnCtrlC} from './render-tui.ts';
 import {useKeyboard, usePaste} from '@opentui/react';
 
 const list = (query: string, rows: string[]) =>
