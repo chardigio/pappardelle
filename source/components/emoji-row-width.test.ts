@@ -84,14 +84,13 @@ test('a picker row never renders wider than its frame', async () => {
 });
 
 test('the label lands in the same column for every emoji', async () => {
-	const columns = new Set(
-		await Promise.all(
-			RAIL_EMOJI.map(async emoji => {
-				const line = await renderPickerRow(emoji, 'Fanx AI');
-				return stringWidth(line.slice(0, line.indexOf('Fanx AI')));
-			}),
-		),
-	);
+	const columns = new Set<number>();
+	for (const emoji of RAIL_EMOJI) {
+		const line = await renderPickerRow(emoji, 'Fanx AI');
+		expect(line).toContain('Fanx AI');
+		columns.add(stringWidth(line.slice(0, line.indexOf('Fanx AI'))));
+	}
+
 	expect(columns.size, `labels drifted across columns: ${[...columns]}`).toBe(
 		1,
 	);
