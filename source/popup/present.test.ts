@@ -1,6 +1,6 @@
 import {PassThrough} from 'node:stream';
 import {test, expect} from 'bun:test';
-import {until} from '../../test/helpers/render.ts';
+import {until} from '../../test/helpers/wait.ts';
 import {presentPopup} from './present.tsx';
 import type {PopupActions, PopupSpec} from './spec.ts';
 import type {PopupTerminal} from './terminal.ts';

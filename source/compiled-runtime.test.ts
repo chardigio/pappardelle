@@ -3,11 +3,11 @@ import {execFileSync, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {stripHostPappardelleEnv} from '../test/helpers/env.ts';
 import {killProcessesNaming} from '../test/helpers/processes.ts';
+import {until} from '../test/helpers/wait.ts';
 
 const project = path.resolve(import.meta.dirname, '..');
 
@@ -123,24 +123,18 @@ test('relocated executable renders and exits without Bun, Node, or node_modules'
 		'--no-layout',
 	);
 	const frame = () => runTmux('capture-pane', '-p', '-t', '=test:');
-	const until = async (check: () => boolean) => {
-		const deadline = Date.now() + 5000;
-		while (!check()) {
-			if (Date.now() > deadline) throw new Error('Compiled TUI timed out');
-			await delay(30);
-		}
-	};
-	await until(() => frame().includes('main'));
+	await until(() => frame().includes('main'), frame);
 	expect(frame().includes('repo')).toBe(true);
 	runTmux('send-keys', '-t', '=test:', '?');
-	await until(() => frame().includes('Keyboard Shortcuts'));
+	await until(() => frame().includes('Keyboard Shortcuts'), frame);
 	runTmux('send-keys', '-t', '=test:', 'Escape');
-	await until(() => !frame().includes('Keyboard Shortcuts'));
+	await until(() => !frame().includes('Keyboard Shortcuts'), frame);
 	runTmux('send-keys', '-t', '=test:', 'q');
 	await until(
 		() =>
 			spawnSync(tmux, ['-S', socket, 'has-session', '-t', '=test'], {env})
 				.status !== 0,
+		frame,
 	);
 	expect().pass();
 });

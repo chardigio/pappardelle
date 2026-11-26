@@ -10,6 +10,7 @@ import {sessionNamesFor} from './space-identity.ts';
 import {test, expect, afterAll} from 'bun:test';
 import {LatestTask} from './latest-task.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
+import {until, waitUntil} from '../test/helpers/wait.ts';
 import {getRepoName} from './config.ts';
 import {
 	companionSplitPaneIds,
@@ -51,15 +52,6 @@ const innerTmux = async (...args: string[]) => out('-S', inner, ...args);
 
 const display = async (paneId: string, format: string) =>
 	out('display-message', '-p', '-t', paneId, format);
-
-async function waitFor(check: () => Promise<boolean>): Promise<boolean> {
-	for (let attempt = 0; attempt < 100; attempt++) {
-		if (await check()) return true;
-		await delay(50);
-	}
-
-	return false;
-}
 
 async function outerPanes(): Promise<string[]> {
 	const panes = await out('list-panes', '-a', '-F', '#{pane_id}');
@@ -174,8 +166,8 @@ tmuxTest(
 		const splitPanes = companionSplitPaneIds();
 		expect(splitPanes.length).toBe(2);
 		expect(await paneCount()).toBe(5);
-		expect(
-			await waitFor(async () => {
+		await waitUntil(
+			async () => {
 				const screens = await Promise.all(
 					splitPanes.map(async id => run(['capture-pane', '-p', '-t', id])),
 				);
@@ -184,9 +176,10 @@ tmuxTest(
 					screens[0]!.includes('tests') &&
 					screens[1]!.includes('logs')
 				);
-			}),
-			'each split pane draws its own titled frame',
-		).toBe(true);
+			},
+			'each split pane to draw its own titled frame',
+			30_000,
+		);
 		expect(await clientSessions()).toStrictEqual([
 			session(a, 'logs'),
 			session(a, 'tests'),
@@ -315,13 +308,14 @@ tmuxTest(
 		// resize to its client. A killed client never detaches.
 		process.kill(logsClientPid, 'SIGKILL');
 		// Until the server reads the closed connection, switch-client still finds it.
-		expect(
-			await waitFor(async () => {
+		await waitUntil(
+			async () => {
 				const ttys = await innerTmux('list-clients', '-F', '#{client_tty}');
 				return !ttys.split('\n').includes(logsTty);
-			}),
-			'the inner server drops the killed client',
-		).toBe(true);
+			},
+			'the inner server to drop the killed client',
+			30_000,
+		);
 		expect(await syncCompanionSplits(layout, a, {run})).toBe('applied');
 		const rebuilt = companionSplitPaneIds();
 		expect(rebuilt.length).toBe(2);
@@ -331,11 +325,15 @@ tmuxTest(
 		expect(panes.includes(layout.companionViewerPaneId)).toBe(true);
 		// Each frame publishes its tty just before its client attaches.
 		const rebuiltClients = [session(a, 'logs'), session(a, 'tests')];
-		await waitFor(async () => {
-			const clients = await clientSessions();
-			return clients.join(' ') === rebuiltClients.join(' ');
-		});
-		expect(await clientSessions()).toStrictEqual(rebuiltClients);
+		let clients: string[] = [];
+		await until(
+			async () => {
+				clients = await clientSessions();
+				return clients.join(' ') === rebuiltClients.join(' ');
+			},
+			() => clients.join(' '),
+			30_000,
+		);
 
 		// An open dialog zooms the rail; splitting would unzoom it.
 		expect(
@@ -364,7 +362,11 @@ tmuxTest(
 
 		// A split whose session ends takes its frame with it.
 		await innerTmux('kill-session', '-t', `=${session(a, 'dev')}:`);
-		expect(await waitFor(async () => (await paneCount()) === 5)).toBe(true);
+		await waitUntil(
+			async () => (await paneCount()) === 5,
+			"the dev split's frame to close",
+			30_000,
+		);
 		// Its rows went to a neighbour, which is no drag of that neighbour.
 		expect(await syncCompanionSplits(layout, a, {run})).toBe('applied');
 		expect(await option(session(a, 'tests'), '@pappa_size')).toBe('30%');

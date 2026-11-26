@@ -1,7 +1,8 @@
 import {test, expect} from 'bun:test';
 import {teardown} from '../../test/helpers/teardown.ts';
 import React from 'react';
-import {render, until} from '../../test/helpers/render.ts';
+import {render} from '../../test/helpers/render.ts';
+import {until} from '../../test/helpers/wait.ts';
 import HelpOverlay from './HelpOverlay.tsx';
 
 function open(availableHeight?: number) {

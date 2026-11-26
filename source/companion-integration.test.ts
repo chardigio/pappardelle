@@ -4,7 +4,6 @@
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
-import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect, beforeAll, afterAll} from 'bun:test';
 import {
 	closeCompanionPane,
@@ -17,6 +16,7 @@ import {
 } from './companion.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
+import {until} from '../test/helpers/wait.ts';
 
 const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
@@ -50,15 +50,6 @@ const panesOf = (session: string) =>
 	tmux('list-panes', '-s', '-t', `=${session}:`, '-F', '#{pane_id}').split(
 		'\n',
 	);
-
-async function waitFor(check: () => boolean): Promise<boolean> {
-	for (let attempt = 0; attempt < 60; attempt++) {
-		if (check()) return true;
-		await delay(50);
-	}
-
-	return false;
-}
 
 beforeAll(() => {
 	if (spawnSync('tmux', ['-V']).status !== 0) return;
@@ -127,13 +118,9 @@ tmuxTest('companion verbs on a real tmux server', async () => {
 	expect(sessions().filter(name => name.startsWith(COMPANION)).length).toBe(2);
 	const side = listCompanion('KEY-1', deps).find(p => p.name === 'side')!;
 	expect(side).toMatchObject({split: 'down', size: '30%'});
-	expect(
-		await waitFor(() =>
-			listCompanion('KEY-1', deps)
-				.find(p => p.name === 'side')!
-				.startCommand.includes('sleep 601'),
-		),
-	).toBe(true);
+	const sideCommand = () =>
+		listCompanion('KEY-1', deps).find(p => p.name === 'side')!.startCommand;
+	await until(() => sideCommand().includes('sleep 601'), sideCommand, 30_000);
 	expect(
 		tmux('display-message', '-p', '-t', `=${SIDE}:`, '#{pane_current_path}'),
 	).toBe(dir);
@@ -143,13 +130,9 @@ tmuxTest('companion verbs on a real tmux server', async () => {
 		{pane: 'main', text: 'hello-companion', keys: [], enter: true},
 		deps,
 	);
-	expect(
-		await waitFor(() =>
-			readCompanionPane('KEY-1', {pane: 'main', lines: 20}, deps).includes(
-				'hello-companion',
-			),
-		),
-	).toBe(true);
+	const mainText = () =>
+		readCompanionPane('KEY-1', {pane: 'main', lines: 20}, deps);
+	await until(() => mainText().includes('hello-companion'), mainText, 30_000);
 
 	resizeCompanionPane('KEY-1', {pane: 'side', size: 5}, deps);
 	expect(listCompanion('KEY-1', deps).find(p => p.name === 'side')?.size).toBe(

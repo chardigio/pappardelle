@@ -6,7 +6,7 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
 import {teardown} from '../../test/helpers/teardown.ts';
-import {until} from '../../test/helpers/render.ts';
+import {until} from '../../test/helpers/wait.ts';
 import {buildDisplayPopupArgs, popupClient} from './terminal.ts';
 
 /**

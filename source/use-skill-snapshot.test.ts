@@ -3,6 +3,7 @@ import {render} from '../test/helpers/render.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
+import {until} from '../test/helpers/wait.ts';
 import {
 	createSkillSnapshot,
 	type SkillEntry,
@@ -37,14 +38,6 @@ async function mount(store: SkillSnapshot) {
 	return {view, renders};
 }
 
-async function waitFor(check: () => boolean | Promise<boolean>) {
-	const deadline = Date.now() + 3000;
-	while (!(await check())) {
-		if (Date.now() > deadline) throw new Error('Timed out');
-		await delay(5);
-	}
-}
-
 test('renders before the scan finishes, then shows what it found', async () => {
 	const scan = deferred<SkillEntry[]>();
 	const store = createSkillSnapshot(async () => scan.promise);
@@ -56,10 +49,13 @@ test('renders before the scan finishes, then shows what it found', async () => {
 	expect(view.lastFrame()).toBe('(none)');
 
 	scan.resolve([skill('alpha'), skill('beta')]);
-	await waitFor(async () => {
-		await view.renderOnce();
-		return view.lastFrame() !== '(none)';
-	});
+	await until(
+		async () => {
+			await view.renderOnce();
+			return view.lastFrame() !== '(none)';
+		},
+		() => view.lastFrame(),
+	);
 	expect(view.lastFrame()).toBe('alpha,beta');
 });
 
@@ -77,10 +73,13 @@ test('a reopened prompt shows the last scan on its first frame, then the rescan'
 
 	expect(renders[0]).toBe('alpha');
 	next.resolve([skill('alpha'), skill('installed-since')]);
-	await waitFor(async () => {
-		await view.renderOnce();
-		return view.lastFrame() !== 'alpha';
-	});
+	await until(
+		async () => {
+			await view.renderOnce();
+			return view.lastFrame() !== 'alpha';
+		},
+		() => view.lastFrame(),
+	);
 	expect(view.lastFrame()).toBe('alpha,installed-since');
 });
 
@@ -92,7 +91,7 @@ test('a scan that lands after unmount updates the store but not the dead view', 
 	const rendersAtUnmount = renders.length;
 
 	scan.resolve([skill('alpha')]);
-	await waitFor(() => store.current(roots) !== undefined);
+	await until(() => store.current(roots) !== undefined);
 	await delay(20);
 
 	expect(store.current(roots)).toStrictEqual([skill('alpha')]);
