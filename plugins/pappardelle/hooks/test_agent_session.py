@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 
 import pytest
@@ -719,18 +720,23 @@ def test_a_hook_outside_tmux_and_any_space_is_not_recorded(sessions_file: Path):
 def tmux_server(monkeypatch: pytest.MonkeyPatch):
     if not shutil.which("tmux"):
         pytest.skip("tmux not installed")
-    # A short private directory: tmux socket paths are capped near 104 bytes.
-    tmpdir = tempfile.mkdtemp(prefix="pt-tmux-", dir="/tmp")
-    monkeypatch.setenv("TMUX_TMPDIR", tmpdir)
-    monkeypatch.delenv("TMUX", raising=False)
-    monkeypatch.setenv("PAPPARDELLE_TMUX_SOCKET", "agent-session-test")
+    # The guard's private TMUX_TMPDIR keeps the -L server below off the
+    # user's, and it fails the run when the server is left running.
+    if not os.environ.get("PAPPARDELLE_TEST_TMUX_REFUSALS"):
+        pytest.fail(
+            "this test starts tmux: run through test/helpers/tmux-guard-run.sh"
+            " (test/helpers/tmux-guard-run.sh pytest plugins/pappardelle/hooks/ -v)"
+        )
+    # A server of its own per test: kill-server returns before the server has
+    # exited, and the next test's tmux could reach the one shutting down.
+    name = f"agent-session-test-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setenv("PAPPARDELLE_TMUX_SOCKET", name)
 
     def tmux(*args: str) -> None:
-        subprocess.run(["tmux", "-L", "agent-session-test", *args], check=True, capture_output=True)
+        subprocess.run(["tmux", "-L", name, *args], check=True, capture_output=True)
 
     yield tmux
-    subprocess.run(["tmux", "-L", "agent-session-test", "kill-server"], capture_output=True)
-    shutil.rmtree(tmpdir, ignore_errors=True)
+    subprocess.run(["tmux", "-L", name, "kill-server"], capture_output=True)
 
 
 def test_the_space_comes_from_the_agent_session_holding_the_cwd(
