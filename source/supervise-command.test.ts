@@ -11,7 +11,7 @@ import {
 import {POLICY_REFUSED_EXIT} from './answer-decision.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
 import type {ClassifierVerdict} from './approve-classifier.ts';
-import type {ClaudeSessionState} from './claude-status.ts';
+import type {ClaudeSessionState, ClaudeStatusInfo} from './claude-status.ts';
 import type {Hold} from './holds.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 import {testState} from '../test/helpers/state.ts';
@@ -64,11 +64,13 @@ function harness(
 		caller = 'main',
 		readAgyQuota,
 		paneListings,
+		hookStatus = {status: 'unknown'},
 	}: {
 		ignoresKeys?: boolean;
 		caller?: string;
 		readAgyQuota?: SuperviseDeps['readAgyQuota'];
 		paneListings?: string[];
+		hookStatus?: ClaudeStatusInfo;
 	} = {},
 ) {
 	const {schedules, holds} = testState().daos;
@@ -112,6 +114,8 @@ function harness(
 	};
 
 	const {deps, logged, out, err} = superviseDeps({
+		readHook: async () => hookStatus,
+		readSnapshot: async () => null,
 		readHookState: async () =>
 			hook ? {kind: 'state', state: hook} : {kind: 'none'},
 		...(readAgyQuota ? {readAgyQuota} : {}),
@@ -1043,7 +1047,7 @@ test('schedule --after-limit, state clearing, wait/watch isolation, and schedule
 test('agy trust dialog refuses answer without --force and formats as dialog', async () => {
 	const h = harness([fixture('agy-trust')]);
 	expect(await h.run('state', 'STA-1')).toBe(0);
-	expect(h.out[0]!).toBe('STA-1: dialog');
+	expect(h.out[0]!).toBe('STA-1: dialog\nDialog: Trust this folder?');
 
 	expect(await h.run('answer', 'STA-1', '--option', '1')).toBe(
 		POLICY_REFUSED_EXIT,
@@ -1054,31 +1058,67 @@ test('agy trust dialog refuses answer without --force and formats as dialog', as
 	expect(h.pressed).toStrictEqual([]);
 	expect(h.err[0]!).toMatch(/shows an agy dialog; a person answers it/);
 
+	const approvePlanStatus = {
+		status: 'blocked' as const,
+		kind: 'permission' as const,
+		message: 'Approve plan',
+		app: 'antigravity',
+		source: 'osc' as const,
+	};
 	expect(
 		formatState({
 			key: 'STA-1',
 			state: 'idle',
 			app: 'antigravity',
-			status: {
-				status: 'blocked',
-				kind: 'permission',
-				message: 'Approve plan',
-				app: 'antigravity',
-				source: 'osc',
-			},
+			status: approvePlanStatus,
 			permission: null,
 			question: null,
 			usageLimit: null,
 			codexDialog: null,
+			agyDialog: null,
 			composer: '',
 			screen: '',
 		}),
 	).toBe('STA-1: idle (antigravity)\nPending artifact review (/artifact)');
+
+	// Parsed agyDialog wins over any stale earlier OSC status message.
+	expect(
+		formatState({
+			key: 'STA-1',
+			state: 'dialog',
+			app: 'antigravity',
+			status: approvePlanStatus,
+			permission: null,
+			question: null,
+			usageLimit: null,
+			codexDialog: null,
+			agyDialog: 'subagent_manage',
+			composer: null,
+			screen: '',
+		}),
+	).toBe('STA-1: dialog (antigravity)\nDialog: Subagent approval manage view');
+
+	expect(
+		formatState({
+			key: 'STA-1',
+			state: 'dialog',
+			app: 'antigravity',
+			status: null,
+			permission: null,
+			question: null,
+			usageLimit: null,
+			codexDialog: null,
+			agyDialog: 'artifact_review',
+			composer: null,
+			screen: '',
+		}),
+	).toBe('STA-1: dialog (antigravity)\nDialog: Artifact review (/artifact)');
 });
 
 test('wait returns immediately when the agent has exited or exits mid-wait', async () => {
 	const alreadyExited = harness(['[user@host STA-1]$ '], {
 		paneListings: ['11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n'],
+		hookStatus: {status: 'ended'},
 	});
 	expect(
 		await alreadyExited.run(
@@ -1104,6 +1144,7 @@ test('wait returns immediately when the agent has exited or exits mid-wait', asy
 				'11\t%1\t%1\t42\t0\t1\t42.marker\tclaude\n',
 				'11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n',
 			],
+			hookStatus: {status: 'ended'},
 		},
 	);
 	expect(

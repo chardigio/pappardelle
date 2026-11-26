@@ -24,6 +24,7 @@ import {
 } from './space-watch.ts';
 import {
 	parseAgentScreen,
+	type AgyDialogKind,
 	type AgyQuotaParseResult,
 	type PermissionPrompt,
 	type PromptOption,
@@ -188,6 +189,12 @@ function permissionTitle(permission: PermissionPrompt): string {
 	return `${tool}${subagent ? ` from ${subagent}` : ''}${description ? `: ${description}` : ''}`;
 }
 
+const AGY_DIALOG_LABELS: Record<AgyDialogKind, string> = {
+	trust: 'Trust this folder?',
+	artifact_review: 'Artifact review (/artifact)',
+	subagent_manage: 'Subagent approval manage view',
+};
+
 export function formatState(report: AgentStateReport): string {
 	const lines = [
 		`${report.key}: ${report.state}${report.app ? ` (${report.app})` : ''}`,
@@ -210,8 +217,8 @@ export function formatState(report: AgentStateReport): string {
 
 	if (report.codexDialog)
 		lines.push(`Codex dialog: ${report.codexDialog.title}`);
-	else if (report.state === 'dialog' && report.status?.message)
-		lines.push(`Dialog: ${report.status.message}`);
+	else if (report.agyDialog)
+		lines.push(`Dialog: ${AGY_DIALOG_LABELS[report.agyDialog]}`);
 	else if (
 		report.status?.status === 'blocked' &&
 		report.status.message === 'Approve plan'

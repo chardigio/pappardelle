@@ -8,6 +8,7 @@ import type {ClaudeStatusInfo} from './claude-status.ts';
 import {
 	parseAgentScreen,
 	type AgentScreen,
+	type AgyDialogKind,
 	type PermissionPrompt,
 	type CodexDialog,
 	type QuestionDialog,
@@ -76,6 +77,7 @@ export type AgentStateReport = {
 	question: QuestionDialog | null;
 	usageLimit: UsageLimit | null;
 	codexDialog: CodexDialog | null;
+	agyDialog: AgyDialogKind | null;
 	composer: string | null;
 	screen: string;
 };
@@ -142,7 +144,13 @@ export function classifyAgent(
 	if (screen.usageLimit) return 'usage_limit';
 	if (status?.status === 'working' || screen.spinner) return 'working';
 	if (screen.composer) return 'draft';
-	if (screen.composer === null && isShellCommand(pane?.currentCommand)) {
+	// Require a prior status source so a newly started shell (or unmonitored stub)
+	// running before the agent launches does not report as exited.
+	if (
+		screen.composer === null &&
+		Boolean(status?.source) &&
+		isShellCommand(pane?.currentCommand)
+	) {
 		return 'exited';
 	}
 
@@ -383,6 +391,7 @@ export async function readAgentState(
 		question: live ? (screen?.question ?? null) : null,
 		usageLimit: live ? (screen?.usageLimit ?? null) : null,
 		codexDialog: live ? (screen?.codexDialog ?? null) : null,
+		agyDialog: live ? (screen?.agyDialog ?? null) : null,
 		composer: live ? (screen?.composer ?? null) : null,
 		screen: (screen?.lines ?? [])
 			.map(line => line.trimEnd())

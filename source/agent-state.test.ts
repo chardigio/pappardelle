@@ -122,14 +122,33 @@ test('dead pane and exited-to-shell panes classify as exited, not idle or permis
 	expect(unmonitoredDead.state).toBe('exited');
 	expect(unmonitoredDead.permission).toBe(null);
 
-	// Alive pane back at login shell with no status/composer classifies as exited.
-	const shell = await state('[user@host qa-a1]$ ', null, {
+	// Alive pane back at login shell after OSC 133;A cleared idle classifies as exited.
+	const pane = parseStatusPane('%1\t42\t0\t1\t42.marker', statusSocket())!;
+	const shellAfterOsc = await state('[user@host qa-a1]$ ', null, {
 		paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tzsh\n',
+		snapshot: {
+			version: 1,
+			repo: 'repo',
+			key: 'STA-1',
+			pane,
+			authoritative: true,
+			exited: false,
+			updatedAt: 0,
+			records: [],
+			info: {status: 'unknown'},
+		},
 	});
-	expect(shell.state).toBe('exited');
+	expect(shellAfterOsc.state).toBe('exited');
+
+	// Alive pane back at shell after Claude's hook reported also classifies as exited.
+	const shellAfterHook = await state(
+		'[user@host qa-a1]$ ',
+		{status: 'ended'},
+		{paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n'},
+	);
+	expect(shellAfterHook.state).toBe('exited');
 
 	// Exited-to-shell after crash where OSC snapshot retained `done`.
-	const pane = parseStatusPane('%1\t42\t0\t1\t42.marker', statusSocket())!;
 	const crashedAfterDone = await state('[user@host qa-a1]$ ', null, {
 		paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n',
 		snapshot: {
@@ -156,6 +175,22 @@ test('dead pane and exited-to-shell panes classify as exited, not idle or permis
 		paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tagy\n',
 	});
 	expect(nonShell.state).toBe('idle');
+});
+
+test('a shell foreground with no prior agent status source does not classify as exited', async () => {
+	// A newly created space still running its login shell before the agent
+	// launches (or an unmonitored test stub) has no status source yet.
+	const noStatus = await state('', null, {
+		paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n',
+	});
+	expect(noStatus.state).toBe('idle');
+
+	const unknownHook = await state(
+		'',
+		{status: 'unknown'},
+		{paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tzsh\n'},
+	);
+	expect(unknownHook.state).toBe('idle');
 });
 
 test('agy trust, /artifact review, and plan-approval OSC blocked states classify accurately', () => {

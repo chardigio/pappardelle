@@ -5,6 +5,7 @@ import {superviseDeps} from '../test/helpers/supervise-deps.ts';
 import {test, expect} from 'bun:test';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
 import {runSuperviseCommand, type WatchResult} from './supervise-command.ts';
+import type {ClaudeStatusInfo} from './claude-status.ts';
 import {decodeCursor, encodeCursor} from './space-watch.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
@@ -46,9 +47,11 @@ function spaces(
 	/** The spaces with an identity; by default every one with a screen. */
 	identified?: string[],
 	initialPanes: Record<string, string> = {},
+	initialHooks: Record<string, ClaudeStatusInfo> = {},
 ) {
 	const screens = {...initial};
 	const paneListings = {...initialPanes};
+	const hooks = {...initialHooks};
 	let clock = new Date(2026, 10, 9, 12, 0).getTime();
 	let between: Array<() => void> = [];
 	const runner: OuterTmuxRunner = args => {
@@ -88,6 +91,8 @@ function spaces(
 			() => identified ?? Object.keys(screens),
 		),
 		resolveKey: raw => (/^\d+$/.test(raw) ? `STA-${raw}` : raw),
+		readHook: async key => hooks[key] ?? {status: 'unknown'},
+		readSnapshot: async () => null,
 		runner,
 		now: () => new Date(clock),
 		async sleep(ms) {
@@ -102,6 +107,7 @@ function spaces(
 	return {
 		screens,
 		paneListings,
+		hooks,
 		logged,
 		onWait(...steps: Array<() => void>) {
 			between = steps;
@@ -268,12 +274,16 @@ test('a closed space leaves the cursor once reported, and junk after a cursor is
 });
 
 test('a space whose agent exited wakes a blocked watch once and stays in the cursor', async () => {
-	const h = spaces({'STA-1': fixture('claude-working')}, ['STA-1'], {
-		'STA-1': '11\t%1\t%1\t42\t0\t1\t42.marker\tclaude\n',
-	});
+	const h = spaces(
+		{'STA-1': fixture('claude-working')},
+		['STA-1'],
+		{'STA-1': '11\t%1\t%1\t42\t0\t1\t42.marker\tclaude\n'},
+		{'STA-1': {status: 'processing'}},
+	);
 	h.onWait(() => {
 		h.screens['STA-1'] = '[user@host STA-1]$ ';
 		h.paneListings['STA-1'] = '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n';
+		h.hooks['STA-1'] = {status: 'ended'};
 	});
 	const first = await h.watch('--until', 'blocked');
 	expect(first.result).toBe('changed');

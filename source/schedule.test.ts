@@ -46,6 +46,7 @@ function report(
 			? {resetText: '', resetAt, passed: resetAt <= NOW}
 			: null,
 		codexDialog: null,
+		agyDialog: null,
 		composer: null,
 		screen: '',
 	};
