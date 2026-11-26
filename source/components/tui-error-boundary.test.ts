@@ -39,10 +39,7 @@ test('q in the failed view hands closing to onClose, so the rail can close its l
 	);
 	await until(() => view.lastFrame()?.includes('Press q') ?? false);
 	await view.stdin.write('q');
-	await until(
-		() => closed === 1,
-		() => view.lastFrame(),
-	);
+	await until(() => closed === 1, {frame: () => view.lastFrame()});
 	await view.unmount();
 	expect(closed).toBe(1);
 });

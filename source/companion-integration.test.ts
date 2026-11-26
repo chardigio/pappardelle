@@ -16,7 +16,7 @@ import {
 } from './companion.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
-import {until} from '../test/helpers/wait.ts';
+import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
 
 const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
@@ -120,7 +120,10 @@ tmuxTest('companion verbs on a real tmux server', async () => {
 	expect(side).toMatchObject({split: 'down', size: '30%'});
 	const sideCommand = () =>
 		listCompanion('KEY-1', deps).find(p => p.name === 'side')!.startCommand;
-	await until(() => sideCommand().includes('sleep 601'), sideCommand, 30_000);
+	await until(() => sideCommand().includes('sleep 601'), {
+		frame: sideCommand,
+		timeoutMs: REAL_TMUX_TIMEOUT_MS,
+	});
 	expect(
 		tmux('display-message', '-p', '-t', `=${SIDE}:`, '#{pane_current_path}'),
 	).toBe(dir);
@@ -132,7 +135,10 @@ tmuxTest('companion verbs on a real tmux server', async () => {
 	);
 	const mainText = () =>
 		readCompanionPane('KEY-1', {pane: 'main', lines: 20}, deps);
-	await until(() => mainText().includes('hello-companion'), mainText, 30_000);
+	await until(() => mainText().includes('hello-companion'), {
+		frame: mainText,
+		timeoutMs: REAL_TMUX_TIMEOUT_MS,
+	});
 
 	resizeCompanionPane('KEY-1', {pane: 'side', size: 5}, deps);
 	expect(listCompanion('KEY-1', deps).find(p => p.name === 'side')?.size).toBe(

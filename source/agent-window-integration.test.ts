@@ -8,7 +8,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect, afterAll, beforeEach} from 'bun:test';
 import {captureAgentScreen, READ_WINDOW} from './agent-state.ts';
 import {idowIdentities} from '../test/helpers/state.ts';
-import {until} from '../test/helpers/wait.ts';
+import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
 const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
@@ -87,7 +87,10 @@ tmuxTest(
 			`env -u TMUX tmux -S ${inner} attach -t '=${AGENT}'`,
 		]);
 		// The viewer's status line takes a row of its 20.
-		await until(() => sizeOf() === '70x19', sizeOf, 30_000);
+		await until(() => sizeOf() === '70x19', {
+			frame: sizeOf,
+			timeoutMs: REAL_TMUX_TIMEOUT_MS,
+		});
 	},
 );
 
@@ -103,7 +106,10 @@ tmuxTest('a window a client shows keeps its size', async () => {
 		'22',
 		`env -u TMUX tmux -S ${inner} attach -t '=${AGENT}'`,
 	]);
-	await until(() => sizeOf() === '61x21', sizeOf, 30_000);
+	await until(() => sizeOf() === '61x21', {
+		frame: sizeOf,
+		timeoutMs: REAL_TMUX_TIMEOUT_MS,
+	});
 	await captureAgentScreen('KEY-1', 60, deps);
 	expect(sizeOf()).toBe('61x21');
 });

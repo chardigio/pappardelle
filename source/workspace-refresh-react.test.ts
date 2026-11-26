@@ -59,7 +59,7 @@ test('100 memoized rows skip no-op refreshes and selection survives membership c
 	});
 	teardown(() => refresh.stop());
 	async function waitFor(check: () => boolean) {
-		await until(check, () => view.lastFrame());
+		await until(check, {frame: () => view.lastFrame()});
 		await delay(30);
 	}
 	await refresh.refresh();

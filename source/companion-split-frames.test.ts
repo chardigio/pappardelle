@@ -10,7 +10,7 @@ import {sessionNamesFor} from './space-identity.ts';
 import {test, expect, afterAll} from 'bun:test';
 import {LatestTask} from './latest-task.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
-import {until, waitUntil} from '../test/helpers/wait.ts';
+import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
 import {getRepoName} from './config.ts';
 import {
 	companionSplitPaneIds,
@@ -166,7 +166,7 @@ tmuxTest(
 		const splitPanes = companionSplitPaneIds();
 		expect(splitPanes.length).toBe(2);
 		expect(await paneCount()).toBe(5);
-		await waitUntil(
+		await until(
 			async () => {
 				const screens = await Promise.all(
 					splitPanes.map(async id => run(['capture-pane', '-p', '-t', id])),
@@ -177,8 +177,10 @@ tmuxTest(
 					screens[1]!.includes('logs')
 				);
 			},
-			'each split pane to draw its own titled frame',
-			30_000,
+			{
+				what: 'each split pane to draw its own titled frame',
+				timeoutMs: REAL_TMUX_TIMEOUT_MS,
+			},
 		);
 		expect(await clientSessions()).toStrictEqual([
 			session(a, 'logs'),
@@ -308,13 +310,15 @@ tmuxTest(
 		// resize to its client. A killed client never detaches.
 		process.kill(logsClientPid, 'SIGKILL');
 		// Until the server reads the closed connection, switch-client still finds it.
-		await waitUntil(
+		await until(
 			async () => {
 				const ttys = await innerTmux('list-clients', '-F', '#{client_tty}');
 				return !ttys.split('\n').includes(logsTty);
 			},
-			'the inner server to drop the killed client',
-			30_000,
+			{
+				what: 'the inner server to drop the killed client',
+				timeoutMs: REAL_TMUX_TIMEOUT_MS,
+			},
 		);
 		expect(await syncCompanionSplits(layout, a, {run})).toBe('applied');
 		const rebuilt = companionSplitPaneIds();
@@ -331,8 +335,7 @@ tmuxTest(
 				clients = await clientSessions();
 				return clients.join(' ') === rebuiltClients.join(' ');
 			},
-			() => clients.join(' '),
-			30_000,
+			{frame: () => clients.join(' '), timeoutMs: REAL_TMUX_TIMEOUT_MS},
 		);
 
 		// An open dialog zooms the rail; splitting would unzoom it.
@@ -362,11 +365,10 @@ tmuxTest(
 
 		// A split whose session ends takes its frame with it.
 		await innerTmux('kill-session', '-t', `=${session(a, 'dev')}:`);
-		await waitUntil(
-			async () => (await paneCount()) === 5,
-			"the dev split's frame to close",
-			30_000,
-		);
+		await until(async () => (await paneCount()) === 5, {
+			what: "the dev split's frame to close",
+			timeoutMs: REAL_TMUX_TIMEOUT_MS,
+		});
 		// Its rows went to a neighbour, which is no drag of that neighbour.
 		expect(await syncCompanionSplits(layout, a, {run})).toBe('applied');
 		expect(await option(session(a, 'tests'), '@pappa_size')).toBe('30%');

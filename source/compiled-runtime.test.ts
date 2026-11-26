@@ -123,18 +123,18 @@ test('relocated executable renders and exits without Bun, Node, or node_modules'
 		'--no-layout',
 	);
 	const frame = () => runTmux('capture-pane', '-p', '-t', '=test:');
-	await until(() => frame().includes('main'), frame);
+	await until(() => frame().includes('main'), {frame});
 	expect(frame().includes('repo')).toBe(true);
 	runTmux('send-keys', '-t', '=test:', '?');
-	await until(() => frame().includes('Keyboard Shortcuts'), frame);
+	await until(() => frame().includes('Keyboard Shortcuts'), {frame});
 	runTmux('send-keys', '-t', '=test:', 'Escape');
-	await until(() => !frame().includes('Keyboard Shortcuts'), frame);
+	await until(() => !frame().includes('Keyboard Shortcuts'), {frame});
 	runTmux('send-keys', '-t', '=test:', 'q');
 	await until(
 		() =>
 			spawnSync(tmux, ['-S', socket, 'has-session', '-t', '=test'], {env})
 				.status !== 0,
-		frame,
+		{frame},
 	);
 	expect().pass();
 });

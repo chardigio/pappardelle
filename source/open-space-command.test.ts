@@ -14,7 +14,7 @@ import {closeStateDb, stateDbPath, statusSocketPath} from './state-db.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {sendHookEvent, serveTestDaemon} from '../test/helpers/status-daemon.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 // Long enough for a CLI that has begun to wait for its agent to have tried
@@ -285,11 +285,10 @@ test('CLI saves a normalized issue from a non-TTY sous-chef invocation', async (
 		});
 		child.stdin.end('2\n');
 		const closed = once(child, 'close');
-		await waitUntil(
-			() => stdout.includes('Workspace STE-20 is ready!'),
-			'idow to finish',
-			20_000,
-		);
+		await until(() => stdout.includes('Workspace STE-20 is ready!'), {
+			what: 'idow to finish',
+			timeoutMs: 20_000,
+		});
 		await delay(FIRST_CONNECT_ATTEMPT_MS);
 		expect(child.exitCode, stderr).toBe(null);
 		expect(fs.existsSync(socketPath)).toBe(false);
@@ -833,7 +832,7 @@ test('CLI highlight asks a running Pappardelle to select the space', async () =>
 
 	const result = await f.run(['highlight', 'STE-7']);
 	expect(result.code).toBe(0);
-	await waitUntil(() => selected.length > 0, 'a highlight request');
+	await until(() => selected.length > 0, {what: 'a highlight request'});
 	expect(selected[0]).toBe('STE-7');
 	expect(fs.existsSync(f.record)).toBe(false);
 });

@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {setTimeout as delay} from 'node:timers/promises';
 import {isDeepStrictEqual} from 'node:util';
 import type {ClaudeSessionState} from '../../source/claude-status.ts';
 import {statusSocket} from '../../source/program-status-monitor.ts';
@@ -20,6 +19,7 @@ import {
 import {initTmuxState} from '../../source/tmux.ts';
 import {sendHookEvent, serveTestHub} from './status-daemon.ts';
 import {teardown, type Cleanup} from './teardown.ts';
+import {until} from './wait.ts';
 
 /** Whether this test run keeps state in SQLite (PAPPARDELLE_SQLITE_STATE=1). */
 export const sqliteRun = process.env['PAPPARDELLE_SQLITE_STATE'] === '1';
@@ -112,19 +112,19 @@ export async function writeClaudeStatus(
 	const sent = Object.fromEntries(
 		Object.entries(reported).filter(([, value]) => value !== undefined),
 	);
-	const deadline = Date.now() + STATUS_ARRIVAL_TIMEOUT_MS;
-	for (;;) {
-		const stored = await state.daos.claudeStatus.readState(
-			reported.workspaceName,
-		);
-		if (stored.kind === 'state' && isDeepStrictEqual(stored.state, sent))
-			return;
-		if (Date.now() > deadline)
-			throw new Error(
-				`The status of ${reported.workspaceName} did not reach the stores`,
+	await until(
+		async () => {
+			const stored = await state.daos.claudeStatus.readState(
+				reported.workspaceName,
 			);
-		await delay(2);
-	}
+			return stored.kind === 'state' && isDeepStrictEqual(stored.state, sent);
+		},
+		{
+			what: `the status of ${reported.workspaceName} to reach the stores`,
+			timeoutMs: STATUS_ARRIVAL_TIMEOUT_MS,
+			intervalMs: 2,
+		},
+	);
 }
 
 /** `testState`, also handed to tmux.ts for the functions that read stores. */
