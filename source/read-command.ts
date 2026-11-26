@@ -32,7 +32,10 @@ function promptText(content: unknown): string | undefined {
 	return text || undefined;
 }
 
-export function parseAgyTurns(jsonl: string): Turn[] {
+export function parseTurns(
+	jsonl: string,
+	format: TranscriptFormat = 'claude',
+): Turn[] {
 	const turns: Turn[] = [];
 	for (const line of jsonl.split('\n')) {
 		if (!line.trim()) continue;
@@ -44,55 +47,33 @@ export function parseAgyTurns(jsonl: string): Turn[] {
 		}
 
 		if (!entry || typeof entry !== 'object') continue;
-		if (entry.type === 'USER_INPUT') {
-			const prompt = extractAgyUserText(entry.content);
-			if (prompt) {
-				turns.push({
-					prompt: prompt.slice(0, MAX_TEXT),
-					ts:
-						typeof entry.created_at === 'string' ? entry.created_at : undefined,
-					replies: [],
-				});
+		let prompt: string | undefined;
+		let ts: string | undefined;
+		let reply: string | undefined;
+		if (format === 'agy') {
+			if (entry.type === 'USER_INPUT') {
+				prompt = extractAgyUserText(entry.content);
+				ts =
+					typeof entry.created_at === 'string' ? entry.created_at : undefined;
+			} else if (entry.type === 'PLANNER_RESPONSE') {
+				reply =
+					typeof entry.content === 'string'
+						? entry.content.trim() || undefined
+						: undefined;
 			}
-		} else if (entry.type === 'PLANNER_RESPONSE') {
-			const text =
-				typeof entry.content === 'string' ? entry.content.trim() : '';
-			const turn = turns.at(-1);
-			if (text && turn) turn.replies.push(text.slice(0, MAX_TEXT));
-		}
-	}
-
-	return turns;
-}
-
-export function parseTurns(
-	jsonl: string,
-	format: TranscriptFormat = 'claude',
-): Turn[] {
-	if (format === 'agy') return parseAgyTurns(jsonl);
-	const turns: Turn[] = [];
-	for (const line of jsonl.split('\n')) {
-		if (!line.trim()) continue;
-		let entry: any;
-		try {
-			entry = JSON.parse(line);
-		} catch {
-			continue;
+		} else if (!entry.isSidechain) {
+			if (entry.type === 'user' && !entry.isMeta) {
+				prompt = promptText(entry.message?.content);
+				ts = typeof entry.timestamp === 'string' ? entry.timestamp : undefined;
+			} else if (entry.type === 'assistant') {
+				reply = extractAssistantText(entry);
+			}
 		}
 
-		if (!entry || typeof entry !== 'object' || entry.isSidechain) continue;
-		if (entry.type === 'user' && !entry.isMeta) {
-			const prompt = promptText(entry.message?.content);
-			if (prompt)
-				turns.push({
-					prompt: prompt.slice(0, MAX_TEXT),
-					ts: typeof entry.timestamp === 'string' ? entry.timestamp : undefined,
-					replies: [],
-				});
-		} else if (entry.type === 'assistant') {
-			const text = extractAssistantText(entry);
-			const turn = turns.at(-1);
-			if (text && turn) turn.replies.push(text.slice(0, MAX_TEXT));
+		if (prompt) {
+			turns.push({prompt: prompt.slice(0, MAX_TEXT), ts, replies: []});
+		} else if (reply) {
+			turns.at(-1)?.replies.push(reply.slice(0, MAX_TEXT));
 		}
 	}
 
@@ -169,7 +150,7 @@ export async function runReadCommand(options: {
 	const transcript = await findSpaceTranscript({
 		issueKey: options.issueKey,
 		worktreePath: options.worktree,
-		spaceState: options.spaceState,
+		state: options.spaceState?.read(options.issueKey) ?? null,
 		agentSessions: options.agentSessions,
 		config: options.config,
 		home: options.home,

@@ -12,6 +12,7 @@ import {
 	type StatusPane,
 } from './program-status-monitor.ts';
 import {newSpaceIdentity} from './space-identity.ts';
+import {claudeProjectDir} from './space-state.ts';
 import {
 	formatSpaces,
 	gatherSpaces,
@@ -526,100 +527,67 @@ test('an agent still reporting under the bare status name is read until it repor
 	expect(after[0]?.status).toBe('ended');
 });
 
-function makeStatusPane(
-	id: string,
-	pid: string,
-	marker: string,
-	dead = false,
-): StatusPane {
-	return parseStatusPane(
-		`${id}\t${pid}\t${dead ? '1' : '0'}\t1\t${marker}`,
-		'pappardelle_inner',
-	)!;
-}
-
-function makeSnapshot(options: {
-	key: string;
-	pane: StatusPane;
-	info: ProgramStatusSnapshot['info'];
-	updatedAt: number;
-	authoritative?: boolean;
-	exited?: boolean;
-}): ProgramStatusSnapshot {
-	return {
-		version: 1,
+async function recordIdentity(home: string, key: string) {
+	const worktree = path.join(home, '.worktrees', REPO, key);
+	const identity = newSpaceIdentity({
 		repo: REPO,
-		key: options.key,
-		pane: options.pane,
-		authoritative: options.authoritative ?? true,
-		exited: options.exited ?? false,
-		updatedAt: options.updatedAt,
-		records: [],
-		info: options.info,
-	};
+		key,
+		worktreePath: worktree,
+		socket: 'pappardelle_inner',
+	});
+	await stores(home).spaceIdentities.record(identity);
+	return {identity, worktree};
 }
 
-test('OSC program status reports Claude-vocabulary status and minutesAgo for agy and Codex spaces without Claude hooks', async () => {
-	const home = tempHome();
-	const now = 1_700_000_600_000;
-	const daos = stores(home);
-	const keys = [
-		'AGY-IDLE',
-		'AGY-DONE',
-		'CODEX-WORK',
-		'CODEX-TOOL',
-		'AGY-PERM',
-		'AGY-Q',
-	];
-	openSpaces(home, keys);
+function writeStaleClaudeLog(home: string, worktree: string): void {
+	writeJson(
+		path.join(
+			claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
+			'old.jsonl',
+		),
+		'{}',
+	);
+}
 
+async function setupOscSpaces(
+	home: string,
+	specs: Array<{
+		key: string;
+		info: ProgramStatusSnapshot['info'];
+		updatedAt: number;
+		authoritative?: boolean;
+		exited?: boolean;
+		dead?: boolean;
+	}>,
+): Promise<Pick<SpacesDeps, 'listStatusPanes' | 'programStatus'>> {
+	openSpaces(
+		home,
+		specs.map(spec => spec.key),
+	);
 	const panes = new Map<string, StatusPane>();
 	const snapshots = new Map<string, ProgramStatusSnapshot>();
-	const addOsc = async (
-		key: string,
-		info: ProgramStatusSnapshot['info'],
-		ageMinutes: number,
-		pid: string,
-	) => {
-		const identity = newSpaceIdentity({
-			repo: REPO,
-			key,
-			worktreePath: path.join(home, '.worktrees', REPO, key),
-			socket: 'pappardelle_inner',
-		});
-		await daos.spaceIdentities.record(identity);
-		const pane = makeStatusPane(`%${pid}`, pid, `${pid}.m`);
+	for (const [index, spec] of specs.entries()) {
+		const {identity} = await recordIdentity(home, spec.key);
+		const pid = String(10 + index);
+		const pane = parseStatusPane(
+			`%${pid}\t${pid}\t${spec.dead ? '1' : '0'}\t1\t${pid}.m`,
+			'pappardelle_inner',
+		)!;
 		panes.set(identity.tmux.agentSession, pane);
-		snapshots.set(
-			key,
-			makeSnapshot({key, pane, info, updatedAt: now - ageMinutes * 60_000}),
-		);
-	};
+		snapshots.set(spec.key, {
+			version: 1,
+			repo: REPO,
+			key: spec.key,
+			pane,
+			authoritative: spec.authoritative ?? true,
+			exited: spec.exited ?? false,
+			updatedAt: spec.updatedAt,
+			records: [],
+			info: spec.info,
+		});
+	}
 
-	await addOsc('AGY-IDLE', {status: 'idle', app: 'antigravity'}, 2, '10');
-	await addOsc('AGY-DONE', {status: 'done', app: 'antigravity'}, 5, '11');
-	await addOsc('CODEX-WORK', {status: 'working', app: 'codex'}, 0.5, '12');
-	await addOsc(
-		'CODEX-TOOL',
-		{status: 'working', tool: 'Bash', app: 'codex'},
-		0.2,
-		'15',
-	);
-	await addOsc(
-		'AGY-PERM',
-		{status: 'blocked', kind: 'permission', app: 'antigravity'},
-		1,
-		'13',
-	);
-	await addOsc(
-		'AGY-Q',
-		{status: 'blocked', kind: 'question', app: 'antigravity'},
-		3,
-		'14',
-	);
-
-	const spaces = await gather(home, {
-		now,
+	return {
 		listStatusPanes: async () =>
 			new Map(
 				[...panes].map(([session, pane]) => [session, {pinned: pane.id, pane}]),
@@ -630,7 +598,46 @@ test('OSC program status reports Claude-vocabulary status and minutesAgo for agy
 				return snap && snap.pane.generation === pane.generation ? snap : null;
 			},
 		},
-	});
+	};
+}
+
+test('OSC program status reports Claude-vocabulary status and minutesAgo for agy and Codex spaces without Claude hooks', async () => {
+	const home = tempHome();
+	const now = 1_700_000_600_000;
+	const osc = await setupOscSpaces(home, [
+		{
+			key: 'AGY-IDLE',
+			info: {status: 'idle', app: 'antigravity'},
+			updatedAt: now - 2 * 60_000,
+		},
+		{
+			key: 'AGY-DONE',
+			info: {status: 'done', app: 'antigravity'},
+			updatedAt: now - 5 * 60_000,
+		},
+		{
+			key: 'CODEX-WORK',
+			info: {status: 'working', app: 'codex'},
+			updatedAt: now - 0.5 * 60_000,
+		},
+		{
+			key: 'CODEX-TOOL',
+			info: {status: 'working', tool: 'Bash', app: 'codex'},
+			updatedAt: now - 0.2 * 60_000,
+		},
+		{
+			key: 'AGY-PERM',
+			info: {status: 'blocked', kind: 'permission', app: 'antigravity'},
+			updatedAt: now - 60_000,
+		},
+		{
+			key: 'AGY-Q',
+			info: {status: 'blocked', kind: 'question', app: 'antigravity'},
+			updatedAt: now - 3 * 60_000,
+		},
+	]);
+
+	const spaces = await gather(home, {now, ...osc});
 	const byName = new Map(spaces.map(s => [s.name, s]));
 	expect(byName.get('AGY-IDLE')).toMatchObject({
 		status: 'waiting_for_input',
@@ -670,44 +677,27 @@ test('OSC program status reports Claude-vocabulary status and minutesAgo for agy
 test('non-authoritative OSC snapshots fall back to Claude hook or no_status', async () => {
 	const home = tempHome();
 	const now = 1_700_000_000_000;
-	const daos = stores(home);
-	openSpaces(home, ['STA-CLAUDE', 'STA-NEW']);
-	for (const key of ['STA-CLAUDE', 'STA-NEW']) {
-		await daos.spaceIdentities.record(
-			newSpaceIdentity({
-				repo: REPO,
-				key,
-				worktreePath: path.join(home, '.worktrees', REPO, key),
-				socket: 'pappardelle_inner',
-			}),
-		);
-	}
-
+	const osc = await setupOscSpaces(home, [
+		{
+			key: 'STA-CLAUDE',
+			info: {status: 'unknown'},
+			updatedAt: now,
+			authoritative: false,
+		},
+		{
+			key: 'STA-NEW',
+			info: {status: 'unknown'},
+			updatedAt: now,
+			authoritative: false,
+		},
+	]);
 	await writeStatus(home, statusKey('STA-CLAUDE'), {
 		status: 'running_tool',
 		currentTool: 'Edit',
 		lastUpdate: now - 60_000,
 	});
-	const paneClaude = makeStatusPane('%1', '1', '1.m');
-	const paneNew = makeStatusPane('%2', '2', '2.m');
-	const spaces = await gather(home, {
-		now,
-		listStatusPanes: async () =>
-			new Map([
-				[`agent-${REPO}-STA-CLAUDE`, {pinned: '%1', pane: paneClaude}],
-				[`agent-${REPO}-STA-NEW`, {pinned: '%2', pane: paneNew}],
-			]),
-		programStatus: {
-			read: async (key, pane) =>
-				makeSnapshot({
-					key,
-					pane,
-					info: {status: 'unknown'},
-					updatedAt: now,
-					authoritative: false,
-				}),
-		},
-	});
+
+	const spaces = await gather(home, {now, ...osc});
 	const byName = new Map(spaces.map(s => [s.name, s]));
 	expect(byName.get('STA-CLAUDE')).toMatchObject({
 		status: 'running_tool',
@@ -721,16 +711,11 @@ test('agy and Codex spaces ignore leftover Claude hook status and Claude session
 	const now = 1_700_000_000_000;
 	const daos = stores(home);
 	openSpaces(home, ['AGY-SWITCHED', 'CODEX-SWITCHED']);
-	for (const key of ['AGY-SWITCHED', 'CODEX-SWITCHED']) {
-		const worktree = path.join(home, '.worktrees', REPO, key);
-		await daos.spaceIdentities.record(
-			newSpaceIdentity({
-				repo: REPO,
-				key,
-				worktreePath: worktree,
-				socket: 'pappardelle_inner',
-			}),
-		);
+	for (const [key, profile] of [
+		['AGY-SWITCHED', 'agy'],
+		['CODEX-SWITCHED', 'codex'],
+	] as const) {
+		const {worktree} = await recordIdentity(home, key);
 		await writeStatus(home, statusKey(key), {
 			status: 'running_tool',
 			currentTool: 'Bash',
@@ -741,19 +726,11 @@ test('agy and Codex spaces ignore leftover Claude hook status and Claude session
 			pid: 99_999,
 			cwd: worktree,
 		});
-		const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
-		writeJson(
-			path.join(home, '.claude', 'projects', encoded, 'stale.jsonl'),
-			'{}',
-		);
+		writeStaleClaudeLog(home, worktree);
+		await daos.spaceState.write(key, {
+			agentProfile: {name: profile, isClaude: false},
+		});
 	}
-
-	await daos.spaceState.write('AGY-SWITCHED', {
-		agentProfile: {name: 'agy', isClaude: false},
-	});
-	await daos.spaceState.write('CODEX-SWITCHED', {
-		agentProfile: {name: 'codex', isClaude: false},
-	});
 
 	const spaces = await gather(home, {now});
 	for (const space of spaces) {
@@ -773,21 +750,8 @@ test('agy spaces expose their transcript as conversationLog and never fall back 
 	const daos = stores(home);
 	openSpaces(home, ['AGY-WITH-LOG', 'AGY-NO-LOG']);
 	for (const key of ['AGY-WITH-LOG', 'AGY-NO-LOG']) {
-		const worktree = path.join(home, '.worktrees', REPO, key);
-		await daos.spaceIdentities.record(
-			newSpaceIdentity({
-				repo: REPO,
-				key,
-				worktreePath: worktree,
-				socket: 'pappardelle_inner',
-			}),
-		);
-		// Simulate a stale Claude transcript from before switching to agy.
-		const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
-		writeJson(
-			path.join(home, '.claude', 'projects', encoded, 'old.jsonl'),
-			'{}',
-		);
+		const {worktree} = await recordIdentity(home, key);
+		writeStaleClaudeLog(home, worktree);
 	}
 
 	await daos.spaceState.write('AGY-WITH-LOG', {
@@ -828,43 +792,30 @@ test('agy spaces expose their transcript as conversationLog and never fall back 
 test('exited OSC snapshots and dead panes report ended, and Claude ended/compacting hooks win over OSC', async () => {
 	const home = tempHome();
 	const now = 1_700_000_000_000;
-	const daos = stores(home);
-	const keys = ['OSC-EXITED', 'PANE-DEAD', 'CLAUDE-ENDED', 'CLAUDE-COMPACT'];
-	openSpaces(home, keys);
-
-	const panes = new Map<string, StatusPane>();
-	const snapshots = new Map<string, ProgramStatusSnapshot>();
-	for (const [index, key] of keys.entries()) {
-		const identity = newSpaceIdentity({
-			repo: REPO,
-			key,
-			worktreePath: path.join(home, '.worktrees', REPO, key),
-			socket: 'pappardelle_inner',
-		});
-		await daos.spaceIdentities.record(identity);
-		const pid = String(20 + index);
-		const pane = makeStatusPane(
-			`%${pid}`,
-			pid,
-			`${pid}.m`,
-			key === 'PANE-DEAD',
-		);
-		panes.set(identity.tmux.agentSession, pane);
-		snapshots.set(
-			key,
-			makeSnapshot({
-				key,
-				pane,
-				info:
-					key === 'CLAUDE-COMPACT'
-						? {status: 'working', app: 'claude-code'}
-						: {status: 'idle', app: 'antigravity'},
-				updatedAt: now - 10_000,
-				exited: key === 'OSC-EXITED',
-			}),
-		);
-	}
-
+	const osc = await setupOscSpaces(home, [
+		{
+			key: 'OSC-EXITED',
+			info: {status: 'idle', app: 'antigravity'},
+			updatedAt: now - 10_000,
+			exited: true,
+		},
+		{
+			key: 'PANE-DEAD',
+			info: {status: 'idle', app: 'antigravity'},
+			updatedAt: now - 10_000,
+			dead: true,
+		},
+		{
+			key: 'CLAUDE-ENDED',
+			info: {status: 'idle', app: 'antigravity'},
+			updatedAt: now - 10_000,
+		},
+		{
+			key: 'CLAUDE-COMPACT',
+			info: {status: 'working', app: 'claude-code'},
+			updatedAt: now - 10_000,
+		},
+	]);
 	await writeStatus(home, statusKey('CLAUDE-ENDED'), {
 		status: 'ended',
 		lastUpdate: now - 5000,
@@ -874,19 +825,7 @@ test('exited OSC snapshots and dead panes report ended, and Claude ended/compact
 		lastUpdate: now - 5000,
 	});
 
-	const spaces = await gather(home, {
-		now,
-		listStatusPanes: async () =>
-			new Map(
-				[...panes].map(([session, pane]) => [session, {pinned: pane.id, pane}]),
-			),
-		programStatus: {
-			async read(key, pane) {
-				const snap = snapshots.get(key);
-				return snap && snap.pane.generation === pane.generation ? snap : null;
-			},
-		},
-	});
+	const spaces = await gather(home, {now, ...osc});
 	const byName = new Map(spaces.map(s => [s.name, s]));
 	expect(byName.get('OSC-EXITED')?.status).toBe('ended');
 	expect(byName.get('PANE-DEAD')?.status).toBe('ended');

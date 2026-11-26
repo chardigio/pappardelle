@@ -1,14 +1,10 @@
-import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {pinnedStatusPaneInfo} from './agent-state.ts';
 import type {ClaudeStatusDao} from './claude-status.ts';
-import {
-	statusTmuxArgs,
-	type ProgramStatusDao,
-} from './program-status-monitor.ts';
+import type {ProgramStatusDao} from './program-status-monitor.ts';
 import type {SpaceIdentityDao} from './space-identity.ts';
-import {defaultServerTmuxEnv, type OuterTmuxRunner} from './tmux.ts';
+import {socketTmuxRunner, type OuterTmuxRunner} from './tmux.ts';
 
 type StatusReader = Pick<ClaudeStatusDao, 'readState'>;
 
@@ -27,15 +23,6 @@ function isShellCommand(command: string | undefined): boolean {
 	if (!command) return true;
 	const base = path.basename(command.trim()).replace(/^-/, '');
 	return !base || SHELLS.has(base);
-}
-
-function socketTmuxRunner(socket: string): OuterTmuxRunner {
-	const env = defaultServerTmuxEnv(process.env);
-	return args =>
-		spawnSync('tmux', statusTmuxArgs([...args], socket), {
-			encoding: 'utf8',
-			env,
-		});
 }
 
 export type OscStartDeps = {

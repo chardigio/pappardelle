@@ -6,12 +6,15 @@ import {tempDir} from '../test/helpers/temp-dir.ts';
 import type {PappardelleConfig} from './config.ts';
 import {
 	formatTurns,
-	parseAgyTurns,
 	parseTurns,
 	runReadCommand,
 	turnsJson,
 } from './read-command.ts';
-import {extractRecapFromJsonl} from './space-state.ts';
+import {
+	claudeProjectDir,
+	extractRecapFromJsonl,
+	type SpaceState,
+} from './space-state.ts';
 
 const jsonl = (...entries: unknown[]) =>
 	entries.map(entry => JSON.stringify(entry)).join('\n');
@@ -90,8 +93,8 @@ test('text and JSON output keep only the last N turns', () => {
 	});
 });
 
-test('parseAgyTurns extracts USER_INPUT and PLANNER_RESPONSE replies and skips noise', () => {
-	const turns = parseAgyTurns(
+test('parseTurns extracts agy USER_INPUT and PLANNER_RESPONSE replies and skips noise', () => {
+	const turns = parseTurns(
 		jsonl(
 			{
 				step_index: 0,
@@ -153,6 +156,7 @@ test('parseAgyTurns extracts USER_INPUT and PLANNER_RESPONSE replies and skips n
 			},
 			'not json',
 		),
+		'agy',
 	);
 	expect(turns.length).toBe(2);
 	expect(turns[0]).toStrictEqual({
@@ -164,72 +168,67 @@ test('parseAgyTurns extracts USER_INPUT and PLANNER_RESPONSE replies and skips n
 	expect(turns[1]!.replies[0]!.length).toBe(500);
 });
 
-test('runReadCommand reads agy transcript.jsonl and never falls back to stale Claude logs', async () => {
-	const home = tempDir('read-agy-');
-	const worktree = path.join(home, 'wt', 'STA-9');
-	const state = testState({home});
-	const {spaceState, agentSessions} = state.daos;
-
-	// Stale Claude log from before switching to agy.
-	const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
+function readFixture(issueKey: string, config: PappardelleConfig | null) {
+	const home = tempDir('read-');
+	const worktree = path.join(home, 'wt', issueKey);
+	const {spaceState, agentSessions} = testState({home}).daos;
 	const staleClaude = path.join(
-		home,
-		'.claude',
-		'projects',
-		encoded,
+		claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
 		'old.jsonl',
 	);
 	fs.mkdirSync(path.dirname(staleClaude), {recursive: true});
 	fs.writeFileSync(staleClaude, jsonl(user('stale claude'), assistant('nope')));
 
-	await spaceState.write('STA-9', {
-		agentProfile: {name: 'argon', isClaude: false},
-	});
+	const run = async () => {
+		const out: string[] = [];
+		const err: string[] = [];
+		const code = await runReadCommand({
+			issueKey,
+			worktree,
+			spaceState,
+			agentSessions,
+			config,
+			home,
+			turns: 5,
+			json: true,
+			out: line => out.push(line),
+			err: line => err.push(line),
+		});
+		return {code, out, err};
+	};
+
+	const setProfile = async (
+		agentProfile: NonNullable<SpaceState['agentProfile']>,
+	) => spaceState.write(issueKey, {agentProfile});
+
+	return {home, agentSessions, run, setProfile};
+}
+
+test('runReadCommand reads agy transcript.jsonl and never falls back to stale Claude logs', async () => {
 	const config: PappardelleConfig = {
 		version: 1,
 		team_prefix: 'STA',
 		agent_profiles: {argon: {command: 'agy'}},
 		profiles: {dev: {display_name: 'Dev'}},
 	};
+	const f = readFixture('STA-9', config);
+	await f.setProfile({name: 'argon', isClaude: false});
 
 	// Before agy records a conversationId or transcript, must fail instead of reading Claude's log.
-	const errLines: string[] = [];
-	const missingCode = await runReadCommand({
-		issueKey: 'STA-9',
-		worktree,
-		spaceState,
-		agentSessions,
-		config,
-		home,
-		turns: 5,
-		json: true,
-		out() {},
-		err: line => errLines.push(line),
+	expect(await f.run()).toMatchObject({
+		code: 1,
+		err: ['No conversation log for STA-9'],
 	});
-	expect(missingCode).toBe(1);
-	expect(errLines).toStrictEqual(['No conversation log for STA-9']);
 
-	fs.mkdirSync(path.dirname(agentSessions.file('STA-9')), {recursive: true});
+	fs.mkdirSync(path.dirname(f.agentSessions.file('STA-9')), {recursive: true});
 	fs.writeFileSync(
-		agentSessions.file('STA-9'),
+		f.agentSessions.file('STA-9'),
 		JSON.stringify({argon: {session_id: 'conv-agy-1', pid: 10, started: null}}),
 	);
-	const noFileCode = await runReadCommand({
-		issueKey: 'STA-9',
-		worktree,
-		spaceState,
-		agentSessions,
-		config,
-		home,
-		turns: 5,
-		json: true,
-		out() {},
-		err() {},
-	});
-	expect(noFileCode).toBe(1);
+	expect(await f.run()).toMatchObject({code: 1});
 
 	const agyLog = path.join(
-		home,
+		f.home,
 		'.gemini',
 		'antigravity-cli',
 		'brain',
@@ -257,21 +256,9 @@ test('runReadCommand reads agy transcript.jsonl and never falls back to stale Cl
 		),
 	);
 
-	const outLines: string[] = [];
-	const okCode = await runReadCommand({
-		issueKey: 'STA-9',
-		worktree,
-		spaceState,
-		agentSessions,
-		config,
-		home,
-		turns: 5,
-		json: true,
-		out: line => outLines.push(line),
-		err() {},
-	});
-	expect(okCode).toBe(0);
-	expect(JSON.parse(outLines.join('\n'))).toStrictEqual({
+	const result = await f.run();
+	expect(result.code).toBe(0);
+	expect(JSON.parse(result.out.join('\n'))).toStrictEqual({
 		issueKey: 'STA-9',
 		totalTurns: 1,
 		turns: [
@@ -289,41 +276,15 @@ test('runReadCommand reads agy transcript.jsonl and never falls back to stale Cl
 });
 
 test('runReadCommand does not fall back to stale Claude logs for Codex or custom non-Claude spaces', async () => {
-	const home = tempDir('read-other-');
-	const worktree = path.join(home, 'wt', 'STA-10');
-	const state = testState({home});
-	const {spaceState, agentSessions} = state.daos;
-
-	const encoded = worktree.replaceAll('/', '-').replaceAll('.', '-');
-	const staleClaude = path.join(
-		home,
-		'.claude',
-		'projects',
-		encoded,
-		'old.jsonl',
-	);
-	fs.mkdirSync(path.dirname(staleClaude), {recursive: true});
-	fs.writeFileSync(staleClaude, jsonl(user('stale claude'), assistant('nope')));
-
+	const f = readFixture('STA-10', null);
 	for (const agentProfile of [
 		{name: 'codex', isClaude: false},
 		{name: 'custom-agent', isClaude: false},
 	]) {
-		await spaceState.write('STA-10', {agentProfile});
-		const errLines: string[] = [];
-		const code = await runReadCommand({
-			issueKey: 'STA-10',
-			worktree,
-			spaceState,
-			agentSessions,
-			config: null,
-			home,
-			turns: 5,
-			json: true,
-			out() {},
-			err: line => errLines.push(line),
+		await f.setProfile(agentProfile);
+		expect(await f.run()).toMatchObject({
+			code: 1,
+			err: ['No conversation log for STA-10'],
 		});
-		expect(code).toBe(1);
-		expect(errLines).toStrictEqual(['No conversation log for STA-10']);
 	}
 });

@@ -473,12 +473,16 @@ if (cli.input[0] === 'close') {
 	);
 }
 
-if (cli.input[0] === 'spaces') {
+function readOptionalConfig() {
 	const load = readConfig();
 	if (load.kind === 'invalid') {
 		console.error(formatConfigErrors(load.errors));
 	}
 
+	return load.kind === 'valid' ? load.config : null;
+}
+
+if (cli.input[0] === 'spaces') {
 	const {runSpacesCommand} = await import('./spaces-command.ts');
 	await exitAfterFlush(
 		await runSpacesCommand({
@@ -490,7 +494,7 @@ if (cli.input[0] === 'spaces') {
 			spaceState: daos.spaceState,
 			issueMeta: daos.issueMeta,
 			agentSessions: daos.agentSessions,
-			config: load.kind === 'valid' ? load.config : null,
+			config: readOptionalConfig(),
 			home: homedir(),
 			json: cli.flags.json ?? false,
 			out: text => console.log(text),
@@ -506,11 +510,6 @@ if (cli.input[0] === 'read') {
 	}
 
 	const issueKey = resolveCliSpaceKey(rawKey);
-	const load = readConfig();
-	if (load.kind === 'invalid') {
-		console.error(formatConfigErrors(load.errors));
-	}
-
 	const {runReadCommand} = await import('./read-command.ts');
 	await exitAfterFlush(
 		await runReadCommand({
@@ -518,7 +517,7 @@ if (cli.input[0] === 'read') {
 			worktree: getWorktreePath(issueKey),
 			spaceState: daos.spaceState,
 			agentSessions: daos.agentSessions,
-			config: load.kind === 'valid' ? load.config : null,
+			config: readOptionalConfig(),
 			home: homedir(),
 			turns: cli.flags.turns,
 			json: cli.flags.json ?? false,

@@ -156,24 +156,6 @@ export function statusPaneOf(
  * The pane the TUI's status monitor pinned, read without attaching one: that
  * stays the TUI's job, and attaching from here would race it.
  */
-function pinnedStatusPane(
-	session: string,
-	runner: OuterTmuxRunner,
-	socket = statusSocket(),
-): StatusPane | null {
-	const listing = tmuxOut(runner, [
-		'list-panes',
-		'-s',
-		'-t',
-		exactSessionTarget(session),
-		'-F',
-		AGENT_PANE_FORMAT,
-	]);
-	return listing
-		? statusPaneOf(listing.split('\n').filter(Boolean), socket)
-		: null;
-}
-
 export function pinnedStatusPaneInfo(
 	session: string,
 	runner: OuterTmuxRunner,
@@ -190,9 +172,11 @@ export function pinnedStatusPaneInfo(
 	if (!listing) return null;
 	const row = selectedStatusPaneRow(listing.split('\n').filter(Boolean));
 	if (!row) return null;
-	const pane = parseStatusPane(row, socket);
+	const commandSeparator = row.lastIndexOf('\t');
+	if (commandSeparator === -1) return null;
+	const pane = parseStatusPane(row.slice(0, commandSeparator), socket);
 	if (!pane) return null;
-	const currentCommand = row.split('\t')[5] || undefined;
+	const currentCommand = row.slice(commandSeparator + 1) || undefined;
 	return {pane, currentCommand};
 }
 
@@ -321,7 +305,10 @@ export async function readAgentState(
 	const screen =
 		capture === null ? null : parseAgentScreen(capture, deps.now());
 	const session = agentSessionOf(key, deps);
-	const pane = screen && session ? pinnedStatusPane(session, runner) : null;
+	const pane =
+		screen && session
+			? (pinnedStatusPaneInfo(session, runner)?.pane ?? null)
+			: null;
 	const status = await readAgentStatus(key, pane, deps);
 	return {
 		key,

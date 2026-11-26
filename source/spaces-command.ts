@@ -7,13 +7,20 @@ import {execFile} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {statusInfo, type ClaudeStatusDao} from './claude-status.ts';
+import {
+	statusInfo,
+	type ClaudeStatus,
+	type ClaudeStatusDao,
+	type StoredClaudeStatus,
+} from './claude-status.ts';
 import type {PappardelleConfig} from './config.ts';
 import type {IssueMetaDao} from './issue-meta.ts';
 import {
 	listStatusPanes,
 	type LocatedStatusPane,
 	type ProgramStatusDao,
+	type ProgramStatusSnapshot,
+	type StatusPane,
 } from './program-status-monitor.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
 import type {SpaceRegistryDao} from './space-registry.ts';
@@ -149,7 +156,7 @@ function spaceHolding(
 	return found?.key;
 }
 
-function oscStatusLabel(info: ProgramStatusInfo): string {
+function oscStatusLabel(info: ProgramStatusInfo): ClaudeStatus {
 	switch (info.status) {
 		case 'blocked': {
 			return 'waiting_for_approval';
@@ -169,6 +176,46 @@ function oscStatusLabel(info: ProgramStatusInfo): string {
 			return info.status;
 		}
 	}
+}
+
+function spaceStatusFields(
+	stored: StoredClaudeStatus,
+	snapshot: ProgramStatusSnapshot | null,
+	pane: StatusPane | null,
+): Pick<SpaceEntry, 'status' | 'currentTool' | 'lastUpdate' | 'sessionId'> {
+	const hook = stored.kind === 'state' ? stored.state : null;
+	if (snapshot?.authoritative && pane) {
+		const merged = mergeProgramStatus(
+			hook ? statusInfo(hook) : null,
+			snapshot,
+			pane,
+		)!;
+		const status: ClaudeStatus =
+			snapshot.exited || pane.dead
+				? 'ended'
+				: hook?.status === 'ended' || hook?.status === 'compacting'
+					? hook.status
+					: oscStatusLabel(merged);
+		return {
+			status,
+			currentTool: status === 'ended' ? null : (merged.tool ?? null),
+			lastUpdate: hook
+				? Math.max(snapshot.updatedAt, hook.lastUpdate)
+				: snapshot.updatedAt,
+			...(hook ? {sessionId: hook.sessionId} : {}),
+		};
+	}
+
+	if (hook) {
+		return {
+			status: hook.status,
+			currentTool: hook.currentTool ?? null,
+			lastUpdate: hook.lastUpdate,
+			sessionId: hook.sessionId,
+		};
+	}
+
+	return {status: stored.kind === 'unreadable' ? 'unknown' : 'no_status'};
 }
 
 async function withTimeout<T>(
@@ -263,33 +310,7 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 					? deps.programStatus.read(name, pane)
 					: Promise.resolve(null),
 			]);
-			const hookState = stored.kind === 'state' ? stored.state : null;
-			const hookInfo = hookState ? statusInfo(hookState) : null;
-			if (snapshot?.authoritative && pane) {
-				const merged = mergeProgramStatus(hookInfo, snapshot, pane);
-				const hookStatus = kind === 'claude' ? hookState?.status : undefined;
-				if (snapshot.exited || pane.dead) {
-					entry.status = 'ended';
-				} else if (hookStatus === 'ended' || hookStatus === 'compacting') {
-					entry.status = hookStatus;
-				} else {
-					entry.status = merged ? oscStatusLabel(merged) : 'unknown';
-				}
-
-				entry.currentTool =
-					entry.status === 'ended' ? null : (merged?.tool ?? null);
-				entry.lastUpdate = hookState
-					? Math.max(snapshot.updatedAt, hookState.lastUpdate)
-					: snapshot.updatedAt;
-				if (hookState) entry.sessionId = hookState.sessionId;
-			} else if (hookState) {
-				entry.status = hookState.status;
-				entry.currentTool = hookState.currentTool ?? null;
-				entry.lastUpdate = hookState.lastUpdate;
-				entry.sessionId = hookState.sessionId;
-			} else {
-				entry.status = stored.kind === 'unreadable' ? 'unknown' : 'no_status';
-			}
+			Object.assign(entry, spaceStatusFields(stored, snapshot, pane));
 
 			if (entry.lastUpdate)
 				entry.minutesAgo = roundTenth((now - entry.lastUpdate) / 60_000);
@@ -454,31 +475,18 @@ export function formatSpaces(report: SpacesReport): string {
 		.join('\n');
 }
 
-export async function runSpacesCommand(options: {
-	repoName: string;
-	registry: SpacesDeps['registry'];
-	spaceIdentities: SpacesDeps['spaceIdentities'];
-	claudeStatus: SpacesDeps['claudeStatus'];
-	programStatus?: SpacesDeps['programStatus'];
-	spaceState: SpacesDeps['spaceState'];
-	issueMeta: SpacesDeps['issueMeta'];
-	agentSessions?: SpacesDeps['agentSessions'];
-	config?: SpacesDeps['config'];
-	home: string;
-	json: boolean;
-	out: (text: string) => void;
-}): Promise<number> {
+export async function runSpacesCommand(
+	options: Omit<
+		SpacesDeps,
+		'fetchTitles' | 'gitSummary' | 'now' | 'listStatusPanes' | 'titleTimeoutMs'
+	> & {
+		json: boolean;
+		out: (text: string) => void;
+	},
+): Promise<number> {
+	const {json, out, ...deps} = options;
 	const report = await gatherSpaces({
-		repoName: options.repoName,
-		registry: options.registry,
-		spaceIdentities: options.spaceIdentities,
-		claudeStatus: options.claudeStatus,
-		programStatus: options.programStatus,
-		spaceState: options.spaceState,
-		issueMeta: options.issueMeta,
-		agentSessions: options.agentSessions,
-		config: options.config,
-		home: options.home,
+		...deps,
 		async fetchTitles(keys) {
 			const issues = await getIssues(keys);
 			return new Map(
@@ -487,8 +495,6 @@ export async function runSpacesCommand(options: {
 		},
 		gitSummary: worktreeGitSummary,
 	});
-	options.out(
-		options.json ? JSON.stringify(report, null, 2) : formatSpaces(report),
-	);
+	out(json ? JSON.stringify(report, null, 2) : formatSpaces(report));
 	return 0;
 }

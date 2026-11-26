@@ -104,7 +104,7 @@ test('an agent that starts during the wait is confirmed', async () => {
 	expect(await f.wait(5000)).toBe(true);
 });
 
-function oscFixture(
+async function oscFixture(
 	paneState: {dead?: boolean; marker?: string; command?: string} = {},
 ) {
 	const state = testState();
@@ -121,6 +121,7 @@ function oscFixture(
 		worktreePath: worktree,
 		socket: 'pappardelle_inner',
 	});
+	await state.daos.spaceIdentities.record(identity);
 	const marker = paneState.marker ?? '42.abc';
 	const deadFlag = paneState.dead ? '1' : '0';
 	const command = paneState.command ?? 'agy';
@@ -133,7 +134,25 @@ function oscFixture(
 
 		return {status: 1, stdout: ''};
 	};
-	return {state, issueKey, worktree, identity, pane, runner};
+	const wait = async (
+		read: () => Promise<ProgramStatusSnapshot | null>,
+		options: {since: number; timeoutMs?: number},
+	) =>
+		waitForAgentStart({
+			claudeStatus: state.daos.claudeStatus,
+			statusKey: `${state.repo}-${issueKey}`,
+			worktree,
+			since: options.since,
+			timeoutMs: options.timeoutMs ?? 0,
+			pollMs: 20,
+			osc: {
+				programStatus: {read},
+				spaceIdentities: state.daos.spaceIdentities,
+				issueKey,
+				runner,
+			},
+		});
+	return {issueKey, identity, pane, wait};
 }
 
 function oscSnapshot(
@@ -156,104 +175,43 @@ function oscSnapshot(
 }
 
 test('a fresh OSC snapshot arriving during the wait confirms an agy or Codex start', async () => {
-	const f = oscFixture();
-	await f.state.daos.spaceIdentities.record(f.identity);
+	const f = await oscFixture();
 	const since = Date.now();
 	let current: ProgramStatusSnapshot | null = null;
 	setTimeout(() => {
 		current = oscSnapshot(f.issueKey, f.pane, {updatedAt: Date.now()});
 	}, 60);
 
-	expect(
-		await waitForAgentStart({
-			claudeStatus: f.state.daos.claudeStatus,
-			statusKey: `${f.state.repo}-${f.issueKey}`,
-			worktree: f.worktree,
-			since,
-			timeoutMs: 5000,
-			pollMs: 20,
-			osc: {
-				programStatus: {read: async () => current},
-				spaceIdentities: f.state.daos.spaceIdentities,
-				issueKey: f.issueKey,
-				runner: f.runner,
-			},
-		}),
-	).toBe(true);
+	expect(await f.wait(async () => current, {since, timeoutMs: 5000})).toBe(
+		true,
+	);
 });
 
 test('an already-running idle OSC pane opened with --resume confirms even when snapshot predates since', async () => {
-	const f = oscFixture();
-	await f.state.daos.spaceIdentities.record(f.identity);
+	const f = await oscFixture();
 	const since = Date.now();
 	const prior = oscSnapshot(f.issueKey, f.pane, {updatedAt: since - 60_000});
 
-	expect(
-		await waitForAgentStart({
-			claudeStatus: f.state.daos.claudeStatus,
-			statusKey: `${f.state.repo}-${f.issueKey}`,
-			worktree: f.worktree,
-			since,
-			timeoutMs: 0,
-			pollMs: 20,
-			osc: {
-				programStatus: {read: async () => prior},
-				spaceIdentities: f.state.daos.spaceIdentities,
-				issueKey: f.issueKey,
-				runner: f.runner,
-			},
-		}),
-	).toBe(true);
+	expect(await f.wait(async () => prior, {since})).toBe(true);
 });
 
 test('an agent that reported idle and then exited to a shell with the same generation does not confirm', async () => {
 	for (const shell of ['bash', '-zsh']) {
-		const f = oscFixture({command: shell});
-		await f.state.daos.spaceIdentities.record(f.identity);
+		const f = await oscFixture({command: shell});
 		const since = Date.now();
 		const prior = oscSnapshot(f.issueKey, f.pane, {updatedAt: since - 60_000});
-		expect(
-			await waitForAgentStart({
-				claudeStatus: f.state.daos.claudeStatus,
-				statusKey: `${f.state.repo}-${f.issueKey}`,
-				worktree: f.worktree,
-				since,
-				timeoutMs: 0,
-				osc: {
-					programStatus: {read: async () => prior},
-					spaceIdentities: f.state.daos.spaceIdentities,
-					issueKey: f.issueKey,
-					runner: f.runner,
-				},
-			}),
-		).toBe(false);
+		expect(await f.wait(async () => prior, {since})).toBe(false);
 	}
 });
 
 test('a dead pane, exited monitor, unknown status, or mismatched generation does not confirm', async () => {
 	const since = Date.now();
-	const dead = oscFixture({dead: true});
-	await dead.state.daos.spaceIdentities.record(dead.identity);
+	const dead = await oscFixture({dead: true});
 	expect(
-		await waitForAgentStart({
-			claudeStatus: dead.state.daos.claudeStatus,
-			statusKey: `${dead.state.repo}-${dead.issueKey}`,
-			worktree: dead.worktree,
-			since,
-			timeoutMs: 0,
-			osc: {
-				programStatus: {
-					read: async () => oscSnapshot(dead.issueKey, dead.pane),
-				},
-				spaceIdentities: dead.state.daos.spaceIdentities,
-				issueKey: dead.issueKey,
-				runner: dead.runner,
-			},
-		}),
+		await dead.wait(async () => oscSnapshot(dead.issueKey, dead.pane), {since}),
 	).toBe(false);
 
-	const live = oscFixture();
-	await live.state.daos.spaceIdentities.record(live.identity);
+	const live = await oscFixture();
 	const otherPane = parseStatusPane(
 		'%5\t42\t0\t1\t42.other',
 		live.identity.tmux.socket,
@@ -264,20 +222,6 @@ test('a dead pane, exited monitor, unknown status, or mismatched generation does
 		oscSnapshot(live.issueKey, live.pane, {info: {status: 'unknown'}}),
 		oscSnapshot(live.issueKey, otherPane),
 	]) {
-		expect(
-			await waitForAgentStart({
-				claudeStatus: live.state.daos.claudeStatus,
-				statusKey: `${live.state.repo}-${live.issueKey}`,
-				worktree: live.worktree,
-				since,
-				timeoutMs: 0,
-				osc: {
-					programStatus: {read: async () => bad},
-					spaceIdentities: live.state.daos.spaceIdentities,
-					issueKey: live.issueKey,
-					runner: live.runner,
-				},
-			}),
-		).toBe(false);
+		expect(await live.wait(async () => bad, {since})).toBe(false);
 	}
 });
