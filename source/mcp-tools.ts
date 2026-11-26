@@ -321,7 +321,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_send',
 		description:
-			"Type a prompt into a space's agent TUI as if the user did: clears the input line, types the text literally, presses Enter. Slash commands are prompts. Use it when the user asks for it; to talk to another agent, use SendMessage. Fails with No active session when the agent's session isn't running: reopen with space_open (resume and wait) first. Fails with Not submitted when the text reached the input box but didn't send: it is still there, so look at space_screen before sending again, since a resend would see it as a draft",
+			"Type a prompt into a space's agent TUI as if the user did: clears the input line, types the text literally, presses Enter. Slash commands are prompts. In Claude Code, use SendMessage to talk to another Claude space; from agy, Codex or Pi — or to reach a space running one — use space_send (calls from a space prepend [from <caller>] to non-command prompts). Fails with No active session when the agent's session isn't running: reopen with space_open (resume and wait) first. Fails with Not submitted when the text reached the input box but didn't send: it is still there, so look at space_screen before sending again, since a resend would see it as a draft",
 		inputSchema: {
 			key,
 			text: z.string().min(1),
@@ -347,7 +347,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_press_keys',
 		description:
-			"Press keys in a space's agent TUI, without clearing or submitting anything. In Claude Code, Escape interrupts the turn, S-Tab cycles the permission mode (default, accept edits, plan), C-c clears the input and twice in a row exits",
+			"Press keys in a space's agent TUI, without clearing or submitting anything. In Claude Code and agy, Escape interrupts the turn and S-Tab cycles the mode (agy vim insert mode and idle banners are handled automatically); in Claude Code, C-c clears the input and twice in a row exits",
 		inputSchema: {key, keys: tmuxKeys},
 		toCli: ({key, keys}) => ({
 			args: ['send', key, ...keys.flatMap(name => ['--keys', name])],
@@ -387,7 +387,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_state',
 		description:
-			"What a space's agent is doing: working, permission (a tool prompt, with the command, the subagent that asked and the numbered options), question (an AskUserQuestion dialog), auth, dialog (a Codex or agy dialog such as folder trust; a person answers it), usage_limit (with the reset time), draft (text sitting in the input box), idle, exited or no_session",
+			"What a space's agent is doing: working, permission (a tool prompt, with the command, the subagent that asked and the numbered options), question (an AskUserQuestion dialog), auth, dialog (a Codex or agy dialog such as folder trust, artifact review, settings or Models & Quota; a person answers it), usage_limit (with the reset time, including agy Refreshes in countdowns), draft (text sitting in the input box), idle, exited or no_session, plus any deferredSchedules waiting to retry",
 		readOnly: true,
 		inputSchema: {key},
 		toCli: ({key}) => ({args: ['state', key, '--json']}),
@@ -409,7 +409,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 			until: z
 				.enum(['working', 'idle', 'blocked', 'ready', 'changed'])
 				.describe(
-					'blocked: a prompt, question, login or usage limit. ready: anything but working. changed: any state other than the current one',
+					'blocked: a prompt, question, login, dialog or usage limit. ready: anything but working. changed: any state other than the current one',
 				),
 			timeout_seconds: z
 				.number()
@@ -428,7 +428,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_watch',
 		description:
-			"Wait for any of several spaces to change state, for a supervising loop: call it, handle what it returns with space_answer or space_send, then call it again with the cursor it returned. Returns result changed with each space's old and new state and, for one waiting on a person, its prompt, question or dialog; or result timed_out. Without since, spaces already in an until state return at once; with it, only what changed after that cursor, so nothing that happened while you were handling another space is missed",
+			"Wait for any of several spaces to change state, for a supervising loop: call it, handle what it returns with space_answer or space_send, then call it again with the cursor it returned. Returns result changed with each space's old and new state and, for one waiting on a person, its prompt, question or dialog (plus any deferredSchedules); or result timed_out. Without since, spaces already in an until state return at once; with it, only what changed after that cursor, so nothing that happened while you were handling another space is missed",
 		readOnly: true,
 		inputSchema: {
 			keys: z
@@ -553,7 +553,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_schedule',
 		description:
-			"Wake a space's agent later with an OS timer, which runs even when this session and the TUI don't: at (send message at a time), after_limit (send message, default continue, once its Codex usage limit resets), or keep_going (every interval: continue after a limit, and the nudge when the agent sits idle two checks in a row; never over a draft)",
+			"Wake a space's agent later with an OS timer, which runs even when this session and the TUI don't: at (send message at a time), after_limit (send message, default continue, once its usage limit resets), or keep_going (every interval: continue after a limit, and the nudge when the agent sits idle two checks in a row; never over a draft). Dismisses Codex's model-switch offer and agy's Models & Quota panel before sending; deferred one-shot jobs retry and appear in space_schedules, space_state and space_watch",
 		inputSchema: {
 			key,
 			kind: z.enum(['at', 'after_limit', 'keep_going']),
@@ -586,7 +586,8 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	}),
 	defineTool({
 		name: 'space_schedules',
-		description: 'List scheduled wake-ups, for one space or all',
+		description:
+			'List scheduled wake-ups (including deferred retry count and reason), for one space or all',
 		readOnly: true,
 		inputSchema: {key: key.optional()},
 		toCli: ({key}) => ({args: ['schedules', ...(key ? [key] : [])]}),

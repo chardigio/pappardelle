@@ -200,7 +200,7 @@ use the selected profile's team prefix when one is configured.
 
 ### Agents in a workspace
 
-Agents can see and change their workspace. In Claude Code, the plugin gives them [MCP tools](#mcp-tools) for this. Everything else, you included, uses the same commands from the command line:
+Agents can see and change their workspace. Claude Code gets the [MCP tools](#mcp-tools) from the plugin, and Codex, OpenCode, Antigravity and Pi get them from `pappardelle mcp install` (which `install.sh` runs). Anything without MCP, you included, uses the same commands from the command line:
 
 ```bash
 pappardelle companion hunk diff --watch            # replace this space's companion command
@@ -213,12 +213,12 @@ pappardelle space get --json                       # this space: phase, title, w
 pappardelle space get --field tmux.agentTarget     # one field, printed bare
 pappardelle space list                             # the main space, then every open space
 pappardelle read STE-20 --turns 3                  # recent turns of another space's conversation
-pappardelle send STE-20 --keys Escape              # press a key in another space's Claude
+pappardelle send STE-20 --keys Escape              # press a key in another space's agent
 pappardelle state STE-20                           # working, at a prompt (and its command), limited, idle...
 pappardelle wait STE-20 --until ready              # return once it stops working
 pappardelle answer STE-20 --option 1               # approve what stays inside the space; anything else is held for you
 pappardelle holds                                   # the prompts held for you; holds approve|dismiss ID decides one
-pappardelle schedule STE-20 --after-limit          # send continue when its Codex usage limit resets
+pappardelle schedule STE-20 --after-limit          # send continue when its usage limit resets
 pappardelle schedule STE-20 --keep-going --every 10m --nudge 'keep going'
 ```
 
@@ -294,7 +294,7 @@ When you create a workspace, Pappardelle runs through these steps:
 
 5. **Project setup** — Profile `commands` are executed (e.g., `xcodegen generate`, dependency installs). Top-level `post_workspace_init` commands also run after the worktree is created (e.g., copying `.env` files).
 
-6. **Agent & companion sessions spawned** — A named tmux session is created and the configured agent (Claude Code by default) is launched inside it. If `initialization_command` is set in `.pappardelle.yml` (e.g., `do`), the agent runs that skill with the issue key: `/do STA-123` in claude, `$do STA-123` in codex. A companion session rooted at the worktree dir is also spawned, running the `companion_command` (gitui by default).
+6. **Agent & companion sessions spawned** — A named tmux session is created and the configured agent (Claude Code by default) is launched inside it. If `initialization_command` is set in `.pappardelle.yml` (e.g., `do`), the agent runs that skill with the issue key: `/do STA-123` in claude and agy, `$do STA-123` in codex. A companion session rooted at the worktree dir is also spawned, running the `companion_command` (gitui by default).
 
 ---
 
@@ -710,12 +710,12 @@ Claude Code gets the server from the plugin. `install.sh` runs `pappardelle mcp 
 
 The `companion_*` tools are auto-approved, because an agent has to change the companion constantly to keep showing its work. That includes `companion_run`, `companion_type` and `companion_press_keys`, which can run any shell line in a pane, so an agent has Bash's power through them without a Bash prompt. So are `space_get`, `agent_profiles_list`, `space_send` and the supervision tools, since watching other spaces means calling them in a loop. Two checks hold without a prompt, and no tool can override them:
 
-- `space_answer` approves once whatever stays inside the space: its worktree, its own scratchpad, the temp directories, isolated tmux sockets and git on its own branch. Edits, writes and reads are placed by their path, which the status hook records, outside the agent's own settings (`.claude/settings*.json`, `.mcp.json`, `.codex/`, `.git/`). Commands first pass hard stops: deploy and cloud CLIs (dokku, doctl, aws, gcloud, kubectl, wrangler deploy and the like), publishes, `sudo`, deletes outside the space, pushes to main, master or the default branch, dropping shared stash entries or worktrees, and anything that would answer prompts for agents. Then Haiku, run through `claude -p` with no tools or settings, approves unless the call sends secrets off the machine or reaches outside the space. Pushes to other branches and PR changes are fine. A hard stop or a no from Haiku is held: the prompt is declined, the agent is told to carry on, and the hold waits in `pappardelle holds`. Approving it lets the agent's retry of that exact prompt through once. Only the sous-chef and the chef answer prompts and resolve holds: a call from a space is refused, the sous-chef can't approve a hold from its own space, and `space_hold_resolve` asks first. An approval never covers a Codex edit, whose patch isn't on record. If Haiku can't be reached twice in a row, nothing is pressed. Choosing "Yes, and don't ask again" is an error. `pappardelle answer --force` on the command line is the override
+- `space_answer` approves once whatever stays inside the space: its worktree, its own scratchpad, the temp directories, isolated tmux sockets and git on its own branch. Edits, writes and reads are placed by their path (recorded by Claude's status hook or parsed from agy's prompt), outside the agent's own settings (`.claude/settings*.json`, `.mcp.json`, `.codex/`, `.git/`). Commands first pass hard stops: deploy and cloud CLIs (dokku, doctl, aws, gcloud, kubectl, wrangler deploy and the like), publishes, `sudo`, deletes outside the space, pushes to main, master or the default branch, dropping shared stash entries or worktrees, and anything that would answer prompts for agents. Then a model check (defaulting to Haiku through `claude -p`, falling back to `gemini-4-hydrogen-low` through `agy -p` when `claude` isn't installed, or configured via `approval_classifier`) approves unless the call sends secrets off the machine or reaches outside the space. Pushes to other branches and PR changes are fine. A hard stop or a no from the check is held: the prompt is declined, the agent is told to carry on, and the hold waits in `pappardelle holds`. Approving it lets the agent's retry of that exact prompt through once. Only the sous-chef and the chef answer prompts and resolve holds: a call from a space is refused, the sous-chef can't approve a hold from its own space, and `space_hold_resolve` asks first. An approval never covers a Codex edit, whose patch isn't on record. If the check can't be reached twice in a row, nothing is pressed. Choosing "Yes, and don't ask again" (or agy's persistent always-allow) is an error. `pappardelle answer --force` on the command line is the override
 - Sends refuse while a permission prompt or question is on screen, so they can't answer one around that check. They also refuse over text sitting in the agent's input box unless forced, since a send clears the line first
 
 In Claude Code the approval is a plugin hook, and it also applies in plan mode. The other tools ask first wherever the agent normally asks. Every send, answer, schedule and change `space_watch` reports is logged to `~/.pappardelle/repos/<repo>/supervise.jsonl`.
 
-`space_schedule` uses an OS user timer that runs `pappardelle schedule fire` even when no agent or TUI is running: a transient `systemd-run --user` timer on Linux, a launchd agent in `~/Library/LaunchAgents` on macOS.
+`space_schedule` uses an OS user timer that runs `pappardelle schedule fire` even when no agent or TUI is running: a transient `systemd-run --user` timer on Linux, a launchd agent in `~/Library/LaunchAgents` on macOS. Wake-ups dismiss Codex's model-switch offer and agy's `Models & Quota` panel before sending; one-shot jobs that defer (for example over a draft or dialog) retry and surface their reason in `schedules`, `state`, `watch` and `supervise.jsonl`.
 
 An agent in a space is told to keep the companion showing its work, from `scripts/companion-rules.txt`. How that reaches the model depends on the agent:
 
@@ -730,7 +730,7 @@ They ship in the `pappardelle` plugin with the [hooks](#agent-hooks). `install.s
 
 - **Claude Code** gets the `pappardelle-marketplace` marketplace from the install and the plugin at user scope. It loads a plugin from a local marketplace in place, so the skills and hooks always match that install. Run `/reload-plugins` in open sessions after an update or a local install
 - **Codex** gets the same marketplace and `codex plugin add` for the skills. Codex copies the plugin into its cache, which each install refreshes. Codex trusts a plugin's hooks by a hash of the whole plugin, so any update would make you trust the session hook again; instead `pappardelle plugin install` adds it to `~/.codex/hooks.json`, pointing at the install. Codex asks to trust it on its next launch, and that trust lasts until the install moves. A local install always lands at `~/.pappardelle/local`, so reinstalling keeps it
-- **agy** gets a symlink from `~/.gemini/config/plugins/pappardelle` to the install, so new agy sessions load the plugin in place
+- **agy** gets a symlink from `~/.gemini/config/plugins/pappardelle` to the install, so new agy sessions load the plugin in place. Restart open agy sessions after an update (agy has no `/reload-plugins`)
 
 Earlier versions told you to add the marketplace from GitHub, which Claude Code caches by version, and to merge the hooks into `~/.claude/settings.json`. `pappardelle plugin install` moves that marketplace over to the install and removes the old `~/.pappardelle/hooks/` entries from your settings (backing it up to `settings.json.pappardelle.bak` first), so the hooks don't run twice. It also replaces the `record-agent-session.py` entries `install.sh` used to merge into `~/.codex/hooks.json` with one pointing at the install, backing the file up to `hooks.json.pappardelle.bak`. Codex keys hook trust by position in that file, so it asks you to review any of your own hooks listed after the old entries again. It removes the `pappardelle-session` hook that `install.sh` used to merge into `~/.gemini/config/hooks.json` for agy, with a `hooks.json.pappardelle.bak` backup. It leaves the `~/.pappardelle/hooks/` scripts for sessions that were open during the update; delete the directory once those sessions have restarted.
 

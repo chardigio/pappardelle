@@ -115,8 +115,9 @@ export const superviseHelp = `
 	  state       working, permission, question, auth, dialog (a Codex or agy
 	              dialog, answered by a person), usage_limit, draft
 	              (text in the input box), idle, exited or no_session, with the
-	              pending command or question. --tabs also reads every tab of a
-	              question dialog, which presses Right and Left in it
+	              pending command, question or deferred wake-ups. --tabs also
+	              reads every tab of a question dialog, which presses Right and
+	              Left in it
 	  wait        Return once the state matches (or at once if the agent has
 	              exited or the session is gone), or after --timeout (default 50,
 	              at most ${MAX_WAIT_SECONDS}) with the state as it is then
@@ -133,7 +134,7 @@ export const superviseHelp = `
 	              type --text into a question's free-text row. It checks the
 	              screen after each step, and fails if the agent didn't take
 	              it. Approving once is checked: a command or file that stays
-	              inside the space is approved, after a Haiku check for
+	              inside the space is approved, after a model check for
 	              anything that leaves it. A hard stop (deploys, cloud CLIs,
 	              publishes, sudo, deletes outside the space, pushes to main)
 	              or a no from the check is held: the prompt is declined, the
@@ -141,9 +142,10 @@ export const superviseHelp = `
 	              Choosing "don't ask again" exits 3. --force skips the checks
 	  queue       Hold a message for the next scheduled send to that space
 	  schedule    Wake the agent with an OS timer: a message at a time, continue
-	              once a Codex usage limit resets, or a nudge whenever it sits
-	              idle two checks in a row
-	  schedules   List scheduled wake-ups
+	              once a usage limit resets, or a nudge whenever it sits
+	              idle two checks in a row (dismisses Codex's model-switch offer
+	              and agy's Models & Quota panel before sending)
+	  schedules   List scheduled wake-ups, with any deferred retry count and reason
 	  unschedule  Cancel one
 	  holds       List the prompts held for the chef (--all: resolved ones
 	              too). approve lets the agent's retry of that prompt through

@@ -22,7 +22,7 @@ Get a space's worktree path, branch, profile, tmux socket, session names and tar
 
 Never drive tmux directly. The sessions are on another socket, and Pappardelle handles naming, exact-match targets, and quoting.
 
-To talk to the agent in another space, use Claude Code's SendMessage and ListAgents. Sessions are named by space key, so the recipient is the key (`SendMessage({to: "STA-696", message: "..."})`; with `sous_chef: true` the main checkout's agent is `sous-chef`), and the message carries who sent it and can be answered. `space_send` types into that agent's TUI as if the user did; use it when the user asks for it.
+In Claude Code, talk to another Claude space with `SendMessage` and `ListAgents`: sessions are named by space key (`SendMessage({to: "STA-696", message: "..."})`, or `sous-chef` for `main` when `sous_chef: true`), and the recipient sees who sent it and can reply. From agy, Codex or Pi — or when messaging a space running one of them — use `spaces_list` and `space_send` instead (never `SendMessage`, which only exists in Claude Code). `space_send` types into that agent's TUI and, when called from a space, prepends `[from <caller>]` on non-command prompts.
 
 ## Without the MCP tools
 
@@ -57,10 +57,10 @@ Keep the companion showing your work there too: what a decision depends on befor
 
 To keep an agent in another space moving, wait on it instead of checking it over and over:
 
-1. `space_wait` with `until: ready` returns when the agent stops working: idle, at a prompt or question, at a Codex usage limit, or with a draft in its composer. It returns after 50 seconds either way; call it again
+1. `space_wait` with `until: ready` returns when the agent stops working: idle, at a prompt or question, at a usage limit, or with a draft in its composer. It returns after 50 seconds either way; call it again
 2. At `permission`, the state has the command. `space_answer` with the option approves a Bash command once only when it passes the hard refusals (push, PR changes, `--force`, rm outside QA scratch) and a model check that it publishes nothing, deletes nothing outside the worktree or scratch, and sends no secrets. Anything else comes back refused, with the reason, with the command: ask the user, and don't retry it another way
 3. At `question`, `space_question_tabs` reads every question of a multi-question dialog. Answer it with the user's choice: `option` for one, `options` for every tick on a multi-select question, or `text` for a typed answer in its free-text row. A multi-question dialog takes one `space_answer` per question, then `option: 1` on its review step. An answer the dialog didn't take fails with the step it got stuck on
-4. At `usage_limit`, `space_schedule` with `after_limit` sends `continue` once it resets. `keep_going` checks every interval, continues after limits, and nudges an agent that sits idle twice in a row
+4. At `usage_limit`, `space_schedule` with `after_limit` sends `continue` once it resets (including agy `Refreshes in` quota limits). `keep_going` checks every interval, continues after limits, and nudges an agent that sits idle twice in a row. Scheduled wake-ups dismiss Codex's model-switch offer and agy's `Models & Quota` panel before sending; if a one-shot wake-up defers (for example over a draft or dialog), `space_schedules`, `space_state` and `space_watch` surface the reason and retry count
 5. `space_send` refuses while a prompt is up, and over a draft unless `force`. Not submitted means the text is in the input box but didn't send: check `space_screen` before sending again
 
 To supervise several spaces, loop on `space_watch` instead. With `until: [blocked]` it returns every space waiting on a person, each with its prompt, question or dialog. Handle them, then call it again with the `cursor` it returned: a space that changed while you were busy comes back at once, and one still on a prompt you already saw doesn't. `result: timed_out` means nothing changed; call it again with the same cursor. Two identical prompts in a row look unchanged, so after answering a space, check it with `space_state` if `space_watch` stays quiet.

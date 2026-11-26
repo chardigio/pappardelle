@@ -32,7 +32,7 @@ Options:
 - **Edit local overrides** — personal keybinding overrides in `.pappardelle.local.yml`
 - **Change providers** — switch issue tracker or VCS host
 - **Configure Claude settings** — initialization command, permissions
-- **Configure agent profiles** — run codex or another CLI in the agent pane, or set model and effort
+- **Configure agent profiles** — run codex, agy or another CLI in the agent pane, or set model, effort and mode
 - **Set the companion pane command** — what runs in the right pane (`companion_command`; default gitui)
 - **Set the IDE command** — what the `d` key opens (`ide_command`; default Cursor)
 
@@ -332,6 +332,7 @@ agent_profiles:
   argon:
     command: agy # Antigravity CLI
     model: gemini-4-argon-medium # Id carries the effort; for effort:, use gemini-4-argon
+    # mode: auto               # Optional — accept-edits, auto, or plan
   claude-sonnet:
     command: claude
     model: sonnet # Rendered as --model sonnet
@@ -346,21 +347,23 @@ profiles:
     agent_profile: claude-sonnet # A cheaper model for one profile
 ```
 
-### model / effort
+### model / effort / mode
 
 Set on an agent profile; unset means no flag (the CLI picks its own default).
-Values aren't validated against a list, so pass whatever the installed CLI
-accepts: an alias (`opus`, `sonnet`), a full id (`claude-opus-5[1m]`), and
-`low|medium|high|xhigh|max` for claude's effort. Claude, codex and agy are
-built in (scripts/builtin-agents.json): their model/effort flags, how they take
-the launch prompt (agy's `-i {prompt}`), their resume args and skill prefix
-come from there, so their profiles need only `command`, `model` and `effort`.
-Don't add `resume_args`, `model_args`, `effort_args` or `prompt_args` for them
-unless the user wants to override one. Any other CLI needs `model_args` /
-`effort_args` containing `{model}` / `{effort}` (e.g.
-`model_args: --model {model}`) before it can take a value — validation rejects
-a value with no template — and `prompt_args` with `{prompt}` once if it won't
-take a bare prompt.
+Values aren't validated against a list, except that agy profiles reject
+combining an effort-suffixed model id (like `gemini-4-argon-medium`) with
+`effort:`, and agy's `mode` accepts `accept-edits`, `auto`, or `plan`. Pass
+whatever the installed CLI accepts: an alias (`opus`, `sonnet`), a full id
+(`claude-opus-5[1m]`), and `low|medium|high|xhigh|max` for claude's effort.
+Claude, codex and agy are built in (scripts/builtin-agents.json): their
+model/effort/mode flags, how they take the launch prompt (agy's `-i {prompt}`),
+their resume args and skill prefix come from there, so their profiles need only
+`command`, `model`, `effort` and `mode`. Don't add `resume_args`, `model_args`,
+`effort_args`, `mode_args` or `prompt_args` for them unless the user wants to
+override one. Any other CLI needs `model_args` / `effort_args` / `mode_args`
+containing `{model}` / `{effort}` / `{mode}` (e.g. `model_args: --model {model}`)
+before it can take a value — validation rejects a value with no template — and
+`prompt_args` with `{prompt}` once if it won't take a bare prompt.
 
 To give one workspace profile a different model, define another agent profile
 and point that workspace profile at it. Only prompt for these when the user
@@ -370,9 +373,9 @@ Rules to apply when editing:
 
 - `agent_profile:` values must name an entry in `agent_profiles:` (or `claude`, which is built in); validation rejects dangling references
 - `args` is where skip-permissions equivalents for non-claude agents go (codex: `--yolo`) — `claude.dangerously_skip_permissions` only applies to claude
-- Claude-only behavior (`--name`, the `--model`/`--effort` templates, `~/.claude.json` pre-trust, `--resume {session_id}` default) is gated on the command's basename being `claude` or an explicit `is_claude: true`
+- Claude-only behavior (`--name`, the `--model`/`--effort` templates, `~/.claude.json` pre-trust, `--resume {session_id}` default) is gated on the command's basename being `claude` or an explicit `is_claude: true`. agy pre-trusts worktrees in `~/.gemini/antigravity-cli/settings.json` (`trustedWorkspaces`)
 - Environment variables for an agent go in `env:`, never `command: env X=1 claude` (that loses claude gating unless `is_claude: true` is added). The sous-chef launches with the top-level `agent_profile`, so a variable meant only for spaces goes on the agent profiles workspace profiles select, not the top-level one. `PAPPARDELLE_` names are rejected
-- Warn the user that non-claude agents show an `unknown` status icon in the rail — status hooks are Claude Code-only
+- Codex, OpenCode, Pi and agy report live status in the rail via native OSC 7501 program status (Pappardelle sets the opt-in env vars for Pi and agy automatically). Other CLIs without OSC 7501 or Claude hooks show an `unknown` status icon in the rail
 
 ## Configuring the Companion Pane Command
 
