@@ -746,27 +746,29 @@ test('forced send over an agy vim normal-mode draft enters insert mode once the 
 	expect(calls.at(-1)?.at(-1)).toBe('Enter');
 });
 
-test('sendKeysToSpaceAgent allows Escape on an agy question and refuses answer keys', () => {
-	const calls: string[][] = [];
-	const runner = (args: readonly string[]) => {
-		if (args[0] === 'list-sessions')
-			return {status: 0, stdout: 'agent-r-STA-1\n'};
-		if (args[0] === 'capture-pane')
-			return {status: 0, stdout: agentScreenFixture('agy-question')};
-		calls.push([...args]);
-		return {status: 0, stdout: ''};
-	};
+test('sendKeysToSpaceAgent allows Escape on agy question and subagent manage views while refusing answer keys', () => {
+	for (const fixtureName of ['agy-question', 'agy-subagent-manage']) {
+		const calls: string[][] = [];
+		const runner = (args: readonly string[]) => {
+			if (args[0] === 'list-sessions')
+				return {status: 0, stdout: 'agent-r-STA-1\n'};
+			if (args[0] === 'capture-pane')
+				return {status: 0, stdout: agentScreenFixture(fixtureName)};
+			calls.push([...args]);
+			return {status: 0, stdout: ''};
+		};
 
-	expect(sendKeysToSpaceAgent('STA-1', ['1'], {runner})).toBe('prompt');
-	expect(sendKeysToSpaceAgent('STA-1', ['Enter'], {runner})).toBe('prompt');
-	expect(calls).toStrictEqual([]);
-	expect(sendKeysToSpaceAgent('STA-1', ['Escape'], {runner})).toBe('sent');
-	expect(calls).toStrictEqual([
-		['send-keys', '-t', '=agent-r-STA-1:', '--', 'Escape'],
-	]);
+		expect(sendKeysToSpaceAgent('STA-1', ['1'], {runner})).toBe('prompt');
+		expect(sendKeysToSpaceAgent('STA-1', ['Enter'], {runner})).toBe('prompt');
+		expect(calls).toStrictEqual([]);
+		expect(sendKeysToSpaceAgent('STA-1', ['Escape'], {runner})).toBe('sent');
+		expect(calls).toStrictEqual([
+			['send-keys', '-t', '=agent-r-STA-1:', '--', 'Escape'],
+		]);
+	}
 });
 
-test('sendToSpaceAgent and sendKeysToSpaceAgent block on agy subagent manage view without mislabeling codexDialog', async () => {
+test('sendToSpaceAgent blocks on agy subagent manage view even with force', async () => {
 	const {runner: sendRunner, calls: sendCalls} = makeRunner({
 		sessions: ['agent-r-STA-1'],
 		screen: agentScreenFixture('agy-subagent-manage'),
@@ -783,28 +785,4 @@ test('sendToSpaceAgent and sendKeysToSpaceAgent block on agy subagent manage vie
 		}),
 	).toBe('prompt');
 	expect(sendCalls).toStrictEqual([]);
-
-	const keyCalls: string[][] = [];
-	const keyRunner = (args: readonly string[]) => {
-		if (args[0] === 'list-sessions')
-			return {status: 0, stdout: 'agent-r-STA-1\n'};
-		if (args[0] === 'capture-pane')
-			return {status: 0, stdout: agentScreenFixture('agy-subagent-manage')};
-		keyCalls.push([...args]);
-		return {status: 0, stdout: ''};
-	};
-
-	expect(sendKeysToSpaceAgent('STA-1', ['Enter'], {runner: keyRunner})).toBe(
-		'prompt',
-	);
-	expect(sendKeysToSpaceAgent('STA-1', ['1'], {runner: keyRunner})).toBe(
-		'prompt',
-	);
-	expect(keyCalls).toStrictEqual([]);
-	expect(sendKeysToSpaceAgent('STA-1', ['Escape'], {runner: keyRunner})).toBe(
-		'sent',
-	);
-	expect(keyCalls).toStrictEqual([
-		['send-keys', '-t', '=agent-r-STA-1:', '--', 'Escape'],
-	]);
 });

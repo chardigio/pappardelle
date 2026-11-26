@@ -2,8 +2,10 @@ import {test, expect} from 'bun:test';
 import {
 	bindResumeArgs,
 	builtinAgentDefaults,
+	isAgyCommand,
 	isClaudeCommand,
 	renderAgentLaunchFlags,
+	unwrapCommand,
 } from './config-launch-flags.ts';
 
 // ============================================================================
@@ -104,7 +106,22 @@ test('isClaudeCommand matches bare names and paths, not wrappers', () => {
 	expect(isClaudeCommand('my-claude-wrapper')).toBe(false);
 });
 
-test('builtinAgentDefaults unwraps env wrappers for built-in agents like agy', () => {
+test('unwrapCommand, isAgyCommand, and builtinAgentDefaults handle env wrappers', () => {
+	expect(
+		unwrapCommand('/usr/bin/env -u BAR FOO="1" /usr/local/bin/agy'),
+	).toStrictEqual({
+		word: '/usr/local/bin/agy',
+		env: {FOO: '1'},
+		unset: ['BAR'],
+	});
+	expect(isAgyCommand('env FOO=1 agy --model gemini-4')).toBe(true);
+	expect(isAgyCommand('/usr/bin/env -u BAR FOO=1 /usr/local/bin/agy')).toBe(
+		true,
+	);
+	expect(isAgyCommand('FOO=1 agy')).toBe(true);
+	expect(isAgyCommand('env FOO=agy codex')).toBe(false);
+	expect(isAgyCommand('codex --prompt agy')).toBe(false);
+
 	const bare = builtinAgentDefaults({command: 'agy'});
 	const wrapped = builtinAgentDefaults({
 		command: 'env FOO=1 /usr/local/bin/agy --flag',

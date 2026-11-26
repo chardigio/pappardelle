@@ -24,10 +24,10 @@ import {
 } from './space-watch.ts';
 import {
 	parseAgentScreen,
+	type AgyQuotaParseResult,
 	type PermissionPrompt,
 	type PromptOption,
 	type QuestionDialog,
-	type UsageLimit,
 } from './agent-screen.ts';
 import {
 	decideAnswer,
@@ -67,9 +67,7 @@ import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
 export type AgyQuotaResult =
-	| {kind: 'limited'; limit: UsageLimit}
-	| {kind: 'available'}
-	| {kind: 'unparsed'}
+	| AgyQuotaParseResult
 	| {kind: 'error'}
 	| {kind: 'not_agy'};
 

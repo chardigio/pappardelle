@@ -12,7 +12,7 @@ set -euo pipefail
 
 is_agy_command() {
     local -a tokens
-    local i=0 token base
+    local i=0 in_env=0 token base
     read -ra tokens <<< "$1"
     while ((i < ${#tokens[@]})); do
         token="${tokens[$i]}"
@@ -20,27 +20,17 @@ is_agy_command() {
             i=$((i + 1))
             continue
         fi
+        if ((in_env)) && [[ "$token" == -* ]]; then
+            case "$token" in
+                -u|--unset|-C|--chdir|-S|--split-string) i=$((i + 2)) ;;
+                *) i=$((i + 1)) ;;
+            esac
+            continue
+        fi
         base="$(basename "$token")"
         if [[ "$base" == "env" ]]; then
+            in_env=1
             i=$((i + 1))
-            while ((i < ${#tokens[@]})); do
-                token="${tokens[$i]}"
-                case "$token" in
-                    -u|--unset|-C|--chdir|-S|--split-string)
-                        i=$((i + 2))
-                        ;;
-                    -*)
-                        i=$((i + 1))
-                        ;;
-                    *)
-                        if [[ "$token" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-                            i=$((i + 1))
-                        else
-                            break
-                        fi
-                        ;;
-                esac
-            done
             continue
         fi
         [[ "$base" == "agy" ]]
@@ -100,41 +90,26 @@ repo_note=""
 if [[ -n "$repo" ]]; then
     repo_note=" (repo $repo)"
 fi
+skill_note="The pappardelle-agent skill covers updating and restarting Pappardelle."
+# shellcheck disable=SC2016 # markdown backticks, not command substitution
+send_rule='list spaces with `spaces_list` and send a prompt with `space_send` — never use `SendMessage`.'
 
 mkdir -p "$worktree/.agents/rules"
+# shellcheck disable=SC2016 # markdown backticks, not command substitution
 {
     # agy silently discards a rule without a trigger.
     printf -- '---\ntrigger: always_on\n---\n\n'
     if [[ "$role" == "sous-chef" ]]; then
-        printf 'You are in Pappardelle space %s%s, running in sous-chef mode as the coordinator for the repo'\''s spaces. ' "${space:-main}" "$repo_note"
-        cat << 'EOF'
-Use the pappardelle MCP tools rather than tmux. Since the main checkout has no PAPPARDELLE_SPACE env var, pass `space: "main"` (or the target space key) to companion tools. The pappardelle-agent skill covers updating and restarting Pappardelle.
-
-Sous-chef routine: keep the other spaces moving with `spaces_list` for the board, `space_watch` with `until: ["blocked", "idle"]` in a loop to catch spaces waiting on a person or stopped, `space_state` and `space_question_tabs` to read what a space asks, `space_answer` to answer, `space_holds` and `space_hold_resolve` (only on the user's word), and `space_open` to open or reopen spaces. Message other spaces using `spaces_list` and `space_send` with the target space key — never use `SendMessage`. If `SOUS-CHEF.md` exists in the repo root, read it before anything else and follow it where it differs from this routine. Never do task-level work yourself: investigate and plan with the user, then file an issue and open a space for it with `space_open`.
-
-EOF
+        printf 'You are in Pappardelle space %s%s, running in sous-chef mode as the coordinator for the repo'\''s spaces. Use the pappardelle MCP tools rather than tmux. Since the main checkout has no PAPPARDELLE_SPACE env var, pass `space: "main"` (or the target space key) to companion tools. %s\n\n' "${space:-main}" "$repo_note" "$skill_note"
+        printf 'Sous-chef routine: keep the other spaces moving with `spaces_list` for the board, `space_watch` with `until: ["blocked", "idle"]` in a loop to catch spaces waiting on a person or stopped, `space_state` and `space_question_tabs` to read what a space asks, `space_answer` to answer, `space_holds` and `space_hold_resolve` (only on the user'\''s word), and `space_open` to open or reopen spaces. Message other spaces using `spaces_list` and `space_send` with the target space key — never use `SendMessage`. If `SOUS-CHEF.md` exists in the repo root, read it before anything else and follow it where it differs from this routine. Never do task-level work yourself: investigate and plan with the user, then file an issue and open a space for it with `space_open`.\n\n'
     elif [[ "$space" == "main" ]]; then
-        printf 'You are in Pappardelle space main%s, the main checkout. ' "$repo_note"
-        cat << 'EOF'
-Use the pappardelle MCP tools rather than tmux, and pass `space: "main"` to companion tools since the main checkout has no PAPPARDELLE_SPACE env var. The pappardelle-agent skill covers updating and restarting Pappardelle.
-
-To reach another space, list spaces with `spaces_list` and send a prompt with `space_send` using the target space key — never use `SendMessage`.
-
-EOF
+        printf 'You are in Pappardelle space main%s, the main checkout. Use the pappardelle MCP tools rather than tmux, and pass `space: "main"` to companion tools since the main checkout has no PAPPARDELLE_SPACE env var. %s\n\n' "$repo_note" "$skill_note"
+        printf 'To reach another space, %s\n\n' "$send_rule"
     elif [[ -n "$space" ]]; then
-        printf 'You are in Pappardelle space %s%s. ' "$space" "$repo_note"
-        cat << 'EOF'
-Pappardelle gives each issue a git worktree, an agent session and a companion pane next to it, and the user watches both. Use the pappardelle MCP tools rather than tmux; they target your own space unless you pass `space`. The pappardelle-agent skill covers updating and restarting Pappardelle.
-
-To reach another space or the sous-chef in the main checkout (space key `main`), list spaces with `spaces_list` and send a prompt with `space_send` — never use `SendMessage`.
-
-EOF
+        printf 'You are in Pappardelle space %s%s. Pappardelle gives each issue a git worktree, an agent session and a companion pane next to it, and the user watches both. Use the pappardelle MCP tools rather than tmux; they target your own space unless you pass `space`. %s\n\n' "$space" "$repo_note" "$skill_note"
+        printf 'To reach another space or the sous-chef in the main checkout (space key `main`), %s\n\n' "$send_rule"
     else
-        printf 'You are in a Pappardelle-managed repo%s. ' "$repo_note"
-        cat << 'EOF'
-Use the pappardelle MCP tools rather than tmux. To reach another space or the sous-chef in the main checkout (space key `main`), list spaces with `spaces_list` and send a prompt with `space_send` — never use `SendMessage`.
-
-EOF
+        printf 'You are in a Pappardelle-managed repo%s. Use the pappardelle MCP tools rather than tmux. To reach another space or the sous-chef in the main checkout (space key `main`), %s\n\n' "$repo_note" "$send_rule"
     fi
     cat "$rules_dir/companion-rules.txt"
 } > "$worktree/$rule"

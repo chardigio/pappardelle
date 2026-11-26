@@ -638,13 +638,15 @@ contractTest(
 			'Gemini Models\tWeekly Limit Remaining\t98%\t2026-12-01T04:14:49Z',
 			'Gemini Models\tFive Hour Limit Remaining\t0%\t2026-11-24T09:10:11Z',
 		].join('\n');
+		const beforeQuota = parseAgyQuota(quotaOutput, before);
+		const afterQuota = parseAgyQuota(quotaOutput, after);
 		const beforeReport: AgentStateReport = {
 			...report('usage_limit'),
-			usageLimit: parseAgyQuota(quotaOutput, before),
+			usageLimit: beforeQuota.kind === 'limited' ? beforeQuota.limit : null,
 		};
 		const afterReport: AgentStateReport = {
 			...report('usage_limit'),
-			usageLimit: parseAgyQuota(quotaOutput, after),
+			usageLimit: afterQuota.kind === 'limited' ? afterQuota.limit : null,
 		};
 		const h = harness(state, [beforeReport, afterReport]);
 		await h.store.save(afterLimit);

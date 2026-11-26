@@ -14,8 +14,6 @@ const execFileAsync = promisify(execFile);
 const SCRIPTS_DIR = scriptsDir;
 const RULES_PLACEHOLDER = '{rules}';
 
-export {isAgyCommand, unwrappedCommandWord} from './config-launch-flags.ts';
-
 export function companionRules(): string {
 	return fs
 		.readFileSync(path.join(SCRIPTS_DIR, 'companion-rules.txt'), 'utf8')

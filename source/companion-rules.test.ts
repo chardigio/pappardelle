@@ -8,7 +8,6 @@ import {
 	agentRulesFlags,
 	companionRules,
 	installAgentRules,
-	isAgyCommand,
 } from './companion-rules.ts';
 import {buildAgentResumeCommand} from './tmux.ts';
 import {getNamedAgentProfile} from './config.ts';
@@ -139,14 +138,6 @@ test('other agents get no rule file', async () => {
 });
 
 test('wrapper commands still detect agy and write space identity and role-appropriate messaging rules', async () => {
-	expect(isAgyCommand('env FOO=1 agy --model gemini-4')).toBe(true);
-	expect(isAgyCommand('/usr/bin/env -u BAR FOO=1 /usr/local/bin/agy')).toBe(
-		true,
-	);
-	expect(isAgyCommand('FOO=1 agy')).toBe(true);
-	expect(isAgyCommand('env FOO=agy codex')).toBe(false);
-	expect(isAgyCommand('codex --prompt agy')).toBe(false);
-
 	const {tree: workerTree} = worktree();
 	await installAgentRules('env FOO=1 agy --flag', workerTree, {
 		space: 'STA-42',

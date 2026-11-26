@@ -255,7 +255,14 @@ test('space_send sends its text on stdin and prepends [from sender] except on co
 	expect(
 		call('space_send', {key: 'STA-2', text: 'hello'}, {sender: 'STA-1'}).stdin,
 	).toBe('[from STA-1] hello');
-	for (const raw of ['/clear', '$skill', '!ls', '#note']) {
+	for (const raw of [
+		'/clear',
+		'/do-with-plan STA-1',
+		' /compact',
+		'$skill',
+		'!ls',
+		'#note',
+	]) {
 		expect(
 			call('space_send', {key: 'STA-2', text: raw}, {sender: 'STA-1'}).stdin,
 		).toBe(raw);

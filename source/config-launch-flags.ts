@@ -29,8 +29,8 @@ export function builtinAgentDefaults(
 	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
 ): BuiltinAgentDefaults {
 	if (isClaudeAgentProfile(definition)) return BUILTIN_AGENTS['claude']!;
-	const word = unwrappedCommandWord(definition.command);
-	const name = word === null ? '' : path.basename(word);
+	const word = unwrapCommand(definition.command)?.word;
+	const name = word ? path.basename(word) : '';
 	return name !== 'claude' && Object.hasOwn(BUILTIN_AGENTS, name)
 		? BUILTIN_AGENTS[name]!
 		: {};
@@ -195,47 +195,30 @@ export function unwrapCommand(command: string): UnwrappedCommand | null {
 	const tokens = command.trim().split(/\s+/).filter(Boolean);
 	const env = new Map<string, string>();
 	const unset: string[] = [];
-	const recordAssignment = (token: string) => {
-		const eq = token.indexOf('=');
-		env.set(token.slice(0, eq), stripOuterQuotes(token.slice(eq + 1)));
-	};
+	let inEnv = false;
 
-	const consumeEnvFlags = (start: number): number => {
-		let cursor = start;
-		while (cursor < tokens.length) {
-			const arg = tokens[cursor]!;
-			if (ENV_ARG_FLAGS.has(arg)) {
-				const target = tokens[cursor + 1];
-				if ((arg === '-u' || arg === '--unset') && target) {
+	for (let index = 0; index < tokens.length; index++) {
+		const token = tokens[index]!;
+		if (ENV_ASSIGNMENT.test(token)) {
+			const eq = token.indexOf('=');
+			env.set(token.slice(0, eq), stripOuterQuotes(token.slice(eq + 1)));
+			continue;
+		}
+
+		if (inEnv && token.startsWith('-')) {
+			if (ENV_ARG_FLAGS.has(token)) {
+				const target = tokens[++index];
+				if ((token === '-u' || token === '--unset') && target) {
 					unset.push(target);
 					env.delete(target);
 				}
-
-				cursor += 2;
-			} else if (arg.startsWith('-')) {
-				cursor++;
-			} else if (ENV_ASSIGNMENT.test(arg)) {
-				recordAssignment(arg);
-				cursor++;
-			} else {
-				break;
 			}
-		}
 
-		return cursor;
-	};
-
-	let index = 0;
-	while (index < tokens.length) {
-		const token = tokens[index]!;
-		if (ENV_ASSIGNMENT.test(token)) {
-			recordAssignment(token);
-			index++;
 			continue;
 		}
 
 		if (path.posix.basename(token) === 'env') {
-			index = consumeEnvFlags(index + 1);
+			inEnv = true;
 			continue;
 		}
 
@@ -245,11 +228,7 @@ export function unwrapCommand(command: string): UnwrappedCommand | null {
 	return null;
 }
 
-export function unwrappedCommandWord(command: string): string | null {
-	return unwrapCommand(command)?.word ?? null;
-}
-
 export function isAgyCommand(command: string): boolean {
-	const word = unwrappedCommandWord(command);
-	return word !== null && path.posix.basename(word) === 'agy';
+	const word = unwrapCommand(command)?.word;
+	return word !== undefined && path.posix.basename(word) === 'agy';
 }

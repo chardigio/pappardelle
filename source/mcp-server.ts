@@ -9,10 +9,9 @@ import path from 'node:path';
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js';
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
-	getAgentProfile,
 	getMainRepoRoot,
-	getNamedAgentProfile,
 	getRepoName,
+	getSpaceAgentProfile,
 	readConfig,
 	SOUS_CHEF_FILE,
 	SOUS_CHEF_NAME,
@@ -242,15 +241,7 @@ export function callerIsAgy(options: {
 }): boolean {
 	const {caller, config, spaceState} = options;
 	if (caller.kind === 'none' || !config) return false;
-	const state = spaceState?.read(caller.key);
-	const profile = state?.agentProfile?.name
-		? getNamedAgentProfile(
-				config,
-				state.agentProfile.name,
-				state.issueTitle,
-				state.profile,
-			)
-		: getAgentProfile(config, state?.issueTitle, state?.profile);
+	const profile = getSpaceAgentProfile(config, spaceState?.read(caller.key));
 	return isAgyCommand(profile.command);
 }
 

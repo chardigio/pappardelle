@@ -100,32 +100,6 @@ test('space_send prepends [from main] only when sender is main, and leaves unkno
 	]);
 });
 
-test('space_send skips the [from ...] header for slash, skill, shell, and note commands', async () => {
-	const {client, calls} = await connect();
-	for (const text of [
-		'/clear',
-		'/do-with-plan STA-1',
-		' /compact',
-		'$skill',
-		'!git status',
-		'# remember this',
-	]) {
-		await client.callTool({
-			name: 'space_send',
-			arguments: {key: 'STA-2', text},
-		});
-	}
-
-	expect(calls.map(call => call.stdin)).toStrictEqual([
-		'/clear',
-		'/do-with-plan STA-1',
-		' /compact',
-		'$skill',
-		'!git status',
-		'# remember this',
-	]);
-});
-
 test('agy workspace instructions teach space_send instead of SendMessage', () => {
 	const worker = workspaceInstructions('STA-1', 'repo', {
 		sousChef: true,

@@ -427,6 +427,18 @@ function parseAgyDialog(lines: string[]): boolean {
 	return footerAt !== -1 && isAgyBottomAnchored(lines, footerAt);
 }
 
+function questionBlock(
+	lines: readonly string[],
+	before: number,
+	edge: (line: string) => boolean,
+): {at: number; lines: string[]} | null {
+	const end = lastIndex(lines.slice(0, before), line => line.trim() !== '');
+	if (end === -1) return null;
+	let at = end;
+	while (at > 0 && !edge(lines[at - 1]!)) at--;
+	return {at, lines: lines.slice(at, end + 1)};
+}
+
 function parseAgyQuestion(lines: string[]): QuestionDialog | null {
 	const footerAt = lastIndex(
 		lines,
@@ -438,22 +450,13 @@ function parseAgyQuestion(lines: string[]): QuestionDialog | null {
 		/^\s*(?:>\s*)?1\.\s/.test(line),
 	);
 	if (firstOptionAt === -1) return null;
-	const questionEnd = lastIndex(
-		lines.slice(0, firstOptionAt),
-		line => line.trim() !== '',
+	const block = questionBlock(
+		lines,
+		firstOptionAt,
+		line => line.trim() === '' || RULE.test(line),
 	);
-	if (questionEnd === -1) return null;
-	let questionAt = questionEnd;
-	while (
-		questionAt > 0 &&
-		lines[questionAt - 1]!.trim() !== '' &&
-		!RULE.test(lines[questionAt - 1]!)
-	) {
-		questionAt--;
-	}
-
-	const question = lines
-		.slice(questionAt, questionEnd + 1)
+	if (!block) return null;
+	const question = block.lines
 		.map(line => line.trim())
 		.join(' ')
 		.replace(/^Question \d+\/\d+:\s*/, '');
@@ -511,13 +514,13 @@ function parseQuestion(lines: string[]): QuestionDialog | null {
 		lastIndex(lines.slice(0, index), line => line.trim() !== '');
 	// The question wraps onto as many lines as it needs, each drawn with a bar
 	// down its left by recent Claude versions.
-	const questionEnd = above(firstOptionAt);
-	let questionAt = questionEnd;
-	const edge = (line: string) =>
-		line.trim() === '' || RULE.test(line) || TAB_BAR.test(line);
-	while (questionAt > 0 && !edge(lines[questionAt - 1]!)) questionAt--;
-	const question = lines
-		.slice(Math.max(questionAt, 0), questionEnd + 1)
+	const block = questionBlock(
+		lines,
+		firstOptionAt,
+		line => line.trim() === '' || RULE.test(line) || TAB_BAR.test(line),
+	);
+	const questionAt = block?.at ?? 0;
+	const question = (block?.lines ?? [])
 		.map(line => line.replace(/^│ ?/, '').trim())
 		.join(' ');
 	// The Submit step lists the answers between the tab bar and its question.
@@ -670,7 +673,7 @@ export type AgyQuotaParseResult =
 	| {kind: 'available'}
 	| {kind: 'unparsed'};
 
-export function parseAgyQuotaResult(
+export function parseAgyQuota(
 	output: string,
 	now: Date,
 	model?: string,
@@ -700,15 +703,6 @@ export function parseAgyQuotaResult(
 	}
 
 	return {kind: 'limited', limit: best};
-}
-
-export function parseAgyQuota(
-	output: string,
-	now: Date,
-	model?: string,
-): UsageLimit | null {
-	const result = parseAgyQuotaResult(output, now, model);
-	return result.kind === 'limited' ? result.limit : null;
 }
 
 const AGY_LIMIT_NOTICE =
@@ -851,9 +845,11 @@ function isPlaceholderStyle(text: string, glyph: ComposerGlyph): boolean {
 	);
 }
 
-function parseComposer(raw: string[], lines: string[]): string | null {
-	const input = composerLine(lines, raw);
-	if (!input) return null;
+function parseComposer(
+	raw: string[],
+	lines: string[],
+	input: {at: number; glyph: ComposerGlyph},
+): string {
 	const {at, glyph} = input;
 	// Claude and Codex draw their placeholder dim (SGR 2); agy draws it grey
 	// (SGR 90 in 16-color themes, or 256-color/truecolor grey such as 38;5;246).
@@ -924,13 +920,13 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 	// rows can look like one: a highlighted `❯ 4. Chat about this` under a rule,
 	// a `›` message echo left in the transcript, or Codex's highlighted `›`
 	// option.
-	const composer =
+	const input =
 		codexDialog || agyDialog || permission || question
 			? null
-			: parseComposer(raw, lines);
+			: composerLine(lines, raw);
+	const composer = input ? parseComposer(raw, lines, input) : null;
 	// Claude Code shows a suggested next prompt as the placeholder. In plain
 	// text it reads as typed, so a supervisor would take it for a draft.
-	const input = composer === null ? null : composerLine(lines, raw);
 	if (input && composer === '') {
 		const line = lines[input.at]!;
 		lines[input.at] = line.slice(0, line.indexOf(input.glyph) + 1);

@@ -2160,6 +2160,26 @@ export function getNamedAgentProfile(
 	};
 }
 
+/**
+ * The agent profile a space is running: the one last launched in it (if still
+ * defined in config), else the default resolved for its workspace profile.
+ */
+export function getSpaceAgentProfile(
+	config: PappardelleConfig,
+	state?: {
+		agentProfile?: {name: string};
+		issueTitle?: string;
+		profile?: string;
+	} | null,
+): ResolvedAgentProfile {
+	const launched = state?.agentProfile?.name;
+	const name =
+		launched && checkAgentProfile(config, launched).kind === 'known'
+			? launched
+			: resolveAgentProfileName(config, state?.issueTitle, state?.profile);
+	return getNamedAgentProfile(config, name, state?.issueTitle, state?.profile);
+}
+
 export function resolveAgentProfileName(
 	config: PappardelleConfig,
 	issueTitle?: string,

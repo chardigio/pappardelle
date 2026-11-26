@@ -6,7 +6,7 @@ import {realpathSync} from 'node:fs';
 import {homedir, tmpdir, userInfo} from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
-import {inferAgyModel, parseAgyQuotaResult} from './agent-screen.ts';
+import {inferAgyModel, parseAgyQuota} from './agent-screen.ts';
 import type {AgentStateReport} from './agent-state.ts';
 import {classifyCommand, defaultClassifierRun} from './approve-classifier.ts';
 import type {ApprovalPolicy} from './approve-policy.ts';
@@ -14,13 +14,12 @@ import {newHoldId} from './holds.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {spaceStatusKey} from './claude-status.ts';
 import {
-	getAgentProfile,
 	getMainRepoRoot,
-	getNamedAgentProfile,
 	getRepoName,
+	getSpaceAgentProfile,
 	readConfig,
 } from './config.ts';
-import {isAgyCommand, unwrapCommand} from './config-launch-flags.ts';
+import {unwrapCommand} from './config-launch-flags.ts';
 import {selfLaunchArgs} from './runtime.ts';
 import {rearmMissingTimers, type ScheduleDao} from './schedule.ts';
 import {
@@ -53,7 +52,6 @@ import {
 const log = createLogger('supervise');
 const execFileAsync = promisify(execFile);
 
-export const AGY_QUOTA_CACHE_MS = 60_000;
 export const AGY_QUOTA_TIMEOUT_MS = 10_000;
 
 /**
@@ -102,76 +100,40 @@ function expandLeadingTilde(command: string, env: NodeJS.ProcessEnv): string {
 	return path.join(home, command.slice(2));
 }
 
-export function createAgyQuotaReader({
-	run = defaultQuotaRunner,
-	now,
-	env = process.env,
-	cacheTtlMs = AGY_QUOTA_CACHE_MS,
-	timeoutMs = AGY_QUOTA_TIMEOUT_MS,
-}: {
-	run?: QuotaCommandRunner;
-	now: () => Date;
-	env?: NodeJS.ProcessEnv;
-	cacheTtlMs?: number;
-	timeoutMs?: number;
-}): (
+export async function readAgyQuota(
 	command: string,
-	options?: {
+	options: {
 		env?: Record<string, string>;
 		unset?: readonly string[];
 		model?: string;
-	},
-) => Promise<AgyQuotaResult> {
-	const cache = new Map<string, {result: QuotaCommandResult; at: number}>();
-	const inflight = new Map<string, Promise<QuotaCommandResult>>();
-
-	const fetchOutput = async (
-		executable: string,
-		spawnEnv: NodeJS.ProcessEnv,
-		cacheKey: string,
-	): Promise<QuotaCommandResult> => {
-		const cached = cache.get(cacheKey);
-		const currentMs = now().getTime();
-		if (cached && currentMs - cached.at < cacheTtlMs) {
-			return cached.result;
-		}
-
-		let pending = inflight.get(cacheKey);
-		if (!pending) {
-			pending = run(executable, ['-p', '/quota'], {
-				env: spawnEnv,
-				timeoutMs,
-			})
-				.then(result => {
-					cache.set(cacheKey, {result, at: now().getTime()});
-					return result;
-				})
-				.finally(() => {
-					inflight.delete(cacheKey);
-				});
-			inflight.set(cacheKey, pending);
-		}
-
-		return pending;
-	};
-
-	return async (command: string, options = {}) => {
-		const unset = new Set(options.unset ?? []);
-		const spawnEnv = Object.fromEntries(
-			Object.entries(sanitizedAgyEnv({...env, ...options.env})).filter(
-				([name]) => !unset.has(name),
-			),
-		);
-		const executable = expandLeadingTilde(command, spawnEnv);
-		const cacheKey = JSON.stringify([
-			executable,
-			Object.entries(options.env ?? {}).sort(([a], [b]) => a.localeCompare(b)),
-			options.unset ?? [],
-		]);
-		const result = await fetchOutput(executable, spawnEnv, cacheKey);
-		if (result.kind === 'error') return {kind: 'error'};
-		return parseAgyQuotaResult(result.output, now(), options.model);
-	};
+		baseEnv?: NodeJS.ProcessEnv;
+		now?: () => Date;
+		run?: QuotaCommandRunner;
+		timeoutMs?: number;
+	} = {},
+): Promise<AgyQuotaResult> {
+	const {
+		env,
+		unset = [],
+		model,
+		baseEnv = process.env,
+		now = () => new Date(),
+		run = defaultQuotaRunner,
+		timeoutMs = AGY_QUOTA_TIMEOUT_MS,
+	} = options;
+	const dropped = new Set(unset);
+	const spawnEnv = Object.fromEntries(
+		Object.entries(sanitizedAgyEnv({...baseEnv, ...env})).filter(
+			([name]) => !dropped.has(name),
+		),
+	);
+	const executable = expandLeadingTilde(command, spawnEnv);
+	const result = await run(executable, ['-p', '/quota'], {
+		env: spawnEnv,
+		timeoutMs,
+	});
+	if (result.kind === 'error') return {kind: 'error'};
+	return parseAgyQuota(result.output, now(), model);
 }
 
 function agyQuotaTargetForSpace(
@@ -185,19 +147,11 @@ function agyQuotaTargetForSpace(
 	model: string | undefined;
 } | null {
 	if (report.app && report.app !== 'antigravity') return null;
-	const state = spaceState.read(key);
 	const load = readConfig();
 	if (load.kind === 'valid') {
-		const profile = state?.agentProfile?.name
-			? getNamedAgentProfile(
-					load.config,
-					state.agentProfile.name,
-					state.issueTitle,
-					state.profile,
-				)
-			: getAgentProfile(load.config, state?.issueTitle, state?.profile);
+		const profile = getSpaceAgentProfile(load.config, spaceState.read(key));
 		const unwrapped = unwrapCommand(profile.command);
-		if (unwrapped && isAgyCommand(profile.command)) {
+		if (unwrapped && path.posix.basename(unwrapped.word) === 'agy') {
 			return {
 				command: unwrapped.word,
 				env: {...profile.env, ...unwrapped.env},
@@ -373,7 +327,6 @@ export function defaultSuperviseDeps(
 	>,
 ): SuperviseDeps {
 	const now = () => new Date();
-	const quotaReader = createAgyQuotaReader({now});
 	return {
 		repo: getRepoName,
 		identities: spaceIdentities,
@@ -389,10 +342,11 @@ export function defaultSuperviseDeps(
 		async readAgyQuota(key, report) {
 			const target = agyQuotaTargetForSpace(key, report, spaceState);
 			return target
-				? quotaReader(target.command, {
+				? readAgyQuota(target.command, {
 						env: target.env,
 						unset: target.unset,
 						model: target.model,
+						now,
 					})
 				: {kind: 'not_agy'};
 		},

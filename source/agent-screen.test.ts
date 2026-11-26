@@ -4,7 +4,6 @@ import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
 import {
 	parseAgentScreen,
 	parseAgyQuota,
-	parseAgyQuotaResult,
 	parseResetTime,
 } from './agent-screen.ts';
 
@@ -808,16 +807,22 @@ test('parseResetTime parses ISO timestamps and parseAgyQuota filters by model fa
 			'gemini-4-hydrogen-medium',
 		),
 	).toStrictEqual({
-		resetText: '2026-11-24T09:10:11Z',
-		resetAt: new Date('2026-11-24T09:10:11Z'),
-		passed: false,
+		kind: 'limited',
+		limit: {
+			resetText: '2026-11-24T09:10:11Z',
+			resetAt: new Date('2026-11-24T09:10:11Z'),
+			passed: false,
+		},
 	});
 	expect(
 		parseAgyQuota(depleted, new Date('2026-11-24T09:15:00Z')),
 	).toStrictEqual({
-		resetText: '2026-11-24T09:10:11Z',
-		resetAt: new Date('2026-11-24T09:10:11Z'),
-		passed: true,
+		kind: 'limited',
+		limit: {
+			resetText: '2026-11-24T09:10:11Z',
+			resetAt: new Date('2026-11-24T09:10:11Z'),
+			passed: true,
+		},
 	});
 
 	// Depleted Claude/GPT quota must not falsely block a Gemini space (and vice versa).
@@ -831,46 +836,57 @@ test('parseResetTime parses ISO timestamps and parseAgyQuota filters by model fa
 			new Date('2026-11-24T08:00:00Z'),
 			'gemini-4-hydrogen-medium',
 		),
-	).toBe(null);
+	).toStrictEqual({kind: 'available'});
 	expect(
 		parseAgyQuota(
 			claudeOnlyDepleted,
 			new Date('2026-11-24T08:00:00Z'),
 			'claude-sonnet-4-6',
-		)?.resetText,
-	).toBe('2026-11-24T09:10:11Z');
+		),
+	).toMatchObject({
+		kind: 'limited',
+		limit: {resetText: '2026-11-24T09:10:11Z'},
+	});
 	expect(
-		parseAgyQuota(claudeOnlyDepleted, new Date('2026-11-24T08:00:00Z'), 'gpt-5')
-			?.resetText,
-	).toBe('2026-11-24T09:10:11Z');
+		parseAgyQuota(
+			claudeOnlyDepleted,
+			new Date('2026-11-24T08:00:00Z'),
+			'gpt-5',
+		),
+	).toMatchObject({
+		kind: 'limited',
+		limit: {resetText: '2026-11-24T09:10:11Z'},
+	});
 
 	const bothDepleted = [
 		'Gemini Models\tWeekly Limit Remaining\t0%\t2026-12-01T04:14:49Z',
 		'Gemini Models\tFive Hour Limit Remaining\t0%\t2026-11-24T09:10:11Z',
 	].join('\n');
 	expect(
-		parseAgyQuota(bothDepleted, new Date('2026-11-24T08:00:00Z'))?.resetText,
-	).toBe('2026-12-01T04:14:49Z');
+		parseAgyQuota(bothDepleted, new Date('2026-11-24T08:00:00Z')),
+	).toMatchObject({
+		kind: 'limited',
+		limit: {resetText: '2026-12-01T04:14:49Z'},
+	});
 
 	const remaining = [
 		'Gemini Models\tWeekly Limit Remaining\t98%\t2026-12-01T04:14:49Z',
 		'Gemini Models\tFive Hour Limit Remaining\t97%\t2026-11-24T09:14:49Z',
 	].join('\n');
-	expect(parseAgyQuota(remaining, NOW)).toBe(null);
-	expect(parseAgyQuotaResult(remaining, NOW)).toStrictEqual({
-		kind: 'available',
-	});
-	expect(parseAgyQuotaResult('garbage output', NOW)).toStrictEqual({
+	expect(parseAgyQuota(remaining, NOW)).toStrictEqual({kind: 'available'});
+	expect(parseAgyQuota('garbage output', NOW)).toStrictEqual({
 		kind: 'unparsed',
 	});
-	expect(parseAgyQuotaResult('', NOW)).toStrictEqual({kind: 'unparsed'});
-	expect(parseAgyQuota('garbage output', NOW)).toBe(null);
+	expect(parseAgyQuota('', NOW)).toStrictEqual({kind: 'unparsed'});
 	expect(
 		parseAgyQuota(
 			'Gemini Models\tFive Hour Limit Remaining\t0%\tnot-a-timestamp',
 			NOW,
 		),
-	).toStrictEqual({resetText: 'not-a-timestamp', resetAt: null, passed: false});
+	).toStrictEqual({
+		kind: 'limited',
+		limit: {resetText: 'not-a-timestamp', resetAt: null, passed: false},
+	});
 });
 
 test('agy Out of credits footer and non-agy/stale notices are ignored, while live agy quota notices match', () => {
@@ -924,10 +940,6 @@ test('agy Out of credits footer and non-agy/stale notices are ignored, while liv
 		NOW,
 	);
 	expect(codexOutput.usageLimit).toBe(null);
-	expect(screen('codex-draft').usageLimit).toBe(null);
-	expect(screen('codex-limit-narrow').usageLimit).toMatchObject({
-		resetText: 'Nov 14th, 2026 7:50 AM',
-	});
 	const codexWithRateLimit = parseAgentScreen(
 		[
 			'■ rate limit in output',
