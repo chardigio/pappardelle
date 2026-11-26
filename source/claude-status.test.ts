@@ -304,6 +304,7 @@ contractTest('a reported status is read back, with its tool', async s => {
 	expect(await s.daos.claudeStatus.read('STA-1')).toStrictEqual({
 		status: 'running_tool',
 		tool: 'Bash',
+		lastUpdate: state.lastUpdate,
 	});
 	expect(await s.daos.claudeStatus.readState('STA-1')).toStrictEqual({
 		kind: 'state',
@@ -323,6 +324,7 @@ contractTest(
 		expect(await s.daos.claudeStatus.read('STA-1')).toStrictEqual({
 			status: 'waiting_for_input',
 			tool: undefined,
+			lastUpdate: state.lastUpdate,
 		});
 		expect(await s.daos.claudeStatus.readState('STA-1')).toStrictEqual({
 			kind: 'state',
@@ -347,6 +349,7 @@ contractTest(
 			expect(await s.daos.claudeStatus.read('STA-1')).toStrictEqual({
 				status,
 				tool: undefined,
+				lastUpdate: stale + 60_000,
 			});
 		}
 
@@ -357,6 +360,7 @@ contractTest(
 		expect(await s.daos.claudeStatus.read('STA-1')).toStrictEqual({
 			status: 'waiting_for_input',
 			tool: undefined,
+			lastUpdate: 0,
 		});
 		// The record itself is not aged: `pappardelle spaces` reports it raw.
 		const stored = await s.daos.claudeStatus.readState('STA-1');
@@ -379,11 +383,13 @@ contractTest(
 contractTest(
 	'a branch with a slash is read under its flattened key',
 	async s => {
-		await writeClaudeStatus(s, session('repo-alice-STA-1', 'processing'));
+		const state = session('repo-alice-STA-1', 'processing');
+		await writeClaudeStatus(s, state);
 		const key = await s.daos.claudeStatus.readableKey('repo', 'alice/STA-1');
 		expect(await s.daos.claudeStatus.read(key)).toStrictEqual({
 			status: 'processing',
 			tool: undefined,
+			lastUpdate: state.lastUpdate,
 		});
 	},
 );

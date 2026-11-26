@@ -195,6 +195,10 @@ const AGY_DIALOG_LABELS: Record<AgyDialogKind, string> = {
 	subagent_manage: 'Subagent approval manage view',
 };
 
+function agyDialogLabel(dialog: AgyDialogKind): string {
+	return AGY_DIALOG_LABELS[dialog];
+}
+
 export function formatState(report: AgentStateReport): string {
 	const lines = [
 		`${report.key}: ${report.state}${report.app ? ` (${report.app})` : ''}`,
@@ -218,7 +222,7 @@ export function formatState(report: AgentStateReport): string {
 	if (report.codexDialog)
 		lines.push(`Codex dialog: ${report.codexDialog.title}`);
 	else if (report.agyDialog)
-		lines.push(`Dialog: ${AGY_DIALOG_LABELS[report.agyDialog]}`);
+		lines.push(`Dialog: ${agyDialogLabel(report.agyDialog)}`);
 	else if (
 		report.status?.status === 'blocked' &&
 		report.status.message === 'Approve plan'
@@ -355,7 +359,12 @@ export type SpaceChange = {
 } & Partial<
 	Pick<
 		AgentStateReport,
-		'permission' | 'question' | 'codexDialog' | 'usageLimit' | 'composer'
+		| 'permission'
+		| 'question'
+		| 'codexDialog'
+		| 'agyDialog'
+		| 'usageLimit'
+		| 'composer'
 	>
 >;
 
@@ -369,6 +378,7 @@ function describeChange(report: AgentStateReport, from: AgentState | null) {
 		'permission',
 		'question',
 		'codexDialog',
+		'agyDialog',
 		'usageLimit',
 		'composer',
 	] as const) {
@@ -496,6 +506,8 @@ function formatChange(change: SpaceChange): string {
 
 	if (change.codexDialog)
 		lines.push(`  Codex dialog: ${change.codexDialog.title}`);
+	if (change.agyDialog)
+		lines.push(`  Dialog: ${agyDialogLabel(change.agyDialog)}`);
 	if (change.composer) lines.push(`  Composer: ${change.composer}`);
 	return lines.join('\n');
 }
@@ -520,6 +532,7 @@ function promptShown(report: AgentStateReport): string {
 		report.question?.textOption,
 		report.codexDialog?.title,
 		report.codexDialog?.selected,
+		report.agyDialog,
 	]);
 }
 

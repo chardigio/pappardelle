@@ -85,6 +85,8 @@ export type AgentStateReport = {
 export type AgentPaneState = {
 	dead?: boolean;
 	currentCommand?: string | null;
+	/** False when a Claude hook record predates the tmux session's creation. */
+	hookFresh?: boolean;
 };
 
 const SHELL_COMMANDS = new Set([
@@ -144,11 +146,15 @@ export function classifyAgent(
 	if (screen.usageLimit) return 'usage_limit';
 	if (status?.status === 'working' || screen.spinner) return 'working';
 	if (screen.composer) return 'draft';
-	// Require a prior status source so a newly started shell (or unmonitored stub)
-	// running before the agent launches does not report as exited.
+	// Require a prior status source from this session so a newly started shell
+	// (including a respawned Claude space with a stale hook on disk) or an
+	// unmonitored stub does not report as exited before the agent launches.
+	const hasLiveSource =
+		status?.source === 'osc' ||
+		(status?.source === 'hook' && pane?.hookFresh !== false);
 	if (
 		screen.composer === null &&
-		Boolean(status?.source) &&
+		hasLiveSource &&
 		isShellCommand(pane?.currentCommand)
 	) {
 		return 'exited';
@@ -214,6 +220,7 @@ export type PinnedStatusPaneInfo = {
 	pane: StatusPane | null;
 	dead: boolean;
 	currentCommand: string | undefined;
+	sessionCreatedAtMs: number | undefined;
 };
 
 /**
@@ -231,21 +238,26 @@ export function pinnedStatusPaneInfo(
 		'-t',
 		exactSessionTarget(session),
 		'-F',
-		`${AGENT_PANE_FORMAT}\t#{pane_current_command}`,
+		`${AGENT_PANE_FORMAT}\t#{pane_current_command}\t#{session_created}`,
 	]);
 	if (!listing) return null;
 	const row = selectedStatusPaneRow(listing.split('\n').filter(Boolean));
 	if (!row) return null;
-	const commandSeparator = row.lastIndexOf('\t');
-	if (commandSeparator === -1) return null;
-	const paneRow = row.slice(0, commandSeparator);
+	const fields = row.split('\t');
+	if (fields.length < 6) return null;
+	const paneRow = fields.slice(0, 5).join('\t');
 	const pane = parseStatusPane(paneRow, socket);
 	// On tmux 3.8+, an unmonitored dead remain-on-exit pane has an empty
 	// pane_pid and empty marker, so parseStatusPane returns null; read
 	// pane_dead directly from the row so dead panes still classify as exited.
-	const dead = pane?.dead ?? paneRow.split('\t')[2] === '1';
-	const currentCommand = row.slice(commandSeparator + 1) || undefined;
-	return {pane, dead, currentCommand};
+	const dead = pane?.dead ?? fields[2] === '1';
+	const currentCommand = fields[5] || undefined;
+	const rawCreated = fields[6];
+	const sessionCreatedAtMs =
+		rawCreated !== undefined && /^\d+$/.test(rawCreated)
+			? Number(rawCreated) * 1000
+			: undefined;
+	return {pane, dead, currentCommand, sessionCreatedAtMs};
 }
 
 /**
@@ -376,10 +388,20 @@ export async function readAgentState(
 	const paneInfo =
 		screen && session ? pinnedStatusPaneInfo(session, runner) : null;
 	const pane = paneInfo?.pane ?? null;
-	const status = await readAgentStatus(key, pane, deps);
+	const hook = await deps.readHook(deps.hookKey);
+	const status = mergeProgramStatus(
+		hook,
+		pane ? await deps.readSnapshot(key, pane) : null,
+		pane,
+	);
+	const hookFresh =
+		hook?.lastUpdate !== undefined && paneInfo?.sessionCreatedAtMs !== undefined
+			? hook.lastUpdate >= paneInfo.sessionCreatedAtMs
+			: true;
 	const state = classifyAgent(status, screen, {
 		dead: paneInfo?.dead,
 		currentCommand: paneInfo?.currentCommand,
+		hookFresh,
 	});
 	const live = state !== 'exited';
 	return {

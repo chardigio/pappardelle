@@ -74,6 +74,7 @@ function seenAs(report: AgentStateReport): string {
 				]
 			: null,
 		report.codexDialog?.title ?? null,
+		report.agyDialog ?? null,
 	].filter(part => part !== null);
 	if (prompt.length === 0) return report.state;
 	const hash = createHash('sha256')

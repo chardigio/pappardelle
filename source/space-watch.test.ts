@@ -116,6 +116,10 @@ function spaces(
 			await runSuperviseCommand(['watch', ...argv, '--json'], deps);
 			return JSON.parse(out.at(-1)!) as WatchResult;
 		},
+		async watchText(...argv: string[]): Promise<string> {
+			await runSuperviseCommand(['watch', ...argv], deps);
+			return out.at(-1)!;
+		},
 	};
 }
 
@@ -302,4 +306,29 @@ test('a space whose agent exited wakes a blocked watch once and stays in the cur
 	);
 	expect(next.result).toBe('timed_out');
 	expect(next.changes).toStrictEqual([]);
+});
+
+test('watch labels agy dialogs in text and treats a new agy dialog as a change', async () => {
+	const h = spaces({'STA-1': fixture('agy-trust')}, ['STA-1']);
+	const text = await h.watchText('--until', 'blocked');
+	expect(text).toContain('STA-1: new -> dialog');
+	expect(text).toContain('  Dialog: Trust this folder?');
+
+	const first = await h.watch('--until', 'blocked');
+	expect(first.changes[0]).toMatchObject({
+		key: 'STA-1',
+		to: 'dialog',
+		agyDialog: 'trust',
+	});
+
+	// Transitioning directly to a different agy dialog still wakes watch.
+	h.screens['STA-1'] = fixture('agy-subagent-manage');
+	const next = await h.watch('--until', 'blocked', '--since', first.cursor);
+	expect(next.result).toBe('changed');
+	expect(next.changes[0]).toMatchObject({
+		key: 'STA-1',
+		from: 'dialog',
+		to: 'dialog',
+		agyDialog: 'subagent_manage',
+	});
 });

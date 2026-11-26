@@ -191,6 +191,29 @@ test('a shell foreground with no prior agent status source does not classify as 
 		{paneListing: '11\t%1\t%1\t42\t0\t1\t42.marker\tzsh\n'},
 	);
 	expect(unknownHook.state).toBe('idle');
+
+	// A respawned Claude space still starting in its shell has an older hook
+	// record on disk (lastUpdate < session_created): do not classify as exited.
+	const sessionCreatedSeconds = 1_764_162_700;
+	const staleHook = await state(
+		'',
+		{status: 'ended', lastUpdate: sessionCreatedSeconds * 1000 - 1000},
+		{
+			paneListing: `11\t%1\t%1\t42\t0\t1\t42.marker\tbash\t${sessionCreatedSeconds}\n`,
+		},
+	);
+	expect(staleHook.state).toBe('idle');
+
+	// Once Claude has reported in this session (lastUpdate >= session_created),
+	// returning to the shell classifies as exited.
+	const freshHook = await state(
+		'',
+		{status: 'ended', lastUpdate: sessionCreatedSeconds * 1000},
+		{
+			paneListing: `11\t%1\t%1\t42\t0\t1\t42.marker\tbash\t${sessionCreatedSeconds}\n`,
+		},
+	);
+	expect(freshHook.state).toBe('exited');
 });
 
 test('agy trust, /artifact review, and plan-approval OSC blocked states classify accurately', () => {
