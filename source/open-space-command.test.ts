@@ -13,6 +13,7 @@ import {createStateDaos} from './state-daos.ts';
 import {closeStateDb, stateDbPath, statusSocketPath} from './state-db.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {isAlive} from '../test/helpers/processes.ts';
 import {sendHookEvent, serveTestDaemon} from '../test/helpers/status-daemon.ts';
 import {until} from '../test/helpers/wait.ts';
 
@@ -574,11 +575,7 @@ test('CLI handles a broken stdout pipe and stops idow before returning failure',
 	child.stdout.once('data', () => child.stdout.destroy());
 	const [code] = await once(child, 'exit');
 	const pid = Number(fs.readFileSync(pidFile, 'utf8'));
-	let idowAlive = false;
-	try {
-		process.kill(pid, 0);
-		idowAlive = true;
-	} catch {}
+	const idowAlive = isAlive(pid);
 	if (idowAlive) process.kill(pid, 'SIGKILL');
 	await closed;
 	expect(code).toBe(1);
