@@ -1,15 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {idowIdentities} from '../test/helpers/state.ts';
-import {unreachable} from '../test/helpers/unreachable.ts';
+import {superviseDeps} from '../test/helpers/supervise-deps.ts';
 import {test, expect} from 'bun:test';
 import {parseSuperviseArgs, SuperviseUsageError} from './supervise-args.ts';
-import {
-	runSuperviseCommand,
-	type SuperviseDeps,
-	type WatchResult,
-} from './supervise-command.ts';
-import type {SuperviseEntry} from './supervise-log.ts';
+import {runSuperviseCommand, type WatchResult} from './supervise-command.ts';
 import {decodeCursor, encodeCursor} from './space-watch.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
@@ -52,8 +47,6 @@ function spaces(
 	identified?: string[],
 ) {
 	const screens = {...initial};
-	const logged: SuperviseEntry[] = [];
-	const out: string[] = [];
 	let clock = new Date(2026, 10, 9, 12, 0).getTime();
 	let between: Array<() => void> = [];
 	const runner: OuterTmuxRunner = args => {
@@ -78,18 +71,13 @@ function spaces(
 		return {status: 1, stdout: ''};
 	};
 
-	const deps: SuperviseDeps = {
-		repo: () => 'repo',
+	const {deps, logged, out} = superviseDeps({
 		identities: idowIdentities(
 			'repo',
 			() => identified ?? Object.keys(screens),
 		),
 		resolveKey: raw => (/^\d+$/.test(raw) ? `STA-${raw}` : raw),
-		hookKey: async key => key,
-		readHook: async () => ({status: 'unknown'}),
-		readSnapshot: async () => null,
 		runner,
-		serverRunner: () => ({status: 1, stdout: ''}),
 		now: () => new Date(clock),
 		async sleep(ms) {
 			clock += ms;
@@ -98,24 +86,8 @@ function spaces(
 			clock += ms;
 			between.shift()?.();
 		},
-		send: async () => 'sent',
-		sendKeys: () => 'sent',
-		typeText: () => 'sent',
-		readHookState: () => unreachable('watch never reads the stored hook state'),
-		holds: () => unreachable('watch never reads the holds'),
-		newHoldId: () => unreachable('watch never makes a hold'),
-		classify: () => unreachable('watch never classifies a prompt'),
-		policy: () => unreachable('watch never reads the approval policy'),
-		store: () => unreachable('watch never reads the schedules'),
-		timers: () => unreachable('watch never touches the timers'),
 		caller: '9',
-		readStdin: () => undefined,
-		out: text => out.push(text),
-		err() {},
-		log(_repo, _caller, entry) {
-			logged.push(entry);
-		},
-	};
+	});
 	return {
 		screens,
 		logged,
