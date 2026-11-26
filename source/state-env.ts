@@ -10,9 +10,10 @@ export type StateEnv = {
 	statusSocket: string | undefined;
 };
 
+// An empty value means unset, as it does to install.sh and the hooks.
 export function readStateEnv(env: NodeJS.ProcessEnv = process.env): StateEnv {
 	return {
-		dbPath: env['PAPPARDELLE_STATE_DB'],
-		statusSocket: env['PAPPARDELLE_STATUS_SOCKET'],
+		dbPath: env['PAPPARDELLE_STATE_DB'] || undefined,
+		statusSocket: env['PAPPARDELLE_STATUS_SOCKET'] || undefined,
 	};
 }

@@ -142,6 +142,15 @@ test('a test run has its status socket with its database, outside the user’s s
 	expect(directory).not.toBe(DEFAULT_STATE_DIR);
 });
 
+test('an empty variable is the default database and socket, not a temporary database', () => {
+	const empty = {PAPPARDELLE_STATE_DB: '', PAPPARDELLE_STATUS_SOCKET: ''};
+
+	expect(stateDbPath(undefined, empty)).toBe(stateDbPath(undefined, {}));
+	expect(statusSocketPath(undefined, empty)).toBe(
+		statusSocketPath(undefined, {}),
+	);
+});
+
 test('a repo is known by its rows in the database or by its directory under repos', () => {
 	const stateDir = tempDir('papp-known-repos-');
 	const dbPath = path.join(stateDir, 'state.db');
