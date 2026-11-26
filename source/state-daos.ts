@@ -30,7 +30,6 @@ import {createProgramStatusDao} from './program-status-daemon.ts';
 import {statusSocket, type ProgramStatusDao} from './program-status-monitor.ts';
 import {
 	getStateColorsPath,
-	migrateLegacyStateColors,
 	type StateColorDao,
 } from './providers/state-color-cache.ts';
 import {SqliteStateColorDao} from './providers/state-color-cache-sqlite.ts';
@@ -43,7 +42,6 @@ import {
 import {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
 import {
 	getRegistryPathForRepo,
-	migrateLegacyRegistry,
 	type SpaceRegistryDao,
 } from './space-registry.ts';
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
@@ -254,16 +252,14 @@ function importJsonState(
 			);
 			return [
 				...update.jsonMirrors(),
-				...reposToImport(state, stateDir).flatMap(repo => {
-					migrateLegacyRegistry(repo, stateDir);
-					migrateLegacyStateColors(repo, stateDir);
-					return sqliteStores(() => state, {
+				...reposToImport(state, stateDir).flatMap(repo =>
+					sqliteStores(() => state, {
 						dbPath: state.path,
 						stateDir,
 						identityDefaults: {...defaults, repo},
 						clock: () => new Date(),
-					}).jsonMirrors();
-				}),
+					}).jsonMirrors(),
+				),
 			];
 		});
 		// What no store imports: hook status and its pending-files scratch,

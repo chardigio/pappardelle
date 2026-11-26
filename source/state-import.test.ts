@@ -173,6 +173,46 @@ test('a file a write through the database recorded is not imported again, and is
 	expect(fs.existsSync(file)).toBe(false);
 });
 
+/** Record `file` in json_sync as a flag-on build that found it malformed did. */
+function recordMalformed(dbPath: string, file: string): void {
+	const signature = fs.statSync(file, {bigint: true});
+	openStateDb(dbPath)
+		.db.query(
+			`INSERT INTO json_sync (path, ino, size, mtime_ns, malformed) VALUES (?, ?, ?, ?, 1)`,
+		)
+		.run(
+			file,
+			String(signature.ino),
+			Number(signature.size),
+			String(signature.mtimeNs),
+		);
+	closeStateDb(dbPath);
+}
+
+test('a file a write recorded as malformed goes through the import like any other', () => {
+	const stateDir = fileHome();
+	const dbPath = path.join(stateDir, 'state.db');
+	const spaceState = write(
+		stateDir,
+		'repos/repo/space-state/A-1.json',
+		'{"pro',
+	);
+	recordMalformed(dbPath, spaceState);
+
+	expect(daos(stateDir, 'repo').spaceState.read('A-1')).toBeNull();
+	expect(fs.existsSync(spaceState)).toBe(true);
+
+	const other = fileHome();
+	const otherDb = path.join(other, 'state.db');
+	const registry = write(other, 'repos/repo/open-spaces.json', '["A-1"');
+	recordMalformed(otherDb, registry);
+
+	expect(() => daos(other, 'repo').registry.openSpaces()).toThrow(
+		'open-spaces.json',
+	);
+	expect(fs.existsSync(registry)).toBe(true);
+});
+
 test('a stored record whose file a process without the database removed stays removed', () => {
 	const stateDir = fileHome();
 	const dbPath = path.join(stateDir, 'state.db');

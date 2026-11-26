@@ -320,7 +320,12 @@ export type JsonMirror = {
 	required?: boolean;
 };
 
-type SyncRow = {ino: string; size: number; mtime_ns: string};
+type SyncRow = {
+	ino: string;
+	size: number;
+	mtime_ns: string;
+	malformed: 0 | 1;
+};
 
 export class StateDb {
 	constructor(
@@ -438,12 +443,15 @@ export class StateDb {
 			.query<
 				SyncRow,
 				[string]
-			>('SELECT ino, size, mtime_ns FROM json_sync WHERE path = ?')
+			>('SELECT ino, size, mtime_ns, malformed FROM json_sync WHERE path = ?')
 			.get(mirror.file);
+		// A file a write recorded as malformed never had its rows replaced, so
+		// matching it says nothing about them.
 		const inSync =
 			read === null
 				? row === null
 				: row !== null &&
+					row.malformed === 0 &&
 					row.ino === read.signature.ino &&
 					row.size === read.signature.size &&
 					row.mtime_ns === read.signature.mtimeNs;

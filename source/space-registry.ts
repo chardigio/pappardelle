@@ -5,7 +5,6 @@
 // that drops another's space destroys work. Each change is its own write
 // transaction in the state database (space-registry-sqlite.ts).
 
-import fs from 'node:fs';
 import path from 'node:path';
 import {isPidAlive as defaultIsPidAlive} from './file-lock.ts';
 import {DEFAULT_STATE_DIR, type Unreadable} from './state-db.ts';
@@ -96,35 +95,6 @@ export function getRegistryPathForRepo(
 	baseDir = DEFAULT_STATE_DIR,
 ): string {
 	return path.join(baseDir, 'repos', repoName, 'open-spaces.json');
-}
-
-/**
- * Move the registry from its pre-repo-namespacing path, the first time a repo
- * runs with the per-repo layout.
- */
-export function migrateLegacyRegistry(
-	repoName: string,
-	baseDir = DEFAULT_STATE_DIR,
-): void {
-	const repoPath = getRegistryPathForRepo(repoName, baseDir);
-
-	// Migrate legacy global open-spaces.json — always clean it up if it exists.
-	// If the repo-specific file doesn't exist yet, move legacy data there.
-	// If it already exists, just delete the legacy file to complete migration.
-	const legacyPath = path.join(baseDir, 'open-spaces.json');
-	if (fs.existsSync(legacyPath)) {
-		try {
-			if (fs.existsSync(repoPath)) {
-				fs.unlinkSync(legacyPath);
-			} else {
-				const dir = path.dirname(repoPath);
-				fs.mkdirSync(dir, {recursive: true});
-				fs.renameSync(legacyPath, repoPath);
-			}
-		} catch {
-			// Non-critical — will retry on next startup
-		}
-	}
 }
 
 /** The keys in a registry file. Throws when it does not hold a list. */

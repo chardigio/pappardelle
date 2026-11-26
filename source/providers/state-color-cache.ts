@@ -1,7 +1,6 @@
 // Workflow state colors: state name to hex color, kept in memory and in the
 // state database so the main worktree color works even when no active issue
 // has that state.
-import fs from 'node:fs';
 import path from 'node:path';
 import {createLogger} from '../logger.ts';
 
@@ -9,31 +8,6 @@ const log = createLogger('state-colors');
 
 export function getStateColorsPath(repoName: string, baseDir: string): string {
 	return path.join(baseDir, 'repos', repoName, 'state-colors.json');
-}
-
-/**
- * Move the cache from its pre-repo-namespacing path, the first time a repo
- * runs with the per-repo layout.
- */
-export function migrateLegacyStateColors(
-	repoName: string,
-	baseDir: string,
-): void {
-	const repoPath = getStateColorsPath(repoName, baseDir);
-	const legacyPath = path.join(baseDir, 'state-colors.json');
-
-	if (fs.existsSync(legacyPath)) {
-		try {
-			if (!fs.existsSync(repoPath)) {
-				fs.mkdirSync(path.dirname(repoPath), {recursive: true});
-				fs.renameSync(legacyPath, repoPath);
-			} else {
-				fs.unlinkSync(legacyPath);
-			}
-		} catch {
-			// Non-critical — will retry on next startup
-		}
-	}
 }
 
 /** The colors in a cache file. Throws when it is not JSON. */
