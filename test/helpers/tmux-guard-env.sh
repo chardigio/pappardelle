@@ -4,10 +4,12 @@
 # PATH, a private TMUX_TMPDIR and no TMUX. Prints nothing without tmux, since
 # the tmux tests then skip themselves.
 #
-# With --finish <refusal log> [--fail-on-leaks], at the end of a run: stops
-# every tmux server still running in the run's private TMUX_TMPDIR and names
-# it, prints the refusals the log holds, removes that directory, and fails if
-# there were refusals, or with --fail-on-leaks, servers.
+# With --finish <refusal log> [--fail-on-leaks] [dir...], at the end of a run:
+# stops every tmux server still running in the run's private TMUX_TMPDIR or
+# under one of the extra dirs and names it, prints the refusals the log holds
+# and those the shared log gained since setup, removes the private directory,
+# and fails if there were refusals, or with --fail-on-leaks, servers. The extra
+# dirs are left in place.
 set -euo pipefail
 # cd prints the directory it found through CDPATH, which would end up in the
 # paths below.
@@ -26,8 +28,14 @@ if [[ ${1:-} == --finish ]]; then
 		echo "tmux-guard-env.sh --finish: $refusals is not in a private TMUX_TMPDIR this script creates (${private_prefix}*)" >&2
 		exit 1
 	fi
+	shift 2
+	fail_on_leaks=''
+	if [[ ${1:-} == --fail-on-leaks ]]; then
+		fail_on_leaks=1
+		shift
+	fi
 	status=0
-	# Removing the directory below would leave such a server running with no
+	# Removing the private directory would leave such a server running with no
 	# socket to reach it by.
 	while IFS= read -r socket; do
 		pids=$(tmux -S "$socket" list-panes -a -F '#{pane_pid}' 2>/dev/null) || continue
@@ -43,11 +51,19 @@ if [[ ${1:-} == --finish ]]; then
 			kill -9 "$pid" 2>/dev/null || true
 		done
 		echo "Stopped a tmux server left running on $socket"
-		[[ ${3:-} != --fail-on-leaks ]] || status=1
-	done < <(find "$private" -type s 2>/dev/null)
-	if [[ -s $refusals ]]; then
-		echo "The test tmux guard refused tmux calls against the live tmux directory:"
-		cat -- "$refusals"
+		[[ -z $fail_on_leaks ]] || status=1
+	done < <(find "$private" "$@" -type s 2>/dev/null)
+	# The guard writes here when a process lost the run's refusal log, as a
+	# systemd timer's does. Other runs write here too, and each of their
+	# refusals would also have reached the user's tmux.
+	shared=''
+	if [[ -n ${PAPPARDELLE_TEST_TMUX_GUARD:-} && -n ${PAPPARDELLE_TEST_TMUX_SHARED_START:-} ]]; then
+		shared=$(tail -c "+$((PAPPARDELLE_TEST_TMUX_SHARED_START + 1))" -- "$PAPPARDELLE_TEST_TMUX_GUARD/refusals.log" 2>/dev/null || true)
+	fi
+	if [[ -s $refusals || -n $shared ]]; then
+		echo "The test tmux guard refused tmux calls against the live tmux directory. Give each test its own TMUX_TMPDIR or a -S socket:"
+		[[ ! -s $refusals ]] || cat -- "$refusals"
+		[[ -z $shared ]] || printf '%s\n' "$shared"
 		status=1
 	fi
 	rm -rf -- "$private"
@@ -121,4 +137,7 @@ echo "export PATH=$(quote "$guard_home/bin:$PATH")"
 echo "export TMUX_TMPDIR=$(quote "$private")"
 echo "export PAPPARDELLE_TEST_TMUX_GUARD=$(quote "$guard_home")"
 echo "export PAPPARDELLE_TEST_TMUX_REFUSALS=$(quote "$private/refusals.log")"
+shared_start=0
+[[ ! -f $guard_home/refusals.log ]] || shared_start=$(wc -c <"$guard_home/refusals.log" | tr -d ' ')
+echo "export PAPPARDELLE_TEST_TMUX_SHARED_START=$(quote "$shared_start")"
 echo 'unset TMUX TMUX_PANE'
