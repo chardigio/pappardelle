@@ -129,7 +129,7 @@ export async function writeClaudeStatus(
 
 /** `testState`, also handed to tmux.ts for the functions that read stores. */
 export function testTmuxState(
-	options: Parameters<typeof testState>[1] = {},
+	options: Parameters<typeof testState>[0] = {},
 ): TestState {
 	const state = testState(options);
 	initTmuxState(state.daos);
