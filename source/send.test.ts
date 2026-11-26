@@ -7,6 +7,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect, beforeAll, afterAll} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
+import {snapshotOf} from '../test/helpers/program-status.ts';
 import {
 	sqliteRun,
 	testTmuxSpaces,
@@ -747,6 +748,8 @@ test('forced send over an agy vim normal-mode draft enters insert mode once the 
 	expect(calls.slice(insertAt + 1).some(args => args.includes('C-u'))).toBe(
 		true,
 	);
+	// Clearing an agy composer must never send C-k (agy's subagent approve key).
+	expect(calls.some(args => args.includes('C-k'))).toBe(false);
 	expect(calls.at(-1)?.at(-1)).toBe('Enter');
 });
 
@@ -843,30 +846,31 @@ test('sendToSpaceAgent blocks on agy trust dialog, /artifact review, /config, /m
 		return {runner, calls: base.calls};
 	};
 
-	const blockedSnapshot = async (message: string) => ({
-		version: 1 as const,
-		repo: 'r',
-		key: 'STA-1',
-		pane: {
-			id: '%1',
-			pid: '42',
-			dead: false,
-			piped: true,
-			marker: '42.marker',
-			generation: 'gen',
-		},
-		authoritative: true,
-		exited: false,
-		updatedAt: 0,
-		records: [],
-		info: {
-			status: 'blocked' as const,
-			kind: 'permission' as const,
-			message,
-			app: 'antigravity',
-			source: 'osc' as const,
-		},
-	});
+	const blockedSnapshot = async (message: string, authoritative = true) =>
+		snapshotOf(
+			{
+				repo: 'r',
+				key: 'STA-1',
+				pane: {
+					id: '%1',
+					pid: '42',
+					dead: false,
+					piped: true,
+					marker: '42.marker',
+					generation: 'gen',
+				},
+			},
+			[
+				{
+					state: 'blocked',
+					id: '',
+					app: 'antigravity',
+					kind: 'permission',
+					message,
+				},
+			],
+			{authoritative},
+		);
 
 	// Unparsed OSC-blocked prompt is refused even with force.
 	const unparsed = makeOscSendRunner('unparsed custom agy prompt');
@@ -880,6 +884,22 @@ test('sendToSpaceAgent blocks on agy trust dialog, /artifact review, /config, /m
 		}),
 	).toBe('prompt');
 	expect(unparsed.calls).toStrictEqual([]);
+
+	// A non-authoritative snapshot does not falsely block a send.
+	const stale = makeOscSendRunner(({pasted, enters}) => {
+		if (!pasted) return agentScreenFixture('agy-idle');
+		return enters >= 1
+			? agentScreenFixture('agy-idle')
+			: agentScreenFixture('agy-draft');
+	});
+	expect(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner: stale.runner,
+			lockDir,
+			sleep,
+			readSnapshot: async () => blockedSnapshot('Approve CustomTool', false),
+		}),
+	).toBe('sent');
 
 	// Non-modal `Approve plan` + artifactReview still allows send.
 	const planBanner = makeOscSendRunner(({pasted, enters}) => {

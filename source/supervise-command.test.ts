@@ -132,14 +132,14 @@ function harness(
 			sent.push({text});
 			return sendOutcome;
 		},
-		sendKeys(_key, keys) {
+		async sendKeys(_key, keys) {
 			pressed.push(keys);
 			// Moving between question tabs is read back by the test's own screens.
 			const movesTab = keys.every(name => name === 'Right' || name === 'Left');
 			if (!ignoresKeys && !movesTab) redraws = 1;
 			return 'sent';
 		},
-		typeText(_key, text) {
+		async typeText(_key, text) {
 			typed.push(text);
 			return 'sent';
 		},
@@ -1240,6 +1240,32 @@ test('agy shell, edit, read and MCP prompts pass through answer without the 10s 
 	expect(writeConfig.pressed).toStrictEqual([['2']]);
 	expect(writeConfig.holds.load('h1')?.reason).toMatch(/agent configuration/);
 
+	// Non-Read File access without an absolute path fails closed (holds without calling classifier).
+	const unknownFileAccess = harness(
+		[
+			[
+				'File access',
+				'────────────────────────────────────────',
+				'',
+				'Write: relative/path.txt',
+				'',
+				'Allow access to this file?',
+				'> 1. Yes, allow access',
+				'  2. No, deny access',
+				'',
+				'  ↑/↓ Navigate',
+				'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+			].join('\n'),
+		],
+		{app: 'antigravity'},
+	);
+	expect(await unknownFileAccess.run('answer', 'STA-1', '--option', '1')).toBe(
+		0,
+	);
+	expect(unknownFileAccess.pressed).toStrictEqual([['2']]);
+	expect(unknownFileAccess.classified).toStrictEqual([]);
+	expect(unknownFileAccess.holds.load('h1')?.reason).toMatch(/isn't known/);
+
 	// MCP prompt sends full call with arguments to classifier; pappardelle answer tools hold directly.
 	const mcp = harness([fixture('agy-permission-mcp')], {app: 'antigravity'});
 	expect(await mcp.run('answer', 'STA-1', '--option', '1')).toBe(0);
@@ -1288,7 +1314,8 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 	expect(await approveNormal.run('answer', 'STA-1', '--option', '1')).toBe(0);
 	expect(approveNormal.pressed).toStrictEqual([['C-k']]);
 
-	// Hard-stop subagent Bash command holds by opening manage view (Escape + M-j) and denying (Down + Enter).
+	// Hard-stop subagent Bash command holds by opening manage view (Escape + M-j),
+	// verifying No, deny (Down + Enter), and exiting the post-deny detail view (Escape).
 	const disallowedBanner = fixture('agy-subagent-banner-1').replace(
 		'printf a > sub-1.txt',
 		'doctl account get',
@@ -1303,74 +1330,61 @@ test('agy subagent approval banner approves with Escape+C-k / C-k and denies/hol
 		disallowedBanner, // initial readState
 		disallowedBanner, // re-read in holdPrompt before pressing
 		fixture('agy-subagent-manage'), // after Escape + M-j
-		postDenyDetail, // after Down + Enter: still on subagent detail screen (no Approval Required)
-		postDenyDetail, // readState check sees agyDialog === 'subagent_manage' -> sends Escape
+		postDenyDetail, // after Down + Enter: still on subagent detail screen
 		fixture('agy-idle'), // after Escape: back on main view
-		fixture('agy-idle'), // finalState check
 	];
-	let idx = 0;
-	const {schedules, holds} = testState().daos;
-	const pressed: string[][] = [];
-	const sent: string[] = [];
-	const out: string[] = [];
-	const err: string[] = [];
-	const customDeps: SuperviseDeps = {
-		repo: () => 'repo',
-		identities: idowIdentities('repo', () => ['STA-1']),
-		resolveKey: raw => raw,
-		hookKey: async key => key,
-		readHook: async () => ({status: 'unknown'}),
-		readHookState: async () => ({kind: 'none'}),
-		readSnapshot: async () => null,
-		runner(args) {
-			if (args[0] === 'list-sessions')
-				return {status: 0, stdout: 'agent-repo-STA-1\n'};
-			if (args[0] === 'capture-pane') {
-				const screen = holdScreens[Math.min(idx++, holdScreens.length - 1)]!;
-				return {status: 0, stdout: screen};
-			}
-
-			return {status: 1, stdout: ''};
-		},
-		serverRunner: () => ({status: 1, stdout: ''}),
-		now: () => new Date(2026, 10, 9, 12, 0),
-		async sleep() {},
-		async waitForStatusChange() {},
-		async send(_key, text) {
-			sent.push(text);
-			return 'sent';
-		},
-		sendKeys(_key, keys) {
-			pressed.push(keys);
-			return 'sent';
-		},
-		typeText: () => 'sent',
-		classify: async () => ({kind: 'approve', reason: 'ok'}),
-		policy: () => policy,
-		store: () => schedules,
-		holds: () => holds,
-		newHoldId: () => 'h1',
-		timers: () => ({create() {}, remove() {}}),
-		caller: 'main',
-		readStdin: () => undefined,
-		out: text => out.push(text),
-		err: text => err.push(text),
-		log() {},
-	};
-	expect(
-		await runSuperviseCommand(['answer', 'STA-1', '--option', '1'], customDeps),
-	).toBe(0);
-	expect(pressed).toStrictEqual([
+	const heldSub = harness(holdScreens, {ignoresKeys: true, app: 'antigravity'});
+	expect(await heldSub.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(heldSub.pressed).toStrictEqual([
 		['Escape', 'M-j'],
 		['Down', 'Enter'],
 		['Escape'],
 	]);
-	expect(holds.load('h1')).toMatchObject({
+	expect(heldSub.holds.load('h1')).toMatchObject({
 		tool: 'Bash command',
 		command: 'doctl account get',
 		state: 'open',
 	});
-	expect(sent[0]).toMatch(/^Held for the chef \(h1\): doctl deploys/);
+	expect(heldSub.sent[0]!.text).toMatch(
+		/^Held for the chef \(h1\): doctl deploys/,
+	);
+
+	// If manage view lacks `No, deny`, bail with Escape instead of pressing Enter.
+	const missingDenyManage = fixture('agy-subagent-manage').replace(
+		'2. No, deny',
+		'2. Maybe later',
+	);
+	const bailSub = harness(
+		[disallowedBanner, disallowedBanner, missingDenyManage],
+		{ignoresKeys: true, app: 'antigravity'},
+	);
+	expect(await bailSub.run('answer', 'STA-1', '--option', '1')).toBe(1);
+	expect(bailSub.pressed).toStrictEqual([['Escape', 'M-j'], ['Escape']]);
+	expect(bailSub.holds.list()).toStrictEqual([]);
+
+	// Multi-line agy subagent Bash command split across lines is caught by wrapped dual-check,
+	// and truncated `...)` subagent commands hold as non-approvable.
+	const splitRm = fixture('agy-subagent-banner-1').replace(
+		'(printf a > sub-1.txt)',
+		'(rm -rf\n ┃   /home/u)',
+	);
+	const splitSub = harness(
+		[splitRm, splitRm, fixture('agy-subagent-manage'), fixture('agy-idle')],
+		{ignoresKeys: true, app: 'antigravity'},
+	);
+	expect(await splitSub.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(splitSub.holds.load('h1')?.reason).toMatch(/outside the space/);
+
+	const cutBanner = fixture('agy-subagent-banner-1').replace(
+		'printf a > sub-1.txt',
+		'printf a > sub-1.txt && ...',
+	);
+	const cutSub = harness(
+		[cutBanner, cutBanner, fixture('agy-subagent-manage'), fixture('agy-idle')],
+		{ignoresKeys: true, app: 'antigravity'},
+	);
+	expect(await cutSub.run('answer', 'STA-1', '--option', '1')).toBe(0);
+	expect(cutSub.holds.load('h1')).toMatchObject({approvable: false});
 });
 
 test('agy /config and /model pickers format as dialog and refuse answer without --force', async () => {

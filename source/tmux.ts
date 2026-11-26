@@ -1831,6 +1831,12 @@ const CLEAR_COMPOSER_CHUNK = Array.from(
 	{length: CLEAR_COMPOSER_ROUNDS_PER_CALL},
 	() => ['C-e', 'C-k', 'C-u', 'BSpace'],
 ).flat();
+// Agy binds ctrl+k to approve inline subagent banners, so clearing an agy
+// composer must never send C-k.
+const CLEAR_AGY_COMPOSER_CHUNK = Array.from(
+	{length: CLEAR_COMPOSER_ROUNDS_PER_CALL},
+	() => ['C-e', 'C-u', 'BSpace'],
+).flat();
 const CLEAR_COMPOSER_CALLS =
 	CLEAR_COMPOSER_ROUNDS / CLEAR_COMPOSER_ROUNDS_PER_CALL;
 
@@ -1861,16 +1867,21 @@ async function runSteps(
  */
 async function prepareComposer(
 	pane: AgentPane,
-	{clear, enterInsert = false}: {clear: boolean; enterInsert?: boolean},
+	{
+		clear,
+		agy = false,
+		enterInsert = false,
+	}: {clear: boolean; agy?: boolean; enterInsert?: boolean},
 ): Promise<boolean> {
 	const {target} = pane;
+	const clearChunk = agy ? CLEAR_AGY_COMPOSER_CHUNK : CLEAR_COMPOSER_CHUNK;
 	return runSteps(pane, [
 		{args: ['copy-mode', '-q', '-t', target]},
 		...(clear
 			? [
 					...(enterInsert ? [{args: ['send-keys', '-t', target, 'i']}] : []),
 					...Array.from({length: CLEAR_COMPOSER_CALLS}, () => ({
-						args: ['send-keys', '-t', target, ...CLEAR_COMPOSER_CHUNK],
+						args: ['send-keys', '-t', target, ...clearChunk],
 					})),
 				]
 			: []),
@@ -1983,20 +1994,27 @@ async function submit(
 ): Promise<'sent' | 'unsubmitted' | 'failed'> {
 	const watched = before.composer !== null;
 	const clear = before.composer !== '' || before.shellMode;
-	if (!(await prepareComposer(pane, {clear}))) return 'failed';
+	const agy = Boolean(before.agyComposer);
+	if (!(await prepareComposer(pane, {clear, agy}))) return 'failed';
 	if (watched && clear) {
-		const polls = before.agyComposer ? AGY_CLEARED_POLLS : CLEARED_POLLS;
+		const polls = agy ? AGY_CLEARED_POLLS : CLEARED_POLLS;
 		let cleared = await waitForScreen(
 			pane,
 			polls,
 			screen => screen.composer === '' && !screen.shellMode,
 		);
-		if (!cleared && before.agyComposer) {
+		if (!cleared && agy) {
 			// Agy's vim normal mode ignores readline clear keys without showing a
 			// mode label, so only a draft that survived them gets `i` + re-clear.
 			const current = await readAgentScreen(pane);
 			if (current?.agyComposer && current.composer) {
-				if (!(await prepareComposer(pane, {clear: true, enterInsert: true})))
+				if (
+					!(await prepareComposer(pane, {
+						clear: true,
+						agy: true,
+						enterInsert: true,
+					}))
+				)
 					return 'failed';
 				cleared = await waitForScreen(
 					pane,
@@ -2088,6 +2106,11 @@ function sendBlocker(
 	return screen.composer && !force ? 'draft' : null;
 }
 
+type SnapshotReader = (
+	key: string,
+	pane: StatusPane,
+) => Promise<ProgramStatusSnapshot | null>;
+
 /**
  * OSC fallback for prompts the screen parser didn't recognise: when the agent
  * reports OSC `blocked` (permission, question, auth), refuse sends and
@@ -2103,13 +2126,10 @@ async function isOscBlockedPrompt(
 		readSnapshot,
 	}: {
 		runner: SendTmuxRunner;
-		readSnapshot?: (
-			key: string,
-			pane: StatusPane,
-		) => Promise<ProgramStatusSnapshot | null>;
+		readSnapshot?: SnapshotReader;
 	},
 ): Promise<boolean> {
-	const reader =
+	const reader: SnapshotReader | null =
 		readSnapshot ??
 		(stateDaos
 			? async (key: string, pane: StatusPane) => programStatus().read(key, pane)
@@ -2130,8 +2150,9 @@ async function isOscBlockedPrompt(
 	);
 	if (!pane) return false;
 	const snapshot = await reader(issueKey, pane);
-	const status = snapshot?.info;
-	if (status?.status !== 'blocked') return false;
+	if (!snapshot?.authoritative) return false;
+	const status = snapshot.info;
+	if (status.status !== 'blocked') return false;
 	return !isAgyArtifactBanner(status, screen);
 }
 
@@ -2149,10 +2170,7 @@ export async function sendToSpaceAgent(
 		/** Send over a draft in the input box. Never over a prompt. */
 		force?: boolean;
 		sleep?: (ms: number) => Promise<void>;
-		readSnapshot?: (
-			key: string,
-			pane: StatusPane,
-		) => Promise<ProgramStatusSnapshot | null>;
+		readSnapshot?: SnapshotReader;
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
@@ -2260,10 +2278,7 @@ export async function sendKeysToSpaceAgent(
 		literal?: boolean;
 		/** Override the pause between injected Escape keys in tests. */
 		pause?: (ms: number) => void;
-		readSnapshot?: (
-			key: string,
-			pane: StatusPane,
-		) => Promise<ProgramStatusSnapshot | null>;
+		readSnapshot?: SnapshotReader;
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
@@ -2297,13 +2312,8 @@ export async function sendKeysToSpaceAgent(
 			effectiveKeys = adapted.keys;
 			settleAfterEscape = adapted.settleAfterEscape;
 		}
-	} else if (
-		!options.literal &&
-		effectiveKeys.some(
-			(key, index) => key === 'Escape' && index < effectiveKeys.length - 1,
-		)
-	) {
-		settleAfterEscape = true;
+	} else {
+		settleAfterEscape = !options.literal;
 	}
 
 	const pause = options.pause ?? sleepSync;

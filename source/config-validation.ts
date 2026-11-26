@@ -1,4 +1,4 @@
-import path from 'node:path';
+import {classifierBackend} from './approve-classifier.ts';
 import {
 	isPaneName,
 	isSplitDirection,
@@ -1223,6 +1223,14 @@ function validateRailGroups(value: unknown): string[] {
 	return errors;
 }
 
+function isSingleLineString(value: unknown): value is string {
+	return (
+		typeof value === 'string' &&
+		value.trim().length > 0 &&
+		!/[\r\n]/.test(value.trimEnd())
+	);
+}
+
 function validateApprovalClassifier(value: unknown): string[] {
 	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
 		return ['approval_classifier: must be an object'];
@@ -1232,33 +1240,21 @@ function validateApprovalClassifier(value: unknown): string[] {
 	const cfg = value as Record<string, unknown>;
 	if (cfg['command'] !== undefined) {
 		const {command} = cfg;
-		if (
-			typeof command !== 'string' ||
-			command.trim().length === 0 ||
-			/[\r\n]/.test(command.trimEnd())
-		) {
+		if (!isSingleLineString(command)) {
 			errors.push(
 				'approval_classifier.command: must be a non-empty single-line string',
 			);
-		} else {
-			const base = path.posix.basename(command.trim());
-			if (base !== 'claude' && base !== 'agy') {
-				errors.push('approval_classifier.command: must run claude or agy');
-			}
+		} else if (!classifierBackend(command)) {
+			errors.push(
+				'approval_classifier.command: must be claude, agy, or an absolute path to one',
+			);
 		}
 	}
 
-	if (cfg['model'] !== undefined) {
-		const {model} = cfg;
-		if (
-			typeof model !== 'string' ||
-			model.trim().length === 0 ||
-			/[\r\n]/.test(model.trimEnd())
-		) {
-			errors.push(
-				'approval_classifier.model: must be a non-empty single-line string',
-			);
-		}
+	if (cfg['model'] !== undefined && !isSingleLineString(cfg['model'])) {
+		errors.push(
+			'approval_classifier.model: must be a non-empty single-line string',
+		);
 	}
 
 	return errors;

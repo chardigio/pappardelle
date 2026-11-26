@@ -2775,12 +2775,17 @@ test('validateConfig rejects invalid approval_classifier configs', () => {
 		).toBe(true);
 	}
 
-	expect(
-		thrownBy(
-			() => validateConfig(withApprovalClassifier({command: 'codex'})),
-			ConfigValidationError,
-		)?.message.includes('approval_classifier.command: must run claude or agy'),
-	).toBe(true);
+	for (const badCmd of ['codex', 'bin/claude', './agy', '../agy']) {
+		expect(
+			thrownBy(
+				() => validateConfig(withApprovalClassifier({command: badCmd})),
+				ConfigValidationError,
+			)?.message.includes(
+				'approval_classifier.command: must be claude, agy, or an absolute path to one',
+			),
+			badCmd,
+		).toBe(true);
+	}
 
 	expect(
 		thrownBy(

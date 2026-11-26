@@ -507,6 +507,10 @@ interface PappardelleConfig {
 	initialization_command?: string; // Skill the agent runs on new sessions, without its prefix (e.g. "idow"). Agent-agnostic; replaces claude.initialization_command.
 	agent_profiles?: Record<string, AgentProfileConfig>; // Named agent profiles for the agent pane. Built-in "claude" always exists.
 	agent_profile?: string; // Default agent profile name for all profiles (default: "claude"). Per-profile overridable.
+	approval_classifier?: {
+		command?: string; // "claude", "agy", or an absolute path to one. Unset tries claude and falls back to agy on ENOENT.
+		model?: string; // Model passed to the classifier CLI (defaults to "haiku" for claude, "gemini-4-hydrogen-low" for agy).
+	};
 	claude?: {
 		initialization_command?: string; // DEPRECATED: use the top-level initialization_command
 		dangerously_skip_permissions?: boolean; // Launch with --dangerously-skip-permissions (claude agents only)

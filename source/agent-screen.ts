@@ -201,11 +201,13 @@ const AGY_CONFIG_FOOTER =
 const AGY_MODEL_PICKER_FOOTER =
 	/^\s*Keyboard:\s+↑\/↓ Navigate\b.*\s←\/→ Effort\b.*\besc Go Back\s*$/;
 const AGY_CONFIG_SUBMENU_FOOTER =
-	/^\s*Keyboard:\s+↑\/↓ Navigate\b.*\benter Select\b.*\besc Go Back\s*$/;
+	/^\s*Keyboard:\s+↑\/↓ Navigate\b.*\benter (?:Select|Save)\b.*\besc (?:Go Back|Cancel)\s*$/;
 // Agy permission footers start with `↑/↓ Navigate` and omit `enter` (unlike
 // questions `enter Select` and trust `enter Confirm`).
 const AGY_PERMISSION_FOOTER = /^\s*↑\/↓ Navigate(?:\s+·\s+(?!enter\b).*)?\s*$/;
 const AGY_HIDDEN_LINES = /^\s*⋯\s*\(\d+\s+lines?\s+hidden\)\s*$/;
+const AGY_DIFF_LINE = /^\s*(?:\d+\s+[+-]?|@@|[+-]{3}\s|$)/;
+const AGY_TRUNCATED_ARGS = /(?:\.{3}|…)\)?$/;
 const AGY_ARTIFACT_REVIEW_BANNER =
 	/\b\d+\s+artifacts?(?:\(s\))?\s+·\s+\/artifact to review\s*$/;
 const AGY_SUBAGENT_APPROVAL_BANNER = /^\s*┃\s+ctrl\+k approve\b/;
@@ -228,6 +230,12 @@ const AGY_FILE_HEADERS = new Set([
 	'Update file',
 	'Write file',
 	'Overwrite file',
+]);
+const AGY_PERMISSION_HEADERS = new Set([
+	'Command',
+	...AGY_FILE_HEADERS,
+	'File access',
+	'MCP',
 ]);
 const AGY_ANNOUNCEMENT_DISMISS = /^\s*┃\s+esc to dismiss\s*$/;
 const AGY_VIM_INSERT = /^\s*--\s+INSERT\s+--(?:\s|$)/;
@@ -434,7 +442,8 @@ function trimBlankLines(lines: readonly string[]): string[] {
 
 /**
  * Scan backwards above an agy `MCP` permission header for the `● server/tool(args)`
- * transcript call line so the approval gate and classifier see the arguments too.
+ * transcript call line in the current turn so the approval gate and classifier
+ * see the arguments too.
  */
 function findAgyMcpCallLine(
 	lines: readonly string[],
@@ -442,7 +451,8 @@ function findAgyMcpCallLine(
 	mcpName: string,
 ): string {
 	for (let index = before - 1; index >= 0; index--) {
-		const trimmed = lines[index]!.trim();
+		const rawLine = lines[index]!;
+		const trimmed = rawLine.trim();
 		if (!trimmed) continue;
 		if (trimmed.startsWith('● ')) {
 			const stripped = trimmed
@@ -460,15 +470,60 @@ function findAgyMcpCallLine(
 			return '';
 		}
 
-		if (RULE.test(trimmed)) return '';
+		// Stop at a turn separator rule or user prompt so an earlier turn's call
+		// to the same MCP tool is never attributed to this prompt.
+		if (RULE.test(trimmed) || /^>\s+\S/.test(rawLine)) return '';
 	}
 
 	return '';
 }
 
+function anchoredFooterAt(
+	lines: readonly string[],
+	match: (line: string) => boolean,
+): number {
+	const at = lastIndex(lines, match);
+	return at !== -1 && isAgyBottomAnchored(lines, at) ? at : -1;
+}
+
+/**
+ * Parse the approval choices shown inside agy's `subagent_manage` view so
+ * denying can move to the actual `No, deny` row instead of pressing blindly.
+ */
+export function parseAgySubagentManageApproval(
+	screen: string,
+): {cursor: number; denyNumber: number} | null {
+	const lines = stripVTControlCharacters(screen).split('\n');
+	const markerAt = lastIndex(lines, line =>
+		/^\s*⚠\s+Approval Required\s*$/.test(line),
+	);
+	if (markerAt === -1) return null;
+	const endRel = lines
+		.slice(markerAt + 1)
+		.findIndex(line => RULE.test(line) || AGY_MANAGE_FOOTER.test(line));
+	const section = lines.slice(
+		markerAt + 1,
+		endRel === -1 ? undefined : markerAt + 1 + endRel,
+	);
+	const firstOption = section.findIndex(line =>
+		/^\s*(?:>\s*)?1\.\s/.test(line),
+	);
+	if (firstOption === -1) return null;
+	const options = readOptions(section, firstOption, {
+		joinWrapped: true,
+		optionPattern: AGY_OPTION,
+	});
+	const selected = options.find(option => option.selected);
+	const deny = options.find(option => option.kind === 'deny');
+	if (!selected || !deny) return null;
+	return {cursor: selected.number, denyNumber: deny.number};
+}
+
 function parseAgyPermission(lines: string[]): PermissionPrompt | null {
-	const footerAt = lastIndex(lines, line => AGY_PERMISSION_FOOTER.test(line));
-	if (footerAt === -1 || !isAgyBottomAnchored(lines, footerAt)) return null;
+	const footerAt = anchoredFooterAt(lines, line =>
+		AGY_PERMISSION_FOOTER.test(line),
+	);
+	if (footerAt === -1) return null;
 	const firstOptionAt = lastIndex(lines.slice(0, footerAt), line =>
 		/^\s*(?:>\s*)?1\.\s/.test(line),
 	);
@@ -485,16 +540,37 @@ function parseAgyPermission(lines: string[]): PermissionPrompt | null {
 	if (questionAt === -1) return null;
 	const question = lines[questionAt]!.trim();
 	if (!question.endsWith('?')) return null;
-	const ruleAt = lastIndex(lines.slice(0, questionAt), line => RULE.test(line));
-	if (ruleAt === -1) return null;
-	const headerAt = lastIndex(
-		lines.slice(0, ruleAt),
-		line => line.trim() !== '',
-	);
-	if (headerAt === -1) return null;
+
+	// Scan for a rule preceded by a recognized agy permission header so a `────`
+	// line inside a shell command or diff cannot shift the header into the body.
+	let ruleAt = -1;
+	let headerAt = -1;
+	for (let index = questionAt - 1; index >= 1; index--) {
+		if (!RULE.test(lines[index]!)) continue;
+		const candidateAt = lastIndex(
+			lines.slice(0, index),
+			line => line.trim() !== '',
+		);
+		if (
+			candidateAt !== -1 &&
+			AGY_PERMISSION_HEADERS.has(lines[candidateAt]!.trim())
+		) {
+			ruleAt = index;
+			headerAt = candidateAt;
+			break;
+		}
+	}
+
+	if (ruleAt === -1 || headerAt === -1) return null;
 	const header = lines[headerAt]!.trim();
-	if (!header || header.length > 40) return null;
 	const body = trimBlankLines(lines.slice(ruleAt + 1, questionAt));
+	const base = {
+		subagent: null,
+		question,
+		options,
+		choose: 'digit' as const,
+		source: 'agy' as const,
+	};
 
 	if (header === 'Command') {
 		const reqAt = body.findIndex(line =>
@@ -503,17 +579,12 @@ function parseAgyPermission(lines: string[]): PermissionPrompt | null {
 		const commandLines = trimBlankLines(
 			reqAt === -1 ? body : body.slice(reqAt + 1),
 		).map(line => line.replace(/^ {1,3}/, '').trimEnd());
-		const cutOff = commandLines.some(line => AGY_HIDDEN_LINES.test(line));
 		return {
+			...base,
 			tool: 'Bash command',
-			subagent: null,
 			description: '',
 			command: commandLines.join('\n'),
-			question,
-			options,
-			choose: 'digit',
-			source: 'agy',
-			cutOff,
+			cutOff: commandLines.some(line => AGY_HIDDEN_LINES.test(line)),
 		};
 	}
 
@@ -522,19 +593,20 @@ function parseAgyPermission(lines: string[]): PermissionPrompt | null {
 		const pathCandidate = firstLine
 			.replace(/\s+(?:[+-]\d+(?:\s+[+-]\d+)*)$/, '')
 			.trim();
-		const filePath = pathCandidate.startsWith('/') ? pathCandidate : undefined;
+		// If line 2 does not look like a diff/hunk line, the path may have wrapped.
+		const unwrappedPath = body.length <= 1 || AGY_DIFF_LINE.test(body[1]!);
+		const filePath =
+			unwrappedPath && pathCandidate.startsWith('/')
+				? pathCandidate
+				: undefined;
 		const diff = trimBlankLines(body.slice(1))
 			.map(line => line.trimEnd())
 			.join('\n');
 		return {
+			...base,
 			tool: header === 'Update file' ? 'Edit file' : header,
-			subagent: null,
 			description: filePath ?? firstLine,
 			command: diff,
-			question,
-			options,
-			choose: 'digit',
-			source: 'agy',
 			...(filePath ? {filePath} : {}),
 			cutOff: false,
 		};
@@ -543,67 +615,45 @@ function parseAgyPermission(lines: string[]): PermissionPrompt | null {
 	if (header === 'File access') {
 		const detail = body.map(line => line.trim()).join('\n');
 		const firstLine = body[0]?.trim() ?? '';
+		const singleLine = body.length === 1;
 		const readMatch = /^Read:\s+(.+)$/.exec(firstLine);
 		if (readMatch) {
 			const rawPath = readMatch[1]!.trim();
-			const filePath = rawPath.startsWith('/') ? rawPath : undefined;
+			const filePath =
+				singleLine && rawPath.startsWith('/') ? rawPath : undefined;
 			return {
+				...base,
 				tool: 'Read file',
-				subagent: null,
 				description: rawPath,
 				command: detail,
-				question,
-				options,
-				choose: 'digit',
-				source: 'agy',
 				...(filePath ? {filePath} : {}),
 				cutOff: false,
 			};
 		}
 
 		// Non-`Read:` file access stays `File access` so `{reading: true}` is never granted.
-		const otherPath = /^[A-Za-z]+:\s+(\/\S.*)$/.exec(firstLine)?.[1]?.trim();
+		const otherPath = singleLine
+			? /^[A-Za-z][A-Za-z0-9 _-]*:\s+(\/\S.*)$/.exec(firstLine)?.[1]?.trim()
+			: undefined;
 		return {
+			...base,
 			tool: 'File access',
-			subagent: null,
 			description: firstLine,
 			command: detail,
-			question,
-			options,
-			choose: 'digit',
-			source: 'agy',
 			...(otherPath ? {filePath: otherPath} : {}),
 			cutOff: false,
 		};
 	}
 
-	if (header === 'MCP') {
-		const mcpName = body[0]?.trim() ?? '';
-		const callLine = findAgyMcpCallLine(lines, headerAt, mcpName);
-		return {
-			tool: 'MCP',
-			subagent: null,
-			description: mcpName,
-			command: callLine || body.map(line => line.trim()).join('\n'),
-			question,
-			options,
-			choose: 'digit',
-			source: 'agy',
-			cutOff: false,
-		};
-	}
-
-	const rawLines = body.map(line => line.trimEnd());
+	const mcpName = body[0]?.trim() ?? '';
+	const callLine = findAgyMcpCallLine(lines, headerAt, mcpName);
+	const command = callLine || body.map(line => line.trim()).join('\n');
 	return {
-		tool: header,
-		subagent: null,
-		description: '',
-		command: rawLines.join('\n'),
-		question,
-		options,
-		choose: 'digit',
-		source: 'agy',
-		cutOff: rawLines.some(line => AGY_HIDDEN_LINES.test(line)),
+		...base,
+		tool: 'MCP',
+		description: mcpName,
+		command,
+		cutOff: Boolean(callLine && AGY_TRUNCATED_ARGS.test(callLine)),
 	};
 }
 
@@ -640,23 +690,31 @@ function parseAgySubagentBanner(
 	);
 	if (callStart === -1) return null;
 	const callLines = trimBlankLines(stripped.slice(callStart));
-	const cutOff = callLines.some(line => AGY_HIDDEN_LINES.test(line));
-	let joinedCall = '';
-	for (const line of callLines) {
-		const part = line.trim();
-		if (!part) continue;
-		joinedCall = !joinedCall
-			? part
-			: joinedCall.endsWith('/')
-				? `${joinedCall}${part}`
-				: `${joinedCall} ${part}`;
-	}
+	let cutOff = callLines.some(line => AGY_HIDDEN_LINES.test(line));
+	const joinedCall = callLines
+		.map((line, index) =>
+			(index === 0 ? line.trimStart() : line.replace(/^ {1,2}/, '')).trimEnd(),
+		)
+		.join('\n');
 	const afterBullet = joinedCall.replace(/^●\s+/, '');
-	const callMatch = /^([^(]+)\(([\s\S]*)\)$/.exec(afterBullet);
-	const args = callMatch ? callMatch[2]!.trim() : afterBullet;
+	const openMatch = /^([^(]+)\(([\s\S]*)$/.exec(afterBullet);
+	let args: string;
+	if (!openMatch) {
+		args = afterBullet;
+		if (AGY_TRUNCATED_ARGS.test(afterBullet)) cutOff = true;
+	} else if (afterBullet.endsWith(')')) {
+		args = openMatch[2]!.slice(0, -1).trim();
+		if (AGY_TRUNCATED_ARGS.test(args)) cutOff = true;
+	} else {
+		args = openMatch[2]!.trim();
+		cutOff = true;
+	}
+
 	const tool = AGY_SUBAGENT_TOOL_NAMES[rawTool] ?? rawTool;
 	const filePath =
 		(tool === 'Create file' || tool === 'Edit file' || tool === 'Read file') &&
+		!args.includes('\n') &&
+		!cutOff &&
 		args.startsWith('/')
 			? args
 			: undefined;
@@ -799,6 +857,24 @@ function isAgyBottomAnchored(
 		.every(line => !line.trim() || AGY_BOTTOM_LINE.test(line));
 }
 
+const AGY_OVERLAY_LOOKBACK = 45;
+
+function agyOverlayHeaderAbove(
+	lines: readonly string[],
+	footerAt: number,
+): 'config' | 'model_picker' | null {
+	const floor = Math.max(0, footerAt - AGY_OVERLAY_LOOKBACK);
+	for (let index = footerAt - 1; index >= floor; index--) {
+		const line = lines[index]!;
+		// Stop at the composer line above the overlay so scrollback text can't match.
+		if (/^>(?: |$)/.test(line)) break;
+		if (/^\s*Settings\s*$/.test(line)) return 'config';
+		if (/^\s*Switch Model\s*$/.test(line)) return 'model_picker';
+	}
+
+	return null;
+}
+
 const AGY_DIALOG_SPECS: ReadonlyArray<{
 	kind: AgyDialogKind;
 	footer: RegExp;
@@ -810,19 +886,13 @@ const AGY_DIALOG_SPECS: ReadonlyArray<{
 	{kind: 'artifact_review', footer: AGY_ARTIFACT_REVIEW_FOOTER},
 	{kind: 'model_picker', footer: AGY_MODEL_PICKER_FOOTER},
 	{kind: 'config', footer: AGY_CONFIG_FOOTER},
-	{
-		kind: 'config',
-		footer: AGY_CONFIG_SUBMENU_FOOTER,
-		requireAbove: /^\s*Settings\s*$/,
-	},
 ];
 
 function parseAgyDialogKind(lines: string[]): AgyDialogKind | null {
 	for (const {kind, footer, requireAbove} of AGY_DIALOG_SPECS) {
-		const footerAt = lastIndex(lines, line => footer.test(line));
+		const footerAt = anchoredFooterAt(lines, line => footer.test(line));
 		if (
 			footerAt !== -1 &&
-			isAgyBottomAnchored(lines, footerAt) &&
 			(!requireAbove ||
 				lines.slice(0, footerAt).some(line => requireAbove.test(line)))
 		) {
@@ -830,6 +900,10 @@ function parseAgyDialogKind(lines: string[]): AgyDialogKind | null {
 		}
 	}
 
+	const submenuAt = anchoredFooterAt(lines, line =>
+		AGY_CONFIG_SUBMENU_FOOTER.test(line),
+	);
+	if (submenuAt !== -1) return agyOverlayHeaderAbove(lines, submenuAt);
 	return null;
 }
 

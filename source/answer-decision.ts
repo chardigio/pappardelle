@@ -127,6 +127,12 @@ function promptFile(
 	permission: PermissionPrompt,
 	hook: ClaudeSessionState | null,
 ): {kind: 'file'; file: string} | {kind: 'hold'; reason: string} {
+	if (permission.source === 'agy') {
+		return permission.filePath
+			? {kind: 'file', file: permission.filePath}
+			: {kind: 'hold', reason: "the file this prompt is for isn't known"};
+	}
+
 	const pending = hook?.pendingFiles ?? [];
 	if (pending.length === 0)
 		return {kind: 'hold', reason: "the file this prompt is for isn't known"};
@@ -331,8 +337,7 @@ export function decideAnswer(
 	// The hook's tool stands in only for a header cut off the screen: it can
 	// be a record of a different call queued behind this one.
 	const fileTool = permission.tool
-		? FILE_HEADER.test(permission.tool) ||
-			(permission.tool === 'File access' && Boolean(permission.filePath))
+		? FILE_HEADER.test(permission.tool) || permission.tool === 'File access'
 		: FILE_TOOLS.has(hook?.currentTool ?? '') ||
 			FILE_QUESTION.test(permission.question);
 	const isAgy = permission.source === 'agy';
@@ -343,16 +348,7 @@ export function decideAnswer(
 			message:
 				"Claude hasn't reported which file this prompt is for yet; answer again in a few seconds",
 		};
-	const file = fileTool
-		? isAgy
-			? permission.filePath
-				? ({kind: 'file', file: permission.filePath} as const)
-				: ({
-						kind: 'hold',
-						reason: "the file this prompt is for isn't known",
-					} as const)
-			: promptFile(permission, hook)
-		: null;
+	const file = fileTool ? promptFile(permission, hook) : null;
 	const prompt: HeldPrompt = {
 		key,
 		tool,
@@ -417,12 +413,11 @@ export function decideAnswer(
 	)
 		return held('it answers prompts for agents, which only the chef does');
 	if (tool === 'Bash command') {
-		// Codex wraps a long command onto more lines with no mark, so its
-		// lines are also read as one.
+		// Codex and agy can wrap a long command onto more lines with no mark, so
+		// its lines are also checked as one.
 		const wrapped =
 			// A heredoc's end must stay on a line of its own.
-			permission.choose === 'shortcut' &&
-			!isAgy &&
+			(permission.choose === 'shortcut' || isAgy) &&
 			permission.command.includes('\n') &&
 			!permission.command.includes('<<')
 				? checkApproval(permission.command.replaceAll('\n', ' '), policy, {

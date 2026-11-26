@@ -29,12 +29,6 @@ export type ClassifyRequest = {
 	tempRoots: readonly string[];
 };
 
-export type ClassifierRun = (
-	args: string[],
-	input: string,
-	timeoutMs: number,
-) => Promise<{status: number | null; stdout: string}>;
-
 export type SpawnClassifier = (
 	command: string,
 	args: string[],
@@ -43,6 +37,12 @@ export type SpawnClassifier = (
 ) => Promise<{status: number | null; stdout: string}>;
 
 export type ClassifierBackend = 'claude' | 'agy';
+
+type ClassifierCall = {
+	command: string;
+	args: string[];
+	stdin: string;
+};
 
 export const DEFAULT_CLAUDE_CLASSIFIER_MODEL = 'haiku';
 export const DEFAULT_AGY_CLASSIFIER_MODEL = 'gemini-4-hydrogen-low';
@@ -160,8 +160,17 @@ function isEnoent(error: unknown): boolean {
 	);
 }
 
-function backendForCommand(command: string): ClassifierBackend {
-	return path.posix.basename(command.trim()) === 'agy' ? 'agy' : 'claude';
+/**
+ * Resolve a classifier command to its backend, or null when unsupported.
+ * Rejects relative paths with separators because the classifier runs in `tmpdir()`.
+ */
+export function classifierBackend(command: string): ClassifierBackend | null {
+	const trimmed = command.trim();
+	if (!trimmed) return null;
+	if (/[\\/]/.test(trimmed) && !path.isAbsolute(trimmed)) return null;
+	const base = path.posix.basename(trimmed);
+	if (base === 'agy' || base === 'claude') return base;
+	return null;
 }
 
 function invocationFor(
@@ -169,13 +178,14 @@ function invocationFor(
 	command: string,
 	model: string | undefined,
 	input: string,
-): {command: string; args: string[]; stdin: string} {
+): ClassifierCall {
+	const trimmedModel = model?.trim() || undefined;
 	if (backend === 'agy') {
 		return {
 			command,
 			args: agyClassifierArgs(
 				`${RUBRIC}\n\n${input}`,
-				model || DEFAULT_AGY_CLASSIFIER_MODEL,
+				trimmedModel ?? DEFAULT_AGY_CLASSIFIER_MODEL,
 			),
 			stdin: '',
 		};
@@ -183,19 +193,15 @@ function invocationFor(
 
 	return {
 		command,
-		args: classifierArgs(model || DEFAULT_CLAUDE_CLASSIFIER_MODEL),
+		args: classifierArgs(trimmedModel ?? DEFAULT_CLAUDE_CLASSIFIER_MODEL),
 		stdin: input,
 	};
 }
 
-async function runBackendOnce(
-	backend: ClassifierBackend,
-	command: string,
-	model: string | undefined,
-	input: string,
+async function runOnce(
+	call: ClassifierCall,
 	spawnFn: SpawnClassifier,
 ): Promise<{verdict: ClassifierVerdict; enoent: boolean}> {
-	const call = invocationFor(backend, command, model, input);
 	let result;
 	try {
 		result = await spawnFn(call.command, call.args, call.stdin, TIMEOUT_MS);
@@ -219,16 +225,13 @@ async function runBackendOnce(
 	return {verdict: parseClassifierOutput(result.stdout), enoent: false};
 }
 
-async function classifyWithBackend(
-	backend: ClassifierBackend,
-	command: string,
-	model: string | undefined,
-	input: string,
+async function runWithRetry(
+	call: ClassifierCall,
 	spawnFn: SpawnClassifier,
 ): Promise<ClassifierVerdict> {
-	const first = await runBackendOnce(backend, command, model, input, spawnFn);
+	const first = await runOnce(call, spawnFn);
 	if (first.verdict.kind !== 'unavailable') return first.verdict;
-	const second = await runBackendOnce(backend, command, model, input, spawnFn);
+	const second = await runOnce(call, spawnFn);
 	return second.verdict;
 }
 
@@ -247,72 +250,37 @@ export async function classifyWithConfig(
 	const input = classifierInput(request);
 	const configuredCommand = options.config?.command?.trim();
 	if (configuredCommand) {
-		const backend = backendForCommand(configuredCommand);
-		return classifyWithBackend(
-			backend,
-			configuredCommand,
-			options.config?.model,
-			input,
+		const backend = classifierBackend(configuredCommand);
+		if (!backend) {
+			return {
+				kind: 'unavailable',
+				reason: `unsupported approval classifier command: ${configuredCommand}`,
+			};
+		}
+
+		return runWithRetry(
+			invocationFor(backend, configuredCommand, options.config?.model, input),
 			spawnFn,
 		);
 	}
 
-	const first = await runBackendOnce(
+	const claudeCall = invocationFor(
 		'claude',
 		'claude',
 		options.config?.model,
 		input,
-		spawnFn,
 	);
+	const first = await runOnce(claudeCall, spawnFn);
 	if (first.verdict.kind !== 'unavailable') return first.verdict;
 	if (first.enoent) {
-		return classifyWithBackend(
-			'agy',
-			'agy',
-			DEFAULT_AGY_CLASSIFIER_MODEL,
-			input,
+		return runWithRetry(
+			invocationFor('agy', 'agy', DEFAULT_AGY_CLASSIFIER_MODEL, input),
 			spawnFn,
 		);
 	}
 
-	const second = await runBackendOnce(
-		'claude',
-		'claude',
-		options.config?.model,
-		input,
-		spawnFn,
-	);
+	const second = await runOnce(claudeCall, spawnFn);
 	return second.verdict;
-}
-
-async function classifyOnce(
-	request: ClassifyRequest,
-	run: ClassifierRun,
-): Promise<ClassifierVerdict> {
-	let result;
-	try {
-		result = await run(classifierArgs(), classifierInput(request), TIMEOUT_MS);
-	} catch (error) {
-		return {
-			kind: 'unavailable',
-			reason: `the approval check didn't run: ${(error as Error).message}`,
-		};
-	}
-
-	if (result.status !== 0) {
-		return {kind: 'unavailable', reason: 'the approval check failed'};
-	}
-
-	return parseClassifierOutput(result.stdout);
-}
-
-/** One retry, since a check that failed to run says nothing about the call. */
-export async function classifyCommand(
-	request: ClassifyRequest,
-	run: ClassifierRun,
-): Promise<ClassifierVerdict> {
-	const first = await classifyOnce(request, run);
-	return first.kind === 'unavailable' ? classifyOnce(request, run) : first;
 }
 
 /** Runs a classifier CLI away from any space, so its hooks can't report as one. */
@@ -354,10 +322,3 @@ export const spawnClassifier: SpawnClassifier = async (
 		});
 		child.stdin.end(input);
 	});
-
-/** Runs `claude` away from any space, so its hooks can't report as one. */
-export const defaultClassifierRun: ClassifierRun = async (
-	args,
-	input,
-	timeoutMs,
-) => spawnClassifier('claude', args, input, timeoutMs);

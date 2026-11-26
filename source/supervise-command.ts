@@ -25,10 +25,8 @@ import {
 } from './space-watch.ts';
 import {
 	parseAgentScreen,
-	type AgyDialogKind,
+	parseAgySubagentManageApproval,
 	type AgyQuotaParseResult,
-	type PermissionPrompt,
-	type PromptOption,
 	type QuestionDialog,
 } from './agent-screen.ts';
 import {
@@ -65,8 +63,25 @@ import {
 	type SuperviseCommand,
 } from './supervise-args.ts';
 import {recordSupervision, type SuperviseEntry} from './supervise-log.ts';
+import {
+	describeHold,
+	describeJob,
+	formatChange,
+	formatQuestion,
+	formatState,
+	holdDelivery,
+	holdMessage,
+	type QuestionTab,
+	type SpaceChange,
+} from './supervise-format.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
+
+export {
+	formatState,
+	holdMessage,
+	type SpaceChange,
+} from './supervise-format.ts';
 
 export type AgyQuotaResult =
 	| AgyQuotaParseResult
@@ -98,20 +113,12 @@ export type SuperviseDeps = {
 	sendKeys: (
 		key: string,
 		keys: string[],
-	) =>
-		| Promise<'sent' | 'no-session' | 'failed'>
-		| 'sent'
-		| 'no-session'
-		| 'failed';
+	) => Promise<'sent' | 'no-session' | 'failed'>;
 	/** Types text as it is, where sendKeys would read `Enter` as the key. */
 	typeText: (
 		key: string,
 		text: string,
-	) =>
-		| Promise<'sent' | 'no-session' | 'failed'>
-		| 'sent'
-		| 'no-session'
-		| 'failed';
+	) => Promise<'sent' | 'no-session' | 'failed'>;
 	/** The model check a call passes after the hard stops. */
 	classify: (key: string, request: CheckRequest) => Promise<ClassifierVerdict>;
 	/** What is inside a space, read for each answer. */
@@ -188,91 +195,8 @@ async function readState(
 	return report;
 }
 
-function formatOptions(options: PromptOption[]): string {
-	return options
-		.map(
-			option =>
-				`  ${option.number}. ${option.checked === undefined ? '' : option.checked ? '[x] ' : '[ ] '}${option.label}${option.description ? `\n     ${option.description}` : ''}`,
-		)
-		.join('\n');
-}
-
-function permissionTitle(permission: PermissionPrompt): string {
-	if (permission.cutOff) {
-		return permission.source === 'agy'
-			? `${permission.tool || 'Command'} (lines hidden)`
-			: 'Top of the prompt is off the screen; it ends';
-	}
-
-	const {tool, subagent, description} = permission;
-	return `${tool}${subagent ? ` from ${subagent}` : ''}${description ? `: ${description}` : ''}`;
-}
-
-const AGY_DIALOG_LABELS: Record<AgyDialogKind, string> = {
-	trust: 'Trust this folder?',
-	artifact_review: 'Artifact review (/artifact)',
-	subagent_manage: 'Subagent approval manage view',
-	config: 'Settings (/config)',
-	model_picker: 'Model picker (/model)',
-};
-
-export function formatState(report: AgentStateReport): string {
-	const lines = [
-		`${report.key}: ${report.state}${report.app ? ` (${report.app})` : ''}`,
-	];
-	if (report.permission) {
-		lines.push(
-			permissionTitle(report.permission),
-			report.permission.command,
-			formatOptions(report.permission.options),
-		);
-	}
-
-	if (report.question) lines.push(formatQuestion(report.question));
-
-	if (report.usageLimit) {
-		lines.push(
-			`Usage limit resets ${report.usageLimit.resetText || 'at an unknown time'}${report.usageLimit.passed ? ' (passed)' : ''}`,
-		);
-	}
-
-	if (report.codexDialog)
-		lines.push(`Codex dialog: ${report.codexDialog.title}`);
-	else if (report.agyDialog)
-		lines.push(`Dialog: ${AGY_DIALOG_LABELS[report.agyDialog]}`);
-	else if (
-		report.status?.status === 'blocked' &&
-		report.status.message === 'Approve plan'
-	)
-		lines.push('Pending artifact review (/artifact)');
-	// Shown under a limit too, since a draft there stops the wake-up.
-	if (report.composer) lines.push(`Composer: ${report.composer}`);
-	return lines.join('\n');
-}
-
-function formatQuestion(question: QuestionTab): string {
-	const lines = [
-		question.multiSelect
-			? `${question.question} (pick several)`
-			: question.question,
-		formatOptions(question.options),
-	];
-	const row = question.textOption;
-	// Typed answers are only taken on a single-select question, but text left
-	// in the row blocks any answer, so it shows either way.
-	if (row && (!question.multiSelect || row.text))
-		lines.push(
-			`  ${row.number}. ${row.text || (row.open ? '' : '(type an answer with --text)')}`,
-		);
-	return lines.join('\n');
-}
-
 const paneText = (screen: string) => screen.trim() || '(the pane is blank)';
 
-type QuestionTab = Pick<
-	QuestionDialog,
-	'question' | 'options' | 'multiSelect' | 'textOption'
->;
 const asTab = ({
 	question,
 	options,
@@ -364,23 +288,6 @@ async function waitFor(
 
 	return {...report, timedOut: true};
 }
-
-export type SpaceChange = {
-	key: string;
-	/** null for a space the cursor didn't have. */
-	from: AgentState | null;
-	to: AgentState;
-} & Partial<
-	Pick<
-		AgentStateReport,
-		| 'permission'
-		| 'question'
-		| 'codexDialog'
-		| 'agyDialog'
-		| 'usageLimit'
-		| 'composer'
-	>
->;
 
 export type WatchResult =
 	| {result: 'changed'; changes: SpaceChange[]; cursor: string}
@@ -502,30 +409,6 @@ async function watchSpaces(
 	}
 }
 
-function formatChange(change: SpaceChange): string {
-	const lines = [`${change.key}: ${change.from ?? 'new'} -> ${change.to}`];
-	if (change.permission) {
-		lines.push(
-			`  ${permissionTitle(change.permission)}: ${change.permission.command}`,
-			formatOptions(change.permission.options),
-		);
-	}
-
-	if (change.question) {
-		lines.push(
-			`  ${change.question.question}`,
-			formatOptions(change.question.options),
-		);
-	}
-
-	if (change.codexDialog)
-		lines.push(`  Codex dialog: ${change.codexDialog.title}`);
-	if (change.agyDialog)
-		lines.push(`  Dialog: ${AGY_DIALOG_LABELS[change.agyDialog]}`);
-	if (change.composer) lines.push(`  Composer: ${change.composer}`);
-	return lines.join('\n');
-}
-
 // Codex redraws its composer once the dialog closes.
 const MODEL_SWITCH_SETTLE_MS = 500;
 
@@ -557,7 +440,9 @@ async function answerTaken(
 	deps: SuperviseDeps,
 ): Promise<boolean> {
 	const shown = promptShown(before);
-	return settlesOn(key, report => promptShown(report) !== shown, deps);
+	return Boolean(
+		await settlesOn(key, report => promptShown(report) !== shown, deps),
+	);
 }
 
 /**
@@ -765,15 +650,14 @@ async function settlesOn(
 	key: string,
 	shows: (report: AgentStateReport) => boolean,
 	deps: SuperviseDeps,
-): Promise<boolean> {
+): Promise<AgentStateReport | null> {
 	for (let waited = 0; waited < ANSWER_SETTLE_MS; waited += ANSWER_POLL_MS) {
-		// eslint-disable-next-line no-await-in-loop
 		await deps.sleep(ANSWER_POLL_MS);
-		// eslint-disable-next-line no-await-in-loop
-		if (shows(await readState(key, deps, {quota: 'never'}))) return true;
+		const report = await readState(key, deps, {quota: 'never'});
+		if (shows(report)) return report;
 	}
 
-	return false;
+	return null;
 }
 
 // Claude reports a permission prompt several seconds after drawing it.
@@ -781,8 +665,8 @@ const HOOK_REPORT_MS = 10_000;
 
 /**
  * The hook's record of the prompt that is up, or null when Claude hasn't
- * reported it. Only a Claude prompt being approved is waited for: Codex has
- * no hook, and a No or a forced press doesn't read it.
+ * reported it. Only a Claude prompt being approved is waited for: Codex and
+ * agy have no hook, and a No or a forced press doesn't read it.
  */
 async function promptHook(
 	key: string,
@@ -790,7 +674,6 @@ async function promptHook(
 	command: Extract<SuperviseCommand, {verb: 'answer'}>,
 	deps: SuperviseDeps,
 ): Promise<ClaudeSessionState | null> {
-	// Only Claude reports pending permission prompts through hooks.
 	if (report.permission?.source === 'agy' || report.app === 'antigravity') {
 		return null;
 	}
@@ -803,7 +686,6 @@ async function promptHook(
 			option => option.number === command.options[0],
 		)?.kind === 'approve_once';
 	for (let waited = 0; ; waited += ANSWER_POLL_MS) {
-		// eslint-disable-next-line no-await-in-loop
 		const stored = await deps.readHookState(await deps.hookKey(key));
 		if (
 			stored.kind === 'state' &&
@@ -812,73 +694,113 @@ async function promptHook(
 		)
 			return stored.state;
 		if (!approving || waited >= HOOK_REPORT_MS) return null;
-		// eslint-disable-next-line no-await-in-loop
 		await deps.sleep(ANSWER_POLL_MS);
 	}
 }
 
 /**
  * Agy's inline subagent banner offers `ctrl+k approve · alt+j manage` with no
- * direct deny key. Denying opens the manage view (`M-j`, preceded by `Escape`
- * out of vim insert mode), picks `2. No, deny` (`Down`, `Enter`), and closes
- * the manage view if it remains open.
+ * direct deny key. Denying opens the manage view (`openKeys`), verifies the
+ * `No, deny` row on screen before pressing Enter, and closes the manage view
+ * if agy stays on the subagent detail screen.
  */
 async function denyAgySubagentBanner(
 	key: string,
 	before: AgentStateReport,
+	openKeys: string[],
 	deps: SuperviseDeps,
 ): Promise<string | null> {
-	const openKeys = before.permission?.subagentBanner?.vimInsert
-		? ['Escape', 'M-j']
-		: ['M-j'];
-	const shown = promptShown(before);
-	const stuck = await runSteps(
+	if ((await deps.sendKeys(key, openKeys)) !== 'sent') {
+		return 'the subagent manage view';
+	}
+
+	const managed = await settlesOn(
 		key,
-		[
-			{
-				keys: openKeys,
-				expect: 'the subagent manage view',
-				shows: report => report.agyDialog === 'subagent_manage',
-			},
-			{
-				keys: ['Down', 'Enter'],
-				expect: 'the subagent action denied',
-				shows: report =>
-					report.agyDialog !== 'subagent_manage' ||
-					!report.screen.includes('Approval Required'),
-			},
-		],
+		report => report.agyDialog === 'subagent_manage',
 		deps,
 	);
-	if (stuck) return stuck;
-	const after = await readState(key, deps, {quota: 'never'});
+	if (!managed) return 'the subagent manage view';
+	const approval = parseAgySubagentManageApproval(managed.screen);
+	if (!approval) {
+		await deps.sendKeys(key, ['Escape']);
+		return 'the No, deny option in subagent manage';
+	}
+
+	const delta = approval.denyNumber - approval.cursor;
+	const denyKeys = [
+		...Array.from({length: Math.abs(delta)}, () => (delta > 0 ? 'Down' : 'Up')),
+		'Enter',
+	];
+	if ((await deps.sendKeys(key, denyKeys)) !== 'sent') {
+		return 'the subagent action denied';
+	}
+
+	let after = await settlesOn(
+		key,
+		report =>
+			report.agyDialog !== 'subagent_manage' ||
+			!report.screen.includes('Approval Required'),
+		deps,
+	);
+	if (!after) return 'the subagent action denied';
 	if (after.agyDialog === 'subagent_manage') {
 		if ((await deps.sendKeys(key, ['Escape'])) !== 'sent') {
 			return 'closing the subagent manage view';
 		}
 
-		await settlesOn(
+		const closed = await settlesOn(
 			key,
 			report => report.agyDialog !== 'subagent_manage',
 			deps,
 		);
+		if (!closed) return 'closing the subagent manage view';
+		after = closed;
 	}
 
-	const finalState = await readState(key, deps, {quota: 'never'});
-	return promptShown(finalState) === shown
+	return promptShown(after) === promptShown(before)
 		? 'the subagent banner cleared'
 		: null;
 }
 
-function describeHold(hold: Hold): string {
-	// A file prompt's command is its diff; the file says what it was for.
-	const call = hold.filePath ?? hold.command.split('\n')[0]!;
-	return `${hold.id}  ${hold.key}  ${hold.state}  ${hold.tool || 'prompt'}: ${call}\n    ${hold.reason}`;
-}
+async function pressAndSettle(
+	key: string,
+	before: AgentStateReport,
+	{
+		keys,
+		option,
+		denyingSubagent,
+	}: {keys: string[]; option: number | undefined; denyingSubagent: boolean},
+	deps: SuperviseDeps,
+): Promise<
+	{ok: true} | {ok: false; detail?: string; message: string; sent: string}
+> {
+	const sent = keys.join(' ');
+	if (denyingSubagent) {
+		const stuck = await denyAgySubagentBanner(key, before, keys, deps);
+		return stuck
+			? {
+					ok: false,
+					sent,
+					detail: `stuck: ${stuck}`,
+					message: `Answering ${key} stopped: ${stuck} didn't show on screen. Check it with \`pappardelle screen ${key}\``,
+				}
+			: {ok: true};
+	}
 
-/** What the agent is told when its prompt is held. */
-export function holdMessage(id: string, reason: string): string {
-	return `Held for the chef (${id}): ${reason}. Don't retry it or work around it. Carry on with work that doesn't depend on it, and say in your summary that it's waiting on the chef.`;
+	if ((await deps.sendKeys(key, keys)) !== 'sent') {
+		return {ok: false, sent, message: `Could not press ${sent} in ${key}`};
+	}
+
+	if (!(await answerSettled(key, before, option, deps))) {
+		return {
+			ok: false,
+			sent,
+			detail: 'the prompt did not change',
+			message: `Pressed ${sent} in ${key}, but it still shows the same prompt. Check it with \`pappardelle screen ${key}\``,
+		};
+	}
+
+	return {ok: true};
 }
 
 /**
@@ -903,36 +825,25 @@ async function holdPrompt(
 	}
 
 	const {permission} = before;
-	if (permission?.subagentBanner) {
-		const stuck = await denyAgySubagentBanner(key, before, deps);
-		if (stuck) {
-			log({...entry, sent: 'M-j', detail: `stuck: ${stuck}`});
-			deps.err(
-				`Holding ${key}'s subagent prompt stopped: ${stuck} didn't show on screen. Check it with \`pappardelle screen ${key}\``,
-			);
-			return 1;
-		}
-	} else {
-		const deny = permission?.options.find(option => option.kind === 'deny');
-		const keys = (permission &&
-			deny &&
-			optionKeys(permission, deny.number)) ?? ['Escape'];
-		if ((await deps.sendKeys(key, keys)) !== 'sent') {
-			deps.err(`Could not press ${keys.join(' ')} in ${key}`);
-			return 1;
-		}
-
-		if (!(await answerSettled(key, before, deny?.number, deps))) {
-			log({
-				...entry,
-				sent: keys.join(' '),
-				detail: 'the prompt did not change',
-			});
-			deps.err(
-				`Pressed ${keys.join(' ')} in ${key} to hold its prompt, but it still shows. Check it with \`pappardelle screen ${key}\``,
-			);
-			return 1;
-		}
+	const deny = permission?.options.find(option => option.kind === 'deny');
+	const keys = (permission && deny && optionKeys(permission, deny.number)) ?? [
+		'Escape',
+	];
+	const outcome = await pressAndSettle(
+		key,
+		before,
+		{
+			keys,
+			option: deny?.number,
+			denyingSubagent: Boolean(permission?.subagentBanner),
+		},
+		deps,
+	);
+	if (!outcome.ok) {
+		if (outcome.detail)
+			log({...entry, sent: outcome.sent, detail: outcome.detail});
+		deps.err(outcome.message);
+		return 1;
 	}
 
 	const store = deps.holds();
@@ -966,25 +877,6 @@ async function holdPrompt(
 		].join('\n'),
 	);
 	return 0;
-}
-
-/** What the sous-chef must still do to get the hold message to the space. */
-function holdDelivery(
-	key: string,
-	sent: SendOutcome,
-	message: string,
-): string[] {
-	if (sent === 'sent') return [];
-	// Resent, the text in the box would read as a draft and block the send.
-	if (sent === 'unsubmitted')
-		return [
-			`The message is in ${key}'s input box but didn't send. Check it with space_screen; space_press_keys with Enter submits it:`,
-			message,
-		];
-	return [
-		`The message didn't reach ${key} (${sent}). Send it with space_send once the space is free:`,
-		message,
-	];
 }
 
 async function newJob(
@@ -1064,22 +956,6 @@ async function newJob(
 				until: until?.toISOString() ?? null,
 				idleChecks: 0,
 			};
-		}
-	}
-}
-
-function describeJob(job: Job): string {
-	switch (job.kind) {
-		case 'at': {
-			return `${job.id}  ${job.key}  at ${job.at}: ${job.message}`;
-		}
-
-		case 'after_limit': {
-			return `${job.id}  ${job.key}  after the usage limit, at ${job.at}: ${job.message}`;
-		}
-
-		case 'keep_going': {
-			return `${job.id}  ${job.key}  every ${job.everySeconds}s${job.until ? ` until ${job.until}` : ''}: ${job.nudge}`;
 		}
 	}
 }
@@ -1344,42 +1220,28 @@ async function execute(
 				return 1;
 			}
 
-			const denyingSubagentBanner =
+			const denyingSubagent =
 				before.permission?.subagentBanner !== undefined &&
 				command.options[0] !== undefined &&
 				before.permission.options.find(
 					option => option.number === command.options[0],
 				)?.kind === 'deny';
 			const shown = entry.sent ?? pressed.join(' ');
-			if (denyingSubagentBanner) {
-				const stuck = await denyAgySubagentBanner(key, before, deps);
-				if (stuck) {
-					log({...entry, detail: `stuck: ${stuck}`});
-					deps.err(
-						`Answering ${key} stopped: ${stuck} didn't show on screen. Check it with \`pappardelle screen ${key}\``,
-					);
-					return 1;
-				}
-			} else {
-				if ((await deps.sendKeys(key, pressed)) !== 'sent') {
-					deps.err(`Could not press ${pressed.join(' ')} in ${key}`);
-					return 1;
-				}
-
-				if (
-					!(await answerSettled(
-						key,
-						before,
+			const outcome = await pressAndSettle(
+				key,
+				before,
+				{
+					keys: pressed,
+					option:
 						before.state === 'permission' ? command.options[0] : undefined,
-						deps,
-					))
-				) {
-					log({...entry, detail: 'the prompt did not change'});
-					deps.err(
-						`Pressed ${shown} in ${key}, but it still shows the same prompt. Check it with \`pappardelle screen ${key}\``,
-					);
-					return 1;
-				}
+					denyingSubagent,
+				},
+				deps,
+			);
+			if (!outcome.ok) {
+				if (outcome.detail) log({...entry, detail: outcome.detail});
+				deps.err(outcome.message);
+				return 1;
 			}
 
 			log(entry);

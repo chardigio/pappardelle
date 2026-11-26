@@ -6,13 +6,12 @@ import {teardown} from '../test/helpers/teardown.ts';
 import {rejectionOf} from '../test/helpers/thrown.ts';
 import {
 	agyClassifierArgs,
+	classifierBackend,
 	classifierInput,
-	classifyCommand,
 	classifyWithConfig,
 	DEFAULT_AGY_CLASSIFIER_MODEL,
-	defaultClassifierRun,
 	parseClassifierOutput,
-	type ClassifierRun,
+	spawnClassifier,
 	type SpawnClassifier,
 } from './approve-classifier.ts';
 
@@ -26,7 +25,7 @@ const request = {
 };
 
 const answering =
-	(stdout: string, status = 0): ClassifierRun =>
+	(stdout: string, status = 0): SpawnClassifier =>
 	async () => ({status, stdout});
 
 const verdict = (structured: unknown) =>
@@ -34,19 +33,17 @@ const verdict = (structured: unknown) =>
 
 test('a yes from the model approves, with its reason', async () => {
 	expect(
-		await classifyCommand(
-			request,
-			answering(verdict({approve: true, reason: 'a local build'})),
-		),
+		await classifyWithConfig(request, {
+			spawn: answering(verdict({approve: true, reason: 'a local build'})),
+		}),
 	).toStrictEqual({kind: 'approve', reason: 'a local build'});
 });
 
 test('a no from the model holds, with its reason', async () => {
 	expect(
-		await classifyCommand(
-			request,
-			answering(verdict({approve: false, reason: 'it deploys'})),
-		),
+		await classifyWithConfig(request, {
+			spawn: answering(verdict({approve: false, reason: 'it deploys'})),
+		}),
 	).toStrictEqual({
 		kind: 'hold',
 		reason: 'the approval check said no: it deploys',
@@ -54,7 +51,7 @@ test('a no from the model holds, with its reason', async () => {
 });
 
 test('a check that gives no clear answer is unavailable, not a no', async () => {
-	const runs: ClassifierRun[] = [
+	const spawns: SpawnClassifier[] = [
 		answering(verdict({approve: false})),
 		answering(verdict({approve: 'yes', reason: 'x'})),
 		answering(verdict(undefined)),
@@ -65,29 +62,31 @@ test('a check that gives no clear answer is unavailable, not a no', async () => 
 		},
 	];
 	const verdicts = await Promise.all(
-		runs.map(async run => classifyCommand(request, run)),
+		spawns.map(async spawn => classifyWithConfig(request, {spawn})),
 	);
-	expect(verdicts.every(verdict => verdict.kind === 'unavailable')).toBe(true);
+	expect(verdicts.every(v => v.kind === 'unavailable')).toBe(true);
 });
 
 test('a check that fails to run is tried once more', async () => {
 	let calls = 0;
-	const flaky: ClassifierRun = async () => {
+	const flaky: SpawnClassifier = async () => {
 		calls++;
 		return calls === 1
 			? {status: 1, stdout: ''}
 			: {status: 0, stdout: verdict({approve: true, reason: 'fine'})};
 	};
-	expect(await classifyCommand(request, flaky)).toStrictEqual({
+	expect(await classifyWithConfig(request, {spawn: flaky})).toStrictEqual({
 		kind: 'approve',
 		reason: 'fine',
 	});
 	expect(calls).toBe(2);
 
 	let failures = 0;
-	await classifyCommand(request, async () => {
-		failures++;
-		return {status: 1, stdout: ''};
+	await classifyWithConfig(request, {
+		async spawn() {
+			failures++;
+			return {status: 1, stdout: ''};
+		},
 	});
 	expect(failures).toBe(2);
 });
@@ -124,10 +123,19 @@ test('a check that outlives its deadline ends then, even if a child keeps its ou
 		process.env['PATH'] = path0;
 	});
 	const started = Date.now();
-	await rejectionOf(defaultClassifierRun([], '', 300)).then(error => {
+	await rejectionOf(spawnClassifier('claude', [], '', 300)).then(error => {
 		expect(error.message).toBe('timed out after 0.3s');
 	});
 	expect(Date.now() - started < 5000).toBe(true);
+});
+
+test('classifierBackend accepts bare claude/agy or absolute paths and rejects relative paths', () => {
+	expect(classifierBackend('claude')).toBe('claude');
+	expect(classifierBackend('agy')).toBe('agy');
+	expect(classifierBackend('/usr/local/bin/agy')).toBe('agy');
+	expect(classifierBackend('bin/claude')).toBe(null);
+	expect(classifierBackend('./agy')).toBe(null);
+	expect(classifierBackend('codex')).toBe(null);
 });
 
 test('parseClassifierOutput parses agy 1.5.x JSON envelopes and fails closed on malformed output', () => {

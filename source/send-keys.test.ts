@@ -1,5 +1,6 @@
 import {test, expect, beforeAll, afterAll} from 'bun:test';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
+import {snapshotOf} from '../test/helpers/program-status.ts';
 import {testTmuxSpaces} from '../test/helpers/state.ts';
 import {sendKeysToSpaceAgent, type OuterTmuxRunner} from './tmux.ts';
 
@@ -255,30 +256,31 @@ test('--keys blocks non-Escape on agy prompts, /model, /config and unparsed OSC 
 			return {status: 0, stdout: ''};
 		};
 
-	const blockedSnapshot = async (message: string) => ({
-		version: 1 as const,
-		repo: 'repo',
-		key: 'STA-1',
-		pane: {
-			id: '%1',
-			pid: '42',
-			dead: false,
-			piped: true,
-			marker: '42.marker',
-			generation: 'gen',
-		},
-		authoritative: true,
-		exited: false,
-		updatedAt: 0,
-		records: [],
-		info: {
-			status: 'blocked' as const,
-			kind: 'permission' as const,
-			message,
-			app: 'antigravity',
-			source: 'osc' as const,
-		},
-	});
+	const blockedSnapshot = async (message: string, authoritative = true) =>
+		snapshotOf(
+			{
+				repo: 'repo',
+				key: 'STA-1',
+				pane: {
+					id: '%1',
+					pid: '42',
+					dead: false,
+					piped: true,
+					marker: '42.marker',
+					generation: 'gen',
+				},
+			},
+			[
+				{
+					state: 'blocked',
+					id: '',
+					app: 'antigravity',
+					kind: 'permission',
+					message,
+				},
+			],
+			{authoritative},
+		);
 
 	expect(
 		await sendKeysToSpaceAgent('STA-1', ['1'], {
@@ -286,6 +288,12 @@ test('--keys blocks non-Escape on agy prompts, /model, /config and unparsed OSC 
 			readSnapshot: async () => blockedSnapshot('Approve CustomTool'),
 		}),
 	).toBe('prompt');
+	expect(
+		await sendKeysToSpaceAgent('STA-1', ['1'], {
+			runner: makeOscRunner('unparsed custom agy modal'),
+			readSnapshot: async () => blockedSnapshot('Approve CustomTool', false),
+		}),
+	).toBe('sent');
 	expect(
 		await sendKeysToSpaceAgent('STA-1', ['Escape'], {
 			runner: makeOscRunner('unparsed custom agy modal'),
