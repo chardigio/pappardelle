@@ -27,7 +27,9 @@ async function settles(promise: Promise<void>, ms: number) {
 }
 
 function popupTtyPath(terminal: PopupTerminal) {
-	return readlinkSync(`/proc/self/fd/${terminal.input.fd}`);
+	// A tty.ReadStream carries its fd at runtime; @types/node does not declare it.
+	const input = terminal.input as typeof terminal.input & {fd: number};
+	return readlinkSync(`/proc/self/fd/${input.fd}`);
 }
 
 function fdsOn(ttyPath: string) {
