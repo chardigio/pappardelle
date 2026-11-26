@@ -19,7 +19,11 @@ def notes_db(state_db: Path) -> Path:
     return state_db
 
 
-def write_note(db: Path, body: str) -> bool:
+COMMITTED = state_db.WriteOutcome.COMMITTED
+FAILED = state_db.WriteOutcome.FAILED
+
+
+def write_note(db: Path, body: str) -> state_db.WriteOutcome:
     return state_db.write_rows(
         str(db), "the note", lambda _connection: [("INSERT OR REPLACE INTO notes VALUES (?, ?)", ("a", body))]
     )
@@ -38,7 +42,7 @@ def hook_log() -> str:
 
 
 def test_writes_its_rows_and_rings_the_bell(notes_db: Path):
-    assert write_note(notes_db, "one")
+    assert write_note(notes_db, "one") is COMMITTED
 
     assert rows(notes_db, "SELECT name, body FROM notes") == [("a", "one")]
     assert Path(f"{notes_db}.bell").exists()
@@ -51,14 +55,21 @@ def test_the_statements_are_built_from_what_the_rows_hold_inside_the_transaction
         (body,) = connection.execute("SELECT body FROM notes WHERE name = 'a'").fetchone()
         return [("UPDATE notes SET body = ? WHERE name = 'a'", (body + " two",))]
 
-    assert state_db.write_rows(str(notes_db), "the note", append)
+    assert state_db.write_rows(str(notes_db), "the note", append) is COMMITTED
     assert rows(notes_db, "SELECT body FROM notes") == [("one two",)]
+
+
+def test_no_statements_commit_nothing_and_ring_no_bell(notes_db: Path):
+    outcome = state_db.write_rows(str(notes_db), "the note", lambda _connection: [])
+
+    assert outcome is state_db.WriteOutcome.NOTHING_TO_WRITE
+    assert not Path(f"{notes_db}.bell").exists()
 
 
 def test_a_missing_database_is_not_created_and_the_failure_is_logged(tmp_path: Path):
     db = tmp_path / "absent.db"
 
-    assert not write_note(db, "one")
+    assert write_note(db, "one") is FAILED
 
     assert not db.exists()
     assert "State database write failed for the note" in hook_log()
@@ -69,13 +80,13 @@ def test_a_locked_database_costs_a_fraction_of_a_second(notes_db: Path):
     holder.execute("BEGIN IMMEDIATE")
     try:
         started = time.monotonic()
-        wrote = write_note(notes_db, "one")
+        outcome = write_note(notes_db, "one")
         elapsed = time.monotonic() - started
     finally:
         holder.execute("ROLLBACK")
         holder.close()
 
-    assert not wrote
+    assert outcome is FAILED
     assert elapsed < 1.0
     assert rows(notes_db, "SELECT * FROM notes") == []
     assert "State database write failed for the note" in hook_log()
@@ -85,7 +96,7 @@ def test_a_python_without_sqlite_writes_nothing_and_logs_it(tmp_path: Path, monk
     # What `import sqlite3` meets in a Python built without the _sqlite3 module.
     monkeypatch.setitem(sys.modules, "sqlite3", None)
 
-    assert not write_note(tmp_path / "state.db", "one")
+    assert write_note(tmp_path / "state.db", "one") is FAILED
 
     assert "State database write failed for the note" in hook_log()
 
@@ -117,5 +128,5 @@ def test_a_database_path_with_uri_characters_is_opened(state_db: Path, tmp_path:
     connection.commit()
     connection.close()
 
-    assert write_note(db, "one")
+    assert write_note(db, "one") is COMMITTED
     assert rows(db, "SELECT name, body FROM notes") == [("a", "one")]

@@ -33,19 +33,11 @@ if _agent_session_spec and _agent_session_spec.loader:
     _agent_session_mod = importlib.util.module_from_spec(_agent_session_spec)
     _agent_session_spec.loader.exec_module(_agent_session_mod)
     record_agent_session = _agent_session_mod.record_agent_session
-else:
-    raise ImportError("Could not load agent_session")
-
-_state_db_module_path = Path(__file__).parent / "state_db.py"
-_state_db_spec = importlib.util.spec_from_file_location("state_db", _state_db_module_path)
-if _state_db_spec and _state_db_spec.loader:
-    _state_db_mod = importlib.util.module_from_spec(_state_db_spec)
-    _state_db_spec.loader.exec_module(_state_db_mod)
+    _state_db_mod = _agent_session_mod.state_db
     status_socket_path = _state_db_mod.status_socket_path
-    state_db_path = _state_db_mod.state_db_path
     space_at_path = _state_db_mod.space_at_path
 else:
-    raise ImportError("Could not load state_db")
+    raise ImportError("Could not load agent_session")
 
 
 def send_status(path: str, state: dict[str, Any]) -> bool:
@@ -107,7 +99,7 @@ def get_workspace_name(cwd: Optional[str] = None) -> Optional[str]:
         except OSError:
             # A deleted worktree, which no stored space holds.
             return None
-    row = space_at_path(state_db_path(), cwd)
+    row = space_at_path(cwd)
     return _qualify(row.repo, row.key) if row else None
 
 

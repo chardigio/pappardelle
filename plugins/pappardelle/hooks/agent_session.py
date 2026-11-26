@@ -57,18 +57,29 @@ one until the next top-level turn). Another agy process still cannot overwrite a
 live owner's id.
 """
 
+import importlib.util
 import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Mapping, NamedTuple, Optional
 
+
+def _load_state_db() -> Any:
+    """state_db.py, loaded by path as the hook scripts load this module."""
+    spec = importlib.util.spec_from_file_location("state_db", Path(__file__).parent / "state_db.py")
+    if spec is None or spec.loader is None:
+        raise ImportError("Could not load state_db")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+state_db = _load_state_db()
+
 RECORDED_EVENTS = {"SessionStart", "UserPromptSubmit"}
 
 SHELLS = {"sh", "bash", "zsh", "dash", "fish", "ksh", "tcsh", "csh"}
-
-# MAIN_WORKTREE_KEY in source/space-utils.ts.
-MAIN_KEY = "main"
 
 # pid: (ppid, command line)
 ProcessTable = dict[int, tuple[int, str]]
@@ -80,13 +91,6 @@ Chain = list[tuple[int, str]]
 class Space(NamedTuple):
     repo: str
     key: str
-
-
-class LaunchedAgent(NamedTuple):
-    """The agent profile a space's agent session was last started with."""
-
-    profile: str
-    is_claude: bool
 
 
 class AgentPane(NamedTuple):
@@ -108,25 +112,7 @@ def env_space(environ: Mapping[str, str]) -> Optional[Space]:
     repo = environ.get("PAPPARDELLE_REPO", "").strip()
     if not repo:
         return None
-    return Space(repo, environ.get("PAPPARDELLE_SPACE", "").strip() or MAIN_KEY)
-
-
-class Stores:
-    """The state database's rows for a space."""
-
-    def __init__(self) -> None:
-        self.state_db = _load_state_db()
-        self.db_path: str = self.state_db.state_db_path()
-
-    def launched_agent(self, space: Space) -> Optional[LaunchedAgent]:
-        launched = self.state_db.launched_agent_profile(self.db_path, space.repo, space.key)
-        return LaunchedAgent(*launched) if launched else None
-
-    def is_agent_session(self, space: Space, session_name: str) -> bool:
-        return self.state_db.agent_session_name(self.db_path, space.repo, space.key) == session_name
-
-    def entry(self, space: Space, agent_profile: str) -> Optional[dict[str, Any]]:
-        return self.state_db.agent_session_entry(self.db_path, space.repo, space.key, agent_profile)
+    return Space(repo, environ.get("PAPPARDELLE_SPACE", "").strip() or state_db.MAIN_KEY)
 
 
 def read_process_table() -> ProcessTable:
@@ -241,8 +227,7 @@ def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
         )
         return result.stdout if result.returncode == 0 else None
 
-    stores = Stores()
-    row = stores.state_db.space_at_path(stores.db_path, cwd)
+    row = state_db.space_at_path(cwd)
     if row is None:
         return None
     panes = run("list-panes", "-s", "-t", f"={row.agent_session}:", "-F", "#{pane_pid}")
@@ -287,8 +272,8 @@ def record_agent_session(
 ) -> bool:
     """
     Record the id and the agent's pid under the launched agent profile's name
-    in the space's agent-sessions file. is_claude_hook says whether Claude
-    Code fired the hook. Returns whether it wrote.
+    in the state database's agent_sessions table. is_claude_hook says whether
+    Claude Code fired the hook. Returns whether it wrote.
     """
     env = os.environ if environ is None else environ
     started = started or process_start
@@ -309,14 +294,13 @@ def record_agent_session(
         # Only codex's daemon runs hooks away from the agent's own env, so
         # another agent outside a space's sessions isn't a pappardelle agent.
         return False
-    stores = Stores()
     # UserPromptSubmit fires on every prompt; the process walk only runs when
     # the entry would change. A relaunch resuming the same id still records its
     # new pid.
     if pane_space is not None:
-        launched = stores.launched_agent(pane_space)
-        entry = stores.entry(pane_space, launched.profile) if launched else None
-        if owner_alive(entry, started) and entry_session_id(entry) == session_id:
+        launched = state_db.launched_agent(*pane_space)
+        entry = state_db.agent_session_entry(*pane_space, launched.profile) if launched else None
+        if entry is not None and entry.session_id == session_id and owner_alive(entry, started):
             return False
 
     table = process_table()
@@ -334,7 +318,7 @@ def record_agent_session(
         if sole_agent_run(chain) is None:
             return False
         session = pane_session(env)
-        if session is None or not session.first or not stores.is_agent_session(pane_space, session.name):
+        if session is None or not session.first or state_db.agent_session_name(*pane_space) != session.name:
             return False
         space = pane_space
         agent_pid = hook_agent
@@ -343,60 +327,38 @@ def record_agent_session(
     if space is None or agent_pid is None:
         return False
 
-    launched = stores.launched_agent(space)
+    launched = state_db.launched_agent(*space)
     if launched is None or launched.is_claude != is_claude_hook:
         return False
     agent_profile = launched.profile
-    recorded = False
+    # Forks ps, so it runs before the write lock is taken.
+    recording = state_db.SessionEntry(session_id, agent_pid, started(agent_pid))
 
     # The read, the ownership check and the write run in one write
     # transaction, so a profile rename (source/config-migration.ts) cannot
     # land between them.
     def statements(connection: Any) -> list[tuple[str, tuple[Any, ...]]]:
-        nonlocal recorded
-        entry = stores.state_db.agent_session_row(connection, space.repo, space.key, agent_profile)
-        owner = entry.get("pid") if entry else None
-        if (owner != agent_pid or from_daemon) and owner_alive(entry, started):
+        entry = state_db.agent_session_row(connection, space.repo, space.key, agent_profile)
+        if entry is not None and (entry.pid != agent_pid or from_daemon) and owner_alive(entry, started):
             return []
-        recording = {"session_id": session_id, "pid": agent_pid, "started": started(agent_pid)}
         if entry == recording:
             return []
-        recorded = True
         return [
             (
                 """INSERT INTO agent_sessions (repo, key, agent_profile, session_id, pid, started)
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (repo, key, agent_profile) DO UPDATE SET
                     session_id = excluded.session_id, pid = excluded.pid, started = excluded.started""",
-                (space.repo, space.key, agent_profile, session_id, agent_pid, recording["started"]),
+                (space.repo, space.key, agent_profile, *recording),
             )
         ]
 
-    wrote = stores.state_db.write_rows(stores.db_path, f"the agent session of {space.key}", statements)
-    return wrote and recorded
-
-
-def _load_state_db() -> Any:
-    """state_db.py, loaded by path as the hook scripts load this module."""
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("state_db", Path(__file__).parent / "state_db.py")
-    if spec is None or spec.loader is None:
-        raise ImportError("Could not load state_db")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def entry_session_id(entry: Any) -> Optional[str]:
-    session_id = entry.get("session_id") if isinstance(entry, dict) else None
-    return session_id if isinstance(session_id, str) else None
+    outcome = state_db.write_rows(state_db.state_db_path(), f"the agent session of {space.key}", statements)
+    return outcome is state_db.WriteOutcome.COMMITTED
 
 
 def owner_alive(entry: Any, started: Callable[[int], Optional[str]]) -> bool:
-    if not isinstance(entry, dict):
-        return False
-    pid, recorded_start = entry.get("pid"), entry.get("started")
-    return isinstance(pid, int) and recorded_start is not None and started(pid) == recorded_start
+    """Whether the agent that recorded the entry is still running."""
+    return entry.pid is not None and entry.started is not None and started(entry.pid) == entry.started
 
 

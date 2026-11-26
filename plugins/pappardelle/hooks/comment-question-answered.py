@@ -61,8 +61,8 @@ _state_db_spec = importlib.util.spec_from_file_location("state_db", _hooks_dir /
 if _state_db_spec and _state_db_spec.loader:
     _state_db_mod = importlib.util.module_from_spec(_state_db_spec)
     _state_db_spec.loader.exec_module(_state_db_mod)
-    state_db_path = _state_db_mod.state_db_path
     space_at_path = _state_db_mod.space_at_path
+    MAIN_KEY = _state_db_mod.MAIN_KEY
 else:
     raise ImportError("Could not load state_db")
 
@@ -74,8 +74,8 @@ def get_issue_key() -> Optional[str]:
         cwd = os.getcwd()
     except OSError:
         return None
-    row = space_at_path(state_db_path(), cwd)
-    return row.key if row and row.key != "main" else None
+    row = space_at_path(cwd)
+    return row.key if row and row.key != MAIN_KEY else None
 
 
 def format_question_answer(tool_input: dict, tool_response: dict | str) -> str:

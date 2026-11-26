@@ -45,7 +45,7 @@ nested = subprocess.run(
 Path(root, "recording.json").write_text(json.dumps({
     "primary": primary,
     "nested": json.loads(nested.stdout),
-    "sessions": {"fixture": module.Stores().entry(module.env_space(os.environ), "fixture")},
+    "sessions": {"fixture": module.state_db.agent_session_entry(*module.env_space(os.environ), "fixture")._asdict()},
 }))
 sys.stdout.write("\x1b]7501;state=idle:app=fixture\x07")
 sys.stdout.flush()
