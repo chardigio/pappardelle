@@ -577,7 +577,7 @@ test('agy idle screens read an empty composer and strip the grey placeholder fro
 	for (const name of ['agy-idle', 'agy-idle-factory']) {
 		const {composer, agyComposer, lines} = screen(name);
 		expect(composer).toBe('');
-		expect(agyComposer).toBe(true);
+		expect(agyComposer).not.toBe(null);
 		expect(lines.some(line => line.trimEnd() === '>')).toBe(true);
 		expect(lines.some(line => line.includes('Auto mode:'))).toBe(false);
 	}
@@ -648,7 +648,7 @@ test('agy draft screens read drafts in insert, normal and factory modes, includi
 	expect(multiline.composer).toBe(
 		'first line of agy draft\nsecond line of agy draft',
 	);
-	expect(multiline.agyComposer).toBe(true);
+	expect(multiline.agyComposer).not.toBe(null);
 });
 
 test('agy transcript prompt echoes are not misread as a composer draft', () => {
@@ -675,7 +675,7 @@ test('agy question lists parse into QuestionDialog and never as codexDialog', ()
 	] as const) {
 		const parsed = screen(name);
 		expect(parsed.codexDialog).toBe(null);
-		expect(parsed.agyDialog).toBe(false);
+		expect(parsed.agyDialog).toBe(null);
 		expect(parsed.permission).toBe(null);
 		expect(parsed.composer).toBe(null);
 		expect(parsed.question).toStrictEqual({
@@ -771,7 +771,7 @@ test('agy question lists parse into QuestionDialog and never as codexDialog', ()
 
 test('agy subagent manage view is flagged as agyDialog and never as codexDialog or question', () => {
 	const manage = screen('agy-subagent-manage');
-	expect(manage.agyDialog).toBe(true);
+	expect(manage.agyDialog).toBe('subagent_manage');
 	expect(manage.codexDialog).toBe(null);
 	expect(manage.question).toBe(null);
 	expect(manage.permission).toBe(null);
@@ -787,7 +787,171 @@ test('agy subagent manage view is flagged as agyDialog and never as codexDialog 
 		].join('\n'),
 		NOW,
 	);
-	expect(scrollbackManage.agyDialog).toBe(false);
+	expect(scrollbackManage.agyDialog).toBe(null);
+});
+
+test('agy trust dialog and /artifact review parse as agyDialog with no false draft', () => {
+	const trust = screen('agy-trust');
+	expect(trust.agyDialog).toBe('trust');
+	expect(trust.codexDialog).toBe(null);
+	expect(trust.permission).toBe(null);
+	expect(trust.question).toBe(null);
+	expect(trust.composer).toBe(null);
+
+	for (const effort of ['xhigh', 'max']) {
+		const trustEffort = parseAgentScreen(
+			agentScreenFixture('agy-trust').replace('· medium', `· ${effort}`),
+			NOW,
+		);
+		expect(trustEffort.agyDialog).toBe('trust');
+	}
+
+	const scrollbackTrust = parseAgentScreen(
+		[
+			agentScreenFixture('agy-trust'),
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(scrollbackTrust.agyDialog).toBe(null);
+	expect(scrollbackTrust.composer).toBe('');
+
+	const review = screen('agy-plan-artifact-review');
+	expect(review.agyDialog).toBe('artifact_review');
+	expect(review.codexDialog).toBe(null);
+	expect(review.composer).toBe(null);
+	expect(review.agyComposer).toBe(null);
+
+	// The /artifact panel with no pending items uses `p preview ... esc Dismiss`.
+	const emptyArtifacts = parseAgentScreen(
+		[
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'Artifacts',
+			'  No artifacts',
+			'',
+			'Keyboard: ↑/↓ Navigate  p preview  enter open  ctrl+g open in editor  esc Dismiss',
+			'',
+			'plan · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(emptyArtifacts.agyDialog).toBe('artifact_review');
+	expect(emptyArtifacts.composer).toBe(null);
+
+	// Even without the /artifact footer, a `› ` row below an agy composer is not a Codex draft.
+	const overlayRow = parseAgentScreen(
+		[
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'› □ new implementation_plan.md   open  approve reject',
+			'plan · Gemini 4 Hydrogen · xhigh',
+		].join('\n'),
+		NOW,
+	);
+	expect(overlayRow.agyComposer).not.toBe(null);
+	expect(overlayRow.composer).toBe('');
+});
+
+test('agy plan approval banner, vim insert, announcement banner and working signals', () => {
+	const planApproval = screen('agy-plan-approval');
+	expect(planApproval.agyDialog).toBe(null);
+	expect(planApproval.composer).toBe('');
+	expect(planApproval.agyComposer).toStrictEqual({
+		vimInsert: true,
+		announcementBanner: false,
+		working: false,
+		artifactReview: true,
+	});
+
+	const planDraft = parseAgentScreen(
+		[
+			'  1 artifact · /artifact to review',
+			'────────────────────',
+			'\u001B[94m>\u001B[39m refine step 2',
+			'────────────────────',
+			'-- INSERT -- ? for shortcuts   plan · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(planDraft.agyComposer?.artifactReview).toBe(true);
+	expect(planDraft.composer).toBe('refine step 2');
+
+	const subagentBannerWithArtifact = parseAgentScreen(
+		[
+			'  1 artifact · /artifact to review',
+			' ┃ self needs approval for Bash',
+			' ┃ ctrl+k approve · alt+j manage',
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'-- INSERT -- ? for shortcuts   plan · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(subagentBannerWithArtifact.agyComposer?.artifactReview).toBe(false);
+
+	expect(screen('agy-idle').agyComposer).toStrictEqual({
+		vimInsert: true,
+		announcementBanner: true,
+		working: false,
+		artifactReview: false,
+	});
+
+	expect(screen('agy-draft-normal').agyComposer).toStrictEqual({
+		vimInsert: false,
+		announcementBanner: true,
+		working: false,
+		artifactReview: false,
+	});
+
+	expect(screen('agy-idle-factory').agyComposer).toStrictEqual({
+		vimInsert: false,
+		announcementBanner: true,
+		working: false,
+		artifactReview: false,
+	});
+
+	const workingInsert = parseAgentScreen(
+		[
+			'⣾  Running command... 2s',
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'-- INSERT -- esc to cancel    auto · Gemini 4 Hydrogen · max',
+		].join('\n'),
+		NOW,
+	);
+	expect(workingInsert.agyComposer).toStrictEqual({
+		vimInsert: true,
+		announcementBanner: false,
+		working: true,
+		artifactReview: false,
+	});
+
+	const workingNormal = parseAgentScreen(
+		[
+			'⣾  Running command... 2s',
+			'────────────────────',
+			'\u001B[94m>\u001B[39m',
+			'────────────────────',
+			'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+		].join('\n'),
+		NOW,
+	);
+	expect(workingNormal.agyComposer).toStrictEqual({
+		vimInsert: false,
+		announcementBanner: false,
+		working: true,
+		artifactReview: false,
+	});
+
+	expect(screen('claude-idle').agyComposer).toBe(null);
 });
 
 test('parseResetTime parses ISO timestamps and parseAgyQuota filters by model family', () => {

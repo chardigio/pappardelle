@@ -1,4 +1,5 @@
 import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
 import {testTmuxSpaces} from '../test/helpers/state.ts';
 import {sendKeysToSpaceAgent, type OuterTmuxRunner} from './tmux.ts';
 
@@ -95,4 +96,140 @@ test('--keys presses nothing when it cannot read the screen for a prompt', () =>
 	const {runner, calls} = recorder(['agent-repo-STA-1'], undefined, '', 1);
 	expect(sendKeysToSpaceAgent('STA-1', ['1'], {runner})).toBe('failed');
 	expect(calls.some(args => args[0] === 'send-keys')).toBe(false);
+});
+
+test('--keys refuses every key (including Escape) on agy trust dialog, and refuses non-Escape on /artifact review', () => {
+	const trust = recorder(
+		['agent-repo-STA-1'],
+		undefined,
+		agentScreenFixture('agy-trust'),
+	);
+	expect(sendKeysToSpaceAgent('STA-1', ['Enter'], {runner: trust.runner})).toBe(
+		'prompt',
+	);
+	expect(
+		sendKeysToSpaceAgent('STA-1', ['Escape'], {runner: trust.runner}),
+	).toBe('prompt');
+	expect(trust.calls.some(args => args[0] === 'send-keys')).toBe(false);
+
+	const review = recorder(
+		['agent-repo-STA-1'],
+		undefined,
+		agentScreenFixture('agy-plan-artifact-review'),
+	);
+	expect(sendKeysToSpaceAgent('STA-1', ['y'], {runner: review.runner})).toBe(
+		'prompt',
+	);
+	expect(
+		sendKeysToSpaceAgent('STA-1', ['Escape'], {runner: review.runner}),
+	).toBe('sent');
+	expect(
+		review.calls
+			.filter(args => args[0] === 'send-keys')
+			.map(args => args.at(-1)),
+	).toStrictEqual(['Escape']);
+});
+
+test('--keys adapts Escape and S-Tab/BTab for agy vim insert mode and announcement banner without affecting Claude or Codex', () => {
+	const send = (screen: string, keys: string[]) => {
+		const {runner, calls} = recorder(['agent-repo-STA-1'], undefined, screen);
+		const pauses: number[] = [];
+		const result = sendKeysToSpaceAgent('STA-1', keys, {
+			runner,
+			pause: ms => pauses.push(ms),
+		});
+		return {
+			result,
+			sent: calls
+				.filter(args => args[0] === 'send-keys')
+				.map(args => args.at(-1)),
+			pauses,
+		};
+	};
+
+	const agyWorkingInsert = [
+		'⣾  Running command... 2s',
+		'────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────',
+		'-- INSERT -- esc to cancel    auto · Gemini 4 Hydrogen · medium',
+	].join('\n');
+	const agyWorkingNormal = [
+		'⣾  Running command... 2s',
+		'────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────',
+		'esc to cancel    auto · Gemini 4 Hydrogen · medium',
+	].join('\n');
+	const agyIdleInsertNoBanner = [
+		'────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────',
+		'-- INSERT -- ? for shortcuts    auto · Gemini 4 Hydrogen · medium',
+	].join('\n');
+	const agyFactoryNoBanner = [
+		'────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────',
+		'? for shortcuts    auto · Gemini 4 Hydrogen · medium',
+	].join('\n');
+
+	// Working in vim insert mode: one supervisor Escape sends two with a pause.
+	const interrupt = send(agyWorkingInsert, ['Escape']);
+	expect(interrupt.result).toBe('sent');
+	expect(interrupt.sent).toStrictEqual(['Escape', 'Escape']);
+	expect(interrupt.pauses.length).toBe(1);
+
+	// Working with vim insert + announcement banner: S-Tab must NOT send Escape
+	// (which would cancel the running turn), only normalize to BTab.
+	const agyWorkingInsertWithBanner = [
+		' ┃ esc to dismiss',
+		'⣾  Running command... 2s',
+		'────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────',
+		'-- INSERT -- esc to cancel    auto · Gemini 4 Hydrogen · medium',
+	].join('\n');
+	expect(send(agyWorkingInsertWithBanner, ['S-Tab']).sent).toStrictEqual([
+		'BTab',
+	]);
+
+	// Idle in vim insert mode or working in vim normal mode: single Escape stays single.
+	expect(send(agyIdleInsertNoBanner, ['Escape']).sent).toStrictEqual([
+		'Escape',
+	]);
+	expect(send(agyWorkingNormal, ['Escape']).sent).toStrictEqual(['Escape']);
+
+	// S-Tab / BTab clears vim insert and/or announcement banner first and normalizes S-Tab to BTab.
+	expect(send(agyIdleInsertNoBanner, ['S-Tab']).sent).toStrictEqual([
+		'Escape',
+		'BTab',
+	]);
+	expect(send(agentScreenFixture('agy-idle'), ['S-Tab']).sent).toStrictEqual([
+		'Escape',
+		'Escape',
+		'BTab',
+	]);
+	expect(
+		send(agentScreenFixture('agy-draft-normal'), ['BTab']).sent,
+	).toStrictEqual(['Escape', 'BTab']);
+	expect(
+		send(agentScreenFixture('agy-idle-factory'), ['S-Tab']).sent,
+	).toStrictEqual(['Escape', 'BTab']);
+	expect(send(agyFactoryNoBanner, ['S-Tab']).sent).toStrictEqual(['BTab']);
+	expect(send(agyIdleInsertNoBanner, ['Escape', 'S-Tab']).sent).toStrictEqual([
+		'Escape',
+		'BTab',
+	]);
+
+	// Claude and Codex screens are untouched.
+	expect(
+		send(agentScreenFixture('claude-working'), ['Escape']).sent,
+	).toStrictEqual(['Escape']);
+	expect(send(agentScreenFixture('claude-idle'), ['S-Tab']).sent).toStrictEqual(
+		['S-Tab'],
+	);
+	expect(send(agentScreenFixture('codex-draft'), ['S-Tab']).sent).toStrictEqual(
+		['S-Tab'],
+	);
 });

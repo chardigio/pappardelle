@@ -89,6 +89,22 @@ export type CodexDialog = {
 	selected: number | null;
 };
 
+export type AgyDialogKind = 'trust' | 'artifact_review' | 'subagent_manage';
+
+export type AgyComposerState = {
+	/** Agy's vim composer is currently in INSERT mode (`-- INSERT --` in footer). */
+	vimInsert: boolean;
+	/** Agy's dismissible announcement banner (`┃ esc to dismiss`) sits above the composer. */
+	announcementBanner: boolean;
+	/** Agy is mid-turn (braille spinner or `esc to cancel` in the footer). */
+	working: boolean;
+	/**
+	 * Agy shows `<N> artifact · /artifact to review` above an open composer with
+	 * no modal prompt on screen; OSC still emits blocked/permission "Approve plan".
+	 */
+	artifactReview: boolean;
+};
+
 export type AgentScreen = {
 	spinner: boolean;
 	permission: PermissionPrompt | null;
@@ -105,12 +121,12 @@ export type AgentScreen = {
 	 * shell command. Clearing the box leaves it.
 	 */
 	shellMode: boolean;
-	/** Agy's `>` input box, whose vim normal mode ignores readline clear keys. */
-	agyComposer: boolean;
+	/** Agy's `>` input box state (null when not showing an agy composer). */
+	agyComposer: AgyComposerState | null;
 	/** Codex's own dialogs (folder trust, model switch) that take the keyboard. */
 	codexDialog: CodexDialog | null;
-	/** Agy modal dialogs (such as the subagent approval view) that take the keyboard. */
-	agyDialog: boolean;
+	/** Agy modal dialogs (folder trust, artifact review, subagent manage) that take the keyboard. */
+	agyDialog: AgyDialogKind | null;
 	/** The screen as text, with the input box's dim placeholder left out. */
 	lines: string[];
 };
@@ -147,13 +163,25 @@ const AGY_WRITE_IN_FOOTER = /^\s*enter Submit · esc Back\s*$/;
 const AGY_YOUR_ANSWER = /^\s*Your answer:\s*$/;
 const AGY_MANAGE_FOOTER =
 	/^\s*↑\/↓ navigate · \/ select · enter confirm · esc cancel\s*$/;
+const AGY_TRUST_FOOTER = /^\s*↑\/↓ Navigate · enter Confirm\s*$/;
+const AGY_TRUST_PROMPT = /^\s*Do you trust the contents of this project\?\s*$/;
+const AGY_ARTIFACT_REVIEW_FOOTER =
+	/^\s*Keyboard:\s+↑\/↓ Navigate\b.*(?:\by\/n Approve\/reject\b|\bp [Pp]review\b).*\besc (?:Done|Dismiss)\s*$/;
+const AGY_ARTIFACT_REVIEW_BANNER =
+	/\b\d+\s+artifacts?(?:\(s\))?\s+·\s+\/artifact to review\s*$/;
+const AGY_SUBAGENT_APPROVAL_BANNER = /^\s*┃\s+ctrl\+k approve\b/;
+const AGY_ANNOUNCEMENT_DISMISS = /^\s*┃\s+esc to dismiss\s*$/;
+const AGY_VIM_INSERT = /^\s*--\s+INSERT\s+--(?:\s|$)/;
+const AGY_ESC_TO_CANCEL =
+	/^\s*(?:--\s+INSERT\s+--\s+)?esc\s+to\s+cancel(?:\s{2,}|$)/;
+const AGY_BRAILLE_SPINNER = /^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]\s+\S/;
 // Lowercase `esc to cancel` followed by spaces/EOL matches agy's footer, not
 // Claude's `Esc to cancel · Tab to amend`; model lines require agy's effort
 // suffix or `auto ·` prefix rather than Codex's `<model> · <path>`.
 const AGY_STATUS_FOOTER =
-	/^\s*(?:--\s+INSERT\s+--\s+)?(?:\?\s+for\s+shortcuts\s+)?(?:(?:auto|plan|manual|default|accept edits)\s+·\s+)?(?:Gemini|Claude|GPT)\b.*·\s*(?:minimal|low|medium|high)\b(?:\s+·\s+\d+\s+subagent\(s\))?\s*$/;
+	/^\s*(?:--\s+INSERT\s+--\s+)?(?:(?:\?\s+for\s+shortcuts|esc\s+to\s+cancel)\s+)?(?:(?:auto|plan|manual|default|accept[- ]edits)\s+·\s+)?(?:Gemini|Claude|GPT)\b.*·\s*(?:minimal|low|medium|high|xhigh|max)\b(?:\s+·\s+\d+\s+(?:subagent|task)\(s\)(?:\s+·\s+\/tasks)?)?\s*$/;
 const AGY_BOTTOM_LINE = new RegExp(
-	String.raw`^\s*esc to cancel(?:\s{2,}|$)|${AGY_STATUS_FOOTER.source}`,
+	`${AGY_ESC_TO_CANCEL.source}|${AGY_STATUS_FOOTER.source}`,
 );
 const AGY_OPTION = /^\s*(>\s*)?(\d+)\.\s+(.+?)\s*$/;
 const AGY_WRITE_IN = /^Write-in(?:\.\.\.|:\s*(.+))$/;
@@ -422,9 +450,23 @@ function isAgyBottomAnchored(
 		.every(line => !line.trim() || AGY_BOTTOM_LINE.test(line));
 }
 
-function parseAgyDialog(lines: string[]): boolean {
-	const footerAt = lastIndex(lines, line => AGY_MANAGE_FOOTER.test(line));
-	return footerAt !== -1 && isAgyBottomAnchored(lines, footerAt);
+function parseAgyDialogKind(lines: string[]): AgyDialogKind | null {
+	const manageAt = lastIndex(lines, line => AGY_MANAGE_FOOTER.test(line));
+	if (manageAt !== -1 && isAgyBottomAnchored(lines, manageAt))
+		return 'subagent_manage';
+	const trustAt = lastIndex(lines, line => AGY_TRUST_FOOTER.test(line));
+	if (
+		trustAt !== -1 &&
+		isAgyBottomAnchored(lines, trustAt) &&
+		lines.slice(0, trustAt).some(line => AGY_TRUST_PROMPT.test(line))
+	)
+		return 'trust';
+	const artifactAt = lastIndex(lines, line =>
+		AGY_ARTIFACT_REVIEW_FOOTER.test(line),
+	);
+	if (artifactAt !== -1 && isAgyBottomAnchored(lines, artifactAt))
+		return 'artifact_review';
+	return null;
 }
 
 function questionBlock(
@@ -717,7 +759,7 @@ function looksLikeAgyScreen(
 	raw: readonly string[],
 	lines: readonly string[],
 	input: {at: number; glyph: ComposerGlyph} | null,
-	agyDialog: boolean,
+	agyDialog: AgyDialogKind | null,
 ): boolean {
 	// Another agent's composer rules out agy even if its tool output echoes text.
 	if (input && input.glyph !== '>') return false;
@@ -733,6 +775,10 @@ function looksLikeAgyScreen(
 	);
 }
 
+function findBottomRule(lines: readonly string[], after: number): number {
+	return lines.findIndex((line, index) => index > after && RULE.test(line));
+}
+
 function parseUsageLimit(
 	raw: readonly string[],
 	lines: readonly string[],
@@ -742,7 +788,7 @@ function parseUsageLimit(
 		agyDialog,
 	}: {
 		input: {at: number; glyph: ComposerGlyph} | null;
-		agyDialog: boolean;
+		agyDialog: AgyDialogKind | null;
 	},
 ): UsageLimit | null {
 	// Codex starts the notice at the left edge with its error mark; the same
@@ -764,9 +810,7 @@ function parseUsageLimit(
 	if (agyAt === -1) return null;
 	const composerTopRule = input?.glyph === '>' ? input.at - 1 : -1;
 	const composerBottomRule =
-		input?.glyph === '>'
-			? lines.findIndex((line, index) => index > input.at && RULE.test(line))
-			: -1;
+		input?.glyph === '>' ? findBottomRule(lines, input.at) : -1;
 	const stale = lines.slice(agyAt + 1).some((line, offset) => {
 		const index = agyAt + 1 + offset;
 		return (
@@ -810,9 +854,21 @@ function composerLine(
 			!TRANSCRIPT_BOLD_PROMPT.test(raw[index] ?? '') &&
 			lines.slice(index + 1).some(next => RULE.test(next)),
 	);
-	const best = Math.max(codex, claude, agy);
+	// Agy overlays drawn under its composer (such as /artifact rows) use `› `
+	// selection markers; ignore Codex's `›` branch on an agy screen.
+	const effectiveCodex =
+		agy !== -1 &&
+		codex > agy &&
+		lines
+			.slice(agy + 1)
+			.some(
+				line => AGY_STATUS_FOOTER.test(line) || /^\s*Keyboard:\s+/.test(line),
+			)
+			? -1
+			: codex;
+	const best = Math.max(effectiveCodex, claude, agy);
 	if (best === -1) return null;
-	if (codex === best) return {at: codex, glyph: '›'};
+	if (effectiveCodex === best) return {at: effectiveCodex, glyph: '›'};
 	if (claude === best)
 		return {at: claude, glyph: lines[claude]!.startsWith('!') ? '!' : '❯'};
 	return {at: agy, glyph: '>'};
@@ -909,11 +965,53 @@ function parseCodexDialog(raw: string[], lines: string[]): CodexDialog | null {
 	};
 }
 
+// Bounded lookbacks above the agy composer's top rule keep live strips and
+// banners distinct from older scrollback without missing wrapped lines.
+const AGY_SPINNER_LOOKBACK = 3; // spinner + optional tip line
+const AGY_BANNER_LOOKBACK = 5; // announcement box or artifact review strip
+const AGY_SUBAGENT_BANNER_LOOKBACK = 9; // multi-line subagent approval banner
+
+function linesAbove(
+	lines: readonly string[],
+	topRule: number,
+	count: number,
+): readonly string[] {
+	const end = Math.max(0, topRule);
+	return lines.slice(Math.max(0, end - count), end);
+}
+
+function parseAgyComposer(
+	lines: readonly string[],
+	input: {at: number; glyph: ComposerGlyph} | null,
+): AgyComposerState | null {
+	if (input?.glyph !== '>') return null;
+	const topRule = input.at - 1;
+	const bottomRule = findBottomRule(lines, input.at);
+	const footerLines = bottomRule === -1 ? [] : lines.slice(bottomRule + 1);
+	const bannerZone = linesAbove(lines, topRule, AGY_BANNER_LOOKBACK);
+	return {
+		vimInsert: footerLines.some(line => AGY_VIM_INSERT.test(line)),
+		announcementBanner: bannerZone.some(line =>
+			AGY_ANNOUNCEMENT_DISMISS.test(line),
+		),
+		working:
+			footerLines.some(line => AGY_ESC_TO_CANCEL.test(line)) ||
+			linesAbove(lines, topRule, AGY_SPINNER_LOOKBACK).some(line =>
+				AGY_BRAILLE_SPINNER.test(line),
+			),
+		artifactReview:
+			bannerZone.some(line => AGY_ARTIFACT_REVIEW_BANNER.test(line)) &&
+			!linesAbove(lines, topRule, AGY_SUBAGENT_BANNER_LOOKBACK).some(line =>
+				AGY_SUBAGENT_APPROVAL_BANNER.test(line),
+			),
+	};
+}
+
 export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 	const raw = capture.replace(/\n+$/, '').split('\n');
 	const lines = raw.map(line => stripVTControlCharacters(line));
 	const codexDialog = parseCodexDialog(raw, lines);
-	const agyDialog = codexDialog ? false : parseAgyDialog(lines);
+	const agyDialog = codexDialog ? null : parseAgyDialogKind(lines);
 	const permission = parsePermission(lines);
 	const question = parseQuestion(lines);
 	// A dialog takes the keyboard and hides Claude's input box, and its own
@@ -941,7 +1039,7 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 		usageLimit: parseUsageLimit(raw, lines, now, {input, agyDialog}),
 		composer,
 		shellMode: input?.glyph === '!',
-		agyComposer: input?.glyph === '>',
+		agyComposer: parseAgyComposer(lines, input),
 		codexDialog,
 		agyDialog,
 		lines,

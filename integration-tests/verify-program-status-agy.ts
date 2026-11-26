@@ -20,7 +20,10 @@ const session = `${agent}-status-live`;
 const reply = `${agent.toUpperCase()}_VERIFIED`;
 const task = `Return only the two parts ${agent.toUpperCase()}_ and VERIFIED joined together with no spaces. Do not use tools or inspect any files.`;
 const shellStartup = path.join(harness.root, 'shell-startup');
-writeFileSync(shellStartup, "PS1='PAPPARDELLE_FIXTURE_PROMPT> '\n");
+writeFileSync(
+	shellStartup,
+	String.raw`PS1='\[\033]133;A\007\]PAPPARDELLE_FIXTURE_PROMPT> '` + '\n',
+);
 
 function reports() {
 	const dir = path.join(harness.root, 'trace');
@@ -148,10 +151,10 @@ try {
 		30000,
 	);
 	await harness.expect(
-		'idle',
-		'CLI exit leaves idle status and responsive shell',
-		{source: 'osc', app: 'antigravity'},
-		'●',
+		'unknown',
+		'CLI exit clears native status and leaves responsive shell',
+		{source: 'osc'},
+		'?',
 	);
 	writeFileSync(
 		path.join(harness.root, `${agent}-verification.json`),

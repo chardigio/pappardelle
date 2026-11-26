@@ -3,6 +3,7 @@
 // screen adds what the agent is blocked on and the states only the screen
 // shows: a Codex usage limit and a draft in its composer.
 
+import path from 'node:path';
 import type {ClaudeStatusInfo} from './claude-status.ts';
 import {
 	parseAgentScreen,
@@ -38,6 +39,7 @@ export const AGENT_STATES = [
 	'usage_limit',
 	'draft',
 	'idle',
+	'exited',
 	'no_session',
 ] as const;
 
@@ -61,7 +63,7 @@ export const WAIT_TARGETS: Record<
 	working: ['working'],
 	idle: ['idle', 'draft'],
 	blocked: BLOCKED,
-	ready: ['idle', 'draft', 'no_session', ...BLOCKED],
+	ready: ['idle', 'draft', 'exited', 'no_session', ...BLOCKED],
 };
 
 export type AgentStateReport = {
@@ -78,24 +80,72 @@ export type AgentStateReport = {
 	screen: string;
 };
 
+export type AgentPaneState = {
+	dead?: boolean;
+	currentCommand?: string | null;
+};
+
+const SHELL_COMMANDS = new Set([
+	'sh',
+	'bash',
+	'zsh',
+	'fish',
+	'dash',
+	'ksh',
+	'mksh',
+	'yash',
+	'ash',
+	'csh',
+	'tcsh',
+	'nu',
+	'xonsh',
+	'elvish',
+	'pwsh',
+]);
+
+function normalizeCommandName(command: string | null | undefined): string {
+	return command ? path.posix.basename(command.trim()).replace(/^-/, '') : '';
+}
+
+export function isShellCommand(command: string | null | undefined): boolean {
+	const base = normalizeCommandName(command);
+	if (!base) return false;
+	if (SHELL_COMMANDS.has(base)) return true;
+	const userShell = normalizeCommandName(process.env['SHELL']);
+	return userShell !== '' && base === userShell;
+}
+
 export function classifyAgent(
 	status: ProgramStatusInfo | null,
 	screen: AgentScreen | null,
+	pane?: AgentPaneState | null,
 ): AgentState {
 	if (!screen) return 'no_session';
+	if (pane?.dead) return 'exited';
 	if (screen.permission) return 'permission';
 	if (screen.question) return 'question';
-	// Claude's hook says it's blocked for prompts the screen doesn't parse.
+	// Modal dialogs (such as agy's trust dialog or /artifact review) can also
+	// carry an OSC blocked/permission report; classify them as dialog first.
+	if (screen.codexDialog || screen.agyDialog) return 'dialog';
+	// Claude's hook or OSC says it's blocked for prompts the screen doesn't parse.
+	// Agy keeps OSC blocked/permission "Approve plan" while showing its open
+	// composer under `N artifact · /artifact to review`; that is not a modal prompt.
 	if (status?.status === 'blocked') {
 		if (status.kind === 'question') return 'question';
 		if (status.kind === 'auth') return 'auth';
-		return 'permission';
+		const isArtifactBanner =
+			status.message === 'Approve plan' &&
+			Boolean(screen.agyComposer?.artifactReview);
+		if (!isArtifactBanner) return 'permission';
 	}
 
-	if (screen.codexDialog || screen.agyDialog) return 'dialog';
 	if (screen.usageLimit) return 'usage_limit';
 	if (status?.status === 'working' || screen.spinner) return 'working';
 	if (screen.composer) return 'draft';
+	if (screen.composer === null && isShellCommand(pane?.currentCommand)) {
+		return 'exited';
+	}
+
 	return 'idle';
 }
 
@@ -152,6 +202,12 @@ export function statusPaneOf(
 	return pane ? parseStatusPane(pane, socket) : null;
 }
 
+export type PinnedStatusPaneInfo = {
+	pane: StatusPane | null;
+	dead: boolean;
+	currentCommand: string | undefined;
+};
+
 /**
  * The pane the TUI's status monitor pinned, read without attaching one: that
  * stays the TUI's job, and attaching from here would race it.
@@ -160,7 +216,7 @@ export function pinnedStatusPaneInfo(
 	session: string,
 	runner: OuterTmuxRunner,
 	socket = statusSocket(),
-): {pane: StatusPane; currentCommand: string | undefined} | null {
+): PinnedStatusPaneInfo | null {
 	const listing = tmuxOut(runner, [
 		'list-panes',
 		'-s',
@@ -174,10 +230,14 @@ export function pinnedStatusPaneInfo(
 	if (!row) return null;
 	const commandSeparator = row.lastIndexOf('\t');
 	if (commandSeparator === -1) return null;
-	const pane = parseStatusPane(row.slice(0, commandSeparator), socket);
-	if (!pane) return null;
+	const paneRow = row.slice(0, commandSeparator);
+	const pane = parseStatusPane(paneRow, socket);
+	// On tmux 3.8+, an unmonitored dead remain-on-exit pane has an empty
+	// pane_pid and empty marker, so parseStatusPane returns null; read
+	// pane_dead directly from the row so dead panes still classify as exited.
+	const dead = pane?.dead ?? paneRow.split('\t')[2] === '1';
 	const currentCommand = row.slice(commandSeparator + 1) || undefined;
-	return {pane, currentCommand};
+	return {pane, dead, currentCommand};
 }
 
 /**
@@ -305,21 +365,25 @@ export async function readAgentState(
 	const screen =
 		capture === null ? null : parseAgentScreen(capture, deps.now());
 	const session = agentSessionOf(key, deps);
-	const pane =
-		screen && session
-			? (pinnedStatusPaneInfo(session, runner)?.pane ?? null)
-			: null;
+	const paneInfo =
+		screen && session ? pinnedStatusPaneInfo(session, runner) : null;
+	const pane = paneInfo?.pane ?? null;
 	const status = await readAgentStatus(key, pane, deps);
+	const state = classifyAgent(status, screen, {
+		dead: paneInfo?.dead,
+		currentCommand: paneInfo?.currentCommand,
+	});
+	const live = state !== 'exited';
 	return {
 		key,
-		state: classifyAgent(status, screen),
+		state,
 		app: status?.app ?? null,
 		status,
-		permission: screen?.permission ?? null,
-		question: screen?.question ?? null,
-		usageLimit: screen?.usageLimit ?? null,
-		codexDialog: screen?.codexDialog ?? null,
-		composer: screen?.composer ?? null,
+		permission: live ? (screen?.permission ?? null) : null,
+		question: live ? (screen?.question ?? null) : null,
+		usageLimit: live ? (screen?.usageLimit ?? null) : null,
+		codexDialog: live ? (screen?.codexDialog ?? null) : null,
+		composer: live ? (screen?.composer ?? null) : null,
 		screen: (screen?.lines ?? [])
 			.map(line => line.trimEnd())
 			.filter(line => line !== '')

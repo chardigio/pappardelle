@@ -387,7 +387,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_state',
 		description:
-			"What a space's agent is doing: working, permission (a tool prompt, with the command, the subagent that asked and the numbered options), question (an AskUserQuestion dialog), auth, dialog (a Codex dialog such as folder trust; a person answers it), usage_limit (Codex, with the reset time), draft (text sitting in the input box), idle or no_session",
+			"What a space's agent is doing: working, permission (a tool prompt, with the command, the subagent that asked and the numbered options), question (an AskUserQuestion dialog), auth, dialog (a Codex or agy dialog such as folder trust; a person answers it), usage_limit (with the reset time), draft (text sitting in the input box), idle, exited or no_session",
 		readOnly: true,
 		inputSchema: {key},
 		toCli: ({key}) => ({args: ['state', key, '--json']}),
@@ -402,7 +402,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	defineTool({
 		name: 'space_wait',
 		description:
-			"Wait until a space's agent reaches a state, instead of checking it over and over. Returns its state and screen tail, or timedOut with the state as it is then: call it again to keep waiting. A space with no agent session returns at once with state no_session",
+			"Wait until a space's agent reaches a state, instead of checking it over and over. Returns its state and screen tail, or timedOut with the state as it is then: call it again to keep waiting. A space with no agent session or an exited agent returns at once with state no_session or exited",
 		readOnly: true,
 		inputSchema: {
 			key,
@@ -441,7 +441,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
 				.array(z.enum(WATCH_TARGETS as [WatchTarget, ...WatchTarget[]]))
 				.optional()
 				.describe(
-					'Return only for these states, and for a space that closes. blocked is any state waiting on a person: permission, question, auth, dialog or usage_limit. Without until, any change returns',
+					'Return only for these states, and for a space that closes or whose agent exits. blocked is any state waiting on a person: permission, question, auth, dialog or usage_limit. Without until, any change returns',
 				),
 			since: z
 				.string()

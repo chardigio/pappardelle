@@ -1,11 +1,18 @@
 import {spawnSync} from 'node:child_process';
 import {setImmediate as nextTurn} from 'node:timers/promises';
-import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {sessionNamesFor} from './space-identity.ts';
 import {test, expect, beforeAll, afterAll, beforeEach} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {LatestTask} from './latest-task.ts';
 import {
 	attachToSpace,
@@ -1144,6 +1151,53 @@ test("a new agent session carries its agent profile's env, one -e per variable",
 	expect(envFlags.findLast(flag => flag.startsWith('PI_PROGRAM_STATUS='))).toBe(
 		'PI_PROGRAM_STATUS=1',
 	);
+});
+
+test('ensureAgentSession pre-trusts agy and wrapped agy commands without touching non-agy profiles', async () => {
+	const settingsPath = join(tempDir('ensure-agy-trust-'), 'settings.json');
+	const previous = process.env['PAPPARDELLE_AGY_SETTINGS_PATH'];
+	process.env['PAPPARDELLE_AGY_SETTINGS_PATH'] = settingsPath;
+	teardown(() => {
+		if (previous === undefined)
+			delete process.env['PAPPARDELLE_AGY_SETTINGS_PATH'];
+		else process.env['PAPPARDELLE_AGY_SETTINGS_PATH'] = previous;
+	});
+
+	const run: AsyncTmuxRunner = async args => {
+		if (args.includes('has-session')) throw new Error('no session');
+		return '';
+	};
+
+	await ensureAgentSession('TEST-NEW', '/tmp/wt-codex', false, run, {
+		name: 'codex',
+		command: 'codex',
+		args: '',
+		isClaude: false,
+		model: '',
+		effort: '',
+	});
+	expect(existsSync(settingsPath)).toBe(false);
+
+	await ensureAgentSession('TEST-NEW', '/tmp/wt-agy', false, run, {
+		name: 'agy',
+		command: 'agy',
+		args: '',
+		isClaude: false,
+		model: '',
+		effort: '',
+	});
+	await ensureAgentSession('TEST-NEW', '/tmp/wt-agy-wrap', false, run, {
+		name: 'agy-wrap',
+		command: 'env FOO=1 agy',
+		args: '',
+		isClaude: false,
+		model: '',
+		effort: '',
+	});
+
+	expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toStrictEqual({
+		trustedWorkspaces: ['/tmp/wt-agy', '/tmp/wt-agy-wrap'],
+	});
 });
 
 test('a frame started with its pane is handed its program, and a later start respawns it', async () => {

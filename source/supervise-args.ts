@@ -112,17 +112,19 @@ export const superviseHelp = `
 
 	Commands
 	  screen      Print the agent's screen (or its companion's) with scrollback
-	  state       working, permission, question, auth, dialog (a Codex dialog,
-	              answered by a person), usage_limit, draft
-	              (text in the input box), idle or no_session, with the
+	  state       working, permission, question, auth, dialog (a Codex or agy
+	              dialog, answered by a person), usage_limit, draft
+	              (text in the input box), idle, exited or no_session, with the
 	              pending command or question. --tabs also reads every tab of a
 	              question dialog, which presses Right and Left in it
-	  wait        Return once the state matches, or after --timeout (default 50,
+	  wait        Return once the state matches (or at once if the agent has
+	              exited or the session is gone), or after --timeout (default 50,
 	              at most ${MAX_WAIT_SECONDS}) with the state as it is then
 	  watch       Wait for any of several spaces (default: every space with an
 	              agent but your own) to change state, or with --until to reach
 	              one of those states (blocked is any that waits on a person).
-	              A space that closes comes back whatever --until says.
+	              A space that closes or whose agent exits comes back whatever
+	              --until says.
 	              Without --since, spaces already in an --until state come back
 	              at once. The answer carries a cursor: pass it as --since next
 	              time, and nothing that changed in between is missed

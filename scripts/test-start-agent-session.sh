@@ -974,6 +974,51 @@ assert_eq "companion session starts in the worktree" "$HASH_WORKTREE" \
 
 # ==========================================================================
 
+section "agy launch pre-trusts worktree in settings.json without clobbering corrupt JSON"
+AGY_TRUST_DIR="$TMPDIR_ROOT/agy-trust"
+AGY_SETTINGS="$AGY_TRUST_DIR/nested/settings.json"
+AGY_WT1="$TMPDIR_ROOT/agy-wt1"
+AGY_WT2="$TMPDIR_ROOT/agy-wt2"
+AGY_WT3="$TMPDIR_ROOT/agy-wt3"
+mkdir -p "$AGY_WT1" "$AGY_WT2" "$AGY_WT3"
+
+# Bare agy command creates parent directory and writes trustedWorkspaces.
+PAPPARDELLE_AGY_SETTINGS_PATH="$AGY_SETTINGS" \
+    start_session --issue-key "${TEST_PREFIX}-agy1" --repo-name "$TEST_REPO" --worktree "$AGY_WT1" \
+    --agent-command agy --agent-is-claude false --no-agent --companion-command '' 2>/dev/null
+assert_eq "agy pre-trust writes trustedWorkspaces entry" "[$AGY_WT1]" \
+    "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("[" + ",".join(d.get("trustedWorkspaces", [])) + "]")' "$AGY_SETTINGS" 2>/dev/null)"
+
+# Wrapped `env FOO=1 agy` appends without duplicating or dropping other keys.
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["editorMode"]="vim"; json.dump(d, open(p,"w"))' "$AGY_SETTINGS"
+PAPPARDELLE_AGY_SETTINGS_PATH="$AGY_SETTINGS" \
+    start_session --issue-key "${TEST_PREFIX}-agy2" --repo-name "$TEST_REPO" --worktree "$AGY_WT2" \
+    --agent-command "env FOO=1 agy" --agent-is-claude false --no-agent --companion-command '' 2>/dev/null
+assert_eq "wrapped agy preserves existing keys and appends worktree" "vim|$AGY_WT1,$AGY_WT2" \
+    "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("editorMode","") + "|" + ",".join(d.get("trustedWorkspaces", [])))' "$AGY_SETTINGS" 2>/dev/null)"
+
+# Non-agy (codex) does not add to agy settings.
+PAPPARDELLE_AGY_SETTINGS_PATH="$AGY_SETTINGS" \
+    start_session --issue-key "${TEST_PREFIX}-agy3" --repo-name "$TEST_REPO" --worktree "$AGY_WT3" \
+    --agent-command codex --agent-is-claude false --no-agent --companion-command '' 2>/dev/null
+assert_eq "codex launch does not add to agy trustedWorkspaces" "$AGY_WT1,$AGY_WT2" \
+    "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(",".join(d.get("trustedWorkspaces", [])))' "$AGY_SETTINGS" 2>/dev/null)"
+
+# Corrupt existing settings.json is left untouched (never clobbered).
+AGY_CORRUPT="$TMPDIR_ROOT/agy-corrupt.json"
+printf 'not valid json{{{' > "$AGY_CORRUPT"
+PAPPARDELLE_AGY_SETTINGS_PATH="$AGY_CORRUPT" \
+    start_session --issue-key "${TEST_PREFIX}-agy4" --repo-name "$TEST_REPO" --worktree "$AGY_WT3" \
+    --agent-command agy --agent-is-claude false --no-agent --companion-command '' 2>/dev/null
+assert_eq "corrupt agy settings.json is preserved" "not valid json{{{" "$(cat "$AGY_CORRUPT")"
+
+for k in agy1 agy2 agy3 agy4; do
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=agent-$TEST_REPO-${TEST_PREFIX}-${k}:" 2>/dev/null || true
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-session -t "=companion-$TEST_REPO-${TEST_PREFIX}-${k}:" 2>/dev/null || true
+done
+
+# ==========================================================================
+
 # The inner server never exits on its own, and a server left running fails
 # the guard's leak check.
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-server 2>/dev/null || true

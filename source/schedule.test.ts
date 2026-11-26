@@ -287,6 +287,24 @@ contractTest(
 );
 
 contractTest(
+	'schedules never send into an exited pane: keep_going waits and one-shots drop',
+	async state => {
+		const kg = harness(state, [report('exited')]);
+		await kg.store.save({...keepGoing(), idleChecks: 1});
+		expect(await kg.fire(keepGoing())).toBe('waiting');
+		expect(kg.sent).toStrictEqual([]);
+		expect(kg.store.load('kg')?.idleChecks).toBe(0);
+
+		const oneShot = harness(state, [report('exited')]);
+		await oneShot.store.save(atJob);
+		expect(await oneShot.fire(atJob)).toBe('exited');
+		expect(oneShot.sent).toStrictEqual([]);
+		expect(oneShot.store.load('at1')).toBe(null);
+		expect(oneShot.removed).toStrictEqual(['at1']);
+	},
+);
+
+contractTest(
 	'a wake-up keeps the current model when Codex offers to switch, then sends',
 	async state => {
 		const atLimit = {

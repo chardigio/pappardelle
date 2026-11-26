@@ -1,8 +1,21 @@
-import {readFileSync, writeFileSync} from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	lstatSync,
+	readFileSync,
+	statSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs';
 import {join} from 'node:path';
 import {sessionNamesFor, sessionPrefix} from './space-identity.ts';
 import {test, expect} from 'bun:test';
-import {pretrustDirectoryForClaude, buildAgentResumeCommand} from './tmux.ts';
+import {
+	pretrustDirectoryForAgy,
+	pretrustDirectoryForClaude,
+	buildAgentResumeCommand,
+} from './tmux.ts';
+import {teardown} from '../test/helpers/teardown.ts';
 import {
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	type ResolvedAgentProfile,
@@ -108,6 +121,95 @@ test('pretrustDirectoryForClaude handles corrupt JSON gracefully', () => {
 	expect(config.projects['/tmp/worktree/STA-300']).toStrictEqual({
 		hasTrustDialogAccepted: true,
 	});
+});
+
+// pretrustDirectoryForAgy: workspace trust management
+
+test('pretrustDirectoryForAgy creates missing parent dirs and appends trustedWorkspaces atomically', () => {
+	const settingsPath = join(
+		tempDir('pretrust-agy-'),
+		'.gemini',
+		'antigravity-cli',
+		'settings.json',
+	);
+	pretrustDirectoryForAgy('/tmp/worktree/STA-100', settingsPath);
+	expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toStrictEqual({
+		trustedWorkspaces: ['/tmp/worktree/STA-100'],
+	});
+});
+
+test('pretrustDirectoryForAgy preserves existing settings and is idempotent', () => {
+	const settingsPath = join(tempDir('pretrust-agy-'), 'settings.json');
+	writeFileSync(
+		settingsPath,
+		JSON.stringify({
+			editorMode: 'vim',
+			trustedWorkspaces: ['/existing/repo'],
+		}),
+	);
+
+	pretrustDirectoryForAgy('/tmp/worktree/STA-200', settingsPath);
+	pretrustDirectoryForAgy('/tmp/worktree/STA-200', settingsPath);
+
+	expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toStrictEqual({
+		editorMode: 'vim',
+		trustedWorkspaces: ['/existing/repo', '/tmp/worktree/STA-200'],
+	});
+});
+
+test('pretrustDirectoryForAgy refuses to overwrite corrupt JSON', () => {
+	const settingsPath = join(tempDir('pretrust-agy-'), 'settings.json');
+	const corrupt = 'not valid json{{{';
+	writeFileSync(settingsPath, corrupt);
+
+	expect(() => {
+		pretrustDirectoryForAgy('/tmp/worktree/STA-300', settingsPath);
+	}).not.toThrow();
+	expect(readFileSync(settingsPath, 'utf-8')).toBe(corrupt);
+});
+
+test('pretrustDirectoryForAgy honors PAPPARDELLE_AGY_SETTINGS_PATH', () => {
+	const settingsPath = join(tempDir('pretrust-agy-env-'), 'settings.json');
+	const previous = process.env['PAPPARDELLE_AGY_SETTINGS_PATH'];
+	process.env['PAPPARDELLE_AGY_SETTINGS_PATH'] = settingsPath;
+	teardown(() => {
+		if (previous === undefined)
+			delete process.env['PAPPARDELLE_AGY_SETTINGS_PATH'];
+		else process.env['PAPPARDELLE_AGY_SETTINGS_PATH'] = previous;
+	});
+
+	pretrustDirectoryForAgy('/tmp/worktree/STA-400');
+	expect(existsSync(settingsPath)).toBe(true);
+	expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toStrictEqual({
+		trustedWorkspaces: ['/tmp/worktree/STA-400'],
+	});
+	expect(statSync(settingsPath).mode % 0o1000).toBe(0o600);
+});
+
+test('pretrustDirectoryForAgy preserves symlinks, file permissions, and refuses non-array trustedWorkspaces', () => {
+	const dir = tempDir('pretrust-agy-hardening-');
+	const targetPath = join(dir, 'dotfiles-settings.json');
+	const linkPath = join(dir, 'settings.json');
+	writeFileSync(targetPath, JSON.stringify({editorMode: 'vim'}) + '\n', {
+		mode: 0o600,
+	});
+	chmodSync(targetPath, 0o600);
+	symlinkSync(targetPath, linkPath);
+
+	pretrustDirectoryForAgy('/tmp/worktree/STA-500', linkPath);
+
+	expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
+	expect(statSync(targetPath).mode % 0o1000).toBe(0o600);
+	expect(JSON.parse(readFileSync(targetPath, 'utf-8'))).toStrictEqual({
+		editorMode: 'vim',
+		trustedWorkspaces: ['/tmp/worktree/STA-500'],
+	});
+
+	const badFieldPath = join(dir, 'non-array.json');
+	const badContent = JSON.stringify({trustedWorkspaces: 'not-a-list'});
+	writeFileSync(badFieldPath, badContent);
+	pretrustDirectoryForAgy('/tmp/worktree/STA-600', badFieldPath);
+	expect(readFileSync(badFieldPath, 'utf-8')).toBe(badContent);
 });
 
 // buildAgentResumeCommand: generates the resume-then-launch fallback chain.

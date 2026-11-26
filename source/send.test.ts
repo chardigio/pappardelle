@@ -786,3 +786,24 @@ test('sendToSpaceAgent blocks on agy subagent manage view even with force', asyn
 	).toBe('prompt');
 	expect(sendCalls).toStrictEqual([]);
 });
+
+test('sendToSpaceAgent blocks on agy trust dialog and /artifact review even with force', async () => {
+	for (const name of ['agy-trust', 'agy-plan-artifact-review'] as const) {
+		const {runner, calls} = makeRunner({
+			sessions: ['agent-r-STA-1'],
+			screen: agentScreenFixture(name),
+		});
+		expect(
+			await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+		).toBe('prompt');
+		expect(
+			await sendToSpaceAgent('STA-1', 'hi', {
+				runner,
+				lockDir,
+				force: true,
+				sleep,
+			}),
+		).toBe('prompt');
+		expect(calls).toStrictEqual([]);
+	}
+});

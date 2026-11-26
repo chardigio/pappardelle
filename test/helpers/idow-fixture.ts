@@ -55,6 +55,7 @@ export function setup(realWorktree = false) {
 	git('worktree', 'add', '-b', 'linked', linked);
 	for (const file of [
 		'idow',
+		'agent-helpers.sh',
 		'provider-helpers.sh',
 		'state-cli.sh',
 		'resolve-agent-config.sh',

@@ -1,43 +1,12 @@
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {pinnedStatusPaneInfo} from './agent-state.ts';
+import {isShellCommand, pinnedStatusPaneInfo} from './agent-state.ts';
 import type {ClaudeStatusDao} from './claude-status.ts';
 import type {ProgramStatusDao} from './program-status-monitor.ts';
 import type {SpaceIdentityDao} from './space-identity.ts';
 import {socketTmuxRunner, type OuterTmuxRunner} from './tmux.ts';
 
 type StatusReader = Pick<ClaudeStatusDao, 'readState'>;
-
-const SHELLS = new Set([
-	'sh',
-	'bash',
-	'zsh',
-	'dash',
-	'fish',
-	'ksh',
-	'mksh',
-	'yash',
-	'tcsh',
-	'csh',
-	'nu',
-	'xonsh',
-	'elvish',
-	'pwsh',
-]);
-
-function commandName(command: string): string {
-	return path.basename(command.trim()).replace(/^-/, '');
-}
-
-function isShellCommand(command: string | undefined): boolean {
-	if (!command) return true;
-	const base = commandName(command);
-	if (!base || SHELLS.has(base)) return true;
-	const loginShell = process.env['SHELL']
-		? commandName(process.env['SHELL'])
-		: '';
-	return Boolean(loginShell) && base === loginShell;
-}
 
 export type OscStartDeps = {
 	programStatus: Pick<ProgramStatusDao, 'read'>;
@@ -92,7 +61,7 @@ async function oscProgramStarted(
 		osc.runner ?? socketTmuxRunner(socket),
 		socket,
 	);
-	if (!info || info.pane.dead) return false;
+	if (!info || !info.pane || info.dead) return false;
 	const snapshot = await osc.programStatus.read(osc.issueKey, info.pane);
 	if (
 		snapshot === null ||
@@ -105,7 +74,7 @@ async function oscProgramStarted(
 	}
 
 	if (snapshot.updatedAt >= since) return true;
-	return !isShellCommand(info.currentCommand);
+	return Boolean(info.currentCommand) && !isShellCommand(info.currentCommand);
 }
 
 /**

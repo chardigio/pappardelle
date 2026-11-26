@@ -2,11 +2,20 @@
 // Attaches to existing agent-STA-XXX and companion-STA-XXX sessions created by idow
 import {execFile, spawn, spawnSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {readFileSync, statSync, writeFileSync} from 'node:fs';
+import {
+	chmodSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {setTimeout as delay} from 'node:timers/promises';
 import {homedir} from 'node:os';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import {promisify} from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -149,6 +158,7 @@ import {
 	AGENT_NAME_FALLBACK,
 	agentDisplayName,
 	bindResumeArgs,
+	isAgyCommand,
 	renderAgentLaunchFlags,
 	renderAgentPrompt,
 	quoteLaunchValue,
@@ -183,7 +193,11 @@ import {
 	frameReadyChannel,
 	frameStartedChannel,
 } from './pane-frame-options.ts';
-import {type AgentScreen, parseAgentScreen} from './agent-screen.ts';
+import {
+	type AgentScreen,
+	type AgyComposerState,
+	parseAgentScreen,
+} from './agent-screen.ts';
 import {internalEntryCommand} from './runtime.ts';
 import {startupTrace} from './startup-trace.ts';
 import type {PaneLayout} from './types.ts';
@@ -2113,6 +2127,60 @@ export async function sendToSpaceAgent(
 	}
 }
 
+// Pause between an injected Escape and the key after it so agy's terminal
+// parser finishes decoding bare Escape before reading the next sequence.
+const AGY_KEY_SETTLE_MS = 80;
+
+function pauseSync(ms: number): void {
+	if (ms <= 0) return;
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Adapt supervisor key presses for agy's vim insert mode and announcement
+ * banner. In vim insert mode a single Escape only leaves insert mode while a
+ * turn keeps running, and Shift-Tab is ignored until insert mode and the
+ * `esc to dismiss` banner are cleared (only while idle, so Shift-Tab never
+ * cancels a running turn).
+ */
+function adaptAgySupervisorKeys(
+	keys: readonly string[],
+	agy: AgyComposerState,
+): {keys: string[]; settleAfterEscape: boolean} {
+	if (
+		keys.length === 1 &&
+		keys[0] === 'Escape' &&
+		agy.vimInsert &&
+		agy.working
+	) {
+		return {keys: ['Escape', 'Escape'], settleAfterEscape: true};
+	}
+
+	const hasShiftTab = keys.some(key => key === 'S-Tab' || key === 'BTab');
+	if (!hasShiftTab) return {keys: [...keys], settleAfterEscape: false};
+
+	const normalized = keys.map(key => (key === 'S-Tab' ? 'BTab' : key));
+	const firstShiftTab = normalized.indexOf('BTab');
+	let leadingEscapes = 0;
+	for (let index = firstShiftTab - 1; index >= 0; index--) {
+		if (normalized[index] === 'Escape') leadingEscapes++;
+		else break;
+	}
+
+	const neededEscapes = agy.working
+		? 0
+		: (agy.vimInsert ? 1 : 0) + (agy.announcementBanner ? 1 : 0);
+	const extraEscapes = Math.max(0, neededEscapes - leadingEscapes);
+	return {
+		keys: [
+			...normalized.slice(0, firstShiftTab),
+			...Array.from({length: extraEscapes}, () => 'Escape'),
+			...normalized.slice(firstShiftTab),
+		],
+		settleAfterEscape: extraEscapes > 0 || leadingEscapes > 0,
+	};
+}
+
 /**
  * Press tmux key names such as Escape or S-Tab in a space's agent session,
  * in order. Nothing is cleared or submitted around them, so a keybinding
@@ -2127,26 +2195,37 @@ export function sendKeysToSpaceAgent(
 		answering?: boolean;
 		/** Type each entry as text rather than as a key name such as Enter. */
 		literal?: boolean;
+		/** Override the pause between injected Escape keys in tests. */
+		pause?: (ms: number) => void;
 	} = {},
 ): SendToSpaceAgentResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const session = spaceSessionNames(issueKey)?.agent;
 	const target = session && resolveInnerSessionTargetSync(session, runner);
 	if (!target) return 'no-session';
+	let effectiveKeys: readonly string[] = keys;
+	let settleAfterEscape = false;
 	// A key such as 1 or Enter answers a prompt, which only `answer` may do
 	// under its policy. Escape declines a Claude prompt, so it stays open to
-	// anyone, but on a Codex dialog such as folder trust it quits Codex.
+	// anyone, but on a folder-trust dialog it can quit the agent.
 	if (!options.answering) {
 		const screen = runner(['capture-pane', '-p', '-e', '-J', '-t', target]);
 		if (screen.error || screen.status !== 0) return 'failed';
 		const parsed = parseAgentScreen(screen.stdout ?? '', new Date());
-		if (parsed.codexDialog) return 'prompt';
+		if (parsed.codexDialog || parsed.agyDialog === 'trust') return 'prompt';
 		const answers = keys.some(key => key !== 'Escape');
 		if (answers && (parsed.permission || parsed.question || parsed.agyDialog))
 			return 'prompt';
+		if (!options.literal && parsed.agyComposer) {
+			const adapted = adaptAgySupervisorKeys(keys, parsed.agyComposer);
+			effectiveKeys = adapted.keys;
+			settleAfterEscape = adapted.settleAfterEscape;
+		}
 	}
 
-	for (const key of keys) {
+	const pause = options.pause ?? pauseSync;
+	for (let index = 0; index < effectiveKeys.length; index++) {
+		const key = effectiveKeys[index]!;
 		const r = runner([
 			'send-keys',
 			...(options.literal ? ['-l'] : []),
@@ -2157,6 +2236,13 @@ export function sendKeysToSpaceAgent(
 			key,
 		]);
 		if (r.error || r.status !== 0) return 'failed';
+		if (
+			settleAfterEscape &&
+			key === 'Escape' &&
+			index < effectiveKeys.length - 1
+		) {
+			pause(AGY_KEY_SETTLE_MS);
+		}
 	}
 
 	return 'sent';
@@ -4108,6 +4194,103 @@ export function pretrustDirectoryForClaude(
 }
 
 /**
+ * Pre-trust a directory for Antigravity CLI (agy) by adding it to
+ * `trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`.
+ * Never overwrites an existing file whose JSON cannot be parsed.
+ */
+export function pretrustDirectoryForAgy(
+	worktreePath: string,
+	settingsPath?: string,
+): void {
+	const resolvedSettingsPath =
+		settingsPath ??
+		process.env['PAPPARDELLE_AGY_SETTINGS_PATH'] ??
+		join(homedir(), '.gemini', 'antigravity-cli', 'settings.json');
+	try {
+		let targetPath = resolvedSettingsPath;
+		let fileMode = 0o600;
+		let raw: string | undefined;
+		try {
+			targetPath = realpathSync(resolvedSettingsPath);
+			fileMode = statSync(targetPath).mode % 0o1000;
+			raw = readFileSync(targetPath, 'utf-8');
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+				log.warn(
+					`Failed to read agy settings (${resolvedSettingsPath})`,
+					err instanceof Error ? err : undefined,
+				);
+				return;
+			}
+		}
+
+		let settings: Record<string, unknown> = {};
+		if (raw !== undefined) {
+			let parsed: unknown;
+			try {
+				parsed = JSON.parse(raw);
+			} catch (err) {
+				log.warn(
+					`Refusing to overwrite invalid JSON in agy settings (${targetPath})`,
+					err instanceof Error ? err : undefined,
+				);
+				return;
+			}
+
+			if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+				log.warn(
+					`Refusing to overwrite non-object agy settings (${targetPath})`,
+				);
+				return;
+			}
+
+			settings = parsed as Record<string, unknown>;
+		}
+
+		const currentTrusted = settings['trustedWorkspaces'];
+		if (
+			currentTrusted !== undefined &&
+			currentTrusted !== null &&
+			!Array.isArray(currentTrusted)
+		) {
+			log.warn(
+				`Refusing to overwrite non-array trustedWorkspaces in agy settings (${targetPath})`,
+			);
+			return;
+		}
+
+		const existing = Array.isArray(currentTrusted)
+			? (currentTrusted as unknown[])
+			: [];
+		if (existing.includes(worktreePath)) return;
+
+		settings['trustedWorkspaces'] = [...existing, worktreePath];
+		mkdirSync(dirname(targetPath), {recursive: true});
+		const tmpPath = `${targetPath}.tmp.${process.pid}.${randomUUID()}`;
+		try {
+			writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n', {
+				encoding: 'utf-8',
+				mode: fileMode,
+			});
+			chmodSync(tmpPath, fileMode);
+			renameSync(tmpPath, targetPath);
+			log.info(`Pre-trusted directory for agy: ${worktreePath}`);
+		} catch (err) {
+			try {
+				rmSync(tmpPath, {force: true});
+			} catch {}
+
+			throw err;
+		}
+	} catch (err) {
+		log.warn(
+			`Failed to pre-trust directory for agy: ${worktreePath}`,
+			err instanceof Error ? err : undefined,
+		);
+	}
+}
+
+/**
  * The session environment for a space the TUI makes itself. A failure to find
  * the main checkout must not stop the session: the hook can still work it out.
  */
@@ -4305,10 +4488,12 @@ export async function ensureAgentSession(
 		return false;
 	}
 
-	// Pre-trust the worktree directory so Claude doesn't ask "do you trust this
-	// folder?" — a Claude Code behavior, skipped for other agents.
+	// Pre-trust the worktree directory so Claude or agy doesn't stop on a
+	// folder-trust prompt on first launch.
 	if (agentProfile.isClaude) {
 		pretrustDirectoryForClaude(worktreePath);
+	} else if (isAgyCommand(agentProfile.command)) {
+		pretrustDirectoryForAgy(worktreePath);
 	}
 
 	if (launch?.rules) {

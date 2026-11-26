@@ -171,11 +171,12 @@ export function decideAnswer(
 			sent,
 			detail: report.codexDialog?.title ?? '',
 		};
+		const article = report.codexDialog ? 'a' : 'an';
 		if (!command.force) {
 			return {
 				kind: 'error',
 				exit: POLICY_REFUSED_EXIT,
-				message: `${key} shows a ${dialogKind}${dialogTitle}; a person answers it`,
+				message: `${key} shows ${article} ${dialogKind}${dialogTitle}; a person answers it`,
 				entry: {...entry, verdict: `refused: ${dialogKind}`},
 			};
 		}

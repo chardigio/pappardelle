@@ -45,8 +45,10 @@ function spaces(
 	initial: Record<string, string>,
 	/** The spaces with an identity; by default every one with a screen. */
 	identified?: string[],
+	initialPanes: Record<string, string> = {},
 ) {
 	const screens = {...initial};
+	const paneListings = {...initialPanes};
 	let clock = new Date(2026, 10, 9, 12, 0).getTime();
 	let between: Array<() => void> = [];
 	const runner: OuterTmuxRunner = args => {
@@ -66,6 +68,15 @@ function spaces(
 			return screen === undefined
 				? {status: 1, stdout: ''}
 				: {status: 0, stdout: screen};
+		}
+
+		if (args[0] === 'list-panes') {
+			const target = args[args.indexOf('-t') + 1] ?? '';
+			const key = /^=agent-repo-(.*):$/.exec(target)?.[1] ?? '';
+			const listing = paneListings[key];
+			return listing === undefined
+				? {status: 1, stdout: ''}
+				: {status: 0, stdout: listing};
 		}
 
 		return {status: 1, stdout: ''};
@@ -90,6 +101,7 @@ function spaces(
 	});
 	return {
 		screens,
+		paneListings,
 		logged,
 		onWait(...steps: Array<() => void>) {
 			between = steps;
@@ -253,4 +265,31 @@ test('a closed space leaves the cursor once reported, and junk after a cursor is
 	const closed = await h.watch('--since', first.cursor);
 	expect(Object.keys(decodeCursor(closed.cursor)!)).toStrictEqual(['STA-1']);
 	expect(decodeCursor(`${first.cursor}!!`)).toBe(null);
+});
+
+test('a space whose agent exited wakes a blocked watch once and stays in the cursor', async () => {
+	const h = spaces({'STA-1': fixture('claude-working')}, ['STA-1'], {
+		'STA-1': '11\t%1\t%1\t42\t0\t1\t42.marker\tclaude\n',
+	});
+	h.onWait(() => {
+		h.screens['STA-1'] = '[user@host STA-1]$ ';
+		h.paneListings['STA-1'] = '11\t%1\t%1\t42\t0\t1\t42.marker\tbash\n';
+	});
+	const first = await h.watch('--until', 'blocked');
+	expect(first.result).toBe('changed');
+	expect(
+		first.changes.map(change => [change.key, change.from, change.to]),
+	).toStrictEqual([['STA-1', 'working', 'exited']]);
+	expect(decodeCursor(first.cursor)).toStrictEqual({'STA-1': 'exited'});
+
+	const next = await h.watch(
+		'--until',
+		'blocked',
+		'--since',
+		first.cursor,
+		'--timeout',
+		'1',
+	);
+	expect(next.result).toBe('timed_out');
+	expect(next.changes).toStrictEqual([]);
 });

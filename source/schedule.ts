@@ -52,6 +52,7 @@ export type FireResult =
 	| 'skipped_draft'
 	/** The message is in the agent's input box but did not submit. */
 	| 'unsubmitted'
+	| 'exited'
 	| 'no_session'
 	| 'expired';
 
@@ -293,9 +294,9 @@ async function fireOneShot(
 ): Promise<FireResult> {
 	const {now} = deps;
 	const report = await deps.readState(job.key);
-	if (report.state === 'no_session') {
+	if (report.state === 'no_session' || report.state === 'exited') {
 		await finish(job, deps);
-		return 'no_session';
+		return report.state;
 	}
 
 	if (job.kind === 'after_limit') {
@@ -378,6 +379,7 @@ export async function fireJob(job: Job, deps: FireDeps): Promise<FireResult> {
 		case 'question':
 		case 'auth':
 		case 'dialog':
+		case 'exited':
 		case 'no_session': {
 			// The supervising agent's to answer.
 			await save(0);

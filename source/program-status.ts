@@ -182,7 +182,11 @@ export class ProgramStatusStore {
 
 	processExit(): void {
 		for (const [id, entry] of this.entries)
-			if (entry.report.state === 'working' || entry.report.state === 'blocked')
+			if (
+				entry.report.state === 'working' ||
+				entry.report.state === 'blocked' ||
+				entry.report.state === 'idle'
+			)
 				this.entries.delete(id);
 	}
 

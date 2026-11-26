@@ -152,7 +152,8 @@ async function readState(
 	if (
 		quota === 'never' ||
 		!deps.readAgyQuota ||
-		report.state === 'no_session'
+		report.state === 'no_session' ||
+		report.state === 'exited'
 	) {
 		return report;
 	}
@@ -209,6 +210,13 @@ export function formatState(report: AgentStateReport): string {
 
 	if (report.codexDialog)
 		lines.push(`Codex dialog: ${report.codexDialog.title}`);
+	else if (report.state === 'dialog' && report.status?.message)
+		lines.push(`Dialog: ${report.status.message}`);
+	else if (
+		report.status?.status === 'blocked' &&
+		report.status.message === 'Approve plan'
+	)
+		lines.push('Pending artifact review (/artifact)');
 	// Shown under a limit too, since a draft there stops the wake-up.
 	if (report.composer) lines.push(`Composer: ${report.composer}`);
 	return lines.join('\n');
@@ -304,10 +312,11 @@ async function waitFor(
 		command.until === 'changed'
 			? report.state !== first.state
 			: WAIT_TARGETS[command.until].includes(report.state);
-	// Nothing will change in a space with no agent, so don't wait it out.
+	// Nothing will change in a space whose agent has exited or closed, so don't wait it out.
 	if (
 		(command.until !== 'changed' && matches(first)) ||
-		first.state === 'no_session'
+		first.state === 'no_session' ||
+		first.state === 'exited'
 	) {
 		return {...first, timedOut: false};
 	}
@@ -320,7 +329,12 @@ async function waitFor(
 			Math.min(SCREEN_POLL_MS, deadline - deps.now().getTime()),
 		);
 		report = await readState(key, deps, {quota: 'never'});
-		if (matches(report)) return {...report, timedOut: false};
+		if (
+			matches(report) ||
+			report.state === 'no_session' ||
+			report.state === 'exited'
+		)
+			return {...report, timedOut: false};
 	}
 
 	return {...report, timedOut: true};

@@ -943,7 +943,7 @@ function sendRefusal(
 		}
 
 		case 'prompt': {
-			return `Not sent: ${issueKey} is showing a permission prompt, a question or a Codex dialog. Answer it with \`pappardelle answer ${issueKey}\`; Escape can still be pressed on a prompt or question`;
+			return `Not sent: ${issueKey} is showing a permission prompt, a question or a dialog. Answer it with \`pappardelle answer ${issueKey}\`; Escape can still be pressed on a prompt or question`;
 		}
 
 		case 'draft': {
