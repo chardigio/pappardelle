@@ -166,12 +166,10 @@ test('the two stores leave the same target file for the same requests', async ()
 	const files = [];
 	for (const sqlite of [false, true]) {
 		const s = testState({sqlite});
-		/* eslint-disable no-await-in-loop -- The history is a sequence. */
 		await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
 		await s.daos.highlight.clear();
 		await s.daos.highlight.request({issueKey: 'STA-2', focus: false});
 		await s.daos.highlight.request({issueKey: 'STA-3', focus: false});
-		/* eslint-enable no-await-in-loop */
 		files.push(fs.readFileSync(targetFile(s), 'utf8'));
 	}
 

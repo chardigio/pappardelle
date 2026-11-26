@@ -58,6 +58,7 @@ import {ConfigValidationError} from './config-errors.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {
 	CODE_IDE_COMMAND,
+	testConfig,
 	validateListView,
 } from '../test/helpers/config-fixtures.ts';
 
@@ -83,12 +84,11 @@ function createConfig(
 	defaultProfile?: string,
 	teamPrefix?: string,
 ): PappardelleConfig {
-	return {
-		version: 1,
+	return testConfig({
 		default_profile: defaultProfile,
 		team_prefix: teamPrefix,
 		profiles,
-	};
+	});
 }
 
 // ============================================================================
@@ -3733,7 +3733,7 @@ test('an undefined YAML alias in a config file is reported with the file', () =>
 // ============================================================================
 
 test('grouping is off unless list_view.group_by is status', () => {
-	const config = {version: 1, profiles: {}} as unknown as PappardelleConfig;
+	const config = testConfig();
 	expect(isRailGroupedByStatus(config)).toBe(false);
 	config.list_view = {group_by: 'status'};
 	expect(isRailGroupedByStatus(config)).toBe(true);
@@ -3757,13 +3757,13 @@ test('getRailGroups falls back to the default groups', () => {
 // ============================================================================
 
 test('getSousChefKey defaults to M-s, also when the config failed to load', () => {
-	const config = {version: 1, profiles: {}} as unknown as PappardelleConfig;
+	const config = testConfig();
 	expect(getSousChefKey(config)).toBe('M-s');
 	expect(getSousChefKey(null)).toBe('M-s');
 });
 
 test('getSousChefKey returns the configured key, and null when turned off', () => {
-	const base = {version: 1, profiles: {}} as unknown as PappardelleConfig;
+	const base = testConfig();
 	expect(getSousChefKey({...base, sous_chef_key: 'M-j'})).toBe('M-j');
 	expect(getSousChefKey({...base, sous_chef_key: false})).toBe(null);
 });

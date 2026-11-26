@@ -669,7 +669,6 @@ test('warm switches move both viewers in one request without setup probes', asyn
 test('a switch and a session start use the names stored for the space', async () => {
 	const stored = testState({repo: getRepoName(), sqlite: true});
 	for (const key of ['TEST-A', 'TEST-HAND']) {
-		// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
 		await stored.daos.spaceIdentities.record({
 			repo: getRepoName(),
 			key,

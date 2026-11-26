@@ -580,7 +580,6 @@ test("a space's session name is looked up once, however often its status is read
 		async () => '',
 	);
 	for (let read = 0; read < 3; read++) {
-		// eslint-disable-next-line no-await-in-loop -- Reads in turn, as refreshes do.
 		await statuses.read('TASK-1');
 	}
 
