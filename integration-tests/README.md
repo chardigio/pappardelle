@@ -4,19 +4,19 @@ Standalone scripts that exercise pappardelle's providers and config against **re
 
 ## Program status
 
-Build first, then run the deterministic checks with Node 22+, Python 3, and tmux installed. Run every check that starts tmux, here and below, through `test/helpers/tmux-guard-run.sh`, which puts it under the test tmux guard so it stays off your own tmux servers. Those checks refuse to run without it:
+Build first, then run the deterministic checks with Node 22+, Python 3, and tmux installed. `bun run test:integration` runs every check CI runs, each under the test tmux guard, so it stays off your own tmux servers, and under a throwaway HOME. Name checks to run only those, and add flags such as `--keep` to pass them to each check:
 
 ```bash
 bun run build
-test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status.ts
-test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-app.ts
-test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-lifecycle.ts
-test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-cleanup.ts
+bun run test:integration
+bun run test:integration program-status program-status-app program-status-lifecycle program-status-cleanup
 ```
+
+The checks that use your own HOME and logins, below, run through `test/helpers/tmux-guard-run.sh`, which puts them under the same guard. Every check that starts tmux refuses to run without it.
 
 The transport test exercises both launch paths on an isolated tmux socket, including read-only capability-query handling, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real `App` under OpenTUI, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and the component unit tests. The app test requires no automatic watchlists in the project and local configuration.
 
-Run them again with `PAPPARDELLE_SQLITE_STATE=1` to check the same behavior with state in SQLite and status sent through the status daemon. The harness keeps that database and the daemon's socket under its own temporary root, and fails a run that leaves a hook status file or a snapshot file. It starts its tmux servers with `-f /dev/null`, so your own tmux config does not apply. Each check runs under a throwaway HOME, so nothing under your home directory applies or is written to, such as your `~/.pappardelle` config and your shell history.
+Run them again with `PAPPARDELLE_SQLITE_STATE=1` to check the same behavior with state in SQLite and status sent through the status daemon. The harness keeps that database and the daemon's socket under its own temporary root, and fails a run that leaves a hook status file or a snapshot file. It starts its tmux servers with `-f /dev/null`, so your own tmux config does not apply. Under the throwaway HOME nothing under your home directory applies or is written to, such as your `~/.pappardelle` config and your shell history.
 
 The lifecycle check covers pinned agent panes across window/split selection, event updates without tmux discovery, a liveness check that makes no tmux call, and lease revocation during an in-flight publication. The cleanup check drives actual CLI close, detached teardown, and orphan reaping, verifying that snapshots and leases are removed only for successfully closed workspaces. Both use isolated tmux servers and temporary status directories.
 
@@ -25,15 +25,15 @@ The lifecycle check covers pinned agent panes across window/split selection, eve
 ## Rail boxes
 
 ```bash
-test/helpers/tmux-guard-run.sh bun integration-tests/verify-rail-boxes.ts
+bun run test:integration rail-boxes
 ```
 
-Mounts the real `App` with fixture issues and checks the rail's two boxes: the workspace name in the top border with the status row above the agents, the space count or range in the rail box's border (left out with no spaces), agent rows staying put while the list scrolls, and search merging both boxes into one flat list. Runs under a throwaway HOME like the app check.
+Mounts the real `App` with fixture issues and checks the rail's two boxes: the workspace name in the top border with the status row above the agents, the space count or range in the rail box's border (left out with no spaces), agent rows staying put while the list scrolls, and search merging both boxes into one flat list. Runs in CI.
 
 ## Unreadable state database
 
 ```bash
-test/helpers/tmux-guard-run.sh bun integration-tests/verify-unreadable-state-app.ts
+bun run test:integration unreadable-state-app
 ```
 
 Mounts the real `App` with `experimental.sqliteState` stores over a `state.db` that is not a database, under a throwaway HOME and an isolated tmux socket. The rail has to draw, list no space it cannot read, report the failed read, and list the space once the file is replaced, without a restart.
@@ -41,7 +41,7 @@ Mounts the real `App` with `experimental.sqliteState` stores over a `state.db` t
 ## Popups
 
 ```bash
-test/helpers/tmux-guard-run.sh bun integration-tests/verify-popup-close.ts
+bun run test:integration popup-close
 ```
 
 Attaches a real tmux client in a pty to a throwaway server, opens popups through `openPopupTerminal`, and checks that `close()` makes each one go away even after a renderer-style read on its input, that the process keeps no fd on the closed popup's pty (Linux only), and that a popup opened right after a close stays open. Runs in CI.

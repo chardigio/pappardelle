@@ -5,7 +5,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import {isHostPappardelleEnv} from './env.ts';
-import {unguardedTmux} from './tmux-guard-check.ts';
+import {tmuxGuardProblems} from './tmux-guard-check.ts';
 import {
 	TEST_HOME,
 	TEST_TMPDIR,
@@ -18,11 +18,9 @@ const repoRoot = path.resolve(import.meta.dir, '../..');
 const problems = [
 	env[TEST_HOME] === undefined && 'no throwaway HOME was set up',
 	os.homedir() !== env[TEST_HOME] && `HOME is ${os.homedir()}`,
-	env['TMUX'] !== undefined && `TMUX is set (${env['TMUX']})`,
-	env['TMUX_PANE'] !== undefined && 'TMUX_PANE is set',
 	// The test tmux guard refuses the user's own servers for
 	// whatever a test starts, not only for the test's own code.
-	unguardedTmux(),
+	...tmuxGuardProblems(env),
 	Bun.which('tmux') !== null &&
 		path.dirname(env[TEST_TMUX_REFUSALS] ?? '') !== env['TMUX_TMPDIR'] &&
 		'the test tmux guard logs refusals outside this run',

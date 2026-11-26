@@ -48,9 +48,7 @@ jobs:
         run: bun run build
 
       - name: Typecheck
-        run: |
-          bun run typecheck
-          bun run typecheck:test
+        run: bun run typecheck:test
 
       - name: Install terminal test tools (Linux)
         if: runner.os == 'Linux'
@@ -88,21 +86,8 @@ jobs:
         if: runner.os == 'macOS' && matrix.sqlite_state == '0'
         run: ./scripts/test-session-name-encoding.sh
 
-      - name: Verify program status transport, lifecycle, cleanup and app
-        run: |
-          test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status.ts
-          test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-lifecycle.ts
-          test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-cleanup.ts
-          test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-app.ts
-
-      - name: Verify the rail over a state database that cannot be read
-        run: test/helpers/tmux-guard-run.sh bun integration-tests/verify-unreadable-state-app.ts
-
-      - name: Verify tmux popups close and release their pty
-        run: test/helpers/tmux-guard-run.sh bun integration-tests/verify-popup-close.ts
-
-      - name: Verify the rail's boxes and row layout
-        run: test/helpers/tmux-guard-run.sh bun integration-tests/verify-rail-boxes.ts
+      - name: Integration checks
+        run: bun run test:integration
 
   tmux-floor:
     name: Program status on tmux 3.4 (sqliteState ${{ matrix.sqlite_state }})
@@ -152,11 +137,7 @@ jobs:
         run: test "$(tmux -V)" = "tmux $TMUX_FLOOR_VERSION"
 
       - name: Verify program status transport, lifecycle, cleanup and app
-        run: |
-          test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status.ts
-          test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-lifecycle.ts
-          test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-cleanup.ts
-          test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-app.ts
+        run: bun run test:integration program-status program-status-lifecycle program-status-cleanup program-status-app
 
   shell-tests:
     name: Shell Tests

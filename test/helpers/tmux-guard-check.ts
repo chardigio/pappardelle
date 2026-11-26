@@ -16,14 +16,27 @@ export function unguardedTmux(): string | undefined {
 }
 
 /**
+ * What would let a tmux this process starts reach a server outside the test
+ * tmux guard. TMUX makes a tmux client talk to the server the process was
+ * started from, past any socket directory.
+ */
+export function tmuxGuardProblems(env = process.env): string[] {
+	return [
+		env['TMUX'] !== undefined && `TMUX is set (${env['TMUX']})`,
+		env['TMUX_PANE'] !== undefined && 'TMUX_PANE is set',
+		unguardedTmux(),
+	].filter(problem => typeof problem === 'string');
+}
+
+/**
  * Stops a suite outside the unit tests that starts real tmux from running
  * without the test tmux guard. A test that reached the inner server once ended
  * every agent session the user had open.
  */
 export function requireTmuxGuard(): void {
-	const problem = unguardedTmux();
-	if (problem)
+	const problems = tmuxGuardProblems();
+	if (problems.length > 0)
 		throw new Error(
-			`${problem}. Run this check through test/helpers/tmux-guard-run.sh.`,
+			`${problems.join('; ')}. Run this check through test/helpers/tmux-guard-run.sh.`,
 		);
 }
