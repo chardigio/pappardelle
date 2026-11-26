@@ -1,25 +1,9 @@
 // Workflow state colors: state name to hex color, kept in memory and in the
 // state database so the main worktree color works even when no active issue
 // has that state.
-import path from 'node:path';
 import {createLogger} from '../logger.ts';
 
 const log = createLogger('state-colors');
-
-export function getStateColorsPath(repoName: string, baseDir: string): string {
-	return path.join(baseDir, 'repos', repoName, 'state-colors.json');
-}
-
-/** The colors in a cache file. Throws when it is not JSON. */
-export function parseStateColors(content: string): Map<string, string> {
-	const colors = new Map<string, string>();
-	const parsed = JSON.parse(content) as Record<string, unknown>;
-	for (const [name, color] of Object.entries(parsed)) {
-		if (typeof color === 'string') colors.set(name, color);
-	}
-
-	return colors;
-}
 
 /** One repo's workflow state colors, as kept between runs. */
 export interface StateColorDao {

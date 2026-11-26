@@ -4,7 +4,7 @@
 
 import type {HighlightDao, HighlightRequest} from './highlight.ts';
 import {createLogger} from './logger.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
 import {onStateDbChange} from './state-db-watch.ts';
 
 const log = createLogger('highlight');
@@ -18,21 +18,8 @@ export class SqliteHighlightDao implements HighlightDao {
 		private readonly openDb: () => StateDb,
 		private readonly dbPath: string,
 		private readonly repo: string,
-		/** Where the highlight target file was, for the one-time import. */
-		private readonly jsonFile: string,
 		private readonly clock: () => Date,
 	) {}
-
-	jsonMirrors(): JsonMirror[] {
-		return [
-			{
-				file: this.jsonFile,
-				// A request left in the file was meant for a TUI that has since
-				// stopped, so it is dropped rather than shown on the next start.
-				importRows() {},
-			},
-		];
-	}
 
 	async request(request: HighlightRequest): Promise<void> {
 		await this.openDb().write(() => {

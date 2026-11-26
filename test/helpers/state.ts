@@ -7,14 +7,10 @@ import {statusSocket} from '../../source/program-status-monitor.ts';
 import {
 	newSpaceIdentity,
 	worktreePathFor,
+	type SpaceIdentity,
 	type SpaceIdentityDao,
 } from '../../source/space-identity.ts';
-import type {SqliteSpaceIdentityDao} from '../../source/space-identity-sqlite.ts';
-import {
-	createStateDaos,
-	openImportedStateDb,
-	type StateDaos,
-} from '../../source/state-daos.ts';
+import {createStateDaos, type StateDaos} from '../../source/state-daos.ts';
 import {
 	closeStateDb,
 	openStateDb,
@@ -72,24 +68,56 @@ export function testState(
 		closeStateDb(stateDbPath(stateDir));
 		fs.rmSync(stateDir, {recursive: true, force: true});
 	});
-	if (options.spaces) openSpaces(daos, repo, stateDir, options.spaces);
+	if (options.spaces) {
+		openSpaces(
+			stateDbPath(stateDir),
+			options.spaces.map(key =>
+				newSpaceIdentity({
+					repo,
+					key,
+					worktreePath: worktreePathFor(
+						options.home ?? os.homedir(),
+						repo,
+						key,
+					),
+					socket: statusSocket(options.env),
+				}),
+			),
+		);
+	}
+
 	return {daos, repo, stateDir};
 }
 
-/** Open `keys` in one write, as the registry's own writes would leave them. */
+/**
+ * Open each space in one write, named as `identities` say, as the registry's
+ * and the identities' own writes would leave them.
+ */
 function openSpaces(
-	daos: StateDaos,
-	repo: string,
-	stateDir: string,
-	keys: readonly string[],
+	dbPath: string,
+	identities: readonly SpaceIdentity[],
 ): void {
-	const state = openImportedStateDb(stateDbPath(stateDir), stateDir);
-	state.db.transaction(() => {
-		const insert = state.db.query(
+	const {db} = openStateDb(dbPath);
+	db.transaction(() => {
+		const open = db.query(
 			`INSERT INTO spaces (repo, key, state, owner_pid) VALUES (?, ?, 'open', NULL)`,
 		);
-		for (const key of keys) insert.run(repo, key);
-		(daos.spaceIdentities as SqliteSpaceIdentityDao).fillMissing(keys);
+		const name = db.query(
+			`INSERT INTO space_identities
+				(repo, key, worktree_path, tmux_socket, agent_session, companion_session)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+		);
+		for (const {repo, key, worktreePath, tmux} of identities) {
+			open.run(repo, key);
+			name.run(
+				repo,
+				key,
+				worktreePath,
+				tmux.socket,
+				tmux.agentSession,
+				tmux.companionSession,
+			);
+		}
 	})();
 }
 

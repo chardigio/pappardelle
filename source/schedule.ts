@@ -5,7 +5,6 @@
 
 import type {SendToSpaceAgentResult} from './tmux.ts';
 import {randomUUID} from 'node:crypto';
-import path from 'node:path';
 import {isEndedAgentState, type AgentStateReport} from './agent-state.ts';
 
 type OneShot = {
@@ -73,65 +72,8 @@ export interface ScheduleDao {
 	clearQueued(key: string): Promise<void>;
 }
 
-export function schedulesDir(repoName: string, baseDir: string): string {
-	return path.join(baseDir, 'repos', repoName, 'schedules');
-}
-
-export function queuedMessagesDir(repoName: string, baseDir: string): string {
-	return path.join(baseDir, 'repos', repoName, 'queued');
-}
-
 export function newJobId(): string {
 	return randomUUID().slice(0, 8);
-}
-
-const isString = (value: unknown): value is string => typeof value === 'string';
-
-/** A job file as `save` leaves it. Throws when `content` is anything else. */
-export function parseJob(content: string): Job {
-	const job = (JSON.parse(content) ?? {}) as Record<string, unknown>;
-	const {kind, id, key} = job;
-	if (!isString(id) || !isString(key)) throw new Error('Not a scheduled job');
-	if (kind === 'keep_going') {
-		const {everySeconds, nudge, until, idleChecks} = job;
-		if (
-			!Number.isInteger(everySeconds) ||
-			!isString(nudge) ||
-			!(until === null || isString(until)) ||
-			!Number.isInteger(idleChecks)
-		)
-			throw new Error('Not a keep-going job');
-		return {
-			kind,
-			id,
-			key,
-			everySeconds: everySeconds as number,
-			nudge,
-			until,
-			idleChecks: idleChecks as number,
-		};
-	}
-
-	const {at, message, arm, deferReason, deferCount} = job;
-	if (
-		(kind !== 'at' && kind !== 'after_limit') ||
-		!isString(at) ||
-		!isString(message) ||
-		!Number.isInteger(arm)
-	)
-		throw new Error('Not a scheduled job');
-	return {
-		kind,
-		id,
-		key,
-		at,
-		message,
-		arm: arm as number,
-		...(isString(deferReason) ? {deferReason: deferReason as SendOutcome} : {}),
-		...(Number.isInteger(deferCount) && (deferCount as number) > 0
-			? {deferCount: deferCount as number}
-			: {}),
-	};
 }
 
 const DURATION = /^(\d+)([smh])$/;
@@ -344,7 +286,7 @@ const LATE_FIRE_MS = 60_000;
 
 /**
  * Gives every saved job without a timer a new one: systemd's transient timers
- * don't survive a reboot, while the job files do. Returns the jobs re-armed.
+ * don't survive a reboot, while the saved jobs do. Returns the jobs re-armed.
  */
 export async function rearmMissingTimers(
 	store: ScheduleDao,

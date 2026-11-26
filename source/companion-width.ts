@@ -3,13 +3,8 @@
 // running TUI applied the change.
 
 import {randomUUID} from 'node:crypto';
-import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {isPaneWidth, type PaneWidth} from './layout-sizing.ts';
-
-export function companionWidthsPath(repoName: string, baseDir: string) {
-	return path.join(baseDir, 'repos', repoName, 'companion-widths.json');
-}
+import type {PaneWidth} from './layout-sizing.ts';
 
 /** The width of each space's companion column that has one of its own. */
 export interface CompanionWidthDao {
@@ -17,23 +12,6 @@ export interface CompanionWidthDao {
 	get(spaceKey: string): PaneWidth | null;
 	/** Store `width` for the space, or remove its entry when `width` is null. */
 	set(spaceKey: string, width: PaneWidth | null): Promise<void>;
-}
-
-/**
- * The widths in a store file. Throws when `content` is not an object;
- * entries that are not widths are left out.
- */
-export function parseCompanionWidths(
-	content: string,
-): Record<string, PaneWidth> {
-	const parsed: unknown = JSON.parse(content);
-	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-		throw new Error('Not a companion widths store');
-	return Object.fromEntries(
-		Object.entries(parsed).filter((entry): entry is [string, PaneWidth] =>
-			isPaneWidth(entry[1]),
-		),
-	);
 }
 
 /**

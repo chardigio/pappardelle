@@ -1,16 +1,14 @@
 // Per-space state as rows.
 //
-// The file had four writers doing unlocked read-modify-write: the rail poll,
-// the profile backfill, link-pr and idow. Here each of them changes only its
-// own columns inside one transaction, so none can undo another's write, and
-// a write that changes nothing leaves the row alone.
+// Four writers share it: the rail poll, the profile backfill, link-pr and
+// idow. Each changes only its own columns inside one transaction, so none can
+// undo another's write, and a write that changes nothing leaves the row
+// alone.
 
-import path from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
 import {createLogger} from './logger.ts';
 import type {PipelineStatus} from './providers/types.ts';
 import {
-	parseSpaceState,
 	withPrLink,
 	type SpacePrLink,
 	type SpaceState,
@@ -18,14 +16,14 @@ import {
 	type SpaceStateLookup,
 	type SpaceStatePatch,
 } from './space-state.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
 
 const log = createLogger('space-state');
 
 /**
- * The file tells "the rail has not been polled" (no pipeline field) from
- * "polled, and the branch has no PR" (null). NULL is the first and this value
- * the second.
+ * A space state tells "the rail has not been polled" (no pipeline) from
+ * "polled, and the branch has no PR" (a null pipeline). NULL is the first and
+ * this value the second.
  */
 const NO_PIPELINE = 'none';
 
@@ -163,22 +161,8 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		/** Where each space's JSON file was, for the one-time import. */
-		private readonly jsonDir: string,
 		private readonly clock: () => Date,
 	) {}
-
-	jsonMirrors(): JsonMirror[] {
-		return this.openDb()
-			.jsonKeysIn(this.jsonDir, '.json', ['.agent-sessions.json'])
-			.map(key => ({
-				file: path.join(this.jsonDir, `${key}.json`),
-				importRows: content => {
-					this.delete(key);
-					if (content !== null) this.insert(key, parseSpaceState(content));
-				},
-			}));
-	}
 
 	read(key: string): SpaceState | null {
 		return this.reads.or(null, () => this.stored(key));
@@ -213,6 +197,15 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 			for (const {key, patch} of entries)
 				this.apply(key, columnsOf(patch), updatedAt);
 		});
+	}
+
+	/**
+	 * Replace a space's record with `state`, keeping its `updatedAt`, or remove
+	 * it when `state` is null. For a caller inside a write transaction.
+	 */
+	replace(key: string, state: SpaceState | null): void {
+		this.delete(key);
+		if (state) this.insert(key, state);
 	}
 
 	/** Set the columns that differ from the row. False when none do. */

@@ -9,10 +9,8 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {resolveAgentProfileName, type PappardelleConfig} from './config.ts';
 import {isAgyCommand, isClaudeAgentProfile} from './config-launch-flags.ts';
-import {PIPELINE_STATUSES, type PipelineStatus} from './providers/types.ts';
+import type {PipelineStatus} from './providers/types.ts';
 import type {Unreadable} from './state-db.ts';
-
-const DEFAULT_BASE_DIR = path.join(homedir(), '.pappardelle');
 
 export interface SpaceRecap {
 	customTitle?: string;
@@ -110,97 +108,6 @@ export function withPrLink(
 		),
 		link,
 	];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-const stringOrNothing = (value: unknown): string | undefined =>
-	typeof value === 'string' ? value : undefined;
-
-const integerOrNothing = (value: unknown): number | undefined =>
-	Number.isInteger(value) ? (value as number) : undefined;
-
-function parseRecap(value: Record<string, unknown>): SpaceRecap {
-	const customTitle = stringOrNothing(value['customTitle']);
-	const lastPrompt = stringOrNothing(value['lastPrompt']);
-	const lastAssistantExcerpt = stringOrNothing(value['lastAssistantExcerpt']);
-	return {
-		...(customTitle === undefined ? {} : {customTitle}),
-		...(lastPrompt === undefined ? {} : {lastPrompt}),
-		...(lastAssistantExcerpt === undefined ? {} : {lastAssistantExcerpt}),
-	};
-}
-
-function parseAgentProfile(value: unknown): LaunchedAgentProfile | undefined {
-	if (!isRecord(value)) return undefined;
-	const {name, isClaude} = value;
-	return typeof name === 'string' && typeof isClaude === 'boolean'
-		? {name, isClaude}
-		: undefined;
-}
-
-function parsePrLink(value: unknown): SpacePrLink | undefined {
-	if (!isRecord(value)) return undefined;
-	const {host, project, localBranch, remoteBranch, url, number} = value;
-	if (
-		typeof host !== 'string' ||
-		typeof project !== 'string' ||
-		typeof localBranch !== 'string' ||
-		typeof remoteBranch !== 'string' ||
-		typeof url !== 'string' ||
-		!Number.isInteger(number)
-	)
-		return undefined;
-	return {
-		host,
-		project,
-		localBranch,
-		remoteBranch,
-		url,
-		number: number as number,
-	};
-}
-
-/**
- * The fields of a space-state file that hold what their writers leave there.
- * Throws when `content` is not a JSON object.
- *
- * The file has several writers, other builds and hand edits among them, and
- * the next write rewrites it from what was read. A field this build cannot
- * use is left out on its own, so it never costs the space its profile or its
- * PR links.
- */
-export function parseSpaceState(content: string): SpaceState {
-	const record: unknown = JSON.parse(content);
-	if (!isRecord(record)) throw new Error('Not a space state');
-	const {pipeline, hasConflict, prLinks, recap} = record;
-	const unresolvedCommentCount = integerOrNothing(
-		record['unresolvedCommentCount'],
-	);
-	const prNumber = integerOrNothing(record['prNumber']);
-	const updatedAt = stringOrNothing(record['updatedAt']);
-	const profile = stringOrNothing(record['profile']);
-	const issueTitle = stringOrNothing(record['issueTitle']);
-	const agentProfile = parseAgentProfile(record['agentProfile']);
-	return {
-		...(Array.isArray(prLinks)
-			? {prLinks: prLinks.flatMap(link => parsePrLink(link) ?? [])}
-			: {}),
-		...(pipeline === null ||
-		PIPELINE_STATUSES.includes(pipeline as PipelineStatus)
-			? {pipeline: pipeline as PipelineStatus | null}
-			: {}),
-		...(unresolvedCommentCount === undefined ? {} : {unresolvedCommentCount}),
-		...(prNumber === undefined ? {} : {prNumber}),
-		...(typeof hasConflict === 'boolean' ? {hasConflict} : {}),
-		...(isRecord(recap) ? {recap: parseRecap(recap)} : {}),
-		...(updatedAt === undefined ? {} : {updatedAt}),
-		...(profile === undefined ? {} : {profile}),
-		...(issueTitle === undefined ? {} : {issueTitle}),
-		...(agentProfile === undefined ? {} : {agentProfile}),
-	};
 }
 
 /** Claude Code's transcript directory for a worktree. */
@@ -362,11 +269,6 @@ export async function findSpaceTranscript(options: {
 	}
 }
 
-export function getSpaceStateDir(repoName: string, baseDir?: string): string {
-	const base = baseDir ?? DEFAULT_BASE_DIR;
-	return path.join(base, 'repos', repoName, 'space-state');
-}
-
 /** One agent profile's latest conversation in a space, as its hook records it. */
 export type AgentSession = {
 	sessionId: string;
@@ -409,29 +311,6 @@ export interface AgentSessionsDao {
 	renameProfile(key: string, from: string, to: string): Promise<void>;
 	/** Forget every session recorded in a space. */
 	clear(key: string): Promise<void>;
-}
-
-/**
- * An agent-sessions file as the hook leaves it. Throws when `content` is not
- * an object of entries. An entry without a session id is one no reader uses,
- * and is left out.
- */
-export function parseAgentSessions(content: string): Map<string, AgentSession> {
-	const record: unknown = JSON.parse(content);
-	if (!isRecord(record)) throw new Error('Not an agent-sessions file');
-	const sessions = new Map<string, AgentSession>();
-	for (const [name, entry] of Object.entries(record)) {
-		if (!isRecord(entry)) continue;
-		const {session_id: sessionId, pid, started} = entry;
-		if (typeof sessionId !== 'string') continue;
-		sessions.set(name, {
-			sessionId,
-			pid: Number.isInteger(pid) ? (pid as number) : null,
-			started: typeof started === 'string' ? started : null,
-		});
-	}
-
-	return sessions;
 }
 
 /**

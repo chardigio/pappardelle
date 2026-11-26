@@ -169,25 +169,6 @@ export interface UpdateCheckDao {
 	write(entry: CacheEntry): Promise<void>;
 }
 
-export function updateCheckPath(stateDir: string): string {
-	return path.join(stateDir, 'update-check.json');
-}
-
-export function parseCachedCheck(content: string): CacheEntry | null {
-	try {
-		const parsed = JSON.parse(content) as Partial<CacheEntry>;
-		if (
-			typeof parsed.checkedAt === 'number' &&
-			typeof parsed.latestVersion === 'string'
-		) {
-			return {checkedAt: parsed.checkedAt, latestVersion: parsed.latestVersion};
-		}
-		return null;
-	} catch {
-		return null;
-	}
-}
-
 // ============================================================================
 // LOCAL_MODE detection
 // ============================================================================

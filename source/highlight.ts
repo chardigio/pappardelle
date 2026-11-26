@@ -2,20 +2,11 @@
 // running TUI to select a space, and with `--focus` to move focus to its
 // agent pane.
 
-import path from 'node:path';
 import {internalEntryCommand} from './runtime.ts';
 import {shellQuote} from './shell-quote.ts';
 import type {SpaceData} from './types.ts';
 
 export type HighlightRequest = {issueKey: string; focus: boolean};
-
-/** Where a repo's highlight target file was, for the one-time import. */
-export function getHighlightFilePath(
-	repoName: string,
-	baseDir: string,
-): string {
-	return path.join(baseDir, 'repos', repoName, 'highlight-target');
-}
 
 /**
  * A shell line that makes `request` in `repo`'s stores in the database at

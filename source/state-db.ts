@@ -287,120 +287,14 @@ export async function retryBusy<T>(
 	}
 }
 
-type FileSignature = {ino: string; size: number; mtimeNs: string};
-
-function signatureOf(stat: fs.BigIntStats): FileSignature {
-	return {
-		ino: String(stat.ino),
-		size: Number(stat.size),
-		mtimeNs: String(stat.mtimeNs),
-	};
-}
-
 /** A lookup in a store that could not be read, which must never look empty. */
 export type Unreadable = {kind: 'unreadable'; error: unknown};
-
-/**
- * A JSON file from before the database held all the state, with how to turn
- * it into rows. Only the one-time import reads these.
- */
-export type JsonMirror = {
-	file: string;
-	/**
-	 * Replace the rows this file holds from its content, or from `null` when
-	 * the file is gone. Throws when the content is not what the store wrote.
-	 */
-	importRows(content: string | null): void;
-	/**
-	 * A file whose rows must never look empty, such as the registry: the
-	 * reaper ends the sessions of every space it does not list. One that
-	 * can't be imported stops the import, and the database stays unreadable
-	 * until the file is fixed or removed.
-	 */
-	required?: boolean;
-};
-
-type SyncRow = {
-	ino: string;
-	size: number;
-	mtime_ns: string;
-	malformed: 0 | 1;
-};
 
 export class StateDb {
 	constructor(
 		readonly db: Database,
 		readonly path: string,
 	) {}
-
-	/** Whether the JSON files have yet to be imported. */
-	hasJsonToImport(): boolean {
-		return (
-			this.db
-				.query<{found: number}, []>('SELECT 1 AS found FROM json_import')
-				.get() === null
-		);
-	}
-
-	/**
-	 * Import every mirror's file into its rows, once, and return the files to
-	 * delete now that their rows hold them. Another process that opens the
-	 * database meanwhile waits for the import, and finds it done.
-	 *
-	 * `json_sync` records what each file looked like when a write last went
-	 * through the database, so a file that still matches is already in its
-	 * rows. One that doesn't was written by a process without the database.
-	 */
-	importJson(mirrors: () => JsonMirror[]): string[] {
-		this.db.run(`PRAGMA busy_timeout = ${OPEN_BUSY_TIMEOUT_MS}`);
-		try {
-			return this.notifying(() =>
-				this.db
-					.transaction(() => {
-						if (!this.hasJsonToImport()) return [];
-						const imported = mirrors().flatMap(mirror =>
-							this.importMirror(mirror) ? [mirror.file] : [],
-						);
-						this.db.run('DELETE FROM json_sync');
-						this.db
-							.query('INSERT INTO json_import (imported_at) VALUES (?)')
-							.run(Date.now());
-						return imported;
-					})
-					.immediate(),
-			);
-		} finally {
-			this.db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
-		}
-	}
-
-	/**
-	 * The keys of the `<key><suffix>` files in `dir`, for the one-time import:
-	 * those on disk, and those a write through the database recorded whose
-	 * file a process without the database has since removed.
-	 */
-	jsonKeysIn(dir: string, suffix: string, except: string[] = []): string[] {
-		let names: string[] = [];
-		try {
-			names = fs.readdirSync(dir);
-		} catch {}
-
-		const recorded = this.db
-			.query<{path: string}, [string]>(
-				"SELECT path FROM json_sync WHERE path LIKE ? ESCAPE '\\'",
-			)
-			.all(`${dir.replaceAll(/[\\%_]/g, '\\$&')}/%`)
-			.map(row => path.relative(dir, row.path))
-			.filter(name => !name.includes('/'));
-		const keys = new Set<string>();
-		for (const name of [...names, ...recorded]) {
-			if (!name.endsWith(suffix) || name.includes('.tmp.')) continue;
-			if (except.some(other => name.endsWith(other))) continue;
-			keys.add(name.slice(0, -suffix.length));
-		}
-
-		return [...keys].sort();
-	}
 
 	/** One write transaction, attempted once: throws SQLITE_BUSY when another process holds the write lock. */
 	tryWrite<T>(body: () => T): T {
@@ -410,6 +304,20 @@ export class StateDb {
 	/** A write transaction that waits out other writers without blocking. */
 	async write<T>(body: () => T): Promise<T> {
 		return retryBusy(() => this.tryWrite(body));
+	}
+
+	/**
+	 * `tryWrite`, waiting for the write lock as long as opening waits for a
+	 * migration. For the one-time import, which every process that opens the
+	 * database must find done before it reads.
+	 */
+	writeOnOpen<T>(body: () => T): T {
+		this.db.run(`PRAGMA busy_timeout = ${OPEN_BUSY_TIMEOUT_MS}`);
+		try {
+			return this.tryWrite(body);
+		} finally {
+			this.db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+		}
 	}
 
 	/** Ring the bell for watchers in other processes when rows changed. */
@@ -424,62 +332,6 @@ export class StateDb {
 		return this.db
 			.query<{changes: number}, []>('SELECT total_changes() AS changes')
 			.get()!.changes;
-	}
-
-	/**
-	 * Bring a mirror's rows up to date with its file. True when the file can
-	 * go: its rows hold it, or it is gone already. A file that can't be read
-	 * as state is kept, and its rows stay as they were.
-	 */
-	private importMirror(mirror: JsonMirror): boolean {
-		let read: ReturnType<typeof readWithSignature>;
-		try {
-			read = readWithSignature(mirror.file);
-		} catch (error) {
-			return this.notImported(mirror, error);
-		}
-
-		const row = this.db
-			.query<
-				SyncRow,
-				[string]
-			>('SELECT ino, size, mtime_ns, malformed FROM json_sync WHERE path = ?')
-			.get(mirror.file);
-		// A file a write recorded as malformed never had its rows replaced, so
-		// matching it says nothing about them.
-		const inSync =
-			read === null
-				? row === null
-				: row !== null &&
-					row.malformed === 0 &&
-					row.ino === read.signature.ino &&
-					row.size === read.signature.size &&
-					row.mtime_ns === read.signature.mtimeNs;
-		if (inSync) return read !== null;
-		try {
-			// Nested, so an import that fails halfway leaves no rows behind.
-			this.db.transaction(() => {
-				mirror.importRows(read?.content ?? null);
-			})();
-		} catch (error) {
-			return this.notImported(mirror, error);
-		}
-
-		if (read) log.info(`Imported ${mirror.file} into the state database`);
-		return read !== null;
-	}
-
-	private notImported(mirror: JsonMirror, error: unknown): false {
-		const cause = error instanceof Error ? error.message : String(error);
-		if (mirror.required)
-			throw new Error(
-				`Could not import ${mirror.file} (${cause}). Fix or remove it, and Pappardelle imports the rest of its state`,
-			);
-		log.warn(
-			`Kept ${mirror.file}: it is not readable as state, so its rows stay as they were`,
-			error instanceof Error ? error : undefined,
-		);
-		return false;
 	}
 }
 
@@ -512,26 +364,6 @@ export class GuardedReads {
 
 			return unknown;
 		}
-	}
-}
-
-/** The file's content with the signature of the bytes that were read. */
-function readWithSignature(
-	file: string,
-): {content: string; signature: FileSignature} | null {
-	let descriptor: number;
-	try {
-		descriptor = fs.openSync(file, 'r');
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-		throw error;
-	}
-
-	try {
-		const signature = signatureOf(fs.fstatSync(descriptor, {bigint: true}));
-		return {content: fs.readFileSync(descriptor, 'utf8'), signature};
-	} finally {
-		fs.closeSync(descriptor);
 	}
 }
 

@@ -1,14 +1,8 @@
 // Issue metadata as rows.
 
-import path from 'node:path';
 import {createLogger} from './logger.ts';
-import {
-	createdNow,
-	parseIssueMeta,
-	type IssueMeta,
-	type IssueMetaDao,
-} from './issue-meta.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
+import {createdNow, type IssueMeta, type IssueMetaDao} from './issue-meta.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
 
 const log = createLogger('issue-meta');
 
@@ -20,16 +14,8 @@ export class SqliteIssueMetaDao implements IssueMetaDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		/** Where each issue's JSON file was, for the one-time import. */
-		private readonly jsonDir: string,
 		private readonly clock: () => Date,
 	) {}
-
-	jsonMirrors(): JsonMirror[] {
-		return this.openDb()
-			.jsonKeysIn(this.jsonDir, '.json')
-			.map(key => this.mirror(key));
-	}
 
 	read(key: string): IssueMeta | null {
 		return this.reads.or(null, () => {
@@ -55,22 +41,8 @@ export class SqliteIssueMetaDao implements IssueMetaDao {
 		});
 	}
 
-	private mirror(key: string): JsonMirror {
-		return {
-			file: path.join(this.jsonDir, `${key}.json`),
-			importRows: content => {
-				if (content === null) {
-					this.openDb()
-						.db.query('DELETE FROM issue_meta WHERE repo = ? AND key = ?')
-						.run(this.repo, key);
-				} else {
-					this.put(key, parseIssueMeta(content));
-				}
-			},
-		};
-	}
-
-	private put(key: string, meta: IssueMeta): void {
+	/** For a caller inside a write transaction. */
+	put(key: string, meta: IssueMeta): void {
 		this.openDb()
 			.db.query(
 				`INSERT OR REPLACE INTO issue_meta
@@ -78,5 +50,12 @@ export class SqliteIssueMetaDao implements IssueMetaDao {
 				VALUES (?, ?, ?, ?)`,
 			)
 			.run(this.repo, key, meta.createdByPappardelle ? 1 : 0, meta.createdAt);
+	}
+
+	/** For a caller inside a write transaction. */
+	deleteRow(key: string): void {
+		this.openDb()
+			.db.query('DELETE FROM issue_meta WHERE repo = ? AND key = ?')
+			.run(this.repo, key);
 	}
 }

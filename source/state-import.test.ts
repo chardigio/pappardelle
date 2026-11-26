@@ -4,10 +4,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {teardown} from '../test/helpers/teardown.ts';
-import {createStateDaos, openImportedStateDb} from './state-daos.ts';
+import type {SpacePrLink} from './space-state.ts';
+import {createStateDaos} from './state-daos.ts';
 import {closeStateDb, openStateDb} from './state-db.ts';
+import {openImportedStateDb} from './state-import.ts';
 
-const IMPORT_SCRIPT = path.join(import.meta.dir, 'state-daos.ts');
+const IMPORT_SCRIPT = path.join(import.meta.dir, 'state-import.ts');
 
 /** A state directory as a build that kept its state in files left it. */
 function fileHome(): string {
@@ -67,6 +69,8 @@ function writeRepo(stateDir: string, repo: string, key: string): string[] {
 			at: '2026-12-01T00:00:00.000Z',
 			message: 'wake up',
 			arm: 1,
+			deferReason: 'prompt',
+			deferCount: 2,
 		}),
 		write(stateDir, at(`queued/${encodeURIComponent(key)}.txt`), 'queued'),
 		write(stateDir, at(`holds/hold-${key}.json`), {
@@ -120,7 +124,18 @@ test('state two repos kept in files is in the database after the first open, and
 			createdByPappardelle: true,
 			createdAt: '2026-01-01T00:00:00Z',
 		});
-		expect(stores.schedules.list().map(job => job.id)).toEqual([`job-${key}`]);
+		expect(stores.schedules.list()).toEqual([
+			{
+				kind: 'at',
+				id: `job-${key}`,
+				key,
+				at: '2026-12-01T00:00:00.000Z',
+				message: 'wake up',
+				arm: 1,
+				deferReason: 'prompt',
+				deferCount: 2,
+			},
+		]);
 		expect(stores.schedules.queued(key)).toBe('queued');
 		expect(stores.holds.list().map(hold => hold.id)).toEqual([`hold-${key}`]);
 		expect(stores.companionWidths.get(key)).toBe(60);
@@ -237,6 +252,8 @@ test('a file that is not state, or cannot be read, is kept, and the rest is impo
 	const stateDir = fileHome();
 	const broken = write(stateDir, 'repos/repo/space-state/A-1.json', '{"pro');
 	const marker = write(stateDir, 'repos/repo/tui.json', {pid: 'x'});
+	const list = write(stateDir, 'repos/repo/space-state/A-3.json', []);
+	const check = write(stateDir, 'update-check.json', {checkedAt: 'soon'});
 	const unreadable = path.join(stateDir, 'repos/repo/space-state/A-2.json');
 	fs.mkdirSync(unreadable, {recursive: true});
 	const sessions = write(
@@ -248,10 +265,72 @@ test('a file that is not state, or cannot be read, is kept, and the rest is impo
 	const stores = daos(stateDir, 'repo');
 	expect(stores.spaceState.read('A-1')).toBeNull();
 	expect(stores.agentSessions.read('A-1', 'claude')).toBe('kept');
-	expect([broken, marker, unreadable].map(file => fs.existsSync(file))).toEqual(
-		[true, true, true],
-	);
+	expect(
+		[broken, marker, unreadable, list, check].map(file => fs.existsSync(file)),
+	).toEqual([true, true, true, true, true]);
 	expect(fs.existsSync(sessions)).toBe(false);
+});
+
+const link = (rest: Partial<SpacePrLink> = {}): SpacePrLink => ({
+	host: 'github.com',
+	project: 'user/repo',
+	localBranch: 'STA-1',
+	remoteBranch: 'published',
+	url: 'https://github.com/user/repo/pull/1',
+	number: 1,
+	...rest,
+});
+
+test('a space-state file loses each value that is not what its field holds, and keeps the rest', () => {
+	const stateDir = fileHome();
+	const valid = {
+		prLinks: [link(), link({localBranch: 'STA-2', number: 2})],
+		pipeline: null,
+		unresolvedCommentCount: 2,
+		prNumber: 9,
+		hasConflict: true,
+		recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
+		updatedAt: '2026-01-02T03:04:05.678Z',
+		profile: 'codex',
+		issueTitle: 'Fix the rail',
+		agentProfile: {name: 'codex-high', isClaude: false},
+	};
+	write(stateDir, 'repos/repo/space-state/VALID.json', valid);
+	const {number: _number, ...incompleteLink} = link({localBranch: 'STA-3'});
+	write(stateDir, 'repos/repo/space-state/MIXED.json', {
+		prLinks: [link(), incompleteLink, 'not a link'],
+		pipeline: 'purple',
+		unresolvedCommentCount: null,
+		prNumber: '9',
+		hasConflict: 'yes',
+		recap: {customTitle: 5, lastPrompt: 'Prompt', lastAssistantExcerpt: []},
+		updatedAt: 7,
+		profile: 'codex',
+		issueTitle: 12,
+		agentProfile: {name: 'codex'},
+	});
+	write(stateDir, 'repos/repo/space-state/NONE.json', {
+		prLinks: 'none',
+		recap: 'none',
+	});
+	const notState = ['[]', '"profile"', 'null'].map((content, index) =>
+		write(stateDir, `repos/repo/space-state/NOT-${index}.json`, content),
+	);
+
+	const {spaceState} = daos(stateDir, 'repo');
+	expect(spaceState.read('VALID')).toStrictEqual(valid);
+	expect(spaceState.read('MIXED')).toStrictEqual({
+		prLinks: [link()],
+		recap: {lastPrompt: 'Prompt'},
+		profile: 'codex',
+	});
+	expect(spaceState.read('NONE')).toStrictEqual({});
+	expect(notState.map(file => fs.existsSync(file))).toEqual([true, true, true]);
+	expect(['NOT-0', 'NOT-1', 'NOT-2'].map(key => spaceState.read(key))).toEqual([
+		null,
+		null,
+		null,
+	]);
 });
 
 // The reaper ends the sessions of every space the registry does not list, so
@@ -387,6 +466,14 @@ test('an import that cannot take the write lock fails the open instead of servin
 		holder.close();
 	});
 
-	expect(() => openImportedStateDb(dbPath, stateDir)).toThrow();
+	expect(() =>
+		openImportedStateDb(dbPath, stateDir, {
+			home: stateDir,
+			socket: 'pappardelle_inner',
+			mainRoot() {
+				throw new Error('not in a checkout');
+			},
+		}),
+	).toThrow();
 	expect(() => daos(stateDir, 'repo').registry.openSpaces()).toThrow();
 });

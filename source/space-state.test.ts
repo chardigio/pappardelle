@@ -2,14 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {thrownBy} from '../test/helpers/thrown.ts';
 import {storeTest} from '../test/helpers/store-test.ts';
 import {testState} from '../test/helpers/state.ts';
 import {
 	agyTranscriptPath,
 	extractRecapFromJsonl,
 	findLatestSessionJsonl,
-	parseSpaceState,
 	resolveSpaceAgentKind,
 	type SpaceState,
 	type SpacePrLink,
@@ -46,52 +44,6 @@ storeTest(
 		);
 	},
 );
-
-test('parseSpaceState leaves out each value that is not what its field holds, and keeps the rest', () => {
-	const valid = {
-		prLinks: [link(), link({localBranch: 'STA-2', number: 2})],
-		pipeline: null,
-		unresolvedCommentCount: 2,
-		prNumber: 9,
-		hasConflict: true,
-		recap: {customTitle: 'Title', lastPrompt: 'Prompt'},
-		updatedAt: '2026-01-02T03:04:05.678Z',
-		profile: 'codex',
-		issueTitle: 'Fix the rail',
-		agentProfile: {name: 'codex-high', isClaude: false},
-	};
-	expect(parseSpaceState(JSON.stringify(valid))).toStrictEqual(valid);
-
-	const {number: _number, ...incompleteLink} = link({localBranch: 'STA-3'});
-	expect(
-		parseSpaceState(
-			JSON.stringify({
-				prLinks: [link(), incompleteLink, 'not a link'],
-				pipeline: 'purple',
-				unresolvedCommentCount: null,
-				prNumber: '9',
-				hasConflict: 'yes',
-				recap: {customTitle: 5, lastPrompt: 'Prompt', lastAssistantExcerpt: []},
-				updatedAt: 7,
-				profile: 'codex',
-				issueTitle: 12,
-				agentProfile: {name: 'codex'},
-			}),
-		),
-	).toStrictEqual({
-		prLinks: [link()],
-		recap: {lastPrompt: 'Prompt'},
-		profile: 'codex',
-	});
-
-	expect(
-		parseSpaceState(JSON.stringify({prLinks: 'none', recap: 'none'})),
-	).toStrictEqual({});
-	for (const content of ['[]', '"profile"', 'null']) {
-		const error = thrownBy(() => parseSpaceState(content));
-		expect(error.message).toBe('Not a space state');
-	}
-});
 
 test('a write records its fields with the time of the write', async () => {
 	const s = testState({

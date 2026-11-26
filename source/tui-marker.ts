@@ -21,38 +21,10 @@ export type TuiMarker = {
 	startedAt: number;
 };
 
-export function tuiMarkerPath(repoStateRoot: string, repo: string): string {
-	return path.join(repoStateRoot, repo, 'tui.json');
-}
-
 /** The marker of one repo's TUI. */
 export interface TuiMarkerDao {
 	read(): TuiMarker | null;
 	write(marker: TuiMarker): Promise<void>;
-}
-
-export function parseTuiMarker(content: string): TuiMarker | null {
-	try {
-		const parsed: unknown = JSON.parse(content);
-		if (typeof parsed !== 'object' || parsed === null) return null;
-		const {pid, cliPath, sha, paneId, startedAt} = parsed as Record<
-			string,
-			unknown
-		>;
-		if (
-			typeof pid !== 'number' ||
-			typeof cliPath !== 'string' ||
-			typeof sha !== 'string' ||
-			typeof paneId !== 'string' ||
-			typeof startedAt !== 'number'
-		) {
-			return null;
-		}
-
-		return {pid, cliPath, sha, paneId, startedAt};
-	} catch {
-		return null;
-	}
 }
 
 // A TUI killed outright (kill -9, a crash) leaves its session behind holding

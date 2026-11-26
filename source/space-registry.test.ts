@@ -1,7 +1,7 @@
 import {test, expect} from 'bun:test';
 import {storeTest} from '../test/helpers/store-test.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
-import {getRegistryPathForRepo, listOpenSpaces} from './space-registry.ts';
+import {listOpenSpaces} from './space-registry.ts';
 import {createStateDaos} from './state-daos.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
 
@@ -71,14 +71,6 @@ test('each repo has a registry of its own', async () => {
 	await repoB.add('B-1');
 	expect(repoB.openSpaces()).toStrictEqual(['B-1']);
 	expect(repoA.openSpaces()).toStrictEqual(['A-1', 'A-2']);
-});
-
-test('getRegistryPathForRepo keeps each repo under ~/.pappardelle/repos/', () => {
-	const first = getRegistryPathForRepo('stardust-labs');
-	expect(
-		first.endsWith('/.pappardelle/repos/stardust-labs/open-spaces.json'),
-	).toBe(true);
-	expect(first).not.toBe(getRegistryPathForRepo('pappa-chex'));
 });
 
 // ============================================================================

@@ -4,16 +4,15 @@
 // TUI hears of new rows through the state database's change notice, so it
 // needs no directory watch, and its answer only lands while the row is there.
 
-import {
-	parseCompanionWidths,
-	type CompanionRequestDao,
-	type CompanionWidthDao,
-	type LayoutAck,
-	type LayoutRequest,
+import type {
+	CompanionRequestDao,
+	CompanionWidthDao,
+	LayoutAck,
+	LayoutRequest,
 } from './companion-width.ts';
 import type {PaneWidth} from './layout-sizing.ts';
 import {createLogger} from './logger.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
 import {onStateDbChange} from './state-db-watch.ts';
 
 const log = createLogger('companion-width');
@@ -34,27 +33,7 @@ export class SqliteCompanionWidthDao implements CompanionWidthDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		/** Where the widths' JSON file was, for the one-time import. */
-		private readonly jsonFile: string,
 	) {}
-
-	jsonMirrors(): JsonMirror[] {
-		return [
-			{
-				file: this.jsonFile,
-				importRows: content => {
-					if (content === null) return;
-					this.openDb()
-						.db.query('DELETE FROM companion_widths WHERE repo = ?')
-						.run(this.repo);
-					for (const [key, width] of Object.entries(
-						parseCompanionWidths(content),
-					))
-						this.insert(key, width);
-				},
-			},
-		];
-	}
 
 	all(): Record<string, PaneWidth> {
 		// The companion takes its configured width until this can be read.
@@ -72,6 +51,14 @@ export class SqliteCompanionWidthDao implements CompanionWidthDao {
 				.run(this.repo, spaceKey);
 			if (width !== null) this.insert(spaceKey, width);
 		});
+	}
+
+	/** Replace every space's width. For a caller inside a write transaction. */
+	replace(widths: Record<string, PaneWidth>): void {
+		this.openDb()
+			.db.query('DELETE FROM companion_widths WHERE repo = ?')
+			.run(this.repo);
+		for (const [key, width] of Object.entries(widths)) this.insert(key, width);
 	}
 
 	private stored(): Record<string, PaneWidth> {

@@ -2,8 +2,8 @@
 // each learn a color keep both.
 
 import {createLogger} from '../logger.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from '../state-db.ts';
-import {parseStateColors, type StateColorDao} from './state-color-cache.ts';
+import {GuardedReads, type StateDb} from '../state-db.ts';
+import type {StateColorDao} from './state-color-cache.ts';
 
 const log = createLogger('state-colors');
 
@@ -15,20 +15,7 @@ export class SqliteStateColorDao implements StateColorDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		/** Where the colors' JSON file was, for the one-time import. */
-		private readonly jsonFile: string,
 	) {}
-
-	jsonMirrors(): JsonMirror[] {
-		return [
-			{
-				file: this.jsonFile,
-				importRows: content => {
-					if (content !== null) this.replace(parseStateColors(content));
-				},
-			},
-		];
-	}
 
 	load(): Record<string, string> {
 		// Colors that cannot be read are re-discovered on the next issue fetch.
@@ -61,7 +48,8 @@ export class SqliteStateColorDao implements StateColorDao {
 			.map(row => [row.name, row.color]);
 	}
 
-	private replace(colors: Map<string, string>): void {
+	/** Replace every color. For a caller inside a write transaction. */
+	replace(colors: ReadonlyMap<string, string>): void {
 		const {db} = this.openDb();
 		db.query('DELETE FROM state_colors WHERE repo = ?').run(this.repo);
 		const insert = db.query(

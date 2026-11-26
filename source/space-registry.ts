@@ -5,9 +5,8 @@
 // that drops another's space destroys work. Each change is its own write
 // transaction in the state database (space-registry-sqlite.ts).
 
-import path from 'node:path';
 import {isPidAlive as defaultIsPidAlive} from './file-lock.ts';
-import {DEFAULT_STATE_DIR, type Unreadable} from './state-db.ts';
+import type {Unreadable} from './state-db.ts';
 
 export type SpacePhase = 'starting' | 'open' | 'closing';
 
@@ -89,23 +88,6 @@ export function listOpenSpaces(registry: SpaceRegistryDao): string[] {
 	}
 }
 
-/** Where a repo's registry file was, for the one-time import. */
-export function getRegistryPathForRepo(
-	repoName: string,
-	baseDir = DEFAULT_STATE_DIR,
-): string {
-	return path.join(baseDir, 'repos', repoName, 'open-spaces.json');
-}
-
-/** The keys in a registry file. Throws when it does not hold a list. */
-export function parseRegistry(content: string): string[] {
-	const parsed: unknown = JSON.parse(content);
-	if (!Array.isArray(parsed)) throw new Error('Invalid workspace registry');
-	return [
-		...new Set(parsed.filter((key): key is string => typeof key === 'string')),
-	];
-}
-
 // ---------------------------------------------------------------------------
 // Watchlist slot reservations (STE-25)
 //
@@ -119,30 +101,6 @@ export function parseRegistry(content: string): string[] {
 // ---------------------------------------------------------------------------
 
 export type WatchlistReservation = {source: string; ownerPid: number};
-
-/** The reservations in a sidecar file. Throws when it does not hold any. */
-export function parseWatchlistReservations(
-	content: string,
-): Map<string, WatchlistReservation> {
-	const reservations = new Map<string, WatchlistReservation>();
-	const parsed: unknown = JSON.parse(content);
-	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-		throw new Error('Invalid watchlist reservations');
-	for (const [key, value] of Object.entries(parsed)) {
-		const entry = value as Partial<WatchlistReservation> | null;
-		if (
-			typeof entry?.source === 'string' &&
-			typeof entry.ownerPid === 'number'
-		) {
-			reservations.set(key, {
-				source: entry.source,
-				ownerPid: entry.ownerPid,
-			});
-		}
-	}
-
-	return reservations;
-}
 
 /**
  * Reserve up to `max` minus the slots `source` already holds, taking

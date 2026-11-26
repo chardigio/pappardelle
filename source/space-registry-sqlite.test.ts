@@ -19,7 +19,6 @@ const run = promisify(execFile);
 
 /** Identities for registries built by hand: every key named as idow names it. */
 const named = {
-	fillMissing() {},
 	get: (key: string) =>
 		({
 			kind: 'identity',
@@ -31,8 +30,6 @@ const named = {
 			}),
 		}) as const,
 };
-/** Registries built by hand have no JSON files to import. */
-const noFiles = {registry: '/nonexistent', reservations: '/nonexistent'};
 const ME = 111;
 const ALIVE = 222;
 const DEAD = 333;
@@ -45,7 +42,6 @@ function fixture() {
 		new SqliteSpaceRegistryDao(
 			() => openStateDb(dbPath),
 			'repo',
-			noFiles,
 			named,
 			pid,
 			owner => owner !== DEAD,
@@ -156,7 +152,6 @@ test('a start or close whose owner died follows its sessions: alive is open, gon
 	const dead = new SqliteSpaceRegistryDao(
 		() => openStateDb(f.dbPath),
 		'repo',
-		noFiles,
 		named,
 		DEAD,
 	);
@@ -400,7 +395,6 @@ test('a database that cannot be opened is a failed read, never an empty registry
 	const registry = new SqliteSpaceRegistryDao(
 		() => openStateDb(dbPath),
 		'repo',
-		noFiles,
 		named,
 	);
 	expect(registry.protectedSpaces().ok).toBe(false);

@@ -16,7 +16,6 @@ import {
 } from './agent-state.ts';
 import {
 	fireJob,
-	parseJob,
 	parseWhen,
 	rearmMissingTimers,
 	RETRY_MS,
@@ -382,28 +381,6 @@ storeTest(
 	},
 );
 
-test('parseJob stays backward-compatible with job files lacking defer fields', () => {
-	expect(
-		parseJob(
-			JSON.stringify({
-				kind: 'at',
-				id: 'old1',
-				key: 'STA-1',
-				at: NOW.toISOString(),
-				message: 'hi',
-				arm: 1,
-			}),
-		),
-	).toStrictEqual({
-		kind: 'at',
-		id: 'old1',
-		key: 'STA-1',
-		at: NOW.toISOString(),
-		message: 'hi',
-		arm: 1,
-	});
-});
-
 test('a schedules table from before the defer columns keeps its jobs and stores deferrals', async () => {
 	const dir = tempDir('schedule-migrate-');
 	const dbPath = path.join(dir, 'state.sqlite');
@@ -450,10 +427,7 @@ test('a schedules table from before the defer columns keeps its jobs and stores 
 			.get('old1'),
 	).toStrictEqual({defer_reason: null, defer_count: null});
 
-	const dao = new SqliteScheduleDao(() => stateDb, 'repo', {
-		jobs: path.join(dir, 'schedules'),
-		queue: path.join(dir, 'queued'),
-	});
+	const dao = new SqliteScheduleDao(() => stateDb, 'repo');
 	expect(dao.load('old1')).toStrictEqual({
 		kind: 'at',
 		id: 'old1',

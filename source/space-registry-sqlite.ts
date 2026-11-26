@@ -10,8 +10,6 @@
 
 import {isPidAlive as defaultIsPidAlive} from './file-lock.ts';
 import {
-	parseRegistry,
-	parseWatchlistReservations,
 	reserveWatchlistSlots,
 	type ProtectedSpaces,
 	type SettleDeps,
@@ -22,9 +20,8 @@ import {
 	type WatchlistReserveOptions,
 	type WatchlistSlots,
 } from './space-registry.ts';
-import type {SpaceIdentity} from './space-identity.ts';
-import type {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
-import type {JsonMirror, StateDb} from './state-db.ts';
+import type {SpaceIdentity, SpaceIdentityDao} from './space-identity.ts';
+import type {StateDb} from './state-db.ts';
 
 type SpaceRow = {key: string; state: SpacePhase; owner_pid: number | null};
 
@@ -38,35 +35,10 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		private readonly files: {registry: string; reservations: string},
-		private readonly identities: Pick<
-			SqliteSpaceIdentityDao,
-			'fillMissing' | 'get'
-		>,
+		private readonly identities: Pick<SpaceIdentityDao, 'get'>,
 		private readonly pid = process.pid,
 		private readonly isPidAlive = defaultIsPidAlive,
 	) {}
-
-	/** The registry and reservation files, for the one-time import. */
-	jsonMirrors(): JsonMirror[] {
-		return [
-			{
-				file: this.files.registry,
-				required: true,
-				importRows: content => {
-					// A registry file that is gone says nothing about the rows.
-					if (content !== null) this.replaceOpen(parseRegistry(content));
-				},
-			},
-			{
-				file: this.files.reservations,
-				importRows: content => {
-					if (content !== null)
-						this.replaceReservations(parseWatchlistReservations(content));
-				},
-			},
-		];
-	}
 
 	openSpaces(): string[] {
 		return this.keysIn('open');
@@ -271,21 +243,20 @@ export class SqliteSpaceRegistryDao implements SpaceRegistryDao {
 	}
 
 	/**
-	 * Make the open rows match an imported registry file. Spaces being set up
-	 * or torn down are not in the file, so its silence about them means
-	 * nothing.
+	 * Make the open rows match `keys`, for a caller inside a write
+	 * transaction. Spaces being set up or torn down are left alone.
 	 */
-	private replaceOpen(keys: string[]): void {
+	replaceOpen(keys: readonly string[]): void {
 		const listed = new Set(keys);
 		for (const key of this.keysIn('open')) {
 			if (!listed.has(key)) this.delete(key);
 		}
 
 		for (const key of keys) this.setOpen(key);
-		this.identities.fillMissing(keys);
 	}
 
-	private replaceReservations(
+	/** Replace every reservation, for a caller inside a write transaction. */
+	replaceReservations(
 		reservations: ReadonlyMap<string, WatchlistReservation>,
 	): void {
 		const {db} = this.openDb();

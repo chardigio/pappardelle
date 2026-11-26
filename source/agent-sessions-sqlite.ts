@@ -1,19 +1,17 @@
 // Agent sessions as rows.
 //
-// The file has two writers: the agent's hook, which records a session id, and
-// a config migration, which moves an id to a renamed agent profile. Each read
-// the whole file and wrote it back, so one could undo the other. Here both
-// do their read and write inside one write transaction.
+// Two writers: the agent's hook, which records a session id, and a config
+// migration, which moves an id to a renamed agent profile. Each does its read
+// and write inside one write transaction, so neither undoes the other.
 
-import path from 'node:path';
 import {createLogger} from './logger.ts';
 import {
 	latestStarted,
-	parseAgentSessions,
+	type AgentSession,
 	type AgentSessionsDao,
 	type AgentSessionsLookup,
 } from './space-state.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
 
 const log = createLogger('agent-sessions');
 
@@ -30,15 +28,7 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		/** Where each space's JSON file was, for the one-time import. */
-		private readonly jsonDir: string,
 	) {}
-
-	jsonMirrors(): JsonMirror[] {
-		return this.openDb()
-			.jsonKeysIn(this.jsonDir, '.agent-sessions.json')
-			.map(key => this.mirror(key));
-	}
 
 	read(key: string, agentProfile: string): string | undefined {
 		return this.guardedRows(key).find(row => row.agent_profile === agentProfile)
@@ -95,33 +85,31 @@ export class SqliteAgentSessionsDao implements AgentSessionsDao {
 		});
 	}
 
-	private guardedRows(key: string): SessionRow[] {
-		return this.reads.or([], () => this.rows(key));
+	/**
+	 * Make a space's sessions `sessions`, by agent profile name. For a caller
+	 * inside a write transaction.
+	 */
+	replace(key: string, sessions: ReadonlyMap<string, AgentSession>): void {
+		this.delete(key);
+		const insert = this.openDb().db.query(
+			`INSERT INTO agent_sessions
+				(repo, key, agent_profile, session_id, pid, started)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+		);
+		for (const [name, session] of sessions) {
+			insert.run(
+				this.repo,
+				key,
+				name,
+				session.sessionId,
+				session.pid,
+				session.started,
+			);
+		}
 	}
 
-	private mirror(key: string): JsonMirror {
-		return {
-			file: path.join(this.jsonDir, `${key}.agent-sessions.json`),
-			importRows: content => {
-				this.delete(key);
-				if (content === null) return;
-				const insert = this.openDb().db.query(
-					`INSERT INTO agent_sessions
-						(repo, key, agent_profile, session_id, pid, started)
-					VALUES (?, ?, ?, ?, ?, ?)`,
-				);
-				for (const [name, session] of parseAgentSessions(content)) {
-					insert.run(
-						this.repo,
-						key,
-						name,
-						session.sessionId,
-						session.pid,
-						session.started,
-					);
-				}
-			},
-		};
+	private guardedRows(key: string): SessionRow[] {
+		return this.reads.or([], () => this.rows(key));
 	}
 
 	private rows(key: string): SessionRow[] {

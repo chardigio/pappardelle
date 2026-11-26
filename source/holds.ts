@@ -4,7 +4,6 @@
 // that same prompt once more, when the agent retries it.
 
 import {randomUUID} from 'node:crypto';
-import path from 'node:path';
 
 export const HOLD_STATES = ['open', 'approved', 'dismissed', 'used'] as const;
 export type HoldState = (typeof HOLD_STATES)[number];
@@ -39,50 +38,8 @@ export interface HoldDao {
 	list(): Hold[];
 }
 
-export function holdsDir(repoName: string, baseDir: string): string {
-	return path.join(baseDir, 'repos', repoName, 'holds');
-}
-
 export function newHoldId(): string {
 	return `h${randomUUID().slice(0, 7)}`;
-}
-
-const isString = (value: unknown): value is string => typeof value === 'string';
-const isOptionalString = (value: unknown): value is string | null =>
-	value === null || isString(value);
-
-/** A hold file as `save` leaves it. Throws when `content` is anything else. */
-export function parseHold(content: string): Hold {
-	const hold = (JSON.parse(content) ?? {}) as Record<string, unknown>;
-	const {id, key, tool, command, filePath, cwd, reason, state} = hold;
-	const {createdAt, resolvedAt, approvable} = hold;
-	if (
-		!isString(id) ||
-		!isString(key) ||
-		!isString(tool) ||
-		!isString(command) ||
-		!isOptionalString(filePath) ||
-		!isOptionalString(cwd) ||
-		typeof approvable !== 'boolean' ||
-		!isString(reason) ||
-		!HOLD_STATES.includes(state as HoldState) ||
-		!isString(createdAt) ||
-		!isOptionalString(resolvedAt)
-	)
-		throw new Error('Not a hold');
-	return {
-		id,
-		key,
-		tool,
-		command,
-		filePath,
-		cwd,
-		approvable,
-		reason,
-		state: state as HoldState,
-		createdAt,
-		resolvedAt,
-	};
 }
 
 /**

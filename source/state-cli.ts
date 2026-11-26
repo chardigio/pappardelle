@@ -12,13 +12,16 @@ import {
 import {
 	checkAgentProfile,
 	getDefaultHomeConfigDir,
+	getMainRepoRoot,
 	loadConfigFromPaths,
 	readConfig,
 	unknownAgentProfileMessage,
 	type ConfigPaths,
 } from './config.ts';
 import {formatConfigErrors} from './config-errors.ts';
-import {createStateDaos, openImportedStateDb} from './state-daos.ts';
+import {createStateDaos} from './state-daos.ts';
+import {DEFAULT_STATE_DIR} from './state-db.ts';
+import {openImportedStateDb} from './state-import.ts';
 
 type Verb = (args: string[]) => number | Promise<number>;
 
@@ -272,7 +275,11 @@ const verbs: Record<string, Verb> = {
 		const [dbPath] = positionals;
 		if (!dbPath || positionals.length !== 1)
 			return usage('migrate needs one database path');
-		openImportedStateDb(dbPath);
+		openImportedStateDb(dbPath, DEFAULT_STATE_DIR, {
+			home: homedir(),
+			socket: statusSocket(),
+			mainRoot: getMainRepoRoot,
+		});
 		return 0;
 	},
 };

@@ -1,10 +1,9 @@
 // Holds as rows.
 
-import path from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
-import {parseHold, type Hold, type HoldDao, type HoldState} from './holds.ts';
+import type {Hold, HoldDao, HoldState} from './holds.ts';
 import {createLogger} from './logger.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
 
 const log = createLogger('holds');
 
@@ -47,15 +46,7 @@ export class SqliteHoldDao implements HoldDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		/** Where each hold's JSON file was, for the one-time import. */
-		private readonly jsonDir: string,
 	) {}
-
-	jsonMirrors(): JsonMirror[] {
-		return this.openDb()
-			.jsonKeysIn(this.jsonDir, '.json')
-			.map(id => this.mirror(id));
-	}
 
 	async save(hold: Hold): Promise<void> {
 		await this.openDb().write(() => {
@@ -79,16 +70,6 @@ export class SqliteHoldDao implements HoldDao {
 		});
 	}
 
-	private mirror(id: string): JsonMirror {
-		return {
-			file: path.join(this.jsonDir, `${id}.json`),
-			importRows: content => {
-				if (content === null) this.deleteRow(id);
-				else this.put(parseHold(content));
-			},
-		};
-	}
-
 	private row(id: string): Hold | null {
 		const row = this.openDb()
 			.db.query<
@@ -99,7 +80,8 @@ export class SqliteHoldDao implements HoldDao {
 		return row ? toHold(row) : null;
 	}
 
-	private put(hold: Hold): void {
+	/** For a caller inside a write transaction. */
+	put(hold: Hold): void {
 		this.openDb()
 			.db.query(
 				`INSERT OR REPLACE INTO holds (repo, ${HOLD_COLUMNS})
@@ -121,7 +103,8 @@ export class SqliteHoldDao implements HoldDao {
 			);
 	}
 
-	private deleteRow(id: string): void {
+	/** For a caller inside a write transaction. */
+	deleteRow(id: string): void {
 		this.openDb()
 			.db.query('DELETE FROM holds WHERE repo = ? AND id = ?')
 			.run(this.repo, id);
