@@ -325,7 +325,7 @@ assert_eq "classic key → its number" "595" "$(issue_number_for STA-595)"
 assert_eq "Jira key with digits in the project" "234" "$(issue_number_for A1B-234)"
 assert_eq "beads hash ID → its hash" "a1b2" "$(issue_number_for bd-a1b2)"
 assert_eq "beads child ID → hash and child" "a3f8e9.1" "$(issue_number_for bd-a3f8e9.1)"
-assert_eq "hyphenated beads prefix splits on the last hyphen" "wx0" "$(issue_number_for pappardelle-wx0)"
+assert_eq "hyphenated beads prefix splits on the last hyphen" "7yi" "$(issue_number_for draft-machine-7yi)"
 
 # ==========================================================================
 

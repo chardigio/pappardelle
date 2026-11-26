@@ -9,6 +9,7 @@ import {
 import {teardown} from '../test/helpers/teardown.ts';
 import {until} from '../test/helpers/wait.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {tmuxOn} from '../test/helpers/tmux-test.ts';
 import {
 	TEST_TMUX_GUARD,
 	TEST_TMUX_REFUSALS,
@@ -354,10 +355,7 @@ function runGuarded(script: string) {
 	() => {
 		const outside = tempDir('finish-outside-');
 		const socket = path.join(outside, 's');
-		const tmux = (...args: string[]) =>
-			spawnSync('tmux', ['-f', '/dev/null', '-S', socket, ...args], {
-				encoding: 'utf8',
-			});
+		const tmux = tmuxOn(socket);
 		teardown(() => {
 			tmux('kill-server');
 		});
@@ -428,10 +426,7 @@ function finishablePrivateDir(): string {
 	() => {
 		const extra = tempDir('finish-extra-');
 		const socket = path.join(extra, 's');
-		const tmux = (...args: string[]) =>
-			spawnSync('tmux', ['-f', '/dev/null', '-S', socket, ...args], {
-				encoding: 'utf8',
-			});
+		const tmux = tmuxOn(socket);
 		teardown(() => {
 			tmux('kill-server');
 		});
@@ -460,20 +455,11 @@ function finishablePrivateDir(): string {
 	() => {
 		const extra = tempDir('finish-unguarded-');
 		const socket = path.join(extra, 's');
+		const tmux = tmuxOn(socket);
 		teardown(() => {
-			spawnSync('tmux', ['-S', socket, 'kill-server']);
+			tmux('kill-server');
 		});
-		expect(
-			spawnSync('tmux', [
-				'-f',
-				'/dev/null',
-				'-S',
-				socket,
-				'new-session',
-				'-d',
-				'sleep 60',
-			]).status,
-		).toBe(0);
+		expect(tmux('new-session', '-d', 'sleep 60').status).toBe(0);
 		const stubDir = tempDir('finish-stub-');
 		const calls = path.join(stubDir, 'calls');
 		fs.writeFileSync(
