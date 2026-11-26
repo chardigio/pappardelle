@@ -190,9 +190,9 @@ export type AgentStateDeps = {
 	runner: OuterTmuxRunner;
 	now: () => Date;
 	sleep: (ms: number) => Promise<void>;
-	/** The hook file's key: the space key, or `{repo}-{branch}` for main. */
+	/** The hook's status key: the space key, or `{repo}-{branch}` for main. */
 	hookKey: string;
-	readHook: (key: string) => Promise<ClaudeStatusInfo | null>;
+	readHook: (key: string) => Promise<ClaudeStatusInfo>;
 	readSnapshot: (
 		key: string,
 		pane: StatusPane,

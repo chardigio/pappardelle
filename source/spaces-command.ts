@@ -27,9 +27,9 @@ import type {SpaceRegistryDao} from './space-registry.ts';
 import {
 	findSpaceTranscript,
 	resolveSpaceAgentKind,
-	type AgentSessionsDao,
 	type SpaceStateDao,
 } from './space-state.ts';
+import type {AgentSessionsDao} from './agent-sessions.ts';
 import type {SpaceIdentity, SpaceIdentityDao} from './space-identity.ts';
 import {getIssues} from './tracker.ts';
 import {mergeProgramStatus} from './workspace-status.ts';
@@ -215,7 +215,7 @@ function spaceStatusFields(
 		};
 	}
 
-	return {status: stored.kind === 'unreadable' ? 'unknown' : 'no_status'};
+	return {status: 'no_status'};
 }
 
 async function withTimeout<T>(
@@ -241,7 +241,7 @@ async function withTimeout<T>(
 export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 	const {repoName, home} = deps;
 	const now = deps.now ?? Date.now();
-	let keys: string[] | null;
+	let keys: string[];
 	try {
 		keys = deps.registry.openSpaces();
 	} catch (error) {
@@ -252,8 +252,6 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 			spaces: [],
 		};
 	}
-
-	if (!keys) return {error: 'No open spaces file found', spaces: []};
 
 	const identities = new Map<string, SpaceIdentity>();
 	for (const key of keys) {

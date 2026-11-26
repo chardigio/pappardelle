@@ -1,5 +1,4 @@
 import {test, expect} from 'bun:test';
-import {rejectionOf} from '../test/helpers/thrown.ts';
 import {
 	type CloseCommandDeps,
 	runCloseCommand,
@@ -28,7 +27,6 @@ function fakeRegistry(
 	events: string[] = [],
 ): CloseCommandDeps['registry'] {
 	return {
-		keepsLifecycle: false,
 		phase: key =>
 			open.includes(key) ? {kind: 'phase', phase: 'open'} : {kind: 'unknown'},
 		async settle() {},
@@ -294,12 +292,10 @@ const closes = [
 
 function busyRegistry(
 	failing: 'markClosing' | 'remove',
-	keepsLifecycle: boolean,
 	events: string[],
 ): CloseCommandDeps['registry'] {
 	return {
 		...fakeRegistry(['STA-1'], events),
-		keepsLifecycle,
 		async [failing]() {
 			throw new Error('database is locked');
 		},
@@ -328,7 +324,7 @@ const DEAD_PID = 2_147_483_646;
 
 test('a space whose setup died is closed when its sessions run, and is gone when they do not', async () => {
 	for (const running of [true, false]) {
-		const state = testState({sqlite: true});
+		const state = testState();
 		await recordIdentities(state, ['STA-1']);
 		await state.daos.registry.reserveStart('STA-1', DEAD_PID);
 		const {deps, events} = fakeDeps({
@@ -345,7 +341,7 @@ test('a space whose setup died is closed when its sessions run, and is gone when
 });
 
 test('a space still being set up by a live idow is not closed', async () => {
-	const state = testState({sqlite: true});
+	const state = testState();
 	await recordIdentities(state, ['STA-1']);
 	await state.daos.registry.reserveStart('STA-1', process.ppid);
 	const {deps, events} = fakeDeps({
@@ -356,10 +352,10 @@ test('a space still being set up by a live idow is not closed', async () => {
 	expect(events.includes('kill STA-1')).toBe(false);
 });
 
-test('a close that a lifecycle registry cannot record ends no sessions and says why', async () => {
+test('a close that the registry cannot record ends no sessions and says why', async () => {
 	for (const close of closes) {
 		const {deps, events} = fakeDeps();
-		deps.registry = busyRegistry('markClosing', true, events);
+		deps.registry = busyRegistry('markClosing', events);
 		expect(await close(deps)).toBe(1);
 		expect(events.some(event => event.startsWith('kill'))).toBe(false);
 		expect(events.at(-1)!).toMatch(
@@ -368,10 +364,10 @@ test('a close that a lifecycle registry cannot record ends no sessions and says 
 	}
 });
 
-test('a space a lifecycle registry cannot remove is reported as closed but still registered', async () => {
+test('a space the registry cannot remove is reported as closed but still registered', async () => {
 	for (const close of closes) {
 		const {deps, events} = fakeDeps();
-		deps.registry = busyRegistry('remove', true, events);
+		deps.registry = busyRegistry('remove', events);
 		expect(await close(deps)).toBe(1);
 		expect(events.includes('kill STA-1')).toBe(true);
 		expect(events.at(-1)!).toMatch(
@@ -380,24 +376,9 @@ test('a space a lifecycle registry cannot remove is reported as closed but still
 	}
 });
 
-test('a registry without a lifecycle still fails a close with the error it threw', async () => {
-	for (const failing of ['markClosing', 'remove'] as const) {
-		for (const close of closes) {
-			const {deps, events} = fakeDeps();
-			deps.registry = busyRegistry(failing, false, events);
-			await rejectionOf(close(deps)).then(error => {
-				expect(error.message).toBe('database is locked');
-			});
-			expect(events.some(event => event.includes('database is locked'))).toBe(
-				false,
-			);
-		}
-	}
-});
-
 // tmux.ts reads one set of stores for the whole process.
 test('close kills the sessions stored for the space, and knows its own session by them', async () => {
-	const state = testTmuxState({sqlite: true});
+	const state = testTmuxState();
 	await state.daos.spaceIdentities.record({
 		repo: state.repo,
 		key: 'STA-1',
@@ -435,7 +416,7 @@ test('close kills the sessions stored for the space, and knows its own session b
 
 // tmux.ts reads one set of stores for the whole process.
 test('a space with no stored names closes with no sessions to end', async () => {
-	testTmuxState({sqlite: true});
+	testTmuxState();
 	const calls: string[][] = [];
 	const run: AsyncTmuxRunner = async args => {
 		calls.push(args);

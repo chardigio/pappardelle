@@ -93,7 +93,7 @@ files are benchmark artifacts only). Earlier exploratory samples are not pooled.
    and viewer attachment are largely sequential. Investigate concurrency only
    where operations are independent; preserve cancellation and partial-attachment
    recovery, and never leave a live session without its agent command.
-4. `ensureAgentSession` / `attachStatusMonitor`: preserve the monitor startup gate
+4. `ensureAgentSession` / `ProgramStatusDao.attach`: preserve the monitor startup gate
    so an agent's first native status report cannot be lost. Do not remove the gate
    or weaken ownership/lease checks to make a benchmark faster.
 5. `source/app.tsx`: renderer readiness, dimension reconciliation, and

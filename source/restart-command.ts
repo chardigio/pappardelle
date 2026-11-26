@@ -1,3 +1,4 @@
+import {listKnownRepos} from './state-db.ts';
 import {cliFilePath} from './runtime.ts';
 import {spawn, spawnSync} from 'node:child_process';
 import {homedir} from 'node:os';
@@ -38,6 +39,8 @@ export type RestartCommandDeps = {
 	tmux: OuterTmuxRunner;
 	innerTmux: OuterTmuxRunner;
 	repoStateRoot: string;
+	/** Every repo with Pappardelle state, whose TUIs may be running. */
+	knownRepos: () => string[];
 	tuiMarker: (repo: string) => Pick<TuiMarkerDao, 'read'>;
 	launchCommand: string;
 	cliPath: string;
@@ -56,7 +59,7 @@ export async function restartRepo(
 	repoName: string,
 	deps: RestartCommandDeps,
 ): Promise<number> {
-	const tui = listRunningTuis(deps.tmux, deps.repoStateRoot).find(
+	const tui = listRunningTuis(deps.tmux, deps.knownRepos()).find(
 		running => running.repo === repoName,
 	);
 	if (!tui) {
@@ -75,7 +78,7 @@ export async function hardRestart(
 	yes: boolean,
 	deps: RestartCommandDeps,
 ): Promise<number> {
-	const running = listRunningTuis(deps.tmux, deps.repoStateRoot);
+	const running = listRunningTuis(deps.tmux, deps.knownRepos());
 	const innerCount = listSessionNames(deps.innerTmux).length;
 
 	if (!yes) {
@@ -145,6 +148,7 @@ export function defaultRestartCommandDeps(): RestartCommandDeps {
 		tmux: defaultServerTmuxRunner,
 		innerTmux: defaultInnerTmuxRunner,
 		repoStateRoot: DEFAULT_REPO_STATE_ROOT,
+		knownRepos: () => listKnownRepos(),
 		tuiMarker: repo => daosFor(repo).tuiMarker,
 		launchCommand: tuiLaunchCommand({
 			execPath: process.execPath,

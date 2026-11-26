@@ -9,22 +9,20 @@ import {MAIN_WORKTREE_KEY} from './space-utils.ts';
  * it on to the workspace's tmux sessions, where the Claude Code hooks read it
  * instead of resolving the main checkout on every tool use.
  *
- * `registerSpace` is whether the caller's registry records a space while it
- * is being set up (`SpaceRegistryDao.keepsLifecycle`). Where it does, idow
- * records the space before it starts any session.
+ * PAPPARDELLE_REGISTER_SPACE tells idow that a Pappardelle that lists spaces
+ * started it, so idow records the space before it starts any session.
  */
 export function buildSpawnEnv(
 	repoRoot: string,
-	options: {mainRepoRoot?: string; registerSpace: boolean},
+	mainRepoRoot: string,
 ): NodeJS.ProcessEnv {
-	const {mainRepoRoot, registerSpace} = options;
 	return {
 		...process.env,
 		PAPPARDELLE_BUN: bunForChildren(),
 		PAPPARDELLE_EXECUTABLE: isStandalone ? process.execPath : undefined,
 		PAPPARDELLE_PROJECT_ROOT: repoRoot,
-		PAPPARDELLE_REGISTER_SPACE: registerSpace ? '1' : undefined,
-		...(mainRepoRoot ? {PAPPARDELLE_MAIN_REPO_ROOT: mainRepoRoot} : {}),
+		PAPPARDELLE_REGISTER_SPACE: '1',
+		PAPPARDELLE_MAIN_REPO_ROOT: mainRepoRoot,
 	};
 }
 
@@ -37,13 +35,11 @@ export function buildSpawnEnv(
  * The variables go on the session because the inner tmux server is long-lived:
  * its global environment is whatever the process that started it had.
  *
- * PAPPARDELLE_REPO qualifies the hook's status file name, since spaces of two
- * repos can share a key and all repos write to one status directory.
+ * PAPPARDELLE_REPO qualifies the hook's status key, since spaces of two repos
+ * can share a key.
  *
- * The main space gets no PAPPARDELLE_SPACE. Without the database the rail
- * keys its dot by the branch, which changes while the session lives on, and
- * the hook's cwd logic follows it. With the database the hook finds main from
- * its stored worktree.
+ * The main space gets no PAPPARDELLE_SPACE: the hook finds main from its
+ * stored worktree.
  */
 export function buildSessionEnvArgs(
 	spaceKey: string,

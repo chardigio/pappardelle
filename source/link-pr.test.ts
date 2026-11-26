@@ -10,8 +10,8 @@ import {linkPr, type LinkExecutor} from './link-pr.ts';
 import {discoverWorkspaceRepositories} from './providers/workspace-repositories.ts';
 
 /** Stores for the repo named `workspace`, which every workspace here is in. */
-function stores(sqlite?: boolean) {
-	const {daos, stateDir} = testState({repo: 'workspace', sqlite});
+function stores() {
+	const {daos, stateDir} = testState({repo: 'workspace'});
 	const spaceStateFor = (repoName: string) => {
 		expect(repoName).toBe('workspace');
 		return daos.spaceState;
@@ -32,65 +32,55 @@ function stores(sqlite?: boolean) {
 	};
 }
 
-// With the database, link-pr is often the first write that finds a space's
-// file: idow or an earlier Pappardelle saved the profile there.
-for (const sqlite of [false, true]) {
-	test(`${sqlite ? 'sqlite' : 'json'}: links a fork PR, preserves state, replaces repeated links and follows the published branch`, async () => {
-		const root = fs.mkdtempSync(path.join(os.tmpdir(), 'link-pr-'));
-		teardown(() => fs.rmSync(root, {recursive: true, force: true}));
-		const workspace = path.join(root, 'workspace');
-		const {spaceState, prLinkStamp, options, discover} = stores(sqlite);
-		fs.mkdirSync(workspace);
-		const git = (args: string[]) =>
-			execFileSync('git', args, {cwd: workspace, encoding: 'utf-8'}).trim();
-		git(['init', '-b', 'STE-24']);
-		git(['remote', 'add', 'origin', 'git@github.com:user/fork.git']);
-		let remoteBranch = 'published';
-		const run: LinkExecutor = async (command, args) => {
-			if (command === 'git') return git(args);
-			expect(command).toBe('gh');
-			expect(args).toStrictEqual([
-				'api',
-				'--hostname',
-				'github.com',
-				'repos/upstream/repo/pulls/28',
-			]);
-			return JSON.stringify({
-				state: 'open',
-				number: 28,
-				head: {ref: remoteBranch, repo: {full_name: 'user/fork'}},
-			});
-		};
-		const file = spaceState.file('STE-24');
-		fs.mkdirSync(path.dirname(file), {recursive: true});
-		fs.writeFileSync(
-			file,
-			JSON.stringify({profile: 'codex', pipeline: 'passing'}),
-		);
-		const url = 'https://github.com/upstream/repo/pull/28';
-		expect(prLinkStamp.read()).toBe(0);
-		const linked = await linkPr(url, workspace, workspace, {...options, run});
-		expect(linked.file).toBe(file);
-		expect(prLinkStamp.read() > 0).toBe(true);
-		remoteBranch = 'published-again';
-		await linkPr(url, workspace, workspace, {...options, run});
-		for (const saved of [
-			spaceState.read('STE-24')!,
-			JSON.parse(fs.readFileSync(file, 'utf8')) as {prLinks?: unknown[]},
-		]) {
-			expect(saved).toMatchObject({profile: 'codex', pipeline: 'passing'});
-			expect(saved.prLinks?.length).toBe(1);
-		}
-
-		expect(await discover(workspace)).toStrictEqual([
-			{project: 'user/fork', branch: 'published-again'},
+test('links a fork PR, preserves state, replaces repeated links and follows the published branch', async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'link-pr-'));
+	teardown(() => fs.rmSync(root, {recursive: true, force: true}));
+	const workspace = path.join(root, 'workspace');
+	const {spaceState, prLinkStamp, options, discover} = stores();
+	fs.mkdirSync(workspace);
+	const git = (args: string[]) =>
+		execFileSync('git', args, {cwd: workspace, encoding: 'utf-8'}).trim();
+	git(['init', '-b', 'STE-24']);
+	git(['remote', 'add', 'origin', 'git@github.com:user/fork.git']);
+	let remoteBranch = 'published';
+	const run: LinkExecutor = async (command, args) => {
+		if (command === 'git') return git(args);
+		expect(command).toBe('gh');
+		expect(args).toStrictEqual([
+			'api',
+			'--hostname',
+			'github.com',
+			'repos/upstream/repo/pulls/28',
 		]);
-		git(['symbolic-ref', 'HEAD', 'refs/heads/other']);
-		expect(await discover(workspace)).toStrictEqual([
-			{project: 'user/fork', branch: 'other'},
-		]);
+		return JSON.stringify({
+			state: 'open',
+			number: 28,
+			head: {ref: remoteBranch, repo: {full_name: 'user/fork'}},
+		});
+	};
+	await spaceState.write('STE-24', {profile: 'codex', pipeline: 'passing'});
+	const url = 'https://github.com/upstream/repo/pull/28';
+	expect(prLinkStamp.read()).toBe(0);
+	const linked = await linkPr(url, workspace, workspace, {...options, run});
+	expect(linked).toMatchObject({
+		issueKey: 'STE-24',
+		link: {project: 'user/fork', remoteBranch: 'published', number: 28},
 	});
-}
+	expect(prLinkStamp.read() > 0).toBe(true);
+	remoteBranch = 'published-again';
+	await linkPr(url, workspace, workspace, {...options, run});
+	const saved = spaceState.read('STE-24');
+	expect(saved).toMatchObject({profile: 'codex', pipeline: 'passing'});
+	expect(saved?.prLinks?.length).toBe(1);
+
+	expect(await discover(workspace)).toStrictEqual([
+		{project: 'user/fork', branch: 'published-again'},
+	]);
+	git(['symbolic-ref', 'HEAD', 'refs/heads/other']);
+	expect(await discover(workspace)).toStrictEqual([
+		{project: 'user/fork', branch: 'other'},
+	]);
+});
 
 test('links an upstream PR whose head is a fork added beside origin, and rejects a third repo', async () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), 'link-pr-upstream-'));

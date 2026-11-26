@@ -1,8 +1,7 @@
 """The hooks' side of the status daemon (source/status-daemon.ts).
 
-With experimental.sqliteState on, a hook reports its status to the daemon,
-which keeps it in memory and pushes it to the rails. Nothing is written to
-disk.
+A hook reports its status to the daemon, which keeps it in memory and pushes
+it to the rails. Nothing is written to disk.
 """
 
 import json

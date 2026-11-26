@@ -1,14 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync, spawnSync} from 'node:child_process';
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from 'node:fs';
+import {existsSync, mkdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
-import {setTimeout as delay} from 'node:timers/promises';
 import {
 	defaultCloseCommandDeps,
 	runCloseCommand,
@@ -35,7 +28,6 @@ try {
 	const daos = createStateDaos({
 		repo: getRepoName(),
 		stateDir: path.join(harness.root, 'state'),
-		sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
 	});
 	initTmuxState(daos);
 	const bin = path.join(harness.root, 'bin');
@@ -45,7 +37,7 @@ try {
 	writeFileSync(path.join(bin, 'xcrun'), xcrun, {mode: 0o755});
 	process.env['PATH'] = `${bin}:${originalPath ?? ''}`;
 	const repo = getRepoName();
-	const sentinelFiles = [
+	const sentinelLeases = [
 		programStatusPath(
 			harness.statusDir(repo),
 			'qa-cleanup-normal-sibling',
@@ -56,23 +48,16 @@ try {
 			'qa-cleanup-normal',
 			'b'.repeat(32),
 		),
-	];
-	for (const file of sentinelFiles) {
+	].map(file => `${file}.lease`);
+	for (const file of sentinelLeases) {
 		mkdirSync(path.dirname(file), {recursive: true});
-		writeFileSync(file, 'other workspace message');
-		writeFileSync(`${file}.lease`, '');
+		writeFileSync(file, '');
 	}
-	/**
-	 * Whether the pane's snapshot is where its monitor publishes it: its file,
-	 * or with the flag on the status daemon.
-	 */
-	const published = async (key: string, target: string) =>
-		harness.sqlite
-			? (await harness.heldSnapshots(repo, key)) > 0
-			: existsSync(target);
+	/** Whether the status daemon holds the pane's snapshot. */
+	const published = async (key: string) =>
+		(await harness.heldSnapshots(repo, key)) > 0;
 	// No space is open, and none of these sessions is main's.
 	const nothing = {names: new Set<string>(), keys: new Set<string>()};
-	const findings: string[] = [];
 	for (const mode of ['normal', 'detached', 'orphan'] as const) {
 		const key = `qa-cleanup-${mode}`;
 		const session = sessionNamesFor(key, repo).agent;
@@ -106,13 +91,8 @@ try {
 			value => value?.info.status === 'idle',
 			`${mode} recorded idle report`,
 		);
-		const target = programStatusPath(
-			harness.statusDir(repo),
-			key,
-			pane.generation,
-		);
-		if (harness.sqlite) assert.ok(await published(key, target));
-		else assert.ok(readFileSync(target, 'utf8').includes('fixture'));
+		const lease = `${programStatusPath(harness.statusDir(repo), key, pane.generation)}.lease`;
+		assert.ok(await published(key));
 		if (mode === 'orphan') {
 			assert.equal(
 				cleanupOrphanedInnerSessions(nothing, repo, undefined, []),
@@ -139,34 +119,17 @@ try {
 			);
 			assert.ok(!listOpenSpaces(daos.registry).includes(key));
 		}
-		// Revocation is synchronous. An already-running publisher can rename its
-		// snapshot afterwards, then remove it when its final lease check fails.
-		assert.ok(!existsSync(`${target}.lease`), `${mode} revokes the lease`);
+		// Revocation is synchronous, and the daemon forgets the snapshot after.
+		assert.ok(!existsSync(lease), `${mode} revokes the lease`);
 		await untilSeen(
-			() => existsSync(target),
-			retained => !retained,
-			`${mode} in-flight publisher removes its snapshot`,
+			async () => harness.heldSnapshots(repo, key),
+			held => held === 0,
+			`${mode} close forgets the snapshot`,
 		);
-		// The publisher's rename and its removal are two steps, so its file can
-		// appear for a moment after it was first seen gone.
-		await delay(300);
-		const retained =
-			existsSync(target) ||
-			existsSync(`${target}.lease`) ||
-			(await harness.heldSnapshots(repo, key)) > 0;
-		if (retained) findings.push(mode);
-		console.log(
-			`${retained ? 'FAIL' : 'PASS'} ${mode} close removes snapshot and lease`,
-		);
+		console.log(`PASS ${mode} close removes snapshot and lease`);
 	}
-	assert.deepEqual(findings, []);
-	for (const file of sentinelFiles) {
-		assert.equal(readFileSync(file, 'utf8'), 'other workspace message');
-		assert.ok(existsSync(`${file}.lease`));
-	}
-	console.log(
-		'PASS cleanup preserves sibling workspace and repository snapshots',
-	);
+	for (const file of sentinelLeases) assert.ok(existsSync(file));
+	console.log('PASS cleanup preserves sibling workspace and repository leases');
 	const key = 'qa-cleanup-failed';
 	const sessions = sessionNamesFor(key, repo);
 	await daos.spaceIdentities.record(
@@ -195,11 +158,7 @@ try {
 		value => value?.info.status === 'idle',
 		'failed close recorded idle report',
 	);
-	const target = programStatusPath(
-		harness.statusDir(repo),
-		key,
-		pane.generation,
-	);
+	const lease = `${programStatusPath(harness.statusDir(repo), key, pane.generation)}.lease`;
 	assert.equal(
 		cleanupOrphanedInnerSessions(
 			nothing,
@@ -224,18 +183,15 @@ try {
 		),
 		1,
 	);
-	assert.ok(await published(key, target));
-	assert.ok(existsSync(`${target}.lease`));
+	assert.ok(await published(key));
+	assert.ok(existsSync(lease));
 	assert.equal(cleanupOrphanedInnerSessions(nothing, repo, undefined, []), 1);
-	assert.ok(!existsSync(`${target}.lease`));
+	assert.ok(!existsSync(lease));
 	await untilSeen(
-		async () =>
-			existsSync(target) || (await harness.heldSnapshots(repo, key)) > 0,
-		retained => !retained,
+		async () => harness.heldSnapshots(repo, key),
+		held => held === 0,
 		'retried orphan cleanup removes its snapshot',
 	);
-	// What is left under the harness's root is checked when it is cleaned up.
-	for (const file of sentinelFiles) rmSync(file);
 	console.log(
 		'PASS partial orphan teardown preserves snapshots until retry succeeds',
 	);

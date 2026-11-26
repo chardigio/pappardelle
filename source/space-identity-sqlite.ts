@@ -14,7 +14,7 @@ import {
 	type SpaceIdentityLookup,
 } from './space-identity.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
-import type {JsonMirror, StateDb} from './state-db.ts';
+import type {StateDb} from './state-db.ts';
 
 type IdentityRow = {
 	key: string;
@@ -28,15 +28,9 @@ const COLUMNS =
 	'key, worktree_path, tmux_socket, agent_session, companion_session';
 
 export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
-	/**
-	 * `registryMirror` is the registry file: a space opened without the
-	 * database is given its identity when that file is imported, so it is
-	 * imported before identities are read.
-	 */
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly defaults: IdentityDefaults,
-		private readonly registryMirror: () => JsonMirror,
 	) {}
 
 	get(key: string): SpaceIdentityLookup {
@@ -84,7 +78,7 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 	}
 
 	async record(identity: SpaceIdentity): Promise<void> {
-		await this.openDb().writeRows(() => {
+		await this.openDb().write(() => {
 			this.openDb()
 				.db.query(
 					`INSERT INTO space_identities (repo, ${COLUMNS})
@@ -96,7 +90,7 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 	}
 
 	async moveMain(identity: SpaceIdentity): Promise<void> {
-		await this.openDb().writeRows(() => {
+		await this.openDb().write(() => {
 			this.openDb()
 				.db.query(
 					`INSERT INTO space_identities (repo, ${COLUMNS})
@@ -110,7 +104,7 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 	}
 
 	async respellFormatSessions(): Promise<void> {
-		await this.openDb().writeRows(() => {
+		await this.openDb().write(() => {
 			const {db} = this.openDb();
 			const keys = db
 				.query<{key: string}, [string]>(
@@ -136,8 +130,9 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 	}
 
 	/**
-	 * Give keys opened without the database the identity idow gave them, inside
-	 * the transaction that imports them. A key that already has one keeps it.
+	 * Give keys imported from the registry file the identity idow gave them,
+	 * inside the transaction that imports them. A key that already has one
+	 * keeps it.
 	 */
 	fillMissing(keys: readonly string[]): void {
 		const insert = this.openDb().db.query(
@@ -150,15 +145,12 @@ export class SqliteSpaceIdentityDao implements SpaceIdentityDao {
 
 	private synced(): StateDb {
 		const state = this.openDb();
-		// A registry file that cannot be imported now leaves the rows as they
-		// are, and those are still the identities that were recorded.
-		state.sync(this.registryMirror());
 		this.ensureMain(state);
 		return state;
 	}
 
 	/**
-	 * Seed main's identity on first read after enabling sqliteState, when this
+	 * Seed main's identity on the first read that finds none, when this
 	 * checkout belongs to the repo and has Pappardelle config or open spaces.
 	 */
 	private ensureMain(state: StateDb): void {

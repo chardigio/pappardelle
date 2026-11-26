@@ -3,7 +3,6 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
-	readdirSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -16,7 +15,6 @@ import {expect} from 'bun:test';
 import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {isAlive, killProcessesNaming} from '../test/helpers/processes.ts';
-import {sqliteRun} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {until} from '../test/helpers/wait.ts';
 import {
@@ -25,7 +23,6 @@ import {
 	type RawConnection,
 } from '../test/helpers/status-daemon.ts';
 import {shellQuoteStatus} from './program-status-monitor.ts';
-import type {ProgramStatusSnapshot} from './program-status-monitor.ts';
 
 const project = path.resolve(import.meta.dirname, '..');
 
@@ -40,15 +37,13 @@ function fixture(python: boolean, staleNode = false) {
 	const statusSocket = path.join(stateDir, 'status-1.sock');
 	for (const dir of [bin, repo, home, stateDir, path.join(root, 'tmux')])
 		mkdirSync(dir, {mode: 0o700});
-	// With the flag on the monitors send to the status daemon. Its hub is
-	// served from here, so that none of them starts a daemon process.
+	// The monitors send to the status daemon. Its hub is served from here, so
+	// that none of them starts a daemon process.
 	let rail: RawConnection | undefined;
-	if (sqliteRun) {
-		serveTestHub(statusSocket);
-		void subscribeRaw(statusSocket, 'repo').then(connection => {
-			rail = connection;
-		});
-	}
+	serveTestHub(statusSocket);
+	void subscribeRaw(statusSocket, 'repo').then(connection => {
+		rail = connection;
+	});
 
 	for (const command of [
 		'tmux',
@@ -100,7 +95,7 @@ function fixture(python: boolean, staleNode = false) {
 			tmux('kill-server');
 		} catch {}
 		// kill-server returns before pane processes exit, and an exiting pane can
-		// still write a status file while the directory is being removed.
+		// still write under the directory while it is being removed.
 		const deadline = Date.now() + 5000;
 		while (panePids.some(pid => isAlive(pid)) && Date.now() < deadline) {
 			await delay(50);
@@ -149,7 +144,7 @@ if (${JSON.stringify(launcher)} === 'tui') {
     '--issue-key', 'TEST-1', '--repo-name', 'repo', '--worktree', process.cwd(),
     '--agent-session', 'agent-repo-TEST-1', '--companion-session', 'companion-repo-TEST-1', '--legacy-agent-session', 'claude-repo-TEST-1', '--companion-command', '',
     '--agent-command', profile.command, '--agent-args', profile.args, '--agent-is-claude', String(profile.isClaude),
-    '--agent-resume-args', ''], {env: {...buildSpawnEnv(process.cwd(), {mainRepoRoot: process.cwd(), registerSpace: false}), ...(${JSON.stringify(launcher)} === 'compiled-shell' ? {PAPPARDELLE_BUN: '', PAPPARDELLE_EXECUTABLE: ${JSON.stringify(path.join(project, 'dist/pappardelle'))}} : {})}});
+    '--agent-resume-args', ''], {env: {...buildSpawnEnv(process.cwd(), process.cwd()), ...(${JSON.stringify(launcher)} === 'compiled-shell' ? {PAPPARDELLE_BUN: '', PAPPARDELLE_EXECUTABLE: ${JSON.stringify(path.join(project, 'dist/pappardelle'))}} : {})}});
 }
 `,
 		);
@@ -165,32 +160,16 @@ if (${JSON.stringify(launcher)} === 'tui') {
 			string,
 			unknown
 		>;
-	const status = () => {
-		if (sqliteRun)
-			return rail?.messages
-				.flatMap(message =>
-					message.type === 'state'
-						? message.snapshots
-						: message.type === 'snapshot'
-							? [message.snapshot]
-							: [],
-				)
-				.findLast(value => value.key === 'TEST-1');
-		const dir = path.join(root, 'status', 'repo');
-		try {
-			return readdirSync(dir)
-				.filter(file => file.endsWith('.json'))
-				.map(
-					file =>
-						JSON.parse(
-							readFileSync(path.join(dir, file), 'utf8'),
-						) as ProgramStatusSnapshot,
-				)
-				.find(value => value.key === 'TEST-1');
-		} catch {
-			return undefined;
-		}
-	};
+	const status = () =>
+		rail?.messages
+			.flatMap(message =>
+				message.type === 'state'
+					? message.snapshots
+					: message.type === 'snapshot'
+						? [message.snapshot]
+						: [],
+			)
+			.findLast(value => value.key === 'TEST-1');
 	const blockedAgent = path.join(root, 'agent');
 	writeFileSync(
 		blockedAgent,

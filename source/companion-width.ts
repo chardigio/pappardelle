@@ -1,51 +1,10 @@
 // Per-space companion widths, and the requests the CLI sends the TUI to lay
-// out a space's companion. The CLI and the TUI exchange a request and its
-// answer, as files under ~/.pappardelle/repos/{repo}/ in the stores here, so
-// `pappardelle companion` can report whether the running TUI applied the
-// change. The widths store is written by the CLI and by the TUI when the user
-// drags the border, so every read-modify-write holds the store's file lock.
+// out a space's companion, so `pappardelle companion` can report whether the
+// running TUI applied the change.
 
 import {randomUUID} from 'node:crypto';
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	readdirSync,
-	renameSync,
-	rmSync,
-	writeFileSync,
-} from 'node:fs';
-import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {isPaneWidth, type PaneWidth} from './layout-sizing.ts';
-import {fileVersion, watchDirChanges} from './file-watch.ts';
-import {withFileLock} from './file-lock.ts';
-
-export function companionWidthsPath(repoName: string, baseDir: string) {
-	return path.join(baseDir, 'repos', repoName, 'companion-widths.json');
-}
-
-// One file per request, so two quick calls never replace each other's.
-export function companionRequestsDir(repoName: string, baseDir: string) {
-	return path.join(baseDir, 'repos', repoName, 'companion-requests');
-}
-
-const ACK_SUFFIX = '.ack.json';
-
-function readJson(file: string): unknown {
-	try {
-		return JSON.parse(readFileSync(file, 'utf8'));
-	} catch {
-		return null;
-	}
-}
-
-function writeJsonAtomic(file: string, data: unknown): void {
-	mkdirSync(path.dirname(file), {recursive: true});
-	const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-	writeFileSync(temporary, JSON.stringify(data) + '\n');
-	renameSync(temporary, file);
-}
+import type {PaneWidth} from './layout-sizing.ts';
 
 /** The width of each space's companion column that has one of its own. */
 export interface CompanionWidthDao {
@@ -53,60 +12,6 @@ export interface CompanionWidthDao {
 	get(spaceKey: string): PaneWidth | null;
 	/** Store `width` for the space, or remove its entry when `width` is null. */
 	set(spaceKey: string, width: PaneWidth | null): Promise<void>;
-}
-
-/**
- * The widths in a store file. Throws when `content` is not an object;
- * entries that are not widths are left out.
- */
-export function parseCompanionWidths(
-	content: string,
-): Record<string, PaneWidth> {
-	const parsed: unknown = JSON.parse(content);
-	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-		throw new Error('Not a companion widths store');
-	return Object.fromEntries(
-		Object.entries(parsed).filter((entry): entry is [string, PaneWidth] =>
-			isPaneWidth(entry[1]),
-		),
-	);
-}
-
-export function renderCompanionWidths(
-	widths: Record<string, PaneWidth>,
-): string {
-	return JSON.stringify(widths) + '\n';
-}
-
-export class JsonCompanionWidthDao implements CompanionWidthDao {
-	constructor(readonly file: string) {}
-
-	all(): Record<string, PaneWidth> {
-		try {
-			return parseCompanionWidths(readFileSync(this.file, 'utf8'));
-		} catch {
-			return {};
-		}
-	}
-
-	get(spaceKey: string): PaneWidth | null {
-		return this.all()[spaceKey] ?? null;
-	}
-
-	async set(spaceKey: string, width: PaneWidth | null): Promise<void> {
-		await this.locked(() => {
-			const {[spaceKey]: _previous, ...others} = this.all();
-			writeJsonAtomic(
-				this.file,
-				width === null ? others : {...others, [spaceKey]: width},
-			);
-		});
-	}
-
-	/** Run `fn` holding the store's lock, which every writer of the file takes. */
-	async locked<T>(fn: () => T): Promise<T> {
-		return withFileLock(this.file, fn);
-	}
 }
 
 /**
@@ -149,93 +54,6 @@ export interface CompanionRequestDao {
 	 * answer nobody reads would stay behind.
 	 */
 	answer(ack: LayoutAck): Promise<void>;
-}
-
-function readRequest(file: string): LayoutRequest | null {
-	const parsed = readJson(file) as LayoutRequest | null;
-	return typeof parsed?.id === 'string' &&
-		typeof parsed.space === 'string' &&
-		(parsed.kind === 'width' || parsed.kind === 'layout')
-		? parsed
-		: null;
-}
-
-export class JsonCompanionRequestDao implements CompanionRequestDao {
-	constructor(private readonly dir: string) {}
-
-	async send(request: LayoutRequest): Promise<void> {
-		this.writeRequest(request);
-	}
-
-	answerTo(id: string): LayoutAck | null {
-		const parsed = readJson(this.ackPath(id)) as LayoutAck | null;
-		return parsed?.id === id ? parsed : null;
-	}
-
-	async withdraw(id: string): Promise<void> {
-		this.remove(id);
-	}
-
-	watch(onRequest: (request: LayoutRequest) => void): () => void {
-		// A request is reported each time it is written. One already waiting
-		// when the watch begins was left by a CLI that has stopped waiting,
-		// unless it asks again.
-		let reported = this.requestVersions();
-		return watchDirChanges(this.dir, () => {
-			const current = this.requestVersions();
-			for (const [file, version] of current) {
-				if (reported.get(file) === version) continue;
-				const request = readRequest(path.join(this.dir, file));
-				if (request) onRequest(request);
-			}
-
-			reported = current;
-		});
-	}
-
-	async answer(ack: LayoutAck): Promise<void> {
-		if (!existsSync(this.requestPath(ack.id))) return;
-		this.writeAck(ack);
-	}
-
-	writeRequest(request: LayoutRequest): void {
-		writeJsonAtomic(this.requestPath(request.id), request);
-	}
-
-	writeAck(ack: LayoutAck): void {
-		writeJsonAtomic(this.ackPath(ack.id), ack);
-	}
-
-	remove(id: string): void {
-		rmSync(this.requestPath(id), {force: true});
-		rmSync(this.ackPath(id), {force: true});
-	}
-
-	private requestVersions(): Map<string, string> {
-		const versions = new Map<string, string>();
-		let files: string[];
-		try {
-			files = readdirSync(this.dir);
-		} catch {
-			return versions;
-		}
-
-		for (const file of files) {
-			if (!file.endsWith('.json') || file.endsWith(ACK_SUFFIX)) continue;
-			const version = fileVersion(path.join(this.dir, file));
-			if (version) versions.set(file, version);
-		}
-
-		return versions;
-	}
-
-	private requestPath(id: string): string {
-		return path.join(this.dir, `${id}.json`);
-	}
-
-	private ackPath(id: string): string {
-		return path.join(this.dir, `${id}${ACK_SUFFIX}`);
-	}
 }
 
 type Unapplied =

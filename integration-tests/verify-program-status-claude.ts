@@ -171,8 +171,6 @@ try {
 		harness.root,
 		'-e',
 		`PAPPARDELLE_SPACE=${key}`,
-		'-e',
-		`PAPPARDELLE_STATUS_DIR=${path.join(harness.root, 'hooks')}`,
 		'/bin/bash',
 		'-l',
 	]);

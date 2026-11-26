@@ -10,7 +10,8 @@ import {
 	type Node,
 	type Pair,
 } from 'yaml';
-import type {AgentSessionsDao, SpaceStateDao} from './space-state.ts';
+import type {AgentSessionsDao} from './agent-sessions.ts';
+import type {SpaceStateDao} from './space-state.ts';
 import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {
 	buildConfigFromLayers,

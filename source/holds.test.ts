@@ -1,7 +1,6 @@
-import fs from 'node:fs';
 import {test, expect} from 'bun:test';
-import {contractTest} from '../test/helpers/dao-contract.ts';
-import {holdsDir, holdFor, type Hold, type HeldPrompt} from './holds.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
+import {holdFor, type Hold, type HeldPrompt} from './holds.ts';
 
 const prompt: HeldPrompt = {
 	key: 'STA-1',
@@ -22,7 +21,7 @@ const hold = (fields: Partial<Hold> = {}): Hold => ({
 	...fields,
 });
 
-contractTest('a hold is stored, listed and changed', async state => {
+storeTest('a hold is stored, listed and changed', async state => {
 	const store = state.daos.holds;
 	await store.save(hold());
 	await store.save(hold({id: 'h2', createdAt: '2026-11-22T11:00:00.000Z'}));
@@ -34,18 +33,6 @@ contractTest('a hold is stored, listed and changed', async state => {
 	expect(store.load('h1')?.state).toBe('approved');
 	expect(store.load('nope')).toBe(null);
 });
-
-contractTest(
-	'a hold approved by a process without the database is read from its file',
-	async state => {
-		const store = state.daos.holds;
-		await store.save(hold());
-		const file = `${holdsDir(state.repo, state.stateDir)}/h1.json`;
-		const written = JSON.parse(fs.readFileSync(file, 'utf8')) as Hold;
-		fs.writeFileSync(file, JSON.stringify({...written, state: 'approved'}));
-		expect(store.load('h1')?.state).toBe('approved');
-	},
-);
 
 test('a retry of an open hold reuses it rather than stacking another', () => {
 	expect(holdFor([hold()], prompt, 'open')?.id).toBe('h1');

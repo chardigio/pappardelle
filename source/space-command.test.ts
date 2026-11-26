@@ -5,11 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {contractTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {
 	testState,
 	writeClaudeStatus,
 	type TestState,
+	recordAgentSessions,
 } from '../test/helpers/state.ts';
 import type {ClaudeStatusInfo} from './claude-status.ts';
 import type {
@@ -22,6 +23,7 @@ import {
 	type SpaceDaos,
 } from './space-command.ts';
 import {newSpaceIdentity, worktreePathFor} from './space-identity.ts';
+import {stateDbPath} from './state-db.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
 const HOME = '/home/u';
@@ -142,24 +144,43 @@ async function run(
 	return {code, stdout: d.output(), stderr: d.errors()};
 }
 
+/** A space's sessions as the agent's hook records them, which no store method does. */
 function recordSessions(
 	state: TestState,
 	key: string,
 	sessions: Record<string, string>,
 ): void {
-	const file = state.daos.agentSessions.file(key);
-	fs.mkdirSync(path.dirname(file), {recursive: true});
-	fs.writeFileSync(
-		file,
-		JSON.stringify(
-			Object.fromEntries(
-				Object.entries(sessions).map(([profile, id]) => [
-					profile,
-					{session_id: id, pid: 1, started: null},
-				]),
-			),
-		),
-	);
+	recordAgentSessions(stateDbPath(state.stateDir), state.repo, key, sessions);
+}
+
+/** The stores, with the lookups of `keys` in one store failing as an unreadable store's do. */
+function unreadableFor(
+	state: TestState,
+	store: 'spaceState' | 'agentSessions',
+	keys: readonly string[],
+): SpaceDaos {
+	const unreadable = {
+		kind: 'unreadable' as const,
+		error: new Error('disk I/O error'),
+	};
+	const {spaceState, agentSessions} = state.daos;
+	return {
+		...state.daos,
+		spaceState:
+			store === 'spaceState'
+				? Object.assign(Object.create(spaceState) as typeof spaceState, {
+						lookup: (key: string) =>
+							keys.includes(key) ? unreadable : spaceState.lookup(key),
+					})
+				: spaceState,
+		agentSessions:
+			store === 'agentSessions'
+				? Object.assign(Object.create(agentSessions) as typeof agentSessions, {
+						sessions: (key: string) =>
+							keys.includes(key) ? unreadable : agentSessions.sessions(key),
+					})
+				: agentSessions,
+	};
 }
 
 /** One space history, written through the stores in a fixed order. */
@@ -193,25 +214,18 @@ async function history(state: TestState): Promise<void> {
 	recordSessions(state, 'STA-2', {claude: 'c-1', codex: 'x-1'});
 }
 
-test('both stores answer get and list the same for one history', async () => {
-	const outputs = [];
-	for (const sqlite of [false, true]) {
-		const state = stateOf({sqlite, clock: CLOCK});
-		await history(state);
-		const tmux = fakeTmux([
-			{session: 'agent-repo-STA-2', id: '%3', current: true},
-		]).runner;
-		const get = await run(
-			['get', 'STA-2', '--json'],
-			deps(state, {runner: tmux}),
-		);
-		const list = await run(['list', '--json'], deps(state, {runner: tmux}));
-		outputs.push({get, list});
-	}
-
-	const [json, sqlite] = outputs;
-	expect(sqlite).toStrictEqual(json);
-	const record = JSON.parse(json!.get.stdout) as Record<string, unknown>;
+test('get and list report one history as the stores hold it', async () => {
+	const state = stateOf({clock: CLOCK});
+	await history(state);
+	const tmux = fakeTmux([
+		{session: 'agent-repo-STA-2', id: '%3', current: true},
+	]).runner;
+	const get = await run(
+		['get', 'STA-2', '--json'],
+		deps(state, {runner: tmux}),
+	);
+	const list = await run(['list', '--json'], deps(state, {runner: tmux}));
+	const record = JSON.parse(get.stdout) as Record<string, unknown>;
 	expect(record).toMatchObject({
 		repo: 'repo',
 		key: 'STA-2',
@@ -234,9 +248,7 @@ test('both stores answer get and list the same for one history', async () => {
 		unresolvedCommentCount: 2,
 	});
 	expect(
-		(JSON.parse(json!.list.stdout) as Array<{key: string}>).map(
-			record => record.key,
-		),
+		(JSON.parse(list.stdout) as Array<{key: string}>).map(record => record.key),
 	).toStrictEqual(['main', 'STA-10', 'STA-2', 'STA-1']);
 });
 
@@ -278,7 +290,7 @@ test('a socket path is passed with -S', async () => {
 	});
 });
 
-contractTest(
+storeTest(
 	'an unregistered key with a live agent session is starting',
 	async state => {
 		// idow records the space's names before it starts its sessions.
@@ -319,8 +331,11 @@ test('a typed key the stores lack is looked up again as Pappardelle resolves it'
 });
 
 test('a registry or state store that cannot be read exits 3, never 1', async () => {
-	const unreadableRegistry = stateOf({sqlite: false});
-	fs.writeFileSync(unreadableRegistry.registryFile, 'not json{');
+	const unreadableRegistry = stateOf();
+	fs.writeFileSync(
+		stateDbPath(unreadableRegistry.stateDir),
+		'not a database '.repeat(600),
+	);
 	const get = await run(
 		['get', 'STA-1', '--field', 'profile'],
 		deps(unreadableRegistry),
@@ -329,46 +344,45 @@ test('a registry or state store that cannot be read exits 3, never 1', async () 
 	const list = await run(['list'], deps(unreadableRegistry));
 	expect(list.code).toBe(3);
 
-	const unreadableState = stateOf({sqlite: false});
+	const unreadableState = stateOf();
 	await openSpace(unreadableState, 'STA-1');
-	fs.mkdirSync(unreadableState.daos.spaceState.file('STA-1'), {
-		recursive: true,
-	});
 	const result = await run(
 		['get', 'STA-1', '--field', 'profile'],
-		deps(unreadableState),
+		deps(unreadableState, {
+			daos: () => unreadableFor(unreadableState, 'spaceState', ['STA-1']),
+		}),
 	);
 	expect(result.code).toBe(3);
 	expect(result.stderr).toMatch(/Could not read the state of STA-1/);
 });
 
-contractTest(
+storeTest(
 	'an agent-sessions store that cannot be read fails only the lookups that read it',
 	async state => {
 		await openSpace(state, 'STA-1');
 		await state.daos.spaceState.write('STA-1', {profile: 'dev'});
-		fs.mkdirSync(state.daos.agentSessions.file('STA-1'), {recursive: true});
+		const daos = () => unreadableFor(state, 'agentSessions', ['STA-1']);
 		expect(
-			await run(['get', 'STA-1', '--field', 'profile'], deps(state)),
+			await run(['get', 'STA-1', '--field', 'profile'], deps(state, {daos})),
 		).toStrictEqual({code: 0, stdout: 'dev', stderr: ''});
 		const sessions = await run(
 			['get', 'STA-1', '--field', 'agentSessions.claude'],
-			deps(state),
+			deps(state, {daos}),
 		);
 		expect(sessions.code).toBe(3);
 		expect(sessions.stderr).toMatch(/Could not read the state of STA-1/);
 	},
 );
 
-contractTest(
+storeTest(
 	'space list prints the spaces it could read and names the one it could not',
 	async state => {
 		await openSpace(state, 'STA-1');
 		await openSpace(state, 'STA-2');
 		await state.daos.spaceState.write('STA-1', {profile: 'dev'});
-		fs.mkdirSync(state.daos.spaceState.file('STA-2'), {recursive: true});
+		const daos = () => unreadableFor(state, 'spaceState', ['STA-2']);
 
-		const json = await run(['list', '--json'], deps(state));
+		const json = await run(['list', '--json'], deps(state, {daos}));
 		expect(json.code).toBe(3);
 		expect(
 			(JSON.parse(json.stdout) as Array<{key: string}>).map(
@@ -377,7 +391,7 @@ contractTest(
 		).toStrictEqual(['main', 'STA-1']);
 		expect(json.stderr).toMatch(/^Could not read the state of STA-2: [^\n]+$/);
 
-		const plain = await run(['list'], deps(state));
+		const plain = await run(['list'], deps(state, {daos}));
 		expect(plain.code).toBe(3);
 		expect(
 			plain.stdout.split('\n').map(line => line.split(' ')[0]),
@@ -432,7 +446,7 @@ test('with no key and no PAPPARDELLE_SPACE, the space is the worktree the caller
 });
 
 test('a space is reported under the names stored for it', async () => {
-	const state = stateOf({sqlite: true});
+	const state = stateOf();
 	await state.daos.spaceIdentities.record({
 		repo: 'repo',
 		key: 'STA-1',
@@ -466,7 +480,7 @@ test('with no key, a worktree outside ~/.worktrees is found by its stored path',
 	teardown(() => fs.rmSync(root, {recursive: true, force: true}));
 	const worktree = path.join(root, 'checkouts', 'login');
 	fs.mkdirSync(path.join(worktree, 'src'), {recursive: true});
-	const state = stateOf({sqlite: true});
+	const state = stateOf();
 	await state.daos.spaceIdentities.record(
 		newSpaceIdentity({
 			repo: 'repo',
@@ -485,7 +499,7 @@ test('with no key, a worktree outside ~/.worktrees is found by its stored path',
 });
 
 test('a space closed before identities were stored has no names', async () => {
-	const state = stateOf({sqlite: true});
+	const state = stateOf();
 	await state.daos.spaceState.write('STA-7', {profile: 'dev'});
 	const result = await run(['get', 'STA-7', '--json'], deps(state));
 	expect(JSON.parse(result.stdout)).toMatchObject({
@@ -592,7 +606,7 @@ function statusDaos(
 		claudeStatus: {
 			...state.daos.claudeStatus,
 			readableKey: async (repo, name) => `${repo}-${name}`,
-			read: async key => (key === 'repo-STA-1' ? hook : null),
+			read: async key => (key === 'repo-STA-1' ? hook : {status: 'unknown'}),
 		},
 		programStatus: {
 			...state.daos.programStatus,
@@ -670,37 +684,27 @@ test('without a session there are no panes and only the hook status', async () =
 	expect(snapshotPanes).toStrictEqual([]);
 });
 
-test("main's status is read under its branch without the database, and under its key with it", async () => {
-	for (const [sqlite, reportedAs] of [
-		[false, 'repo-master'],
-		[true, 'repo-main'],
-	] as const) {
-		const state = stateOf({repo: 'repo', sqlite});
-		await openSpace(state, 'main');
-		await writeClaudeStatus(state, {
-			sessionId: 's',
-			workspaceName: reportedAs,
-			status: 'processing',
-			lastUpdate: Date.now(),
-		});
-		const branchesRead: string[] = [];
-		const result = await run(
-			['get', 'main', '--field', 'status.status'],
-			deps(state, {
-				async gitBranch(directory) {
-					branchesRead.push(directory);
-					return 'master';
-				},
-			}),
-		);
-		expect(result, reportedAs).toStrictEqual({
-			code: 0,
-			stdout: 'working',
-			stderr: '',
-		});
-		// Only a status keyed by branch needs git.
-		expect(branchesRead.length, reportedAs).toBe(sqlite ? 0 : 1);
-	}
+test("main's status is read under its key, without asking git for its branch", async () => {
+	const state = stateOf({repo: 'repo'});
+	await openSpace(state, 'main');
+	await writeClaudeStatus(state, {
+		sessionId: 's',
+		workspaceName: 'repo-main',
+		status: 'processing',
+		lastUpdate: Date.now(),
+	});
+	const branchesRead: string[] = [];
+	const result = await run(
+		['get', 'main', '--field', 'status.status'],
+		deps(state, {
+			async gitBranch(directory) {
+				branchesRead.push(directory);
+				return 'master';
+			},
+		}),
+	);
+	expect(result).toStrictEqual({code: 0, stdout: 'working', stderr: ''});
+	expect(branchesRead).toStrictEqual([]);
 });
 
 function cli() {

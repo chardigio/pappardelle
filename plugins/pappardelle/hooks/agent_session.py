@@ -1,25 +1,21 @@
 """
-Record the session id of a space's agent in its agent-sessions file.
+Record the session id of a space's agent in the state database.
 
 Pappardelle relaunches an agent by resuming this id when its agent profile's
 resume_args carry {session_id}. "Most recent" resume flags aren't scoped to the
 directory (codex's `resume --last` resumes whichever space ran codex last), so
-the id is what keeps each space on its own conversation. The ids get a file of
-their own, beside the space-state file the TUI rewrites after every rail poll,
-so neither writer can drop the other's update.
+the id is what keeps each space on its own conversation.
 
 The space is the one the tmux session's PAPPARDELLE_REPO and PAPPARDELLE_SPACE
 name. The main space's sessions have no PAPPARDELLE_SPACE (buildSessionEnvArgs
 in source/spawn-env.ts), so a repo without a space is main. The space's record
 says which agent profile its agent session was last started with and whether
 it is a claude one (SpaceState.agentProfile in source/space-state.ts), and the
-id is recorded under that agent profile. With experimental.sqliteState on, the
-record is read from the state database and the id's rows are written there
-too (state_db.py); the file is written either way.
+id is recorded under that agent profile, in the state database (state_db.py).
 
 The companion session carries the same space variables, so the hook only
-records from the first pane of the space's agent session: the session stored
-for the space, or without the database any session named agent-. An agent run
+records from the first pane of the space's agent session, the session stored
+for the space. An agent run
 by hand in the companion, or in a pane split off the agent's own (an Agent
 Teams teammate), is not the space's agent.
 
@@ -61,22 +57,29 @@ one until the next top-level turn). Another agy process still cannot overwrite a
 live owner's id.
 """
 
-import json
+import importlib.util
 import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Mapping, NamedTuple, Optional
 
+
+def _load_state_db() -> Any:
+    """state_db.py, loaded by path as the hook scripts load this module."""
+    spec = importlib.util.spec_from_file_location("state_db", Path(__file__).parent / "state_db.py")
+    if spec is None or spec.loader is None:
+        raise ImportError("Could not load state_db")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+state_db = _load_state_db()
+
 RECORDED_EVENTS = {"SessionStart", "UserPromptSubmit"}
 
 SHELLS = {"sh", "bash", "zsh", "dash", "fish", "ksh", "tcsh", "csh"}
-
-# MAIN_WORKTREE_KEY in source/space-utils.ts.
-MAIN_KEY = "main"
-
-# sessionPrefix('agent', ...) in source/space-identity.ts.
-AGENT_SESSION_PREFIX = "agent-"
 
 # pid: (ppid, command line)
 ProcessTable = dict[int, tuple[int, str]]
@@ -88,13 +91,6 @@ Chain = list[tuple[int, str]]
 class Space(NamedTuple):
     repo: str
     key: str
-
-
-class LaunchedAgent(NamedTuple):
-    """The agent profile a space's agent session was last started with."""
-
-    profile: str
-    is_claude: bool
 
 
 class AgentPane(NamedTuple):
@@ -116,46 +112,7 @@ def env_space(environ: Mapping[str, str]) -> Optional[Space]:
     repo = environ.get("PAPPARDELLE_REPO", "").strip()
     if not repo:
         return None
-    return Space(repo, environ.get("PAPPARDELLE_SPACE", "").strip() or MAIN_KEY)
-
-
-class Stores:
-    """Where a space's record and its agent-sessions file are, in this hook's
-    mode: the state database while experimental.sqliteState is on, else the
-    files alone."""
-
-    def __init__(self) -> None:
-        self.state_db = _load_state_db()
-        self.db_path: Optional[str] = self.state_db.state_db_path()
-
-    def space_state_dir(self, space: Space) -> Path:
-        # getSpaceStateDir in source/space-state.ts.
-        return self.state_db.state_dir() / "repos" / space.repo / "space-state"
-
-    def sessions_file(self, space: Space) -> Path:
-        # JsonAgentSessionsDao.file in source/space-state.ts.
-        return self.space_state_dir(space) / f"{space.key}.agent-sessions.json"
-
-    def launched_agent(self, space: Space) -> Optional[LaunchedAgent]:
-        if self.db_path is not None:
-            launched = self.state_db.launched_agent_profile(self.db_path, space.repo, space.key)
-            return LaunchedAgent(*launched) if launched else None
-        try:
-            state = json.loads((self.space_state_dir(space) / f"{space.key}.json").read_text())
-        except (OSError, ValueError):
-            return None
-        agent = state.get("agentProfile") if isinstance(state, dict) else None
-        if not isinstance(agent, dict):
-            return None
-        name, is_claude = agent.get("name"), agent.get("isClaude")
-        if not isinstance(name, str) or not name or not isinstance(is_claude, bool):
-            return None
-        return LaunchedAgent(name, is_claude)
-
-    def is_agent_session(self, space: Space, session_name: str) -> bool:
-        if self.db_path is not None:
-            return self.state_db.agent_session_name(self.db_path, space.repo, space.key) == session_name
-        return session_name.startswith(AGENT_SESSION_PREFIX)
+    return Space(repo, environ.get("PAPPARDELLE_SPACE", "").strip() or state_db.MAIN_KEY)
 
 
 def read_process_table() -> ProcessTable:
@@ -270,57 +227,13 @@ def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
         )
         return result.stdout if result.returncode == 0 else None
 
-    stores = Stores()
-    space: Optional[Space] = None
-    if stores.db_path is not None:
-        row = stores.state_db.space_at_path(stores.db_path, cwd)
-        if row is None:
-            return None
-        session, space = row.agent_session, Space(row.repo, row.key)
-    else:
-        session = _agent_session_holding(cwd, run)
-        if session is None:
-            return None
-
-    target_session = f"={session}:"
-    panes = run("list-panes", "-s", "-t", target_session, "-F", "#{pane_pid}")
+    row = state_db.space_at_path(cwd)
+    if row is None:
+        return None
+    panes = run("list-panes", "-s", "-t", f"={row.agent_session}:", "-F", "#{pane_pid}")
     if not panes or not panes.split()[0].isdigit():
         return None
-    if space is None:
-        output = run("show-environment", "-t", target_session)
-        if output is None:
-            return None
-        env = {}
-        for line in output.splitlines():
-            key, sep, value = line.partition("=")
-            if sep:
-                env[key] = value
-        space = env_space(env)
-        if space is None:
-            return None
-    return AgentPane(space, int(panes.split()[0]))
-
-
-def _agent_session_holding(cwd: str, run: Callable[..., Optional[str]]) -> Optional[str]:
-    """The agent session whose start directory is cwd's nearest ancestor."""
-    sessions = run("list-sessions", "-F", "#{session_name}\t#{session_path}")
-    if sessions is None:
-        return None
-    target = os.path.realpath(cwd)
-    matches: list[tuple[int, str]] = []
-    for line in sessions.splitlines():
-        name, _, session_path = line.partition("\t")
-        if not name.startswith("agent-") or not session_path:
-            continue
-        root = os.path.realpath(session_path)
-        if target == root or target.startswith(root + os.sep):
-            matches.append((len(root), name))
-    if not matches:
-        return None
-    matches.sort(reverse=True)
-    if len(matches) > 1 and matches[0][0] == matches[1][0]:
-        return None
-    return matches[0][1]
+    return AgentPane(Space(row.repo, row.key), int(panes.split()[0]))
 
 
 def tmux_pane_session(environ: Mapping[str, str]) -> Optional[PaneSession]:
@@ -359,8 +272,8 @@ def record_agent_session(
 ) -> bool:
     """
     Record the id and the agent's pid under the launched agent profile's name
-    in the space's agent-sessions file. is_claude_hook says whether Claude
-    Code fired the hook. Returns whether it wrote.
+    in the state database's agent_sessions table. is_claude_hook says whether
+    Claude Code fired the hook. Returns whether it wrote.
     """
     env = os.environ if environ is None else environ
     started = started or process_start
@@ -381,15 +294,13 @@ def record_agent_session(
         # Only codex's daemon runs hooks away from the agent's own env, so
         # another agent outside a space's sessions isn't a pappardelle agent.
         return False
-    stores = Stores()
     # UserPromptSubmit fires on every prompt; the process walk only runs when
     # the entry would change. A relaunch resuming the same id still records its
     # new pid.
     if pane_space is not None:
-        launched = stores.launched_agent(pane_space)
-        recorded = read_sessions(stores.sessions_file(pane_space)) if launched else None
-        entry = recorded.get(launched.profile) if launched and recorded is not None else None
-        if owner_alive(entry, started) and entry_session_id(entry) == session_id:
+        launched = state_db.launched_agent(*pane_space)
+        entry = state_db.agent_session_entry(*pane_space, launched.profile) if launched else None
+        if entry is not None and entry.session_id == session_id and owner_alive(entry, started):
             return False
 
     table = process_table()
@@ -407,7 +318,7 @@ def record_agent_session(
         if sole_agent_run(chain) is None:
             return False
         session = pane_session(env)
-        if session is None or not session.first or not stores.is_agent_session(pane_space, session.name):
+        if session is None or not session.first or state_db.agent_session_name(*pane_space) != session.name:
             return False
         space = pane_space
         agent_pid = hook_agent
@@ -416,111 +327,38 @@ def record_agent_session(
     if space is None or agent_pid is None:
         return False
 
-    launched = stores.launched_agent(space)
+    launched = state_db.launched_agent(*space)
     if launched is None or launched.is_claude != is_claude_hook:
         return False
     agent_profile = launched.profile
-    path = stores.sessions_file(space)
-    written_sessions: dict[str, Any] = {}
+    # Forks ps, so it runs before the write lock is taken.
+    recording = state_db.SessionEntry(session_id, agent_pid, started(agent_pid))
 
-    # The read, the ownership check and the write run as one step: with the
-    # database they are inside its write transaction, so a profile rename
-    # (source/config-migration.ts) cannot land between them.
-    def write_file() -> Optional[os.stat_result]:
-        sessions = read_sessions(path)
-        if sessions is None:
-            # A half-written file; writing over it would drop other agent profiles' ids.
-            return None
-        entry = sessions.get(agent_profile)
-        owner = entry.get("pid") if isinstance(entry, dict) else None
-        if (owner != agent_pid or from_daemon) and owner_alive(entry, started):
-            return None
-        recording = {"session_id": session_id, "pid": agent_pid, "started": started(agent_pid)}
+    # The read, the ownership check and the write run in one write
+    # transaction, so a profile rename (source/config-migration.ts) cannot
+    # land between them.
+    def statements(connection: Any) -> list[tuple[str, tuple[Any, ...]]]:
+        entry = state_db.agent_session_row(connection, space.repo, space.key, agent_profile)
+        if entry is not None and (entry.pid != agent_pid or from_daemon) and owner_alive(entry, started):
+            return []
         if entry == recording:
-            return None
-        sessions[agent_profile] = recording
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
-        try:
-            tmp.write_text(json.dumps(sessions, indent=2) + "\n")
-            written = os.stat(tmp)
-            os.replace(tmp, path)
-        except Exception:
-            tmp.unlink(missing_ok=True)
-            raise
-        written_sessions.update(sessions)
-        return written
-
-    if stores.db_path is None:
-        return write_file() is not None
-    stores.state_db.write_through(
-        stores.db_path, path, write_file, lambda: session_rows(space.repo, space.key, written_sessions)
-    )
-    return bool(written_sessions)
-
-
-def _load_state_db() -> Any:
-    """state_db.py, loaded by path as the hook scripts load this module."""
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("state_db", Path(__file__).parent / "state_db.py")
-    if spec is None or spec.loader is None:
-        raise ImportError("Could not load state_db")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def session_rows(repo: str, key: str, sessions: Mapping[str, Any]) -> list[tuple[str, tuple[Any, ...]]]:
-    """The statements that replace a space's rows with its file's entries.
-
-    The columns source/agent-sessions-sqlite.ts imports from the same file:
-    an entry without a session id is one no reader uses, and is left out.
-    """
-    statements: list[tuple[str, tuple[Any, ...]]] = [
-        ("DELETE FROM agent_sessions WHERE repo = ? AND key = ?", (repo, key))
-    ]
-    for agent_profile, entry in sessions.items():
-        session_id = entry_session_id(entry)
-        if session_id is None:
-            continue
-        pid, recorded_start = entry.get("pid"), entry.get("started")
-        statements.append(
+            return []
+        return [
             (
-                """INSERT INTO agent_sessions
-                    (repo, key, agent_profile, session_id, pid, started)
-                VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    repo,
-                    key,
-                    agent_profile,
-                    session_id,
-                    pid if isinstance(pid, int) and not isinstance(pid, bool) else None,
-                    recorded_start if isinstance(recorded_start, str) else None,
-                ),
+                """INSERT INTO agent_sessions (repo, key, agent_profile, session_id, pid, started)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (repo, key, agent_profile) DO UPDATE SET
+                    session_id = excluded.session_id, pid = excluded.pid, started = excluded.started""",
+                (space.repo, space.key, agent_profile, *recording),
             )
-        )
-    return statements
+        ]
 
-
-def entry_session_id(entry: Any) -> Optional[str]:
-    session_id = entry.get("session_id") if isinstance(entry, dict) else None
-    return session_id if isinstance(session_id, str) else None
+    outcome = state_db.write_rows(state_db.state_db_path(), f"the agent session of {space.key}", statements)
+    return outcome is state_db.WriteOutcome.COMMITTED
 
 
 def owner_alive(entry: Any, started: Callable[[int], Optional[str]]) -> bool:
-    if not isinstance(entry, dict):
-        return False
-    pid, recorded_start = entry.get("pid"), entry.get("started")
-    return isinstance(pid, int) and recorded_start is not None and started(pid) == recorded_start
+    """Whether the agent that recorded the entry is still running."""
+    return entry.pid is not None and entry.started is not None and started(entry.pid) == entry.started
 
 
-def read_sessions(path: Path) -> Optional[dict[str, Any]]:
-    """The recorded ids, {} for a missing file, or None for an unreadable one."""
-    try:
-        sessions = json.loads(path.read_text())
-    except FileNotFoundError:
-        return {}
-    except (OSError, ValueError):
-        return None
-    return sessions if isinstance(sessions, dict) else None

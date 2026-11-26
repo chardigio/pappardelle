@@ -23,8 +23,8 @@ import {
 	type ConfigMigration,
 } from './config-migration.ts';
 import {getRecentErrors} from './logger.ts';
-import {getSpaceStateDir} from './space-state.ts';
-import {testState} from '../test/helpers/state.ts';
+import {stateDbPath} from './state-db.ts';
+import {recordAgentSessions, testState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 
 /** A repo where no space has saved a profile or recorded a session. */
@@ -372,17 +372,6 @@ test('a config on the current format needs no rewrite', () => {
 	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
 });
 
-test('no rewrite is offered for a project config that sets experimental.sqliteState', () => {
-	const paths = setup(undefined, {
-		version: 1,
-		experimental: {sqliteState: true},
-		claude: {model: 'opus'},
-		profiles: {plain: {display_name: 'Plain'}},
-	});
-
-	expect(planConfigMigrations(paths)).toStrictEqual({kind: 'none'});
-});
-
 test('the rewrite clears the deprecation warnings from the error pane', () => {
 	const paths = setup({
 		version: 1,
@@ -536,55 +525,45 @@ test('a space whose profile moves to a new agent profile keeps its session id', 
 		},
 	});
 	const state = testState();
-	const stateDir = getSpaceStateDir('repo', state.stateDir);
-	fs.mkdirSync(stateDir, {recursive: true});
-	const space = (key: string, profile: string | undefined) => {
-		if (profile) {
-			fs.writeFileSync(
-				path.join(stateDir, `${key}.json`),
-				JSON.stringify({
-					profile,
-					agentProfile: {name: 'claude', isClaude: true},
-				}),
-			);
-		}
-
-		fs.writeFileSync(
-			path.join(stateDir, `${key}.agent-sessions.json`),
-			JSON.stringify({claude: {session_id: `${key}-id`, pid: 1}}),
-		);
-		return () =>
-			JSON.parse(
-				fs.readFileSync(
-					path.join(stateDir, `${key}.agent-sessions.json`),
-					'utf8',
-				),
-			) as Record<string, {session_id: string}>;
+	const {agentSessions, spaceState} = state.daos;
+	const space = async (key: string, profile: string | undefined) => {
+		if (profile)
+			await spaceState.write(key, {
+				profile,
+				agentProfile: {name: 'claude', isClaude: true},
+			});
+		recordAgentSessions(stateDbPath(state.stateDir), 'repo', key, {
+			claude: `${key}-id`,
+		});
+		return () => {
+			const lookup = agentSessions.sessions(key);
+			return lookup.kind === 'sessions' ? lookup.sessions : {};
+		};
 	};
 
-	const alpha = space('A-1', 'alpha');
-	const beta = space('B-1', 'beta');
-	const unknown = space('U-1', undefined);
-	const main = space('main', undefined);
+	const alpha = await space('A-1', 'alpha');
+	const beta = await space('B-1', 'beta');
+	const unknown = await space('U-1', undefined);
+	const main = await space('main', undefined);
 
 	expect(
 		await confirmConfigMigrations(
 			readyMigrations(paths),
-			state.daos.agentSessions,
-			state.daos.spaceState,
+			agentSessions,
+			spaceState,
 			paths,
 		),
 	).toStrictEqual({kind: 'rewritten'});
 	expect(Object.keys(alpha())).toStrictEqual(['alpha-claude']);
-	expect(alpha()['alpha-claude']?.session_id).toBe('A-1-id');
+	expect(alpha()['alpha-claude']).toBe('A-1-id');
 	expect(Object.keys(beta())).toStrictEqual(['claude']);
 	expect(Object.keys(unknown())).toStrictEqual(['claude']);
 	expect(Object.keys(main())).toStrictEqual(['claude']);
-	expect(state.daos.spaceState.read('A-1')?.agentProfile).toStrictEqual({
+	expect(spaceState.read('A-1')?.agentProfile).toStrictEqual({
 		name: 'alpha-claude',
 		isClaude: true,
 	});
-	expect(state.daos.spaceState.read('B-1')?.agentProfile?.name).toBe('claude');
+	expect(spaceState.read('B-1')?.agentProfile?.name).toBe('claude');
 });
 
 test('confirming keeps edits made while the dialog was open', async () => {

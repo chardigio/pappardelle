@@ -37,11 +37,7 @@ import {createStateDaos} from ${JSON.stringify(daosUrl)};
 import {newSpaceIdentity} from ${JSON.stringify(new URL('space-identity.ts', import.meta.url).href)};
 import {tearDownSpace} from ${JSON.stringify(utilsUrl)};
 import {QaSimulatorCleanup} from ${JSON.stringify(simulatorUrl)};
-const daos = createStateDaos({
-  repo: 'fixture',
-  stateDir: process.env.CLOSE_STATE_DIR,
-  sqlite: process.env.PAPPARDELLE_SQLITE_STATE === '1',
-});
+const daos = createStateDaos({repo: 'fixture', stateDir: process.env.CLOSE_STATE_DIR});
 const {registry} = daos;
 initTmuxState(daos);
 for (const key of ['A', 'B'])

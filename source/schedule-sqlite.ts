@@ -1,21 +1,9 @@
-// Scheduled jobs and queued messages as rows, with each one's file kept
-// beside it.
-//
-// A timer service fires a job from a process of its own, which may be an
-// older binary or one started without the flag, so every read looks at the
-// job's file first and takes the file's word when it changed.
+// Scheduled jobs and queued messages as rows.
 
 import {isDeepStrictEqual} from 'node:util';
 import {createLogger} from './logger.ts';
-import {
-	parseJob,
-	renderJob,
-	type Job,
-	type JsonScheduleDao,
-	type ScheduleDao,
-	type SendOutcome,
-} from './schedule.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
+import type {Job, ScheduleDao, SendOutcome} from './schedule.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
 
 const log = createLogger('schedule');
 
@@ -69,32 +57,21 @@ export class SqliteScheduleDao implements ScheduleDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		private readonly json: JsonScheduleDao,
 	) {}
 
 	async save(job: Job): Promise<void> {
-		const mirror = this.jobMirror(job.id);
-		await this.openDb().write(tx => {
-			tx.sync(mirror);
+		await this.openDb().write(() => {
 			if (isDeepStrictEqual(this.row(job.id), job)) return;
 			this.put(job);
-			tx.mirror(mirror.file, renderJob(job));
 		});
 	}
 
 	load(id: string): Job | null {
-		return this.reads.or(null, () => {
-			this.openDb().sync(this.jobMirror(id));
-			return this.row(id);
-		});
+		return this.reads.or(null, () => this.row(id));
 	}
 
 	list(): Job[] {
 		return this.reads.or([], () => {
-			// A process without the database leaves a job file with no row yet,
-			// and removes one without touching its row.
-			for (const id of new Set([...this.json.ids(), ...this.storedIds()]))
-				this.openDb().sync(this.jobMirror(id));
 			return this.openDb()
 				.db.query<JobRow, [string]>(
 					`SELECT ${JOB_COLUMNS} FROM schedules WHERE repo = ? ORDER BY id`,
@@ -105,24 +82,19 @@ export class SqliteScheduleDao implements ScheduleDao {
 	}
 
 	async delete(id: string): Promise<void> {
-		const mirror = this.jobMirror(id);
-		await this.openDb().write(tx => {
+		await this.openDb().write(() => {
 			this.deleteRow(id);
-			tx.mirror(mirror.file, null);
 		});
 	}
 
 	async queue(key: string, text: string): Promise<void> {
-		const mirror = this.queueMirror(key);
-		await this.openDb().write(tx => {
+		await this.openDb().write(() => {
 			this.putQueued(key, text);
-			tx.mirror(mirror.file, text);
 		});
 	}
 
 	queued(key: string): string | null {
 		return this.reads.or(null, () => {
-			this.openDb().sync(this.queueMirror(key));
 			return (
 				this.openDb()
 					.db.query<
@@ -135,34 +107,9 @@ export class SqliteScheduleDao implements ScheduleDao {
 	}
 
 	async clearQueued(key: string): Promise<void> {
-		const mirror = this.queueMirror(key);
-		await this.openDb().write(tx => {
+		await this.openDb().write(() => {
 			this.deleteQueued(key);
-			tx.mirror(mirror.file, null);
 		});
-	}
-
-	private jobMirror(id: string): JsonMirror {
-		return {
-			file: this.json.jobFile(id),
-			importRows: content => {
-				// A finished or cancelled job's file is removed, so its row goes
-				// with it.
-				if (content === null) this.deleteRow(id);
-				else this.put(parseJob(content));
-			},
-		};
-	}
-
-	private queueMirror(key: string): JsonMirror {
-		return {
-			file: this.json.queueFile(key),
-			importRows: content => {
-				// The file is removed once its message is sent.
-				if (content === null) this.deleteQueued(key);
-				else this.putQueued(key, content);
-			},
-		};
 	}
 
 	private row(id: string): Job | null {
@@ -175,16 +122,8 @@ export class SqliteScheduleDao implements ScheduleDao {
 		return row ? toJob(row) : null;
 	}
 
-	private storedIds(): string[] {
-		return this.openDb()
-			.db.query<{id: string}, [string]>(
-				'SELECT id FROM schedules WHERE repo = ?',
-			)
-			.all(this.repo)
-			.map(row => row.id);
-	}
-
-	private put(job: Job): void {
+	/** For a caller inside a write transaction. */
+	put(job: Job): void {
 		const oneShot = job.kind === 'keep_going' ? null : job;
 		const keepGoing = job.kind === 'keep_going' ? job : null;
 		this.openDb()
@@ -209,13 +148,15 @@ export class SqliteScheduleDao implements ScheduleDao {
 			);
 	}
 
-	private deleteRow(id: string): void {
+	/** For a caller inside a write transaction. */
+	deleteRow(id: string): void {
 		this.openDb()
 			.db.query('DELETE FROM schedules WHERE repo = ? AND id = ?')
 			.run(this.repo, id);
 	}
 
-	private putQueued(key: string, text: string): void {
+	/** For a caller inside a write transaction. */
+	putQueued(key: string, text: string): void {
 		this.openDb()
 			.db.query(
 				`INSERT OR REPLACE INTO queued_messages (repo, key, text)
@@ -224,7 +165,8 @@ export class SqliteScheduleDao implements ScheduleDao {
 			.run(this.repo, key, text);
 	}
 
-	private deleteQueued(key: string): void {
+	/** For a caller inside a write transaction. */
+	deleteQueued(key: string): void {
 		this.openDb()
 			.db.query('DELETE FROM queued_messages WHERE repo = ? AND key = ?')
 			.run(this.repo, key);

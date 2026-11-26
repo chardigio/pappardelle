@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import {test, expect} from 'bun:test';
 import {trackerIssue} from '../test/helpers/space-fixtures.ts';
 import {testConfig} from '../test/helpers/config-fixtures.ts';
@@ -29,9 +28,6 @@ test('the rail emoji honors saved profiles and backfills without dropping other 
 	expect(spaceState.read('STA-2')?.profile).toBe('b');
 	expect(spaceState.read('STA-2')?.unresolvedCommentCount).toBe(3);
 	expect(resolveSpaceEmoji({...args, issueKey: undefined})).toBe('');
-	// A state file that cannot be read is a space with no saved profile.
-	fs.writeFileSync(spaceState.file('STA-3'), '{');
-	expect(resolveSpaceEmoji({...args, issueKey: 'STA-3'})).toBe('🅱️');
 });
 
 // ============================================================================
@@ -131,13 +127,12 @@ test('after backfill, subsequent calls resolve emoji without needing the cached 
 });
 
 test('does not re-write space-state when profile is already persisted', async () => {
-	const {spaceState} = testState().daos;
+	let seconds = 0;
+	const {spaceState} = testState({
+		clock: () => new Date(Date.UTC(2026, 0, 1, 0, 0, seconds++)),
+	}).daos;
 	await spaceState.write('STA-3', {profile: 'pappardelle'});
-	const filePath = spaceState.file('STA-3');
-	const mtimeBefore = fs.statSync(filePath).mtimeMs;
-	await new Promise<void>(resolve => {
-		setTimeout(resolve, 10);
-	});
+	const before = spaceState.read('STA-3');
 	const config = testConfig({
 		profiles: {pappardelle: {display_name: 'P', emoji: '🍝'}},
 	});
@@ -147,7 +142,11 @@ test('does not re-write space-state when profile is already persisted', async ()
 		issueKey: 'STA-3',
 		cachedIssue: trackerIssue({project: {name: 'Some Other Project'}}),
 	});
-	expect(fs.statSync(filePath).mtimeMs).toBe(mtimeBefore);
+	// A backfill is written without being awaited.
+	await new Promise<void>(resolve => {
+		setTimeout(resolve, 50);
+	});
+	expect(spaceState.read('STA-3')).toStrictEqual(before);
 });
 
 test('does not persist when cached-issue project does not match any profile', () => {

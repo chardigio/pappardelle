@@ -31,26 +31,6 @@ post_comment = mod.post_comment
 
 
 class TestGetIssueKey:
-    @pytest.fixture(autouse=True)
-    def _flag_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Without the database the key is read from the worktree's path."""
-        monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
-
-    def test_extracts_from_worktree_path(self):
-        with patch("os.getcwd", return_value="/Users/x/.worktrees/repo/STA-123/src"):
-            assert get_issue_key() == "STA-123"
-
-    def test_returns_none_for_no_issue(self):
-        with patch("os.getcwd", return_value="/Users/x/projects/my-repo"):
-            assert get_issue_key() is None
-
-    def test_returns_none_when_getcwd_raises_oserror(self):
-        """Should return None when os.getcwd() raises (deleted worktree)."""
-        with patch("os.getcwd", side_effect=FileNotFoundError):
-            assert get_issue_key() is None
-
-
-class TestGetIssueKeyFromTheStore:
     def test_the_key_is_the_stored_space_holding_the_cwd(self, state_db: Path, tmp_path: Path):
         worktree = tmp_path / "checkouts" / "login"
         (worktree / "src").mkdir(parents=True)
@@ -67,6 +47,8 @@ class TestGetIssueKeyFromTheStore:
             with patch("os.getcwd", return_value=str(tmp_path / "main")):
                 assert get_issue_key() is None
             with patch("os.getcwd", return_value=str(tmp_path)):
+                assert get_issue_key() is None
+            with patch("os.getcwd", side_effect=FileNotFoundError):
                 assert get_issue_key() is None
 
 

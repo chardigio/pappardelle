@@ -9,7 +9,8 @@ import {
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {sessionNamesFor} from './space-identity.ts';
+import {newSpaceIdentity, sessionNamesFor} from './space-identity.ts';
+import {statusSocket} from './program-status-monitor.ts';
 import {test, expect, beforeAll, afterAll, beforeEach} from 'bun:test';
 import {setTestEnv, teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
@@ -44,20 +45,60 @@ import {
 } from './startup-trace.ts';
 import {
 	testState,
-	testTmuxState,
+	testTmuxSpaces,
 	type TestState,
 } from '../test/helpers/state.ts';
 
 // A new agent session's launch is recorded in the stores.
 const stateTeardowns: Array<() => unknown> = [];
 let derived: TestState;
-beforeAll(() => {
-	// Without the database a space's sessions get the names idow gives them.
-	derived = testTmuxState({
-		cleanup: fn => stateTeardowns.push(fn),
-		repo: getRepoName(),
-		sqlite: false,
-	});
+/** The spaces these tests open, named as idow names them. */
+const SPACES = [
+	'ABSENT-FIXTURE-999999',
+	'TEST-A',
+	'TEST-1',
+	'TEST-AFTER',
+	'TEST-AGAIN',
+	'TEST-B',
+	'TEST-C',
+	'TEST-COLD',
+	'TEST-COMPANION',
+	'TEST-DENIED',
+	'TEST-EDITED',
+	'TEST-EMPTY',
+	'TEST-ENV',
+	'TEST-FAIL',
+	'TEST-FAILED',
+	'TEST-FAST-NAME',
+	'TEST-FIXED',
+	'TEST-INVALID',
+	'TEST-INVALID-NAME',
+	'TEST-KEEP',
+	'TEST-LIVE',
+	'TEST-NEW',
+	'TEST-NEXT',
+	'TEST-RECOVER',
+	'TEST-RELAUNCH',
+	'TEST-RETRY',
+	'TEST-SELECTED',
+	'TEST-SLOW-NAME',
+	'TEST-SOCKET',
+	'TEST-STALE',
+	'TEST-WARM',
+	'TEST-WARM-B',
+];
+beforeAll(async () => {
+	derived = await testTmuxSpaces(getRepoName(), SPACES, fn =>
+		stateTeardowns.push(fn),
+	);
+	await derived.daos.spaceIdentities.record(
+		newSpaceIdentity({
+			repo: getRepoName(),
+			key: 'main',
+			worktreePath: emptyRepository,
+			socket: statusSocket(),
+		}),
+	);
 });
 afterAll(async () => {
 	for (const step of stateTeardowns.reverse()) await step();
@@ -674,7 +715,7 @@ test('warm switches move both viewers in one request without setup probes', asyn
 });
 
 test('a switch and a session start use the names stored for the space', async () => {
-	const stored = testState({repo: getRepoName(), sqlite: true});
+	const stored = testState({repo: getRepoName()});
 	for (const key of ['TEST-A', 'TEST-HAND']) {
 		await stored.daos.spaceIdentities.record({
 			repo: getRepoName(),

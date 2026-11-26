@@ -18,7 +18,7 @@ const autoCheckpointPages = (dbPath: string) =>
 		.get()?.wal_autocheckpoint;
 
 test('deferring checkpoints waits for a store to open the database, then applies to that connection', async () => {
-	const state = testState({sqlite: true});
+	const state = testState();
 	const dbPath = stateDbPath(state.stateDir);
 
 	state.daos.deferCheckpoints();
@@ -29,16 +29,9 @@ test('deferring checkpoints waits for a store to open the database, then applies
 });
 
 test('stores that were not asked to defer checkpoints keep SQLite’s own', async () => {
-	const state = testState({sqlite: true});
+	const state = testState();
 	await state.daos.prLinkStamp.touch();
 	expect(autoCheckpointPages(stateDbPath(state.stateDir))).toBe(1000);
-});
-
-test('deferring checkpoints with the file-backed stores never creates a database', async () => {
-	const state = testState({sqlite: false});
-	state.daos.deferCheckpoints();
-	await state.daos.prLinkStamp.touch();
-	expect(fs.existsSync(stateDbPath(state.stateDir))).toBe(false);
 });
 
 // A CLI verb reads what a running daemon holds. Only the process that renders
@@ -49,7 +42,7 @@ test('the stores start no status daemon until they are told this process may', a
 	const stateDir = path.dirname(socketPath);
 	const home = process.env['HOME'];
 	process.env['HOME'] = stateDir;
-	const daos = createStateDaos({repo: 'repo', stateDir, sqlite: true});
+	const daos = createStateDaos({repo: 'repo', stateDir});
 	const daemons = () => processesNaming('status-daemon-cli', socketPath);
 	teardown(() => {
 		process.env['HOME'] = home;
@@ -70,19 +63,4 @@ test('the stores start no status daemon until they are told this process may', a
 		what: 'the daemon to be started',
 		timeoutMs: 30_000,
 	});
-});
-
-test('with the file-backed stores, allowing a status daemon starts none', async () => {
-	const socketPath = testSocketPath();
-	const stateDir = path.dirname(socketPath);
-	const daos = createStateDaos({repo: 'repo', stateDir, sqlite: false});
-
-	daos.allowStatusDaemonStart();
-	expect(await daos.claudeStatus.readState('repo-STA-1')).toStrictEqual({
-		kind: 'none',
-	});
-	await daos.programStatus.remove('STA-1');
-
-	expect(fs.existsSync(socketPath)).toBe(false);
-	expect(processesNaming(socketPath)).toStrictEqual([]);
 });

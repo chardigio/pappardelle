@@ -19,9 +19,9 @@ export type OscStartDeps = {
  * Whether the Claude hook record has the space's agent as started since `since`.
  * Only a running agent fires hooks, and the record keeps just the latest
  * event, so any event but SessionEnd counts: a later one can replace
- * SessionStart before the next poll. Status files are named by issue key
- * alone, so the cwd tells this repo's space apart from another repo's with
- * the same key.
+ * SessionStart before the next poll. An agent started before status keys
+ * were qualified by repo reports under the issue key alone, so the cwd tells
+ * this repo's space apart from another repo's with the same key.
  */
 async function claudeHookStarted(
 	claudeStatus: StatusReader,

@@ -6,8 +6,12 @@ import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {contractTest} from '../test/helpers/dao-contract.ts';
-import {testState, type TestState} from '../test/helpers/state.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
+import {
+	recordAgentSessions,
+	testState,
+	type TestState,
+} from '../test/helpers/state.ts';
 import {newSpaceIdentity} from './space-identity.ts';
 import {openStateDb, stateDbPath} from './state-db.ts';
 
@@ -21,23 +25,37 @@ const STARTED = 'Mon Nov  2 10:00:00 2026';
 type Entry = {session_id: string; pid: number; started: string | null};
 
 function fixture(state: TestState) {
-	const {agentSessions} = state.daos;
+	const {db} = openStateDb(stateDbPath(state.stateDir));
 	return {
-		dao: agentSessions,
-		file: (key: string) => agentSessions.file(key),
-		/** A file as a hook without the database leaves it. */
+		dao: state.daos.agentSessions,
+		/** A space's sessions as the hook writes them, which no store method does. */
 		record(key: string, sessions: Record<string, Entry>) {
-			fs.mkdirSync(path.dirname(agentSessions.file(key)), {recursive: true});
-			fs.writeFileSync(
-				agentSessions.file(key),
-				JSON.stringify(sessions, null, 2) + '\n',
+			recordAgentSessions(
+				stateDbPath(state.stateDir),
+				'repo',
+				key,
+				Object.fromEntries(
+					Object.entries(sessions).map(([name, session]) => [
+						name,
+						{
+							sessionId: session.session_id,
+							pid: session.pid,
+							started: session.started,
+						},
+					]),
+				),
 			);
 		},
 		recorded: (key: string) =>
-			JSON.parse(fs.readFileSync(agentSessions.file(key), 'utf8')) as Record<
-				string,
-				Entry
-			>,
+			Object.fromEntries(
+				db
+					.query<{agent_profile: string} & Entry, [string]>(
+						`SELECT agent_profile, session_id, pid, started FROM agent_sessions
+						WHERE repo = 'repo' AND key = ? ORDER BY rowid`,
+					)
+					.all(key)
+					.map(({agent_profile, ...session}) => [agent_profile, session]),
+			),
 	};
 }
 
@@ -47,22 +65,7 @@ const entry = (id: string, started: string | null = STARTED): Entry => ({
 	started,
 });
 
-contractTest(
-	"a space's file is in the space-state directory, where the hook writes it",
-	state => {
-		expect(state.daos.agentSessions.file('STA-1')).toBe(
-			path.join(
-				state.stateDir,
-				'repos',
-				'repo',
-				'space-state',
-				'STA-1.agent-sessions.json',
-			),
-		);
-	},
-);
-
-contractTest(
+storeTest(
 	'a session id is read back under the agent profile that recorded it',
 	state => {
 		const f = fixture(state);
@@ -75,7 +78,7 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'the agent running in a space is the one that started last',
 	state => {
 		const f = fixture(state);
@@ -90,15 +93,7 @@ contractTest(
 	},
 );
 
-contractTest('a file that is not a set of sessions records nothing', state => {
-	const f = fixture(state);
-	fs.mkdirSync(path.dirname(f.file('STA-1')), {recursive: true});
-	fs.writeFileSync(f.file('STA-1'), '{"claude": {"session_id": "a"');
-	expect(f.dao.read('STA-1', 'claude')).toBe(undefined);
-	expect(f.dao.latestProfile('STA-1')).toBe(undefined);
-});
-
-contractTest(
+storeTest(
 	'a hook write made after an earlier read is the one read next',
 	state => {
 		const f = fixture(state);
@@ -110,7 +105,7 @@ contractTest(
 	},
 );
 
-contractTest("a space's sessions are listed by agent profile", state => {
+storeTest("a space's sessions are listed by agent profile", state => {
 	const f = fixture(state);
 	expect(f.dao.sessions('STA-1')).toStrictEqual({
 		kind: 'sessions',
@@ -124,22 +119,18 @@ contractTest("a space's sessions are listed by agent profile", state => {
 	});
 });
 
-contractTest('the spaces with sessions are listed', state => {
+storeTest('the spaces with sessions are listed', async state => {
 	const f = fixture(state);
 	expect(f.dao.keys()).toStrictEqual([]);
 	f.record('STA-1', {claude: entry('a')});
 	f.record('main', {claude: entry('b')});
-	// The space-state file of a space sits in the same directory.
-	fs.writeFileSync(
-		path.join(path.dirname(f.file('STA-1')), 'STA-3.json'),
-		JSON.stringify({profile: 'dev'}),
-	);
+	await state.daos.spaceState.write('STA-3', {profile: 'dev'});
 	expect(f.dao.keys().sort()).toStrictEqual(['STA-1', 'main']);
-	fs.rmSync(f.file('STA-1'));
+	await f.dao.clear('STA-1');
 	expect(f.dao.keys()).toStrictEqual(['main']);
 });
 
-contractTest(
+storeTest(
 	'renaming a profile moves its session and keeps the others in place',
 	async state => {
 		const f = fixture(state);
@@ -164,23 +155,21 @@ contractTest(
 	},
 );
 
-contractTest(
+storeTest(
 	'a rename changes nothing when the old name has no session or the new one has its own',
 	async state => {
 		const f = fixture(state);
 		f.record('STA-1', {claude: entry('a'), codex: entry('b')});
-		const before = fs.readFileSync(f.file('STA-1'), 'utf8');
+		const before = f.recorded('STA-1');
 		await f.dao.renameProfile('STA-1', 'pi', 'pi-fast');
 		await f.dao.renameProfile('STA-1', 'claude', 'codex');
 		await f.dao.renameProfile('STA-2', 'claude', 'alpha-claude');
-		expect(fs.readFileSync(f.file('STA-1'), 'utf8')).toBe(before);
-		expect(fs.existsSync(f.file('STA-2'))).toBe(false);
-		expect(f.dao.read('STA-1', 'claude')).toBe('a');
-		expect(f.dao.read('STA-1', 'codex')).toBe('b');
+		expect(f.recorded('STA-1')).toStrictEqual(before);
+		expect(f.recorded('STA-2')).toStrictEqual({});
 	},
 );
 
-contractTest(
+storeTest(
 	'clearing a space forgets its sessions and leaves other spaces alone',
 	async state => {
 		const f = fixture(state);
@@ -188,51 +177,21 @@ contractTest(
 		f.record('STA-2', {claude: entry('b')});
 		expect(f.dao.read('STA-1', 'claude')).toBe('a');
 		await f.dao.clear('STA-1');
-		expect(f.dao.read('STA-1', 'claude')).toBe(undefined);
-		expect(fs.existsSync(f.file('STA-1'))).toBe(false);
+		expect(f.recorded('STA-1')).toStrictEqual({});
 		expect(f.dao.read('STA-2', 'claude')).toBe('b');
 		await f.dao.clear('STA-9');
 	},
 );
 
-test('the two stores leave the same files for the same history', async () => {
-	const files = [];
-	for (const sqlite of [false, true]) {
-		const f = fixture(testState({sqlite}));
-		f.record('STA-1', {
-			claude: entry('a'),
-			codex: entry('b', null),
-		});
-		f.record('STA-2', {claude: entry('c')});
-		await f.dao.renameProfile('STA-1', 'claude', 'alpha-claude');
-		await f.dao.renameProfile('STA-1', 'codex', 'codex-high');
-		await f.dao.clear('STA-2');
-		files.push({
-			one: fs.readFileSync(f.file('STA-1'), 'utf8'),
-			two: fs.existsSync(f.file('STA-2')),
-		});
-	}
-
-	expect(files[0]).toStrictEqual(files[1]);
-	expect(JSON.parse(files[0]!.one)).toStrictEqual({
-		'alpha-claude': entry('a'),
-		'codex-high': entry('b', null),
-	});
-	expect(files[0]!.two).toBe(false);
-});
-
-// The hook and a config migration both rewrite the whole file. Without the
-// database either could write back what it read before the other's change.
-test('sqlite: a session recorded by the hook and a profile renamed by another process both survive', async () => {
+// The hook and a config migration both change a space's sessions. Either
+// could write back what it read before the other's change.
+test('a session recorded by the hook and a profile renamed by another process both survive', async () => {
 	// The hook finds the files under its home directory.
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), 'papp-hook-home-'));
 	teardown(() => {
 		fs.rmSync(home, {recursive: true, force: true});
 	});
-	const state = testState({
-		sqlite: true,
-		stateDir: path.join(home, '.pappardelle'),
-	});
+	const state = testState({stateDir: path.join(home, '.pappardelle')});
 	const f = fixture(state);
 	const dbPath = stateDbPath(state.stateDir);
 	// The hook only writes to a database that Pappardelle has already created.
@@ -291,7 +250,6 @@ for key in sys.argv[2:]:
 				// to /tmp instead of the run tmpdir.
 				TMPDIR: os.tmpdir(),
 				HOME: home,
-				PAPPARDELLE_SQLITE_STATE: '1',
 				PAPPARDELLE_STATE_DB: dbPath,
 			},
 		},
@@ -316,7 +274,6 @@ for key in sys.argv[2:]:
 		).toStrictEqual({'alpha-claude': `${key}-claude`, codex: `${key}-codex`});
 	}
 
-	// Each hook write went through the database: nothing was left to import.
 	expect(
 		openStateDb(dbPath)
 			.db.query<
@@ -325,6 +282,7 @@ for key in sys.argv[2:]:
 			>(`SELECT COUNT(*) AS rows FROM agent_sessions WHERE repo = 'repo'`)
 			.get()!.rows,
 	).toBe(keys.length * 2);
+	// The hook logs each write it could not make there.
 	expect(
 		fs.existsSync(path.join(state.stateDir, 'logs', 'hook-events.log')),
 	).toBe(false);

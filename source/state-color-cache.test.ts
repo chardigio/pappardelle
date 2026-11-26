@@ -1,18 +1,9 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import {test, expect} from 'bun:test';
-import {contractTest} from '../test/helpers/dao-contract.ts';
-import {testState, type TestState} from '../test/helpers/state.ts';
-import {
-	StateColorCache,
-	getStateColorsPath,
-} from './providers/state-color-cache.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
+import {testState} from '../test/helpers/state.ts';
+import {StateColorCache} from './providers/state-color-cache.ts';
 import {createStateDaos} from './state-daos.ts';
-
-const colorsFile = (s: TestState) => getStateColorsPath('repo', s.stateDir);
-
-const readFile = (file: string) =>
-	JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+import {openStateDb, stateDbPath} from './state-db.ts';
 
 test('get returns null for unknown state', () => {
 	const cache = new StateColorCache();
@@ -25,150 +16,53 @@ test('update stores color in memory', () => {
 	expect(cache.get('Done')).toBe('#74d09f');
 });
 
-// ============================================================================
-// What every color store does, whichever way it is stored
-// ============================================================================
-
-contractTest('update persists to disk', s => {
-	expect(colorsFile(s)).toBe(
-		path.join(s.stateDir, 'repos', 'repo', 'state-colors.json'),
-	);
-	const cache = new StateColorCache(s.daos.stateColors);
-	cache.update('In Progress', '#f2c94c');
-	expect(readFile(colorsFile(s))).toStrictEqual({'In Progress': '#f2c94c'});
-});
-
-contractTest('a new cache loads the colors an earlier one stored', s => {
+storeTest('a new cache loads the colors an earlier one stored', s => {
 	const first = new StateColorCache(s.daos.stateColors);
 	first.update('Done', '#aaa');
 	first.update('Todo', '#bbb');
+	first.update('Done', '#ddd');
 
 	const second = new StateColorCache(s.daos.stateColors);
-	expect(second.get('Done')).toBe('#aaa');
+	expect(second.get('Done')).toBe('#ddd');
 	expect(second.get('Todo')).toBe('#bbb');
 });
 
-contractTest('a cache loads a file left by another process', s => {
-	fs.writeFileSync(
-		colorsFile(s),
-		JSON.stringify({Done: '#aaa', Todo: '#bbb', Broken: 7}) + '\n',
-	);
-
-	const cache = new StateColorCache(s.daos.stateColors);
-	expect(cache.get('Done')).toBe('#aaa');
-	expect(cache.get('Todo')).toBe('#bbb');
-	expect(cache.get('Broken')).toBe(null);
-});
-
-contractTest('update does not write when color is unchanged', s => {
-	const cache = new StateColorCache(s.daos.stateColors);
-	cache.update('Done', '#74d09f');
-
-	const stat1 = fs.statSync(colorsFile(s), {bigint: true});
-	cache.update('Done', '#74d09f');
-	const stat2 = fs.statSync(colorsFile(s), {bigint: true});
-
-	expect(stat1.mtimeNs).toBe(stat2.mtimeNs);
-	expect(stat1.ino).toBe(stat2.ino);
-});
-
-contractTest(
-	'invalid JSON on disk is ignored, and replaced by the next update',
-	s => {
-		fs.writeFileSync(colorsFile(s), '{{not json');
-
-		const cache = new StateColorCache(s.daos.stateColors);
-		expect(cache.get('Done')).toBe(null);
-		cache.update('Done', '#74d09f');
-		expect(readFile(colorsFile(s))).toStrictEqual({Done: '#74d09f'});
-	},
-);
-
-contractTest('missing file on disk is silently ignored', s => {
+storeTest('a cache with nothing stored knows no colors', s => {
 	const cache = new StateColorCache(s.daos.stateColors);
 	expect(cache.get('Done')).toBe(null);
 });
 
-contractTest('multiple updates accumulate in the persisted file', s => {
-	const cache = new StateColorCache(s.daos.stateColors);
-	cache.update('Done', '#aaa');
-	cache.update('In Progress', '#bbb');
-	cache.update('Todo', '#ccc');
-	cache.update('Done', '#ddd');
-
-	expect(readFile(colorsFile(s))).toStrictEqual({
-		Done: '#ddd',
-		'In Progress': '#bbb',
-		Todo: '#ccc',
-	});
+// Each running Pappardelle remembers the colors it loaded at startup. Two
+// of them learning different colors must not undo each other.
+test('a color update writes its own row and leaves the others', () => {
+	const {daos, stateDir} = testState();
+	const rows = () =>
+		openStateDb(stateDbPath(stateDir))
+			.db.query<
+				{rowid: number; name: string; color: string},
+				[]
+			>("SELECT rowid, name, color FROM state_colors WHERE repo = 'repo' ORDER BY rowid")
+			.all();
+	const first = new StateColorCache(daos.stateColors);
+	const second = new StateColorCache(daos.stateColors);
+	first.update('Done', '#aaa');
+	first.update('Todo', '#bbb');
+	second.update('In Progress', '#ccc');
+	second.update('Done', '#ddd');
+	expect(rows()).toStrictEqual([
+		{rowid: 1, name: 'Done', color: '#ddd'},
+		{rowid: 2, name: 'Todo', color: '#bbb'},
+		{rowid: 3, name: 'In Progress', color: '#ccc'},
+	]);
 });
 
-test('the two stores leave the same file for the same updates', () => {
-	const files = [];
-	for (const sqlite of [false, true]) {
-		const s = testState({sqlite});
-		fs.writeFileSync(colorsFile(s), JSON.stringify({Backlog: '#111'}) + '\n');
-		const cache = new StateColorCache(s.daos.stateColors);
-		cache.update('Done', '#aaa');
-		cache.update('In Progress', '#bbb');
-		cache.update('Backlog', '#222');
-		cache.update('Done', '#ccc');
-		files.push(fs.readFileSync(colorsFile(s), 'utf8'));
-	}
+test('each repo has colors of its own', () => {
+	const {stateDir} = testState();
+	const repoA = createStateDaos({repo: 'repo-a', stateDir});
+	const repoB = createStateDaos({repo: 'repo-b', stateDir});
+	new StateColorCache(repoA.stateColors).update('Done', '#aaa');
+	new StateColorCache(repoB.stateColors).update('Done', '#bbb');
 
-	expect(files[0]).toBe(files[1]);
-	expect(files[0]).toBe(
-		'{"Backlog":"#222","Done":"#ccc","In Progress":"#bbb"}\n',
-	);
+	expect(new StateColorCache(repoA.stateColors).get('Done')).toBe('#aaa');
+	expect(new StateColorCache(repoB.stateColors).get('Done')).toBe('#bbb');
 });
-
-// ============================================================================
-// Repo-namespaced state color cache
-// ============================================================================
-
-for (const sqlite of [false, true]) {
-	const name = sqlite ? 'sqlite' : 'json';
-
-	test(`${name}: each repo has colors of its own`, () => {
-		const {stateDir} = testState({sqlite});
-		const repoA = createStateDaos({repo: 'repo-a', stateDir, sqlite});
-		const repoB = createStateDaos({repo: 'repo-b', stateDir, sqlite});
-		new StateColorCache(repoA.stateColors).update('Done', '#aaa');
-		new StateColorCache(repoB.stateColors).update('Done', '#bbb');
-
-		expect(new StateColorCache(repoA.stateColors).get('Done')).toBe('#aaa');
-		expect(readFile(getStateColorsPath('repo-b', stateDir))).toStrictEqual({
-			Done: '#bbb',
-		});
-	});
-
-	// Before state was kept per repo there was one color file for all of them.
-	test(`${name}: the pre-repo color file moves to the first repo that starts`, () => {
-		const {stateDir} = testState({sqlite});
-		const legacyPath = path.join(stateDir, 'state-colors.json');
-		fs.writeFileSync(
-			legacyPath,
-			JSON.stringify({Done: '#aaa', Todo: '#bbb'}) + '\n',
-		);
-
-		const {stateColors} = createStateDaos({repo: 'my-repo', stateDir, sqlite});
-		const cache = new StateColorCache(stateColors);
-		expect(cache.get('Done')).toBe('#aaa');
-		expect(cache.get('Todo')).toBe('#bbb');
-		expect(fs.existsSync(legacyPath)).toBe(false);
-		expect(fs.existsSync(getStateColorsPath('my-repo', stateDir))).toBe(true);
-	});
-
-	test(`${name}: a repo that already has colors keeps them, and the pre-repo file is dropped`, () => {
-		const {stateDir} = testState({sqlite});
-		const legacyPath = path.join(stateDir, 'state-colors.json');
-		fs.writeFileSync(legacyPath, JSON.stringify({Done: '#old'}) + '\n');
-		const repoPath = getStateColorsPath('my-repo', stateDir);
-		fs.mkdirSync(path.dirname(repoPath), {recursive: true});
-		fs.writeFileSync(repoPath, JSON.stringify({Done: '#new'}) + '\n');
-
-		const {stateColors} = createStateDaos({repo: 'my-repo', stateDir, sqlite});
-		expect(fs.existsSync(legacyPath)).toBe(false);
-		expect(new StateColorCache(stateColors).get('Done')).toBe('#new');
-	});
-}

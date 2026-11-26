@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
-import {testState} from '../test/helpers/state.ts';
+import {recordAgentSessions, testState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {stateDbPath} from './state-db.ts';
 import type {PappardelleConfig} from './config.ts';
 import {
 	formatTurns,
@@ -171,7 +172,8 @@ test('parseTurns extracts agy USER_INPUT and PLANNER_RESPONSE replies and skips 
 function readFixture(issueKey: string, config: PappardelleConfig | null) {
 	const home = tempDir('read-');
 	const worktree = path.join(home, 'wt', issueKey);
-	const {spaceState, agentSessions} = testState({home}).daos;
+	const {daos, stateDir} = testState({home});
+	const {spaceState, agentSessions} = daos;
 	const staleClaude = path.join(
 		claudeProjectDir(worktree, path.join(home, '.claude', 'projects')),
 		'old.jsonl',
@@ -201,7 +203,13 @@ function readFixture(issueKey: string, config: PappardelleConfig | null) {
 		agentProfile: NonNullable<SpaceState['agentProfile']>,
 	) => spaceState.write(issueKey, {agentProfile});
 
-	return {home, agentSessions, run, setProfile};
+	const recordSession = (agentProfile: string, sessionId: string) => {
+		recordAgentSessions(stateDbPath(stateDir), 'repo', issueKey, {
+			[agentProfile]: {sessionId, pid: 10},
+		});
+	};
+
+	return {home, run, setProfile, recordSession};
 }
 
 test('runReadCommand reads agy transcript.jsonl and never falls back to stale Claude logs', async () => {
@@ -220,11 +228,7 @@ test('runReadCommand reads agy transcript.jsonl and never falls back to stale Cl
 		err: ['No conversation log for STA-9'],
 	});
 
-	fs.mkdirSync(path.dirname(f.agentSessions.file('STA-9')), {recursive: true});
-	fs.writeFileSync(
-		f.agentSessions.file('STA-9'),
-		JSON.stringify({argon: {session_id: 'conv-agy-1', pid: 10, started: null}}),
-	);
+	f.recordSession('argon', 'conv-agy-1');
 	expect(await f.run()).toMatchObject({code: 1});
 
 	const agyLog = path.join(

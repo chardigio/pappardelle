@@ -1,3 +1,4 @@
+import {listKnownRepos} from './state-db.ts';
 import {cliFilePath} from './runtime.ts';
 import {homedir} from 'node:os';
 import {
@@ -27,6 +28,8 @@ export type UpdateCommandDeps = {
 	runInstaller: () => number;
 	tmux: OuterTmuxRunner;
 	repoStateRoot: string;
+	/** Every repo with Pappardelle state, whose TUIs may be running. */
+	knownRepos: () => string[];
 	tuiMarker: (repo: string) => Pick<TuiMarkerDao, 'read'>;
 	// Read after the install, which is what creates or rewrites the shim.
 	launchCommand: () => string;
@@ -50,7 +53,7 @@ export async function runUpdateCommand(
 	const status = deps.runInstaller();
 	if (status !== 0) return status;
 
-	const running = listRunningTuis(deps.tmux, deps.repoStateRoot);
+	const running = listRunningTuis(deps.tmux, deps.knownRepos());
 	if (running.length === 0) return 0;
 
 	const shouldRestart =
@@ -94,6 +97,7 @@ export function defaultUpdateCommandDeps(
 		runInstaller: () => runUpdateScript({waitOnFailure: false}),
 		tmux: defaultServerTmuxRunner,
 		repoStateRoot: DEFAULT_REPO_STATE_ROOT,
+		knownRepos: () => listKnownRepos(),
 		tuiMarker: repo => daosFor(repo).tuiMarker,
 		launchCommand: () =>
 			installedLaunchCommand({

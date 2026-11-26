@@ -112,8 +112,7 @@ afterAll(() => {
 tmuxTest(
 	'splits show in framed panes of their own, move between spaces and keep a dragged size',
 	async () => {
-		// Without the database a space's sessions get the names idow gives them.
-		testTmuxState({repo: getRepoName(), sqlite: false});
+		testTmuxState({repo: getRepoName(), spaces: ['KEY-A', 'KEY-B', 'KEY-C']});
 		// The repo that holds this test can set companion_width in its own
 		// .pappardelle.yml (the monorepo sets 20). A pane that narrow cuts the
 		// split titles, so the test uses the built-in widths.

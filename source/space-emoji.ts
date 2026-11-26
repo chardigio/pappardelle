@@ -1,10 +1,10 @@
 // Resolves the emoji to render in the ticket rail for a single space.
 //
-// Single source of truth: the profile name persisted in the per-space state
-// file (`~/.pappardelle/repos/{repo}/space-state/{ISSUE-KEY}.json`).
+// Single source of truth: the profile name stored in the space's state in the
+// state database.
 //
-// Two callers write to that file — both at the moment a space is first added
-// to the ticket rail:
+// Two callers write it, both at the moment a space is first added to the
+// ticket rail:
 //
 //   1. `idow` writes the user's selected profile during workspace creation
 //      (fast path; emoji is correct on first paint).
@@ -14,7 +14,7 @@
 //      configured profile. Covers spaces created before STA-930 and any
 //      space added through means other than `idow`.
 //
-// Once persisted, every render reads from the same file — no second
+// Once persisted, every render reads the same stored value, with no second
 // resolution path at render time.
 import {
 	type PappardelleConfig,

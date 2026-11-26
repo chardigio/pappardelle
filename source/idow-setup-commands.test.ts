@@ -1,12 +1,10 @@
 /* eslint-disable no-template-curly-in-string -- These are idow shell templates. */
-import {Database} from 'bun:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
-import {teardown} from '../test/helpers/teardown.ts';
 import {rejectionOf} from '../test/helpers/thrown.ts';
 import {parse, stringify} from 'yaml';
-import {sqliteRun} from '../test/helpers/state.ts';
+import {idowState} from '../test/helpers/idow-state.ts';
 import {setup, writeScript} from '../test/helpers/idow-fixture.ts';
 
 test('setup merges config once and does not resolve the terminal', async () => {
@@ -46,31 +44,18 @@ test('newly created issues launch fresh; existing keys keep conversation resume'
 // of the new issue must not resume the old one's conversation.
 test('a new issue drops the sessions recorded under its key; an existing one keeps them', async () => {
 	const fixture = setup();
-	const stateDir = path.join(fixture.home, '.pappardelle');
-	const sessionsPath = path.join(
-		stateDir,
-		'repos/main checkout/space-state/test-abc.agent-sessions.json',
-	);
+	const state = idowState(fixture);
 	const record = () => {
-		fs.mkdirSync(path.dirname(sessionsPath), {recursive: true});
-		fs.writeFileSync(
-			sessionsPath,
-			JSON.stringify({claude: {session_id: 'earlier', pid: 1, started: null}}),
-		);
+		state.recordSessions('test-abc', {claude: 'earlier'});
 	};
 
 	record();
 	await fixture.run({input: 'Make workspace startup faster'});
-	expect(fs.existsSync(sessionsPath)).toBe(false);
-	if (sqliteRun) {
-		const db = new Database(path.join(stateDir, 'state.db'), {readonly: true});
-		expect(db.query('SELECT * FROM agent_sessions').all()).toStrictEqual([]);
-		db.close();
-	}
+	expect(state.daos.agentSessions.keys()).toStrictEqual([]);
 
 	record();
 	await fixture.run();
-	expect(fs.existsSync(sessionsPath)).toBe(true);
+	expect(state.daos.agentSessions.read('test-abc', 'claude')).toBe('earlier');
 });
 
 // Resume mode reopens a space: if the agent has nothing to resume it starts
@@ -111,11 +96,9 @@ test('a bad claude config fails before the issue is created', async () => {
 		stringify({claude: {extra_args: '--verbose'}}),
 	);
 	await rejectionOf(fixture.run({input: 'Make workspace startup faster'}));
-	expect(
-		fs.existsSync(
-			path.join(fixture.home, '.pappardelle', 'repos', 'main checkout'),
-		),
-	).toBe(false);
+	const {daos} = idowState(fixture);
+	expect(daos.issueMeta.read('test-abc')).toBe(null);
+	expect(daos.spaceState.read('test-abc')).toBe(null);
 });
 
 test('batched commands preserve order, multiline strings and command stdin', async () => {
@@ -486,18 +469,24 @@ test('idow run by hand stops before starting sessions when the space cannot be r
 	expect(fs.existsSync(fixture.launchArgs)).toBe(false);
 });
 
-// idow used to write both files itself. They now come from the same writer
-// as the TUI's, in whichever mode the run is in.
+// What a post_workspace_init command can see is what the database holds then.
+const readMetaScript = `import json, sqlite3, sys
+db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+row = db.execute("SELECT created_by_pappardelle, created_at FROM issue_meta WHERE key = 'test-abc'").fetchone()
+print(json.dumps(row))
+`;
+
 test('a new issue is recorded as created by Pappardelle, with its profile, before post_workspace_init', async () => {
 	const fixture = setup();
-	const stateDir = path.join(fixture.home, '.pappardelle');
-	const repoState = path.join(stateDir, 'repos/main checkout');
+	const state = idowState(fixture);
+	const script = path.join(fixture.home, 'read-meta.py');
+	fs.writeFileSync(script, readMetaScript);
 	fs.appendFileSync(
 		path.join(fixture.main, '.pappardelle.local.yml'),
 		stringify({
 			post_workspace_init: [
 				{
-					run: `cp ${JSON.stringify(path.join(repoState, 'issue-meta/test-abc.json'))} "$WORKTREE_PATH/meta-during-init.json"`,
+					run: `python3 ${JSON.stringify(script)} ${JSON.stringify(state.dbPath)} > "$WORKTREE_PATH/meta-during-init.json"`,
 				},
 			],
 		}),
@@ -505,59 +494,26 @@ test('a new issue is recorded as created by Pappardelle, with its profile, befor
 	const before = Date.now();
 	await fixture.run({input: 'Make workspace startup faster'});
 
-	const meta = JSON.parse(
+	const [createdByPappardelle, createdAt] = JSON.parse(
 		fs.readFileSync(
 			path.join(fixture.workspace, 'meta-during-init.json'),
 			'utf8',
 		),
-	) as {created_by_pappardelle: boolean; created_at: string};
-	expect(Object.keys(meta)).toStrictEqual([
-		'created_by_pappardelle',
-		'created_at',
-	]);
-	expect(meta.created_by_pappardelle).toBe(true);
-	expect(meta.created_at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
-	expect(Date.parse(meta.created_at) >= before - 1000).toBe(true);
-	const state = JSON.parse(
-		fs.readFileSync(path.join(repoState, 'space-state/test-abc.json'), 'utf8'),
-	) as {profile: string; updatedAt: string};
-	expect(state.profile).toBe('dev');
-	expect(Date.parse(state.updatedAt) >= before).toBe(true);
-
-	const dbPath = path.join(stateDir, 'state.db');
-	if (!sqliteRun) {
-		expect(fs.existsSync(dbPath)).toBe(false);
-		return;
-	}
-
-	const db = new Database(dbPath, {readonly: true});
-	teardown(() => {
-		db.close();
+	) as [number, string];
+	expect(createdByPappardelle).toBe(1);
+	expect(createdAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+	expect(Date.parse(createdAt) >= before - 1000).toBe(true);
+	expect(state.daos.issueMeta.read('test-abc')).toStrictEqual({
+		createdByPappardelle: true,
+		createdAt,
 	});
-	expect(
-		db
-			.query(
-				`SELECT s.repo, s.key, s.profile, m.created_by_pappardelle, m.created_at
-				FROM space_state s JOIN issue_meta m USING (repo, key)`,
-			)
-			.all(),
-	).toStrictEqual([
-		{
-			repo: 'main checkout',
-			key: 'test-abc',
-			profile: 'dev',
-			created_by_pappardelle: 1,
-			created_at: meta.created_at,
-		},
-	]);
+	const space = state.daos.spaceState.read('test-abc');
+	expect(space?.profile).toBe('dev');
+	expect(Date.parse(space?.updatedAt ?? '') >= before).toBe(true);
 });
 
 test('an existing issue is not recorded as created by Pappardelle', async () => {
 	const fixture = setup();
 	await fixture.run();
-	expect(
-		fs.existsSync(
-			path.join(fixture.home, '.pappardelle/repos/main checkout/issue-meta'),
-		),
-	).toBe(false);
+	expect(idowState(fixture).daos.issueMeta.read('test-abc')).toBe(null);
 });

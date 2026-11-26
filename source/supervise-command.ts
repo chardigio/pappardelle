@@ -95,7 +95,7 @@ export type SuperviseDeps = {
 	repo: () => string;
 	identities: Pick<SpaceIdentityDao, 'list' | 'get'>;
 	resolveKey: (raw: string) => string;
-	/** The hook file's key for a space: `{repo}-{branch}` for main. */
+	/** The hook's status key for a space: `{repo}-{branch}` for main. */
 	hookKey: (key: string) => Promise<string>;
 	readHook: AgentStateDeps['readHook'];
 	/** The whole record the hook last wrote, with the prompt's file and cwd. */
@@ -110,7 +110,7 @@ export type SuperviseDeps = {
 	serverRunner: OuterTmuxRunner;
 	now: () => Date;
 	sleep: (ms: number) => Promise<void>;
-	/** Resolves early when a status file changes, else after `ms`. */
+	/** Resolves early when a reported status changes, else after `ms`. */
 	waitForStatusChange: (ms: number) => Promise<void>;
 	send: (key: string, text: string) => Promise<SendOutcome>;
 	sendKeys: (
@@ -306,8 +306,8 @@ async function waitFor(
 
 	let report = first;
 	while (deps.now().getTime() < deadline) {
-		// The screen-only states (a usage limit, a draft) change no status file,
-		// so the screen is read again at least this often.
+		// The screen-only states (a usage limit, a draft) change no reported
+		// status, so the screen is read again at least this often.
 		await deps.waitForStatusChange(
 			Math.min(SCREEN_POLL_MS, deadline - deps.now().getTime()),
 		);
@@ -441,7 +441,8 @@ async function watchSpaces(
 		// A space that leaves a target state and comes back, say to a second
 		// prompt, is news even though it ends where it started.
 		baseline = {...baseline, ...snapshot(reports)};
-		// The screen-only states (a usage limit, a draft) change no status file.
+		// The screen-only states (a usage limit, a draft) change no reported
+		// status.
 		await deps.waitForStatusChange(Math.min(SCREEN_POLL_MS, left));
 		reports = await read();
 	}

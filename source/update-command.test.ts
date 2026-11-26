@@ -50,6 +50,7 @@ function harness(
 			runInstaller: () => options.installerStatus ?? 0,
 			tmux,
 			repoStateRoot,
+			knownRepos: () => options.repos ?? [],
 			tuiMarker,
 			launchCommand: () => SHIM,
 			timing: FAST,
@@ -83,7 +84,7 @@ test('a failed install returns its status and leaves tmux alone', async () => {
 	expect(h.tmuxCalls).toStrictEqual([]);
 });
 
-test('only pappardelle sessions with a repo state dir count as running TUIs', async () => {
+test('only pappardelle sessions of a known repo count as running TUIs', async () => {
 	const h = harness({
 		sessions: [
 			'pappardelle-app',

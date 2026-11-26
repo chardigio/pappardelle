@@ -42,10 +42,11 @@ command = shlex.join([sys.executable, __file__, "nested", root, kind])
 nested = subprocess.run(
     ["/bin/sh", "-c", command + "; :"], text=True, capture_output=True, check=True,
 )
+entry = module.state_db.agent_session_entry(*module.env_space(os.environ), "fixture")
 Path(root, "recording.json").write_text(json.dumps({
     "primary": primary,
     "nested": json.loads(nested.stdout),
-    "sessions": json.loads(module.Stores().sessions_file(module.env_space(os.environ)).read_text()),
+    "sessions": {"fixture": entry._asdict() if entry else None},
 }))
 sys.stdout.write("\x1b]7501;state=idle:app=fixture\x07")
 sys.stdout.flush()

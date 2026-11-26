@@ -8,10 +8,10 @@ import {
 	extractAgyUserText,
 	extractAssistantText,
 	findSpaceTranscript,
-	type AgentSessionsDao,
 	type SpaceStateDao,
 	type TranscriptFormat,
 } from './space-state.ts';
+import type {AgentSessionsDao} from './agent-sessions.ts';
 
 const MAX_TEXT = 500;
 

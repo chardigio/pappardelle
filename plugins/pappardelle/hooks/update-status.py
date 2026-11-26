@@ -22,20 +22,10 @@ import importlib.util
 import json
 import os
 import re
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
-
-_tracker_module_path = Path(__file__).parent / "tracker_config.py"
-_tracker_spec = importlib.util.spec_from_file_location("tracker_config", _tracker_module_path)
-if _tracker_spec and _tracker_spec.loader:
-    _tracker_mod = importlib.util.module_from_spec(_tracker_spec)
-    _tracker_spec.loader.exec_module(_tracker_mod)
-    find_issue_key = _tracker_mod.find_issue_key
-else:
-    raise ImportError(f"Could not load tracker_config from {_tracker_module_path}")
 
 _agent_session_module_path = Path(__file__).parent / "agent_session.py"
 _agent_session_spec = importlib.util.spec_from_file_location("agent_session", _agent_session_module_path)
@@ -43,24 +33,15 @@ if _agent_session_spec and _agent_session_spec.loader:
     _agent_session_mod = importlib.util.module_from_spec(_agent_session_spec)
     _agent_session_spec.loader.exec_module(_agent_session_mod)
     record_agent_session = _agent_session_mod.record_agent_session
-else:
-    raise ImportError("Could not load agent_session")
-
-_state_db_module_path = Path(__file__).parent / "state_db.py"
-_state_db_spec = importlib.util.spec_from_file_location("state_db", _state_db_module_path)
-if _state_db_spec and _state_db_spec.loader:
-    _state_db_mod = importlib.util.module_from_spec(_state_db_spec)
-    _state_db_spec.loader.exec_module(_state_db_mod)
+    _state_db_mod = _agent_session_mod.state_db
     status_socket_path = _state_db_mod.status_socket_path
-    state_db_path = _state_db_mod.state_db_path
     space_at_path = _state_db_mod.space_at_path
 else:
-    raise ImportError("Could not load state_db")
+    raise ImportError("Could not load agent_session")
 
 
 def send_status(path: str, state: dict[str, Any]) -> bool:
     """Send one hook event to the status daemon. True when it was sent."""
-    # A hook pays for the socket code only while experimental.sqliteState is on.
     spec = importlib.util.spec_from_file_location("status_socket", Path(__file__).parent / "status_socket.py")
     if not (spec and spec.loader):
         raise ImportError("Could not load status_socket")
@@ -90,22 +71,21 @@ def log_debug(message: str, data: Any = None) -> None:
 
 
 def _qualify(repo_name: str, name: str) -> str:
-    # branch names may carry a slash (user/TICKET-1); keep the status file flat
+    # As hookStatusKey in source/claude-status.ts.
     return f"{repo_name}-{name}".replace("/", "-")
 
 
 def get_workspace_name(cwd: Optional[str] = None) -> Optional[str]:
-    """The status file name: the space key, or the main checkout's branch,
-    qualified by repo. Two repos can have spaces with the same key, and all of
-    them write to one status directory. Mirrors hookStatusKey() in
+    """The status key: the space's key qualified by repo, since two repos can
+    have spaces with the same key. Mirrors hookStatusKey() in
     source/claude-status.ts.
 
-    With experimental.sqliteState on, the space is the stored one whose
-    worktree holds cwd, and main reports under its key like any space. None
-    when no stored space holds cwd: nothing reads a status from outside one.
+    The space is the stored one whose worktree holds cwd, and main reports
+    under its key like any space. None when no stored space holds cwd:
+    nothing reads a status from outside one.
     """
     # The session's repo, set by start-agent-session.sh and the TUI. It is the
-    # name the TUI reads under, which the cwd-derived name can differ from.
+    # name the TUI reads under.
     repo = os.environ.get("PAPPARDELLE_REPO", "").strip()
     # The space this pane belongs to, set on the tmux session by
     # start-agent-session.sh. It wins over the cwd: a Claude resumed from
@@ -113,68 +93,19 @@ def get_workspace_name(cwd: Optional[str] = None) -> Optional[str]:
     space = os.environ.get("PAPPARDELLE_SPACE", "").strip()
     if space:
         return _qualify(repo, space) if repo else space
-    db_path = state_db_path()
     if cwd is None:
         try:
             cwd = os.getcwd()
         except OSError:
-            # A deleted worktree. With the database a status needs a stored
-            # space to go under, and this directory is in none.
-            return None if db_path is not None else "unknown"
-    if db_path is not None:
-        row = space_at_path(db_path, cwd)
-        return _qualify(row.repo, row.key) if row else None
-    # Expected path: ~/.worktrees/stardust-labs/STA-123/...
-    issue_key = find_issue_key(cwd)
-    if issue_key:
-        return _qualify(repo, issue_key) if repo else issue_key
-
-    # No issue key found — likely the main worktree. Detect branch name via git
-    # and qualify with repo name (e.g. "stardust-labs-master").
-    try:
-        branch_result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=cwd,
-        )
-        if branch_result.returncode == 0:
-            branch = branch_result.stdout.strip()
-            if branch:
-                if repo:
-                    return _qualify(repo, branch)
-                try:
-                    toplevel_result = subprocess.run(
-                        ["git", "rev-parse", "--show-toplevel"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                        cwd=cwd,
-                    )
-                    if toplevel_result.returncode == 0:
-                        repo_name = os.path.basename(toplevel_result.stdout.strip())
-                        if repo_name:
-                            return _qualify(repo_name, branch)
-                except Exception:
-                    pass
-                # Fall back to branch only if we can't determine repo name
-                return branch.replace("/", "-")
-    except Exception:
-        pass
-
-    return "unknown"
+            # A deleted worktree, which no stored space holds.
+            return None
+    row = space_at_path(cwd)
+    return _qualify(row.repo, row.key) if row else None
 
 
-def get_status_dir() -> Path:
-    """Get the status directory path.
-
-    Uses PAPPARDELLE_STATUS_DIR env var if set, otherwise defaults to ~/.pappardelle/claude-status/.
-    """
-    env_dir = os.environ.get("PAPPARDELLE_STATUS_DIR")
-    if env_dir:
-        return Path(env_dir)
-    return Path.home() / ".pappardelle" / "claude-status"
+def hook_scratch_dir() -> Path:
+    """Where the hook keeps what it needs between events of one agent."""
+    return _state_db_mod.state_dir() / "hook-scratch"
 
 
 def update_status(
@@ -189,7 +120,6 @@ def update_status(
     workspace = workspace or get_workspace_name(cwd)
     if workspace is None:
         return
-    status_file = get_status_dir() / f"{workspace}.json"
 
     state: dict[str, Any] = {
         "sessionId": session_id or os.environ.get("CLAUDE_SESSION_ID", "unknown"),
@@ -207,20 +137,14 @@ def update_status(
     if pending_files:
         state["pendingFiles"] = pending_files
 
-    socket_path = status_socket_path()
-    if socket_path is None:
-        write_status_file(status_file, state)
-    elif send_status(socket_path, state):
-        # A file from before the flag was turned on. Left in place, it is
-        # what this space would show once the flag is turned off again.
-        status_file.unlink(missing_ok=True)
+    send_status(status_socket_path(), state)
 
 
 FILE_TOOLS = {"Edit", "MultiEdit", "Write", "Read", "NotebookEdit"}
 
 
 def pending_dir(workspace: str) -> Path:
-    return get_status_dir() / "pending-files" / workspace
+    return hook_scratch_dir() / "pending-files" / workspace
 
 
 def track_pending_file(input_data: dict[str, Any], workspace: str) -> Optional[list[str]]:
@@ -264,26 +188,6 @@ def permission_prompt_tool(message: Optional[str]) -> Optional[str]:
     """
     match = PERMISSION_PROMPT_TOOL.search(message or "")
     return match.group(1).rstrip(".") if match else None
-
-
-def write_status_file(status_file: Path, state: dict[str, Any]) -> None:
-    status_file.parent.mkdir(parents=True, exist_ok=True)
-    # Atomic write: write to a sibling temp file then rename. POSIX rename is
-    # atomic, so a concurrent reader always sees either the previous complete
-    # file or the new complete file — never a truncated one. If the write
-    # raises (disk full, permission denied) before the rename, clean up the
-    # orphan so the status dir doesn't accumulate junk across crashes.
-    tmp_file = status_file.parent / f"{status_file.name}.tmp.{os.getpid()}"
-    try:
-        with open(tmp_file, "w") as f:
-            json.dump(state, f, indent=2)
-        os.replace(tmp_file, status_file)
-    except Exception:
-        try:
-            tmp_file.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
 
 
 def main() -> None:

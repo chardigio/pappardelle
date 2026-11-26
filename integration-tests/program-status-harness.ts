@@ -6,9 +6,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
-	renameSync,
 	rmSync,
-	writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -77,7 +75,6 @@ export class StatusHarness {
 	readonly root = mkdtempSync(path.join(tmpdir(), 'pappa-program-status-'));
 	readonly socket = `pappa_status_${process.pid}`;
 	readonly stateDir = path.join(this.root, 'state');
-	readonly sqlite = process.env['PAPPARDELLE_SQLITE_STATE'] === '1';
 	/**
 	 * Under the harness's own short root: a run may be given a database path
 	 * too long for a Unix socket beside it.
@@ -93,10 +90,10 @@ export class StatusHarness {
 
 	private readonly daosFor: (repo: string) => StateDaos;
 	/**
-	 * With the flag on, the status daemon's hub, served from this process, so
-	 * that the monitors in the harness's panes start no daemon.
+	 * The status daemon's hub, served from this process, so that the monitors
+	 * in the harness's panes start no daemon.
 	 */
-	private readonly statusServer?: StatusServer;
+	private readonly statusServer: StatusServer;
 	private readonly previous = new Map<string, string | undefined>();
 	private stopWatch?: () => void;
 	private view?: Awaited<ReturnType<typeof render>>;
@@ -104,15 +101,10 @@ export class StatusHarness {
 	constructor() {
 		for (const [name, value] of Object.entries({
 			PAPPARDELLE_TMUX_SOCKET: this.socket,
-			PAPPARDELLE_STATUS_DIR: path.join(this.root, 'hooks'),
 			// Hooks run in the harness's panes write to its database, never to
 			// the developer's own.
 			PAPPARDELLE_STATE_DB: path.join(this.stateDir, 'state.db'),
 			PAPPARDELLE_STATUS_SOCKET: this.statusSocket,
-			// The monitors in the harness's panes otherwise follow the
-			// state-flag.json the developer's CLI records under HOME, and publish
-			// where the harness does not read.
-			PAPPARDELLE_SQLITE_STATE: this.sqlite ? '1' : '0',
 			PAPPARDELLE_PROGRAM_STATUS_DIR: path.join(this.root, 'status'),
 			PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR: path.join(this.root, 'trace'),
 			PAPPARDELLE_CLAUDE_CONFIG_PATH: path.join(
@@ -124,16 +116,11 @@ export class StatusHarness {
 			this.previous.set(name, process.env[name]);
 			process.env[name] = value;
 		}
-		if (this.sqlite) {
-			mkdirSync(this.stateDir, {recursive: true});
-			this.statusServer = createStatusServer();
-			this.statusServer.server.listen(this.statusSocket);
-		}
+		mkdirSync(this.stateDir, {recursive: true});
+		this.statusServer = createStatusServer();
+		this.statusServer.server.listen(this.statusSocket);
 
-		this.daosFor = stateDaosByRepo({
-			stateDir: this.stateDir,
-			sqlite: this.sqlite,
-		});
+		this.daosFor = stateDaosByRepo({stateDir: this.stateDir});
 		this.claudeStatus = this.daosFor('status-harness').claudeStatus;
 	}
 
@@ -147,12 +134,8 @@ export class StatusHarness {
 		return programStatusDir(repo, this.stateDir);
 	}
 
-	/**
-	 * How many snapshots of a space the status daemon holds. A run with the
-	 * flag off has no daemon.
-	 */
+	/** How many snapshots of a space the status daemon holds. */
 	async heldSnapshots(repo: string, key: string): Promise<number> {
-		if (!this.sqlite) return 0;
 		const closers: Array<() => void> = [];
 		try {
 			const rail = await subscribeRaw(this.statusSocket, repo, close =>
@@ -166,15 +149,9 @@ export class StatusHarness {
 		}
 	}
 
-	/**
-	 * The status files under the harness's root. With the flag on every
-	 * status goes to the daemon, so there are none.
-	 */
+	/** The status files under the harness's root: every status goes to the daemon, so there are none. */
 	private statusFiles(): string[] {
-		const hookFiles = [
-			path.join(this.root, 'hooks'),
-			path.join(this.stateDir, 'claude-status'),
-		].flatMap(directory => jsonFilesIn(directory));
+		const hookFiles = jsonFilesIn(path.join(this.stateDir, 'claude-status'));
 		const snapshotRoot = path.join(this.root, 'status');
 		const snapshotFiles = entriesIn(snapshotRoot).flatMap(repo =>
 			jsonFilesIn(path.join(snapshotRoot, repo)),
@@ -242,22 +219,13 @@ export class StatusHarness {
 			...(tool ? {currentTool: tool} : {}),
 			lastUpdate: Date.now(),
 		};
-		if (this.sqlite) {
-			await sendHookEvent(this.statusSocket, state);
-			await untilSeen(
-				async () => this.claudeStatus.readState(key),
-				stored =>
-					stored.kind === 'state' && isDeepStrictEqual(stored.state, state),
-				`hook status ${status} of ${key} reaches the stores`,
-			);
-			return;
-		}
-
-		const file = path.join(this.root, 'hooks', `${key}.json`);
-		const temporary = `${file}.tmp.${process.pid}`;
-		mkdirSync(path.dirname(file), {recursive: true});
-		writeFileSync(temporary, JSON.stringify(state, null, 2));
-		renameSync(temporary, file);
+		await sendHookEvent(this.statusSocket, state);
+		await untilSeen(
+			async () => this.claudeStatus.readState(key),
+			stored =>
+				stored.kind === 'state' && isDeepStrictEqual(stored.state, state),
+			`hook status ${status} of ${key} reaches the stores`,
+		);
 	}
 
 	async mount(repo: string, key: string, session: string) {
@@ -352,11 +320,9 @@ export class StatusHarness {
 		} catch {}
 		if (repo && key) await this.programStatus(repo).remove(key);
 		await delay(200);
-		const left = this.sqlite ? this.statusFiles() : [];
+		const left = this.statusFiles();
 		if (left.length > 0) {
-			console.error(
-				`FAIL status files left with the flag on: ${left.join(', ')}`,
-			);
+			console.error(`FAIL status files left: ${left.join(', ')}`);
 			process.exitCode = 1;
 		}
 
@@ -366,8 +332,8 @@ export class StatusHarness {
 		}
 		closeStateDb(path.join(this.stateDir, 'state.db'));
 		this.daosFor('status-harness').disconnectStatusDaemon();
-		this.statusServer?.disconnectAll();
-		this.statusServer?.server.close();
+		this.statusServer.disconnectAll();
+		this.statusServer.server.close();
 		if (!process.argv.includes('--keep'))
 			rmSync(this.root, {recursive: true, force: true});
 	}

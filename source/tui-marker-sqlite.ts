@@ -1,17 +1,8 @@
-// The TUI's ready marker as a row, with tui.json kept beside it.
-//
-// A marker written by a TUI that runs without the database is imported the
-// next time it is read, which is how `pappardelle restart` from a build with
-// the database still sees a TUI without it come up.
+// The TUI's ready marker as a row.
 
 import {createLogger} from './logger.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
-import {
-	parseTuiMarker,
-	renderTuiMarker,
-	type TuiMarker,
-	type TuiMarkerDao,
-} from './tui-marker.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
+import type {TuiMarker, TuiMarkerDao} from './tui-marker.ts';
 
 const log = createLogger('tui-marker');
 
@@ -24,29 +15,15 @@ type MarkerRow = {
 };
 
 export class SqliteTuiMarkerDao implements TuiMarkerDao {
-	private readonly mirror: JsonMirror;
 	private readonly reads = new GuardedReads(log, 'the TUI marker');
 
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		file: string,
-	) {
-		this.mirror = {
-			file,
-			importRows: content => {
-				// A file that is gone or is not a marker says no TUI has
-				// reported, as it does to a process that reads the file.
-				const marker = content === null ? null : parseTuiMarker(content);
-				if (marker) this.put(marker);
-				else this.delete();
-			},
-		};
-	}
+	) {}
 
 	read(): TuiMarker | null {
 		return this.reads.or(null, () => {
-			this.openDb().sync(this.mirror);
 			const row = this.openDb()
 				.db.query<
 					MarkerRow,
@@ -66,13 +43,13 @@ export class SqliteTuiMarkerDao implements TuiMarkerDao {
 	}
 
 	async write(marker: TuiMarker): Promise<void> {
-		await this.openDb().write(tx => {
+		await this.openDb().write(() => {
 			this.put(marker);
-			tx.mirror(this.mirror.file, renderTuiMarker(marker));
 		});
 	}
 
-	private put(marker: TuiMarker): void {
+	/** For a caller inside a write transaction. */
+	put(marker: TuiMarker): void {
 		this.openDb()
 			.db.query(
 				`INSERT OR REPLACE INTO tui_markers
@@ -89,7 +66,8 @@ export class SqliteTuiMarkerDao implements TuiMarkerDao {
 			);
 	}
 
-	private delete(): void {
+	/** For a caller inside a write transaction. */
+	delete(): void {
 		this.openDb()
 			.db.query('DELETE FROM tui_markers WHERE repo = ?')
 			.run(this.repo);

@@ -28,11 +28,7 @@ const key = 'STATUS-TS';
 const session = sessionNamesFor(key, repo).agent;
 const launchMarker = path.join(harness.root, 'launch-marker');
 // The launch names the space's agent-sessions file, which the stores place.
-const daos = createStateDaos({
-	repo,
-	stateDir: harness.stateDir,
-	sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
-});
+const daos = createStateDaos({repo, stateDir: harness.stateDir});
 initTmuxState(daos);
 // As idow records the space before it starts the space's sessions.
 await daos.spaceIdentities.record(

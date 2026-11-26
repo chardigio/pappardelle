@@ -1,32 +1,28 @@
-// Per-space state as rows, with each space's file kept beside them.
+// Per-space state as rows.
 //
-// The file had four writers doing unlocked read-modify-write: the rail poll,
-// the profile backfill, link-pr and idow. Here each of them changes only its
-// own columns inside one transaction, so none can undo another's write, and
-// a write that changes nothing leaves the row and the file alone.
+// Four writers share it: the rail poll, the profile backfill, link-pr and
+// idow. Each changes only its own columns inside one transaction, so none can
+// undo another's write, and a write that changes nothing leaves the row
+// alone.
 
 import {isDeepStrictEqual} from 'node:util';
 import {createLogger} from './logger.ts';
 import type {PipelineStatus} from './providers/types.ts';
 import {
-	parseSpaceState,
-	renderSpaceState,
-	withPrLink,
-	type JsonSpaceStateDao,
 	type SpacePrLink,
 	type SpaceState,
 	type SpaceStateDao,
 	type SpaceStateLookup,
 	type SpaceStatePatch,
 } from './space-state.ts';
-import {GuardedReads, type JsonMirror, type StateDb} from './state-db.ts';
+import {GuardedReads, type StateDb} from './state-db.ts';
 
 const log = createLogger('space-state');
 
 /**
- * The file tells "the rail has not been polled" (no pipeline field) from
- * "polled, and the branch has no PR" (null). NULL is the first and this value
- * the second.
+ * A space state tells "the rail has not been polled" (no pipeline) from
+ * "polled, and the branch has no PR" (a null pipeline). NULL is the first and
+ * this value the second.
  */
 const NO_PIPELINE = 'none';
 
@@ -164,24 +160,15 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 	constructor(
 		private readonly openDb: () => StateDb,
 		private readonly repo: string,
-		private readonly json: JsonSpaceStateDao,
 		private readonly clock: () => Date,
 	) {}
 
-	file(key: string): string {
-		return this.json.file(key);
-	}
-
 	read(key: string): SpaceState | null {
-		return this.reads.or(null, () => {
-			this.openDb().sync(this.mirror(key));
-			return this.stored(key);
-		});
+		return this.reads.or(null, () => this.stored(key));
 	}
 
 	lookup(key: string): SpaceStateLookup {
 		try {
-			this.openDb().sync(this.mirror(key));
 			const state = this.stored(key);
 			return state ? {kind: 'state', state} : {kind: 'none'};
 		} catch (error) {
@@ -194,13 +181,9 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 	}
 
 	async addPrLink(key: string, link: SpacePrLink): Promise<void> {
-		const mirror = this.mirror(key);
-		await this.openDb().write(tx => {
-			tx.sync(mirror);
-			const links = this.links(key);
-			if (isDeepStrictEqual(withPrLink(links, link), links)) return;
+		await this.openDb().write(() => {
+			if (isDeepStrictEqual(this.links(key).at(-1), link)) return;
 			this.putLink(key, link);
-			tx.mirror(mirror.file, this.render(key));
 		});
 	}
 
@@ -208,14 +191,19 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 		entries: Array<{key: string; patch: SpaceStatePatch}>,
 	): Promise<void> {
 		const updatedAt = this.clock().toISOString();
-		await this.openDb().write(tx => {
-			for (const {key, patch} of entries) {
-				const mirror = this.mirror(key);
-				tx.sync(mirror);
-				if (this.apply(key, columnsOf(patch), updatedAt))
-					tx.mirror(mirror.file, this.render(key));
-			}
+		await this.openDb().write(() => {
+			for (const {key, patch} of entries)
+				this.apply(key, columnsOf(patch), updatedAt);
 		});
+	}
+
+	/**
+	 * Replace a space's record with `state`, keeping its `updatedAt`, or remove
+	 * it when `state` is null. For a caller inside a write transaction.
+	 */
+	replace(key: string, state: SpaceState | null): void {
+		this.delete(key);
+		if (state) this.insert(key, state);
 	}
 
 	/** Set the columns that differ from the row. False when none do. */
@@ -248,24 +236,8 @@ export class SqliteSpaceStateDao implements SpaceStateDao {
 		return true;
 	}
 
-	private mirror(key: string): JsonMirror {
-		return {
-			file: this.json.file(key),
-			importRows: content => {
-				this.delete(key);
-				// A space-state file is only ever removed on purpose, by a process
-				// that reads the files, so its record goes with it.
-				if (content !== null) this.insert(key, parseSpaceState(content));
-			},
-		};
-	}
-
 	private stored(key: string): SpaceState | null {
 		return toState(this.row(key), this.links(key));
-	}
-
-	private render(key: string): string {
-		return renderSpaceState(this.stored(key) ?? {});
 	}
 
 	private row(key: string): Row | null {

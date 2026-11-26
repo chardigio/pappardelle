@@ -1,6 +1,5 @@
 """Tests for the hooks' state database writes (state_db.py)."""
 
-import json
 import os
 import sqlite3
 import sys
@@ -20,19 +19,13 @@ def notes_db(state_db: Path) -> Path:
     return state_db
 
 
-def write_note(db: Path, file: Path, body: str) -> None:
-    def write_file() -> os.stat_result:
-        temporary = file.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"a": body}))
-        written = os.stat(temporary)
-        os.replace(temporary, file)
-        return written
+COMMITTED = state_db.WriteOutcome.COMMITTED
+FAILED = state_db.WriteOutcome.FAILED
 
-    state_db.write_through(
-        str(db),
-        file,
-        write_file,
-        [("INSERT OR REPLACE INTO notes VALUES (?, ?)", ("a", body))],
+
+def write_note(db: Path, body: str) -> state_db.WriteOutcome:
+    return state_db.write_rows(
+        str(db), "the note", lambda _connection: [("INSERT OR REPLACE INTO notes VALUES (?, ?)", ("a", body))]
     )
 
 
@@ -44,102 +37,85 @@ def rows(db: Path, sql: str) -> list[tuple]:
         connection.close()
 
 
-def test_writes_the_file_its_rows_and_the_files_signature(notes_db: Path, tmp_path: Path):
-    file = tmp_path / "notes.json"
-    write_note(notes_db, file, "one")
+def hook_log() -> str:
+    return (Path.home() / ".pappardelle" / "logs" / "hook-events.log").read_text()
 
-    assert json.loads(file.read_text()) == {"a": "one"}
+
+def test_writes_its_rows_and_rings_the_bell(notes_db: Path):
+    assert write_note(notes_db, "one") is COMMITTED
+
     assert rows(notes_db, "SELECT name, body FROM notes") == [("a", "one")]
-    stat = os.stat(file)
-    assert rows(notes_db, "SELECT path, ino, size, mtime_ns, malformed FROM json_sync") == [
-        (str(file), str(stat.st_ino), stat.st_size, str(stat.st_mtime_ns), 0)
-    ]
     assert Path(f"{notes_db}.bell").exists()
 
 
-def test_a_missing_database_is_not_created_and_the_file_is_still_written(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    monkeypatch.setenv("HOME", str(tmp_path))
+def test_the_statements_are_built_from_what_the_rows_hold_inside_the_transaction(notes_db: Path):
+    write_note(notes_db, "one")
+
+    def append(connection: sqlite3.Connection):
+        (body,) = connection.execute("SELECT body FROM notes WHERE name = 'a'").fetchone()
+        return [("UPDATE notes SET body = ? WHERE name = 'a'", (body + " two",))]
+
+    assert state_db.write_rows(str(notes_db), "the note", append) is COMMITTED
+    assert rows(notes_db, "SELECT body FROM notes") == [("one two",)]
+
+
+def test_no_statements_commit_nothing_and_ring_no_bell(notes_db: Path):
+    outcome = state_db.write_rows(str(notes_db), "the note", lambda _connection: [])
+
+    assert outcome is state_db.WriteOutcome.NOTHING_TO_WRITE
+    assert not Path(f"{notes_db}.bell").exists()
+
+
+def test_a_missing_database_is_not_created_and_the_failure_is_logged(tmp_path: Path):
     db = tmp_path / "absent.db"
-    file = tmp_path / "notes.json"
-    write_note(db, file, "one")
 
-    assert json.loads(file.read_text()) == {"a": "one"}
+    assert write_note(db, "one") is FAILED
+
     assert not db.exists()
+    assert "State database write failed for the note" in hook_log()
 
 
-def test_a_locked_database_costs_a_fraction_of_a_second_and_keeps_the_file(
-    notes_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    # The failure is logged under the home directory.
-    monkeypatch.setenv("HOME", str(tmp_path))
-    file = tmp_path / "notes.json"
+def test_a_locked_database_costs_a_fraction_of_a_second(notes_db: Path):
     holder = sqlite3.connect(notes_db, isolation_level=None)
     holder.execute("BEGIN IMMEDIATE")
     try:
         started = time.monotonic()
-        write_note(notes_db, file, "one")
+        outcome = write_note(notes_db, "one")
         elapsed = time.monotonic() - started
     finally:
         holder.execute("ROLLBACK")
         holder.close()
 
-    assert json.loads(file.read_text()) == {"a": "one"}
+    assert outcome is FAILED
     assert elapsed < 1.0
     assert rows(notes_db, "SELECT * FROM notes") == []
-    log = (tmp_path / ".pappardelle" / "logs" / "hook-events.log").read_text()
-    assert "State database write failed" in log and str(file) in log
+    assert "State database write failed for the note" in hook_log()
 
 
-def test_a_python_without_sqlite_still_writes_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+def test_a_python_without_sqlite_writes_nothing_and_logs_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # What `import sqlite3` meets in a Python built without the _sqlite3 module.
     monkeypatch.setitem(sys.modules, "sqlite3", None)
-    file = tmp_path / "notes.json"
-    write_note(tmp_path / "state.db", file, "one")
 
-    assert json.loads(file.read_text()) == {"a": "one"}
-    log = (tmp_path / ".pappardelle" / "logs" / "hook-events.log").read_text()
-    assert "State database write failed" in log and str(file) in log
+    assert write_note(tmp_path / "state.db", "one") is FAILED
+
+    assert "State database write failed for the note" in hook_log()
 
 
-def test_a_failure_that_repeats_is_logged_once_a_minute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    logs = tmp_path / ".pappardelle" / "logs"
+def test_a_failure_that_repeats_is_logged_once_a_minute(tmp_path: Path):
+    logs = Path.home() / ".pappardelle" / "logs"
 
     def lines() -> list[str]:
         return (logs / "hook-events.log").read_text().splitlines()
 
     for body in ("one", "two", "three"):
-        write_note(tmp_path / "absent.db", tmp_path / "notes.json", body)
+        write_note(tmp_path / "absent.db", body)
     assert len(lines()) == 1
 
     (stamp,) = [entry for entry in logs.iterdir() if entry.name != "hook-events.log"]
     a_minute_ago = time.time() - state_db.LOG_INTERVAL_SECONDS - 1
     os.utime(stamp, (a_minute_ago, a_minute_ago))
-    write_note(tmp_path / "absent.db", tmp_path / "notes.json", "four")
+    write_note(tmp_path / "absent.db", "four")
     assert len(lines()) == 2
-    assert json.loads((tmp_path / "notes.json").read_text()) == {"a": "four"}
-
-
-def test_the_flag_comes_from_the_override_then_the_recorded_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    assert state_db.state_db_path({}) is None
-
-    (tmp_path / ".pappardelle").mkdir()
-    (tmp_path / ".pappardelle" / "state-flag.json").write_text(
-        json.dumps({"sqliteState": True, "db": "/recorded/state.db"})
-    )
-    assert state_db.state_db_path({}) == "/recorded/state.db"
-    assert state_db.state_db_path({"PAPPARDELLE_SQLITE_STATE": "0"}) is None
-    assert state_db.state_db_path({"PAPPARDELLE_STATE_DB": "/env/state.db"}) == "/env/state.db"
-
-    (tmp_path / ".pappardelle" / "state-flag.json").write_text(
-        json.dumps({"sqliteState": False, "db": "/recorded/state.db"})
-    )
-    assert state_db.state_db_path({}) is None
-    assert state_db.state_db_path({"PAPPARDELLE_SQLITE_STATE": "1"}) == "/recorded/state.db"
 
 
 def test_a_database_path_with_uri_characters_is_opened(state_db: Path, tmp_path: Path):
@@ -152,5 +128,5 @@ def test_a_database_path_with_uri_characters_is_opened(state_db: Path, tmp_path:
     connection.commit()
     connection.close()
 
-    write_note(db, tmp_path / "notes.json", "one")
+    assert write_note(db, "one") is COMMITTED
     assert rows(db, "SELECT name, body FROM notes") == [("a", "one")]

@@ -51,7 +51,6 @@ _tracker_spec = importlib.util.spec_from_file_location("tracker_config", _tracke
 if _tracker_spec and _tracker_spec.loader:
     _tracker_mod = importlib.util.module_from_spec(_tracker_spec)
     _tracker_spec.loader.exec_module(_tracker_mod)
-    find_issue_key = _tracker_mod.find_issue_key
     get_main_repo_root = _tracker_mod.get_main_repo_root
     get_tracker_provider = _tracker_mod.get_tracker_provider
 else:
@@ -62,28 +61,21 @@ _state_db_spec = importlib.util.spec_from_file_location("state_db", _hooks_dir /
 if _state_db_spec and _state_db_spec.loader:
     _state_db_mod = importlib.util.module_from_spec(_state_db_spec)
     _state_db_spec.loader.exec_module(_state_db_mod)
-    state_db_path = _state_db_mod.state_db_path
     space_at_path = _state_db_mod.space_at_path
+    MAIN_KEY = _state_db_mod.MAIN_KEY
 else:
     raise ImportError("Could not load state_db")
 
 
 def get_issue_key() -> Optional[str]:
-    """The issue of the space the hook runs in, None in the main checkout.
-
-    With experimental.sqliteState on it is the stored space whose worktree
-    holds cwd. Without it, the key is read from the path
-    (~/.worktrees/stardust-labs/STA-123/...).
-    """
-    db_path = state_db_path()
-    if db_path is None:
-        return find_issue_key()
+    """The issue of the space the hook runs in: the stored space whose
+    worktree holds cwd, None in the main checkout."""
     try:
         cwd = os.getcwd()
     except OSError:
         return None
-    row = space_at_path(db_path, cwd)
-    return row.key if row and row.key != "main" else None
+    row = space_at_path(cwd)
+    return row.key if row and row.key != MAIN_KEY else None
 
 
 def format_question_answer(tool_input: dict, tool_response: dict | str) -> str:

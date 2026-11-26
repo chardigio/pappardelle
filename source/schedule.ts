@@ -1,19 +1,10 @@
 // Wake-ups for a supervised space: a message at a set time, `continue` once a
 // Codex usage limit resets, or a job that keeps an agent working by nudging it
-// when it sits idle. Jobs live in ~/.pappardelle/repos/{repo}/schedules/, and
-// an OS user timer runs `pappardelle schedule fire ID` for each.
+// when it sits idle. An OS user timer runs `pappardelle schedule fire ID` for
+// each job.
 
 import type {SendToSpaceAgentResult} from './tmux.ts';
 import {randomUUID} from 'node:crypto';
-import {
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	writeFileSync,
-} from 'node:fs';
-import path from 'node:path';
 import {isEndedAgentState, type AgentStateReport} from './agent-state.ts';
 
 type OneShot = {
@@ -81,141 +72,8 @@ export interface ScheduleDao {
 	clearQueued(key: string): Promise<void>;
 }
 
-export function schedulesDir(repoName: string, baseDir: string): string {
-	return path.join(baseDir, 'repos', repoName, 'schedules');
-}
-
-export function queuedMessagesDir(repoName: string, baseDir: string): string {
-	return path.join(baseDir, 'repos', repoName, 'queued');
-}
-
 export function newJobId(): string {
 	return randomUUID().slice(0, 8);
-}
-
-export function renderJob(job: Job): string {
-	return JSON.stringify(job, null, '\t') + '\n';
-}
-
-const isString = (value: unknown): value is string => typeof value === 'string';
-
-/** A job file as `save` leaves it. Throws when `content` is anything else. */
-export function parseJob(content: string): Job {
-	const job = (JSON.parse(content) ?? {}) as Record<string, unknown>;
-	const {kind, id, key} = job;
-	if (!isString(id) || !isString(key)) throw new Error('Not a scheduled job');
-	if (kind === 'keep_going') {
-		const {everySeconds, nudge, until, idleChecks} = job;
-		if (
-			!Number.isInteger(everySeconds) ||
-			!isString(nudge) ||
-			!(until === null || isString(until)) ||
-			!Number.isInteger(idleChecks)
-		)
-			throw new Error('Not a keep-going job');
-		return {
-			kind,
-			id,
-			key,
-			everySeconds: everySeconds as number,
-			nudge,
-			until,
-			idleChecks: idleChecks as number,
-		};
-	}
-
-	const {at, message, arm, deferReason, deferCount} = job;
-	if (
-		(kind !== 'at' && kind !== 'after_limit') ||
-		!isString(at) ||
-		!isString(message) ||
-		!Number.isInteger(arm)
-	)
-		throw new Error('Not a scheduled job');
-	return {
-		kind,
-		id,
-		key,
-		at,
-		message,
-		arm: arm as number,
-		...(isString(deferReason) ? {deferReason: deferReason as SendOutcome} : {}),
-		...(Number.isInteger(deferCount) && (deferCount as number) > 0
-			? {deferCount: deferCount as number}
-			: {}),
-	};
-}
-
-export class JsonScheduleDao implements ScheduleDao {
-	constructor(
-		private readonly jobsDir: string,
-		private readonly queueDir: string,
-	) {}
-
-	jobFile(id: string): string {
-		return path.join(this.jobsDir, `${id}.json`);
-	}
-
-	queueFile(key: string): string {
-		return path.join(this.queueDir, `${encodeURIComponent(key)}.txt`);
-	}
-
-	/** The ids of the job files on disk. */
-	ids(): string[] {
-		let files: string[];
-		try {
-			files = readdirSync(this.jobsDir);
-		} catch {
-			return [];
-		}
-
-		return files
-			.filter(file => file.endsWith('.json'))
-			.map(file => file.slice(0, -5));
-	}
-
-	async save(job: Job): Promise<void> {
-		mkdirSync(this.jobsDir, {recursive: true});
-		const file = this.jobFile(job.id);
-		writeFileSync(`${file}.tmp`, renderJob(job));
-		// Renamed into place, so a timer firing mid-write never reads half a job.
-		renameSync(`${file}.tmp`, file);
-	}
-
-	load(id: string): Job | null {
-		try {
-			return JSON.parse(readFileSync(this.jobFile(id), 'utf8')) as Job;
-		} catch {
-			return null;
-		}
-	}
-
-	list(): Job[] {
-		return this.ids()
-			.map(id => this.load(id))
-			.filter((job): job is Job => job !== null);
-	}
-
-	async delete(id: string): Promise<void> {
-		rmSync(this.jobFile(id), {force: true});
-	}
-
-	async queue(key: string, text: string): Promise<void> {
-		mkdirSync(this.queueDir, {recursive: true});
-		writeFileSync(this.queueFile(key), text);
-	}
-
-	queued(key: string): string | null {
-		try {
-			return readFileSync(this.queueFile(key), 'utf8');
-		} catch {
-			return null;
-		}
-	}
-
-	async clearQueued(key: string): Promise<void> {
-		rmSync(this.queueFile(key), {force: true});
-	}
 }
 
 const DURATION = /^(\d+)([smh])$/;
@@ -428,7 +286,7 @@ const LATE_FIRE_MS = 60_000;
 
 /**
  * Gives every saved job without a timer a new one: systemd's transient timers
- * don't survive a reboot, while the job files do. Returns the jobs re-armed.
+ * don't survive a reboot, while the saved jobs do. Returns the jobs re-armed.
  */
 export async function rearmMissingTimers(
 	store: ScheduleDao,

@@ -323,23 +323,6 @@ export function configErrors(config: unknown): string[] {
 		errors.push(...validateApprovalClassifier(cfg['approval_classifier']));
 	}
 
-	const {experimental} = cfg;
-	if (experimental !== undefined) {
-		if (
-			typeof experimental !== 'object' ||
-			experimental === null ||
-			Array.isArray(experimental)
-		) {
-			errors.push('experimental: must be an object');
-		} else if (
-			(experimental as Record<string, unknown>)['sqliteState'] !== undefined &&
-			typeof (experimental as Record<string, unknown>)['sqliteState'] !==
-				'boolean'
-		) {
-			errors.push('experimental.sqliteState: must be a boolean');
-		}
-	}
-
 	// Check list_view (optional; an absent layout defers to the tracker default)
 	if (cfg['list_view'] !== undefined) {
 		if (typeof cfg['list_view'] !== 'object' || cfg['list_view'] === null) {

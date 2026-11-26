@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {homedir} from 'node:os';
-import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
+import {rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
@@ -11,14 +11,14 @@ import {
 	getResolvedWatchlists,
 	loadConfig,
 } from '../source/config.ts';
-import {getRegistryPathForRepo} from '../source/space-registry.ts';
+import {statusSocket} from '../source/program-status-monitor.ts';
 import {createStateDaos} from '../source/state-daos.ts';
 import {
 	createIssueTracker,
 	createVcsHost,
 	resetProviders,
 } from '../source/providers/index.ts';
-import {sessionNamesFor} from '../source/space-identity.ts';
+import {newSpaceIdentity, sessionNamesFor} from '../source/space-identity.ts';
 import {initTmuxState} from '../source/tmux.ts';
 import {StatusHarness, untilSeen} from './program-status-harness.ts';
 import type {TrackerIssue} from '../source/providers/types.ts';
@@ -41,18 +41,21 @@ try {
 		0,
 		'Full app verification requires no automatic watchlists',
 	);
-	// The registry as a process without the database left it, read in
-	// whichever mode this run is in.
-	const stateDir = path.join(harness.root, 'state');
-	const registry = getRegistryPathForRepo(repo, stateDir);
-	mkdirSync(path.dirname(registry), {recursive: true});
-	writeFileSync(registry, JSON.stringify([key]));
 	const daos = createStateDaos({
 		repo,
-		stateDir,
-		sqlite: process.env['PAPPARDELLE_SQLITE_STATE'] === '1',
+		stateDir: path.join(harness.root, 'state'),
 	});
 	initTmuxState(daos);
+	// As idow records a space before it opens it.
+	await daos.spaceIdentities.record(
+		newSpaceIdentity({
+			repo,
+			key,
+			worktreePath: harness.root,
+			socket: statusSocket(),
+		}),
+	);
+	await daos.registry.add(key);
 	const issue: TrackerIssue = {
 		identifier: key,
 		title: 'Terminal status fixture',

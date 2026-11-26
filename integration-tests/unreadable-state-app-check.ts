@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
+import {mkdirSync, renameSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
 import App from '../source/app.tsx';
 import {getRepoName} from '../source/config.ts';
 import {getRecentErrors} from '../source/logger.ts';
-import {getRegistryPathForRepo} from '../source/space-registry.ts';
 import {createStateDaos} from '../source/state-daos.ts';
+import {closeStateDb, stateDbPath} from '../source/state-db.ts';
 import {
 	createIssueTracker,
 	createVcsHost,
@@ -39,13 +39,17 @@ try {
 		path.join(harness.root, '.pappardelle.yml'),
 		'version: 1\ndefault_profile: fixture\nprofiles:\n  fixture:\n    display_name: Fixture\n    keywords: []\n',
 	);
+	// The database that replaces the unreadable one, with the space open.
+	const readableDir = path.join(harness.root, 'readable');
+	const replacement = createStateDaos({repo, stateDir: readableDir});
+	await replacement.registry.add(key);
+	replacement.disconnectStatusDaemon();
+	closeStateDb(stateDbPath(readableDir));
 	const stateDir = path.join(harness.root, 'state');
-	const registry = getRegistryPathForRepo(repo, stateDir);
-	mkdirSync(path.dirname(registry), {recursive: true});
-	writeFileSync(registry, JSON.stringify([key]));
+	mkdirSync(stateDir, {recursive: true});
 	const dbPath = path.join(stateDir, 'state.db');
 	writeFileSync(dbPath, 'not a database '.repeat(600));
-	const daos = createStateDaos({repo, stateDir, sqlite: true});
+	const daos = createStateDaos({repo, stateDir});
 	initTmuxState(daos);
 	const issue: TrackerIssue = {
 		identifier: key,
@@ -88,7 +92,7 @@ try {
 	assert.ok(!unreadable.includes(key), unreadable);
 	console.log('PASS actual App: draws the rail over an unreadable database');
 
-	rmSync(dbPath);
+	renameSync(stateDbPath(readableDir), dbPath);
 	const readable = await untilSeen(
 		frame,
 		current => current.includes(key),

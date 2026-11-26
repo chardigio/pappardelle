@@ -30,7 +30,7 @@ function setup(overrides: Partial<WorkspaceRefreshDeps> = {}) {
 	const deps = workspaceRefreshDeps({
 		readRegistry: async () => ['STA-1', 'STA-2'],
 		readMainWorktree: async () => ({path: '/repo', branch: 'master'}),
-		statusKey: async (key, mainBranch) => `repo-${mainBranch ?? key}`,
+		statusKey: async key => `repo-${key}`,
 		getCachedIssue: issue,
 		readEmoji: async () => '🍝',
 		setSpaces(update) {
@@ -75,7 +75,7 @@ test('membership publishes while main discovery and dirty status are pending', a
 	expect(h.spaces[0]!.isMainWorktree).toBe(true);
 	main.resolve({path: '/repo', branch: 'master'});
 	await nextTurn();
-	expect(h.spaces[0]!.statusKey).toBe('repo-master');
+	expect(h.spaces[0]!.statusKey).toBe('repo-main');
 	expect(h.spaces[0]!.worktreePath).toBe('/repo');
 	h.deps.readRegistry = async () => ['STA-3', 'STA-1'];
 	await h.refresh.refresh();
@@ -177,7 +177,7 @@ test('newer workspace and main hooks survive an older disk read, then polling re
 	h.refresh.applyStatusUpdates(
 		new Map([
 			['repo-STA-1', {status: 'working', tool: 'AskUserQuestion'}],
-			['repo-master', {status: 'working'}],
+			['repo-main', {status: 'working'}],
 		]),
 	);
 	stale.resolve({status: 'idle'});
@@ -204,7 +204,7 @@ test('a space reads and takes hook updates under its repo-qualified key', async 
 	});
 	await h.settle();
 	expect(reads.get('repo-STA-1')).toBe('STA-1');
-	expect(reads.get('repo-master')).toBe('main');
+	expect(reads.get('repo-main')).toBe('main');
 	expect(reads.size).toBe(2);
 	h.refresh.applyStatusUpdates(new Map([['other-STA-1', {status: 'error'}]]));
 	expect(h.spaces[1]!.programStatus?.status).toBe('idle');
@@ -265,7 +265,7 @@ test('bounds per-workspace I/O and serializes slow tracker and main requests', a
 	const h = setup({
 		readRegistry: async () => Array.from({length: 100}, (_, i) => `STA-${i}`),
 		statusReader: () => async key => {
-			if (key === 'repo-master') return {status: 'unknown'};
+			if (key === 'repo-main') return {status: 'unknown'};
 			active++;
 			peak = Math.max(peak, active);
 			await gate.promise;
@@ -307,9 +307,6 @@ test('metadata failures retain prior rows and a valid empty registry removes onl
 	await h.settle();
 	expect(h.spaces).toBe(before);
 	expect(h.errors.length).toBe(2);
-	h.deps.readRegistry = async () => null;
-	await h.settle();
-	expect(h.spaces).toBe(before);
 	h.deps.readRegistry = async () => ['STA-1', 'STA-2'];
 	h.deps.readMainWorktree = async () => ({path: '/repo', branch: 'master'});
 	h.deps.readDirty = async () => null;

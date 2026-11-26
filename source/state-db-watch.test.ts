@@ -48,7 +48,7 @@ test("another process's write reaches a listener well inside the poll interval",
 		'-e',
 		`import {openStateDb} from ${moduleUrl('state-db.ts')};
 		const state = openStateDb(${JSON.stringify(dbPath)});
-		await state.writeRows(() => state.db.run("INSERT INTO marks VALUES ('child')"));`,
+		await state.write(() => state.db.run("INSERT INTO marks VALUES ('child')"));`,
 	]);
 	expect(await seen).toBe(true);
 });
@@ -57,7 +57,7 @@ test("this process's own write reaches its listeners", async () => {
 	const {dbPath, state} = fixture();
 	// Past the 2-second fallback poll: macOS can report the bell later.
 	const seen = changed(dbPath, 3000);
-	await state.writeRows(() => state.db.run("INSERT INTO marks VALUES ('own')"));
+	await state.write(() => state.db.run("INSERT INTO marks VALUES ('own')"));
 	expect(await seen).toBe(true);
 });
 
@@ -76,7 +76,7 @@ test('a commit that rang no bell is still found by the poll', async () => {
 test('a transaction that changes no rows rings nothing', async () => {
 	const {dbPath, state} = fixture();
 	const seen = changed(dbPath, 300);
-	await state.writeRows(() =>
+	await state.write(() =>
 		state.db.run("DELETE FROM marks WHERE name = 'absent'"),
 	);
 	expect(await seen).toBe(false);

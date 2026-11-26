@@ -1,9 +1,4 @@
-import {
-	getRepoName,
-	getRepoRoot,
-	loadProviderConfigs,
-	readHomeSqliteState,
-} from './config.ts';
+import {getRepoName, getRepoRoot, loadProviderConfigs} from './config.ts';
 import {inlineConfigErrors} from './config-errors.ts';
 import {loadEnvrcIntoProcessEnv} from './envrc.ts';
 import {
@@ -16,7 +11,6 @@ import {
 } from './providers/index.ts';
 import {discoverWorkspaceRepositories} from './providers/workspace-repositories.ts';
 import {stateDaosByRepo, type StateDaos} from './state-daos.ts';
-import {recordSqliteState} from './state-flag.ts';
 import {initTmuxState} from './tmux.ts';
 import {createLogger} from './logger.ts';
 
@@ -53,12 +47,6 @@ export function bootstrapRepo(): {repoName: string; daos: StateDaos} {
 	setStateColors(daos.stateColors);
 	setPrLinkStamp(daos.prLinkStamp);
 	setIssueTitles(daos.spaceState);
-
-	try {
-		recordSqliteState(readHomeSqliteState());
-	} catch {
-		// The hooks keep the mode they last read.
-	}
 
 	// Initialize provider singletons from config so that all subsequent
 	// no-arg calls (e.g. from tracker.ts facade) use the correct provider.

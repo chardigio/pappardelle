@@ -62,8 +62,8 @@ function setup(
 
 const app = {session: 'pappardelle-app', repo: 'app'};
 
-test('only pappardelle sessions with a repo state dir count as TUIs', () => {
-	const {repoStateRoot: root, tuiMarker} = tuiStateRoot(['app', 'web']);
+test('only pappardelle sessions of a known repo count as TUIs', () => {
+	const {tuiMarker} = tuiStateRoot(['app', 'web']);
 	const {tmux} = fakeTuiTmux({
 		tuiMarker,
 		sessions: [
@@ -74,20 +74,20 @@ test('only pappardelle sessions with a repo state dir count as TUIs', () => {
 		],
 	});
 
-	expect(listRunningTuis(tmux, root)).toStrictEqual([
+	expect(listRunningTuis(tmux, ['app', 'web'])).toStrictEqual([
 		{session: 'pappardelle-app', repo: 'app'},
 		{session: 'pappardelle-web', repo: 'web'},
 	]);
 });
 
 test('a dotted repo name matches with or without tmux rewriting the dot', () => {
-	const {repoStateRoot: root, tuiMarker} = tuiStateRoot(['my.repo', 'next.js']);
+	const {tuiMarker} = tuiStateRoot(['my.repo', 'next.js']);
 	const {tmux} = fakeTuiTmux({
 		tuiMarker,
 		sessions: ['pappardelle-my_repo', 'pappardelle-next.js'],
 	});
 
-	expect(listRunningTuis(tmux, root)).toStrictEqual([
+	expect(listRunningTuis(tmux, ['my.repo', 'next.js'])).toStrictEqual([
 		{session: 'pappardelle-my_repo', repo: 'my.repo'},
 		{session: 'pappardelle-next.js', repo: 'next.js'},
 	]);
@@ -98,13 +98,13 @@ test('when two repos could own a session, the one named exactly like it does', (
 		['my.app', 'my_app'],
 		['my_app', 'my.app'],
 	]) {
-		const {repoStateRoot: root, tuiMarker} = tuiStateRoot(repos);
+		const {tuiMarker} = tuiStateRoot(repos);
 		const {tmux} = fakeTuiTmux({
 			tuiMarker,
 			sessions: ['pappardelle-my_app'],
 		});
-		// Readdir order is the filesystem's; neither order may change the answer.
-		expect(listRunningTuis(tmux, root)).toStrictEqual([
+		// Neither order may change the answer.
+		expect(listRunningTuis(tmux, repos)).toStrictEqual([
 			{session: 'pappardelle-my_app', repo: 'my_app'},
 		]);
 	}
@@ -191,16 +191,13 @@ test('a TUI that never reports ready times out', async () => {
 
 test('a marker left by the previous TUI does not count as ready', async () => {
 	const h = setup(['pappardelle-app'], {'pappardelle-app': 'silent'});
-	fs.writeFileSync(
-		path.join(h.root, 'app', 'tui.json'),
-		JSON.stringify({
-			pid: 1,
-			cliPath: FAKE_CLI_PATH,
-			sha: FAKE_SHA,
-			paneId: '%0',
-			startedAt: Date.now() - 1000,
-		}),
-	);
+	await h.deps.tuiMarker('app').write({
+		pid: 1,
+		cliPath: FAKE_CLI_PATH,
+		sha: FAKE_SHA,
+		paneId: '%0',
+		startedAt: Date.now() - 1000,
+	});
 
 	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
 });
@@ -208,16 +205,13 @@ test('a marker left by the previous TUI does not count as ready', async () => {
 test("a marker written from another pane does not count as this TUI's", async () => {
 	const h = setup(['pappardelle-app'], {'pappardelle-app': 'silent'});
 	setTimeout(() => {
-		fs.writeFileSync(
-			path.join(h.root, 'app', 'tui.json'),
-			JSON.stringify({
-				pid: 1,
-				cliPath: FAKE_CLI_PATH,
-				sha: FAKE_SHA,
-				paneId: '%7',
-				startedAt: Date.now(),
-			}),
-		);
+		void h.deps.tuiMarker('app').write({
+			pid: 1,
+			cliPath: FAKE_CLI_PATH,
+			sha: FAKE_SHA,
+			paneId: '%7',
+			startedAt: Date.now(),
+		});
 	}, 30);
 
 	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
@@ -228,16 +222,13 @@ test("a marker written from another pane does not count as this TUI's", async ()
 
 test('a TUI whose panes were rearranged is restarted in the pane its marker names', async () => {
 	const h = setup(['pappardelle-app'], {}, {'pappardelle-app': '%5'});
-	fs.writeFileSync(
-		path.join(h.root, 'app', 'tui.json'),
-		JSON.stringify({
-			pid: 1,
-			cliPath: FAKE_CLI_PATH,
-			sha: FAKE_SHA,
-			paneId: '%5',
-			startedAt: Date.now() - 1000,
-		}),
-	);
+	await h.deps.tuiMarker('app').write({
+		pid: 1,
+		cliPath: FAKE_CLI_PATH,
+		sha: FAKE_SHA,
+		paneId: '%5',
+		startedAt: Date.now() - 1000,
+	});
 
 	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(true);
 	expect(
@@ -247,16 +238,13 @@ test('a TUI whose panes were rearranged is restarted in the pane its marker name
 
 test('a marker naming a pane that left the window falls back to the first pane', async () => {
 	const h = setup(['pappardelle-app']);
-	fs.writeFileSync(
-		path.join(h.root, 'app', 'tui.json'),
-		JSON.stringify({
-			pid: 1,
-			cliPath: FAKE_CLI_PATH,
-			sha: FAKE_SHA,
-			paneId: '%44',
-			startedAt: Date.now() - 1000,
-		}),
-	);
+	await h.deps.tuiMarker('app').write({
+		pid: 1,
+		cliPath: FAKE_CLI_PATH,
+		sha: FAKE_SHA,
+		paneId: '%44',
+		startedAt: Date.now() - 1000,
+	});
 
 	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(true);
 	expect(

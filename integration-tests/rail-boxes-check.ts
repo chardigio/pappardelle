@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {homedir} from 'node:os';
-import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
+import {rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
 import App from '../source/app.tsx';
 import {getRepoName} from '../source/config.ts';
-import {getRegistryPathForRepo} from '../source/space-registry.ts';
 import {createStateDaos, type StateDaos} from '../source/state-daos.ts';
 import {initTmuxState} from '../source/tmux.ts';
 import {
@@ -20,14 +19,13 @@ import {StatusHarness, untilSeen} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
 const originalDirectory = process.cwd();
-let registry = '';
 let daos: StateDaos | undefined;
 const frames: Array<{scenario: string; frame: string}> = [];
 let view: Awaited<ReturnType<typeof render>> | undefined;
 let repo: string | undefined;
 
 const issues = new Map<string, TrackerIssue>();
-function seed(count: number, reviewEvery = 0) {
+async function seed(count: number, reviewEvery = 0) {
 	issues.clear();
 	const keys = Array.from(
 		{length: count},
@@ -44,7 +42,9 @@ function seed(count: number, reviewEvery = 0) {
 		});
 	}
 
-	writeFileSync(registry, JSON.stringify(keys));
+	const {registry} = daos!;
+	for (const key of registry.openSpaces()) await registry.remove(key);
+	for (const key of keys) await registry.add(key);
 }
 
 // App sizes the rail from stdout, which is 80x40 when it is not a terminal.
@@ -88,13 +88,7 @@ try {
 		'version: 1\ndefault_profile: fixture\nlist_view:\n  group_by: status\nprofiles:\n  fixture:\n    display_name: Fixture\n    keywords: []\n',
 	);
 	const stateDir = path.join(harness.root, 'state');
-	registry = getRegistryPathForRepo(repo, stateDir);
-	mkdirSync(path.dirname(registry), {recursive: true});
-	daos = createStateDaos({
-		repo,
-		stateDir,
-		sqlite: harness.sqlite,
-	});
+	daos = createStateDaos({repo, stateDir});
 	initTmuxState(daos);
 	const tracker = createIssueTracker({provider: 'beads'});
 	tracker.getIssue = async key => issues.get(key) ?? null;
@@ -104,7 +98,7 @@ try {
 	const vcs = createVcsHost();
 	vcs.getBulkRailStatus = async () => new Map();
 
-	seed(3, 3);
+	await seed(3, 3);
 	await mount();
 	const split = await expectFrame(
 		'two boxes: the workspace in the top border, spaces counted in the rail border',
@@ -187,7 +181,7 @@ try {
 	);
 	await view!.stdin.write('\u001B');
 
-	seed(60);
+	await seed(60);
 	await mount();
 	await expectFrame('a long list shows its range in the rail border', lines =>
 		lines.some(line => /^╭─ rail.* 1-\d+ of 60 ─╮$/.test(line)),
@@ -200,7 +194,7 @@ try {
 	);
 	assert.match(scrolled[2]!, /main/, 'sous-chef row stays put while scrolling');
 
-	seed(0);
+	await seed(0);
 	await mount();
 	const empty = await expectFrame(
 		'no workspaces: no count in the rail border',

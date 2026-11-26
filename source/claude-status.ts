@@ -1,10 +1,5 @@
 // Claude Code status tracking
-import {existsSync, mkdirSync, watch} from 'node:fs';
-import {readFile} from 'node:fs/promises';
-import path from 'node:path';
-import {waitForDirChange} from './file-watch.ts';
 import type {ProgramStatusInfo} from './program-status.ts';
-import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 
 const CLAUDE_STATUSES = [
 	'processing',
@@ -45,32 +40,14 @@ export const ACTIVE_STATUSES = new Set<ClaudeStatus>([
 export const ACTIVE_STATUS_TIMEOUT = 10 * 60 * 1000;
 
 /**
- * The name of a space's hook status file: the space key, or the main
- * checkout's branch, qualified by repo. Every repo writes to the same
- * directory, and two repos can have spaces with the same key.
+ * The key a space's hook status is reported under: the space key, or the main
+ * checkout's branch, qualified by repo. Every repo reports to the same status
+ * daemon, and two repos can have spaces with the same key.
  */
 export function hookStatusKey(repoName: string, name: string): string {
 	// Branch names may carry a slash (alice/STA-1). The hook flattens it the
-	// same way so the status file name stays a single path segment.
+	// same way, so the two must agree on the flattened key.
 	return `${repoName}-${name}`.replaceAll('/', '-');
-}
-
-/**
- * The status key to read a space's hook status under. Where the main
- * checkout's hook reports under its branch, the branch is looked up only for
- * main.
- */
-export async function spaceStatusKey(
-	claudeStatus: Pick<ClaudeStatusDao, 'readableKey' | 'mainKeyedByBranch'>,
-	repoName: string,
-	key: string,
-	mainBranch: () => Promise<string | undefined>,
-): Promise<string> {
-	const name =
-		key === MAIN_WORKTREE_KEY && claudeStatus.mainKeyedByBranch
-			? ((await mainBranch()) ?? MAIN_WORKTREE_KEY)
-			: key;
-	return claudeStatus.readableKey(repoName, name);
 }
 
 export interface ClaudeStatusInfo {
@@ -82,7 +59,6 @@ export interface ClaudeStatusInfo {
 /** What is stored under a status key, as the hook wrote it. */
 export type StoredClaudeStatus =
 	| {kind: 'none'}
-	| {kind: 'unreadable'}
 	| {kind: 'state'; state: ClaudeSessionState};
 
 /**
@@ -92,12 +68,6 @@ export type StoredClaudeStatus =
  */
 export interface ClaudeStatusDao {
 	/**
-	 * Whether the main checkout's hook reports under its branch. Without the
-	 * database the hook names its space from the path, and main's path names
-	 * no space; with it, main is a stored space reported under its key.
-	 */
-	readonly mainKeyedByBranch: boolean;
-	/**
 	 * The status key to read a space under. An agent started before status
 	 * keys were qualified by repo still writes under the bare name until it
 	 * restarts, so that record is read when only it exists. It can belong to
@@ -105,8 +75,8 @@ export interface ClaudeStatusDao {
 	 * fixes.
 	 */
 	readableKey(repoName: string, name: string): Promise<string>;
-	/** `unknown` when nothing is recorded, null when the record cannot be read. */
-	read(statusKey: string): Promise<ClaudeStatusInfo | null>;
+	/** `unknown` when nothing is recorded. */
+	read(statusKey: string): Promise<ClaudeStatusInfo>;
 	readState(statusKey: string): Promise<StoredClaudeStatus>;
 	/** Call `listener` with the status key of each record that changes. */
 	watch(listener: (statusKey: string) => void): () => void;
@@ -127,10 +97,6 @@ export function statusInfo(state: ClaudeSessionState): ClaudeStatusInfo {
 		tool: state.currentTool,
 		lastUpdate: state.lastUpdate,
 	};
-}
-
-function parseStatus(content: string): ClaudeStatusInfo {
-	return statusInfo(JSON.parse(content) as ClaudeSessionState);
 }
 
 /** A record holding only the optional fields that were reported. */
@@ -198,13 +164,6 @@ export function sessionStateOf(value: unknown): ClaudeSessionState | undefined {
 	);
 }
 
-/** Throws when `content` is not a record as the hook writes it. */
-export function parseSessionState(content: string): ClaudeSessionState {
-	const state = sessionStateOf(JSON.parse(content));
-	if (!state) throw new Error('Not a Claude status record');
-	return state;
-}
-
 /**
  * The rule of `ClaudeStatusDao.readableKey`, for a store that says whether it
  * holds a record under a status key.
@@ -219,71 +178,8 @@ export async function readableStatusKey(
 	return (await recorded(name)) ? name : qualified;
 }
 
-export class JsonClaudeStatusDao implements ClaudeStatusDao {
-	get mainKeyedByBranch(): boolean {
-		return true;
-	}
-
-	private readonly dir: string;
-
-	constructor(dir: string) {
-		this.dir = path.resolve(dir);
-	}
-
-	private file(statusKey: string): string {
-		return path.join(this.dir, `${statusKey}.json`);
-	}
-
-	async readableKey(repoName: string, name: string): Promise<string> {
-		return readableStatusKey(repoName, name, statusKey =>
-			existsSync(this.file(statusKey)),
-		);
-	}
-
-	async read(statusKey: string): Promise<ClaudeStatusInfo | null> {
-		try {
-			return parseStatus(await readFile(this.file(statusKey), 'utf-8'));
-		} catch (err) {
-			return (err as NodeJS.ErrnoException).code === 'ENOENT'
-				? {status: 'unknown'}
-				: null;
-		}
-	}
-
-	async readState(statusKey: string): Promise<StoredClaudeStatus> {
-		let content: string;
-		try {
-			content = await readFile(this.file(statusKey), 'utf8');
-		} catch (error) {
-			return (error as NodeJS.ErrnoException).code === 'ENOENT'
-				? {kind: 'none'}
-				: {kind: 'unreadable'};
-		}
-
-		try {
-			return {kind: 'state', state: parseSessionState(content)};
-		} catch {
-			return {kind: 'unreadable'};
-		}
-	}
-
-	watch(listener: (statusKey: string) => void): () => void {
-		mkdirSync(this.dir, {recursive: true});
-		const watcher = watch(this.dir, (_event, filename) => {
-			if (filename?.endsWith('.json')) listener(filename.slice(0, -5));
-		});
-		return () => {
-			watcher.close();
-		};
-	}
-
-	async waitForChange(ms: number): Promise<void> {
-		await waitForDirChange([this.dir], ms);
-	}
-}
-
 /**
- * Find the index of a space matching a status file workspace name.
+ * Find the index of a space matching a hook record's workspace name.
  * Uses statusKey (repo-qualified) when present, falls back to name.
  */
 export function findSpaceByStatusKey(

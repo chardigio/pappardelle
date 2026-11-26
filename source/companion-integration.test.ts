@@ -68,14 +68,14 @@ beforeAll(() => {
 	tmux('new-session', '-d', '-s', AGENT, '-c', dir, 'sleep 600');
 });
 
-// tmux.ts names a space's sessions from the stores. Without the database they
-// are the names idow gives a space, which is all this file needs.
+// tmux.ts names a space's sessions from the stores, as idow names them when
+// it opens a space.
 const stateTeardowns: Array<() => unknown> = [];
 beforeAll(() => {
 	testTmuxState({
 		cleanup: fn => stateTeardowns.push(fn),
 		repo: 'itest',
-		sqlite: false,
+		spaces: ['KEY-1'],
 	});
 });
 afterAll(async () => {

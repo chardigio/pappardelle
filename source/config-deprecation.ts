@@ -195,11 +195,25 @@ export function deprecationWarnings(
 			({key, value}) =>
 				`${file}: ${key} "${value}" includes the skill prefix — write "${value.slice(1)}"; the agent profile's skill_prefix is added at launch`,
 		),
+		...(hasSqliteStateFlag(layer)
+			? [
+					`${file}: experimental.sqliteState is deprecated — Pappardelle always keeps its state in SQLite, so delete it`,
+				]
+			: []),
 		...findTrailingPromptFlags(layer, agentProfiles).map(
 			({name, field, flag}) =>
 				`${file}: agent_profiles.${name}.${field} ends with ${flag}, which the built-in prompt_args now adds — remove it`,
 		),
 	];
+}
+
+function hasSqliteStateFlag(layer: Record<string, unknown>): boolean {
+	const {experimental} = layer;
+	return (
+		typeof experimental === 'object' &&
+		experimental !== null &&
+		'sqliteState' in experimental
+	);
 }
 
 /**

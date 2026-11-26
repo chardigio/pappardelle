@@ -16,7 +16,7 @@ The checks that use your own HOME and logins, below, run through `test/helpers/t
 
 The transport test exercises both launch paths on an isolated tmux socket, including read-only capability-query handling, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real `App` under OpenTUI, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and the component unit tests. The app test requires no automatic watchlists in the project and local configuration.
 
-Run them again with `PAPPARDELLE_SQLITE_STATE=1` to check the same behavior with state in SQLite and status sent through the status daemon. The harness keeps that database and the daemon's socket under its own temporary root, and fails a run that leaves a hook status file or a snapshot file. It starts its tmux servers with `-f /dev/null`, so your own tmux config does not apply. Under the throwaway HOME nothing under your home directory applies or is written to, such as your `~/.pappardelle` config and your shell history.
+The harness keeps its state database and the status daemon's socket under its own temporary root, and fails a run that leaves a hook status file or a snapshot file. It starts its tmux servers with `-f /dev/null`, so your own tmux config does not apply. Under the throwaway HOME nothing under your home directory applies or is written to, such as your `~/.pappardelle` config and your shell history.
 
 The lifecycle check covers pinned agent panes across window/split selection, event updates without tmux discovery, a liveness check that makes no tmux call, and lease revocation during an in-flight publication. The cleanup check drives actual CLI close, detached teardown, and orphan reaping, verifying that snapshots and leases are removed only for successfully closed workspaces. Both use isolated tmux servers and temporary status directories.
 
@@ -36,7 +36,7 @@ Mounts the real `App` with fixture issues and checks the rail's two boxes: the w
 bun run test:integration unreadable-state-app
 ```
 
-Mounts the real `App` with `experimental.sqliteState` stores over a `state.db` that is not a database, under a throwaway HOME and an isolated tmux socket. The rail has to draw, list no space it cannot read, report the failed read, and list the space once the file is replaced, without a restart.
+Mounts the real `App` over a `state.db` that is not a database, under a throwaway HOME and an isolated tmux socket. The rail has to draw, list no space it cannot read, report the failed read, and list the space once the file is replaced, without a restart.
 
 ## Popups
 
@@ -81,7 +81,7 @@ OpenCode's verifier checks native root and child reports, a real model reply, co
 
 Each scenario has a timeout. Claude uses hooks, while Pi, Codex, OpenCode, and agy use native reports; auth/error/child records and hard limits also use the synthetic fixture. [STE-37 acceptance results](STE-37-verification.md) record the observed native behavior and remaining capability-negotiation constraints.
 
-Status directory overrides are `PAPPARDELLE_STATUS_DIR` for hooks and `PAPPARDELLE_PROGRAM_STATUS_DIR` for native snapshots. `PAPPARDELLE_STATUS_SOCKET` moves the status daemon's socket. `PAPPARDELLE_TMUX_SOCKET` selects the isolated server. `PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR` enables bounded, parsed-event traces for verification; screen output is never saved by the monitor. `PAPPARDELLE_CLAUDE_CONFIG_PATH` isolates launch-time trust writes in synthetic tests.
+`PAPPARDELLE_PROGRAM_STATUS_DIR` moves the monitors' leases. `PAPPARDELLE_STATUS_SOCKET` moves the status daemon's socket. `PAPPARDELLE_TMUX_SOCKET` selects the isolated server. `PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR` enables bounded, parsed-event traces for verification; screen output is never saved by the monitor. `PAPPARDELLE_CLAUDE_CONFIG_PATH` isolates launch-time trust writes in synthetic tests.
 
 ## Prerequisites
 

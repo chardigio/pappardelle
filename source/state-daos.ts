@@ -1,102 +1,51 @@
-// The composition root for Pappardelle's stores.
-//
-// Each store is a DAO with a file-backed implementation and one for
-// experimental.sqliteState: SQLite-backed, or for the two status signals the
-// status daemon. This is the one place that decides which a process gets, so
-// nothing else reads the flag, and removing the flag changes this file.
+// The composition root for Pappardelle's stores: SQLite-backed, or for the
+// two status signals the status daemon.
 
 import {homedir} from 'node:os';
-import path from 'node:path';
 import {SqliteAgentSessionsDao} from './agent-sessions-sqlite.ts';
-import {JsonClaudeStatusDao, type ClaudeStatusDao} from './claude-status.ts';
+import type {ClaudeStatusDao} from './claude-status.ts';
 import {DaemonClaudeStatusDao} from './claude-status-daemon.ts';
-import {
-	companionRequestsDir,
-	companionWidthsPath,
-	JsonCompanionRequestDao,
-	JsonCompanionWidthDao,
-	type CompanionRequestDao,
-	type CompanionWidthDao,
+import type {
+	CompanionRequestDao,
+	CompanionWidthDao,
 } from './companion-width.ts';
 import {
 	SqliteCompanionRequestDao,
 	SqliteCompanionWidthDao,
 } from './companion-width-sqlite.ts';
-import {getMainRepoRoot, readHomeSqliteState} from './config.ts';
-import {holdsDir, JsonHoldDao, type HoldDao} from './holds.ts';
+import {getMainRepoRoot} from './config.ts';
+import type {HoldDao} from './holds.ts';
 import {SqliteHoldDao} from './holds-sqlite.ts';
-import {
-	getHighlightFilePath,
-	JsonHighlightDao,
-	type HighlightDao,
-} from './highlight.ts';
+import type {HighlightDao} from './highlight.ts';
 import {SqliteHighlightDao} from './highlight-sqlite.ts';
-import {JsonIssueMetaDao, type IssueMetaDao} from './issue-meta.ts';
+import type {IssueMetaDao} from './issue-meta.ts';
 import {SqliteIssueMetaDao} from './issue-meta-sqlite.ts';
-import {
-	JsonPrLinkStampDao,
-	prLinkStampPath,
-	type PrLinkStampDao,
-} from './pr-link-stamp.ts';
+import type {PrLinkStampDao} from './pr-link-stamp.ts';
 import {SqlitePrLinkStampDao} from './pr-link-stamp-sqlite.ts';
 import {createProgramStatusDao} from './program-status-daemon.ts';
 import {statusSocket, type ProgramStatusDao} from './program-status-monitor.ts';
-import {
-	getStateColorsPath,
-	JsonStateColorDao,
-	migrateLegacyStateColors,
-	type StateColorDao,
-} from './providers/state-color-cache.ts';
+import type {StateColorDao} from './providers/state-color-cache.ts';
 import {SqliteStateColorDao} from './providers/state-color-cache-sqlite.ts';
-import {
-	JsonScheduleDao,
-	queuedMessagesDir,
-	schedulesDir,
-	type ScheduleDao,
-} from './schedule.ts';
+import type {ScheduleDao} from './schedule.ts';
 import {SqliteScheduleDao} from './schedule-sqlite.ts';
-import {
-	JsonSpaceIdentityDao,
-	type IdentityDefaults,
-	type SpaceIdentityDao,
-} from './space-identity.ts';
+import type {IdentityDefaults, SpaceIdentityDao} from './space-identity.ts';
 import {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
-import {
-	getRegistryPathForRepo,
-	JsonSpaceRegistryDao,
-	migrateLegacyRegistry,
-	type SpaceRegistryDao,
-} from './space-registry.ts';
+import type {SpaceRegistryDao} from './space-registry.ts';
 import {SqliteSpaceRegistryDao} from './space-registry-sqlite.ts';
-import {
-	getSpaceStateDir,
-	JsonAgentSessionsDao,
-	JsonSpaceStateDao,
-	type AgentSessionsDao,
-	type SpaceStateDao,
-} from './space-state.ts';
+import type {AgentSessionsDao} from './agent-sessions.ts';
+import type {SpaceStateDao} from './space-state.ts';
 import {SqliteSpaceStateDao} from './space-state-sqlite.ts';
 import {
 	checkpointOutsideWrites,
 	DEFAULT_STATE_DIR,
-	openStateDb,
 	stateDbPath,
-	type JsonMirror,
 	statusSocketPath,
 } from './state-db.ts';
-import {readStateEnv} from './state-env.ts';
+import {openImportedStateDb} from './state-import.ts';
 import {StatusClient} from './status-client.ts';
-import {
-	JsonTuiMarkerDao,
-	tuiMarkerPath,
-	type TuiMarkerDao,
-} from './tui-marker.ts';
+import type {TuiMarkerDao} from './tui-marker.ts';
 import {SqliteTuiMarkerDao} from './tui-marker-sqlite.ts';
-import {
-	JsonUpdateCheckDao,
-	updateCheckPath,
-	type UpdateCheckDao,
-} from './update-check.ts';
+import type {UpdateCheckDao} from './update-check.ts';
 import {SqliteUpdateCheckDao} from './update-check-sqlite.ts';
 
 export type StateDaos = {
@@ -136,11 +85,8 @@ export type StateDaos = {
 
 export type StateDaoOptions = {
 	repo: string;
-	/** Where the state files live, and the database unless `dbPath` says otherwise. */
+	/** Where the state files and the database live. */
 	stateDir?: string;
-	dbPath?: string;
-	/** Which implementation to build. Defaults to experimental.sqliteState. */
-	sqlite?: boolean;
 	/** The time recorded on a write. */
 	clock?: () => Date;
 	/** The home whose `~/.worktrees` holds the spaces idow creates. */
@@ -151,149 +97,51 @@ export type StateDaoOptions = {
 	mainRoot?: () => string;
 };
 
-let configured: boolean | undefined;
-
-/** experimental.sqliteState for this process: the override, then the home config. */
-export function sqliteStateEnabled(): boolean {
-	configured ??= readStateEnv().sqliteState ?? readHomeSqliteState();
-	return configured;
-}
-
 export function createStateDaos(options: StateDaoOptions): StateDaos {
 	const {repo} = options;
 	const stateDir = options.stateDir ?? DEFAULT_STATE_DIR;
-	migrateLegacyRegistry(repo, stateDir);
-	migrateLegacyStateColors(repo, stateDir);
-	const jsonRegistry = new JsonSpaceRegistryDao(
-		getRegistryPathForRepo(repo, stateDir),
-	);
 	const identityDefaults: IdentityDefaults = {
 		repo,
 		home: options.home ?? homedir(),
 		socket: statusSocket(options.env),
 		mainRoot: options.mainRoot ?? getMainRepoRoot,
 	};
-	const jsonClaudeStatus = new JsonClaudeStatusDao(
-		readStateEnv().claudeStatusDir ?? path.join(stateDir, 'claude-status'),
-	);
 	const clock = options.clock ?? (() => new Date());
-	const jsonSpaceState = new JsonSpaceStateDao(
-		getSpaceStateDir(repo, stateDir),
-		clock,
-	);
-	const jsonIssueMeta = new JsonIssueMetaDao(
-		path.join(stateDir, 'repos', repo, 'issue-meta'),
-		clock,
-	);
-	const highlightFile = getHighlightFilePath(repo, stateDir);
-	const stateColorsFile = getStateColorsPath(repo, stateDir);
-	const jsonAgentSessions = new JsonAgentSessionsDao(
-		getSpaceStateDir(repo, stateDir),
-	);
-	const jsonCompanionWidths = new JsonCompanionWidthDao(
-		companionWidthsPath(repo, stateDir),
-	);
-	const jsonCompanionRequests = new JsonCompanionRequestDao(
-		companionRequestsDir(repo, stateDir),
-	);
-	const jsonSchedules = new JsonScheduleDao(
-		schedulesDir(repo, stateDir),
-		queuedMessagesDir(repo, stateDir),
-	);
-	const jsonHolds = new JsonHoldDao(holdsDir(repo, stateDir));
-	const jsonPrLinkStamp = new JsonPrLinkStampDao(
-		prLinkStampPath(stateDir),
-		clock,
-	);
-	const dbPath = options.dbPath ?? stateDbPath(options.stateDir);
-	const sqlite = options.sqlite ?? sqliteStateEnabled();
+	const dbPath = stateDbPath(options.stateDir);
 	// Applied when a store first opens the connection, so that asking for it
 	// does not open a database nothing has used yet.
 	let checkpointsDeferred = false;
 	const openDb = () => {
-		const state = openStateDb(dbPath);
+		const state = openImportedStateDb(dbPath, stateDir, identityDefaults);
 		if (checkpointsDeferred) checkpointOutsideWrites(state);
 		return state;
 	};
 	const socketPath = statusSocketPath(options.stateDir);
-	const statusClient = sqlite
-		? new StatusClient(socketPath, {repo})
-		: undefined;
+	const statusClient = new StatusClient(socketPath, {repo});
 	const programStatus = createProgramStatusDao({
 		repo,
 		stateDir,
 		socketPath,
 		statusClient,
 	});
-	const tuiMarkerFile = tuiMarkerPath(path.join(stateDir, 'repos'), repo);
-	const updateCheckFile = updateCheckPath(stateDir);
-	if (!statusClient) {
-		return {
-			registry: jsonRegistry,
-			spaceIdentities: new JsonSpaceIdentityDao(identityDefaults, jsonRegistry),
-			claudeStatus: jsonClaudeStatus,
-			spaceState: jsonSpaceState,
-			issueMeta: jsonIssueMeta,
-			highlight: new JsonHighlightDao(highlightFile),
-			stateColors: new JsonStateColorDao(stateColorsFile),
-			agentSessions: jsonAgentSessions,
-			companionWidths: jsonCompanionWidths,
-			companionRequests: jsonCompanionRequests,
-			schedules: jsonSchedules,
-			holds: jsonHolds,
-			prLinkStamp: jsonPrLinkStamp,
-			programStatus,
-			tuiMarker: new JsonTuiMarkerDao(tuiMarkerFile),
-			updateCheck: new JsonUpdateCheckDao(updateCheckFile),
-			deferCheckpoints() {},
-			allowStatusDaemonStart() {},
-			disconnectStatusDaemon() {},
-		};
-	}
-
-	const spaceIdentities = new SqliteSpaceIdentityDao(
-		openDb,
-		identityDefaults,
-		(): JsonMirror => registry.mirror,
-	);
-	const registry = new SqliteSpaceRegistryDao(
-		openDb,
-		repo,
-		jsonRegistry,
-		spaceIdentities,
-	);
+	const spaceIdentities = new SqliteSpaceIdentityDao(openDb, identityDefaults);
 	return {
-		registry,
+		registry: new SqliteSpaceRegistryDao(openDb, repo, spaceIdentities),
 		spaceIdentities,
-		claudeStatus: new DaemonClaudeStatusDao(statusClient, jsonClaudeStatus),
-		spaceState: new SqliteSpaceStateDao(openDb, repo, jsonSpaceState, clock),
-		issueMeta: new SqliteIssueMetaDao(openDb, repo, jsonIssueMeta, clock),
-		highlight: new SqliteHighlightDao(
-			openDb,
-			dbPath,
-			repo,
-			highlightFile,
-			clock,
-		),
-		stateColors: new SqliteStateColorDao(openDb, repo, stateColorsFile),
-		agentSessions: new SqliteAgentSessionsDao(openDb, repo, jsonAgentSessions),
-		companionWidths: new SqliteCompanionWidthDao(
-			openDb,
-			repo,
-			jsonCompanionWidths,
-		),
-		companionRequests: new SqliteCompanionRequestDao(
-			openDb,
-			dbPath,
-			repo,
-			jsonCompanionRequests,
-		),
-		schedules: new SqliteScheduleDao(openDb, repo, jsonSchedules),
-		holds: new SqliteHoldDao(openDb, repo, jsonHolds),
-		prLinkStamp: new SqlitePrLinkStampDao(openDb, jsonPrLinkStamp, clock),
+		spaceState: new SqliteSpaceStateDao(openDb, repo, clock),
+		issueMeta: new SqliteIssueMetaDao(openDb, repo, clock),
+		highlight: new SqliteHighlightDao(openDb, dbPath, repo, clock),
+		stateColors: new SqliteStateColorDao(openDb, repo),
+		agentSessions: new SqliteAgentSessionsDao(openDb, repo),
+		companionWidths: new SqliteCompanionWidthDao(openDb, repo),
+		companionRequests: new SqliteCompanionRequestDao(openDb, dbPath, repo),
+		schedules: new SqliteScheduleDao(openDb, repo),
+		holds: new SqliteHoldDao(openDb, repo),
+		prLinkStamp: new SqlitePrLinkStampDao(openDb, clock),
+		tuiMarker: new SqliteTuiMarkerDao(openDb, repo),
+		updateCheck: new SqliteUpdateCheckDao(openDb),
+		claudeStatus: new DaemonClaudeStatusDao(statusClient),
 		programStatus,
-		tuiMarker: new SqliteTuiMarkerDao(openDb, repo, tuiMarkerFile),
-		updateCheck: new SqliteUpdateCheckDao(openDb, updateCheckFile),
 		deferCheckpoints() {
 			checkpointsDeferred = true;
 		},

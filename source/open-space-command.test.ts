@@ -1,3 +1,4 @@
+import {Database} from 'bun:sqlite';
 import {spawn, execFileSync} from 'node:child_process';
 import {once} from 'node:events';
 import fs from 'node:fs';
@@ -9,9 +10,8 @@ import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {newSpaceIdentity} from './space-identity.ts';
 import {gatherSpaces} from './spaces-command.ts';
-import {createStateDaos} from './state-daos.ts';
+import {createStateDaos, type StateDaos} from './state-daos.ts';
 import {closeStateDb, stateDbPath, statusSocketPath} from './state-db.ts';
-import {sqliteRun} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import {isAlive} from '../test/helpers/processes.ts';
 import {sendHookEvent, serveTestDaemon} from '../test/helpers/status-daemon.ts';
@@ -77,18 +77,6 @@ fs.writeFileSync(process.env.IDOW_TEST_RECORD, JSON.stringify({
   stdin: fs.readFileSync(0, 'utf8'),
   stdinIsTTY: process.stdin.isTTY ?? false,
 }));
-if (process.env.IDOW_TEST_STATUS_DIR) {
-  const key = process.argv.at(-1);
-  fs.mkdirSync(process.env.IDOW_TEST_STATUS_DIR, {recursive: true});
-  fs.writeFileSync(process.env.IDOW_TEST_STATUS_DIR + '/project-' + key + '.json', JSON.stringify({
-    sessionId: 'session',
-    workspaceName: 'project-' + key,
-    status: 'waiting_for_input',
-    event: 'SessionStart',
-    cwd: process.env.HOME + '/.worktrees/project/' + key,
-    lastUpdate: Date.now(),
-  }));
-}
 if (process.env.IDOW_TEST_PID_FILE) fs.writeFileSync(process.env.IDOW_TEST_PID_FILE, String(process.pid));
 if (process.env.IDOW_TEST_KEEP_ALIVE) setTimeout(() => {}, 30000);
 process.stderr.write('idow diagnostic\\n');
@@ -105,13 +93,24 @@ setTimeout(() => {
 `,
 		{mode: 0o755},
 	);
-	const registry = path.join(
-		home,
-		'.pappardelle',
-		'repos',
-		'project',
-		'open-spaces.json',
-	);
+	const stateDir = path.join(home, '.pappardelle');
+	let daos: StateDaos | undefined;
+	/** The stores the CLI records to, open in this process too. */
+	const stores = (): StateDaos => {
+		if (daos) return daos;
+		const opened = createStateDaos({
+			repo: 'project',
+			stateDir,
+			home,
+			mainRoot: () => repo,
+		});
+		teardown(() => {
+			opened.disconnectStatusDaemon();
+			closeStateDb(stateDbPath(stateDir));
+		});
+		daos = opened;
+		return opened;
+	};
 	const env = {
 		...process.env,
 		HOME: home,
@@ -145,8 +144,7 @@ setTimeout(() => {
 		const [code, signal] = await once(child, 'close');
 		return {code, signal, stdout, stderr};
 	};
-	const readRegistry = (): string[] =>
-		JSON.parse(fs.readFileSync(registry, 'utf8')) as string[];
+	const readRegistry = (): string[] => stores().registry.openSpaces();
 	const readRecord = () =>
 		JSON.parse(fs.readFileSync(record, 'utf8')) as {
 			args: string[];
@@ -156,9 +154,21 @@ setTimeout(() => {
 			stdin: string;
 			stdinIsTTY: boolean;
 		};
-	const seed = () => {
-		fs.mkdirSync(path.dirname(registry), {recursive: true});
-		fs.writeFileSync(registry, '["STE-1"]\n');
+	const seed = async () => stores().registry.add('STE-1');
+	/**
+	 * Hold the database's write lock from another connection, as a process
+	 * in the middle of a write does. Returns its release.
+	 */
+	const holdWriteLock = () => {
+		const db = new Database(stateDbPath(stateDir));
+		db.run('BEGIN IMMEDIATE');
+		let held = true;
+		return () => {
+			if (!held) return;
+			held = false;
+			db.run('COMMIT');
+			db.close();
+		};
 	};
 	/**
 	 * A worktree on disk with no stored identity, as a space closed before
@@ -173,15 +183,7 @@ setTimeout(() => {
 	const existingWorktree = async (key: string) => {
 		const worktreePath = path.join(home, '.worktrees', 'project', key);
 		fs.mkdirSync(worktreePath, {recursive: true});
-		const stateDir = path.join(home, '.pappardelle');
-		const daos = createStateDaos({
-			repo: 'project',
-			stateDir,
-			sqlite: sqliteRun,
-			home,
-			mainRoot: () => repo,
-		});
-		await daos.spaceIdentities.record(
+		await stores().spaceIdentities.record(
 			newSpaceIdentity({
 				repo: 'project',
 				key,
@@ -189,8 +191,6 @@ setTimeout(() => {
 				socket: 'pappardelle_inner',
 			}),
 		);
-		daos.disconnectStatusDaemon();
-		closeStateDb(stateDbPath(stateDir));
 	};
 	return {
 		root,
@@ -201,12 +201,13 @@ setTimeout(() => {
 		env,
 		idow,
 		record,
-		registry,
+		stores,
 		start,
 		run,
 		readRegistry,
 		readRecord,
 		seed,
+		holdWriteLock,
 		existingWorktree,
 		worktreeOnly,
 	};
@@ -227,19 +228,9 @@ test('CLI saves a normalized issue from a non-TTY sous-chef invocation', async (
 	});
 	expect(result.stdout.includes('Workspace STE-20 is ready!')).toBe(true);
 	expect(result.stderr.includes('idow diagnostic')).toBe(true);
-	const stateDir = path.join(f.home, '.pappardelle');
-	const daos = createStateDaos({
-		repo: 'project',
-		stateDir,
-		sqlite: sqliteRun,
-	});
-	teardown(() => {
-		daos.disconnectStatusDaemon();
-		closeStateDb(stateDbPath(stateDir));
-	});
 	const spaces = await gatherSpaces({
 		repoName: 'project',
-		...daos,
+		...f.stores(),
 		home: f.home,
 		fetchTitles: async () => new Map(),
 		gitSummary: async () => null,
@@ -249,65 +240,44 @@ test('CLI saves a normalized issue from a non-TTY sous-chef invocation', async (
 	).toStrictEqual(['STE-20']);
 });
 
-// With the flag on the agent's hook reports to the status daemon, and a status
-// file is not read.
-(sqliteRun ? test.skip : test)(
-	'CLI --wait succeeds once the reopened space reports its agent started',
-	async () => {
-		const f = fixture();
-		await f.existingWorktree('STE-20');
-		const statusDir = path.join(f.root, 'status');
-		const result = await f.run(['--resume', '--wait', 'STE-20'], {
-			PAPPARDELLE_STATUS_DIR: statusDir,
-			IDOW_TEST_STATUS_DIR: statusDir,
-		});
-		expect(result.code, result.stderr).toBe(0);
-		expect(f.readRecord().args).toStrictEqual(['--resume', 'STE-20']);
-		expect(f.readRegistry()).toStrictEqual(['STE-20']);
-	},
-);
-
 // A CLI verb never starts the daemon. The agent's pane monitor does, which
 // can be after `open --wait` has begun to wait.
-(sqliteRun ? test : test.skip)(
-	'CLI --wait begun before any status daemon runs succeeds once one starts and the agent reports to it',
-	async () => {
-		const f = fixture();
-		await f.existingWorktree('STE-20');
-		const socketPath = statusSocketPath(path.join(f.home, '.pappardelle'));
-		const child = f.start(['--resume', '--wait', 'STE-20']);
-		let stdout = '';
-		let stderr = '';
-		child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
-			stdout += chunk;
-		});
-		child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
-			stderr += chunk;
-		});
-		child.stdin.end('2\n');
-		const closed = once(child, 'close');
-		await until(() => stdout.includes('Workspace STE-20 is ready!'), {
-			what: 'idow to finish',
-			timeoutMs: 20_000,
-		});
-		await delay(FIRST_CONNECT_ATTEMPT_MS);
-		expect(child.exitCode, stderr).toBe(null);
-		expect(fs.existsSync(socketPath)).toBe(false);
+test('CLI --wait begun before any status daemon runs succeeds once one starts and the agent reports to it', async () => {
+	const f = fixture();
+	await f.existingWorktree('STE-20');
+	const socketPath = statusSocketPath(path.join(f.home, '.pappardelle'));
+	const child = f.start(['--resume', '--wait', 'STE-20']);
+	let stdout = '';
+	let stderr = '';
+	child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+		stdout += chunk;
+	});
+	child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+		stderr += chunk;
+	});
+	child.stdin.end('2\n');
+	const closed = once(child, 'close');
+	await until(() => stdout.includes('Workspace STE-20 is ready!'), {
+		what: 'idow to finish',
+		timeoutMs: 20_000,
+	});
+	await delay(FIRST_CONNECT_ATTEMPT_MS);
+	expect(child.exitCode, stderr).toBe(null);
+	expect(fs.existsSync(socketPath)).toBe(false);
 
-		await serveTestDaemon(socketPath);
-		await sendHookEvent(socketPath, {
-			sessionId: 'session',
-			workspaceName: 'project-STE-20',
-			status: 'waiting_for_input',
-			event: 'SessionStart',
-			cwd: path.join(f.home, '.worktrees', 'project', 'STE-20'),
-			lastUpdate: Date.now(),
-		});
+	await serveTestDaemon(socketPath);
+	await sendHookEvent(socketPath, {
+		sessionId: 'session',
+		workspaceName: 'project-STE-20',
+		status: 'waiting_for_input',
+		event: 'SessionStart',
+		cwd: path.join(f.home, '.worktrees', 'project', 'STE-20'),
+		lastUpdate: Date.now(),
+	});
 
-		const [code] = await closed;
-		expect(code, stderr).toBe(0);
-	},
-);
+	const [code] = await closed;
+	expect(code, stderr).toBe(0);
+});
 
 test("space_open over MCP keeps idow's output off the protocol channel", async () => {
 	const f = fixture();
@@ -346,7 +316,7 @@ test("space_open over MCP keeps idow's output off the protocol channel", async (
 
 test('CLI resumes with the flag first and preserves existing spaces without duplicates', async () => {
 	const f = fixture();
-	f.seed();
+	await f.seed();
 	for (const argv of [
 		['--resume', 'ste-20'],
 		['STE-20', '--resume'],
@@ -431,7 +401,7 @@ test('CLI rejects an unknown agent profile with the valid names before running i
 		/Unknown agent profile "codx"\. Agent profiles: claude, codex/,
 	);
 	expect(fs.existsSync(f.record)).toBe(false);
-	expect(fs.existsSync(f.registry)).toBe(false);
+	expect(f.readRegistry()).toStrictEqual([]);
 });
 
 test('CLI rejects an agent profile with no workspace input instead of starting the TUI', async () => {
@@ -490,7 +460,7 @@ test('CLI rejects missing profile names and missing workspace input before runni
 		expect(result.code).toBe(1);
 		expect(result.stderr).toMatch(/Usage: pappardelle --profile/);
 		expect(fs.existsSync(f.record)).toBe(false);
-		expect(fs.existsSync(f.registry)).toBe(false);
+		expect(f.readRegistry()).toStrictEqual([]);
 	}
 });
 
@@ -516,7 +486,7 @@ test('CLI --no-resume overrides automatic resume for an existing worktree', asyn
 
 test('CLI initializes a saved space again if its worktree is gone', async () => {
 	const f = fixture();
-	f.seed();
+	await f.seed();
 	const result = await f.run(['STE-1']);
 	expect(result.code).toBe(0);
 	expect(f.readRecord().args).toStrictEqual(['STE-1']);
@@ -560,7 +530,7 @@ test('CLI registers the final summary key when the description quotes another re
 
 test('CLI handles a broken stdout pipe and stops idow before returning failure', async () => {
 	const f = fixture();
-	f.seed();
+	await f.seed();
 	const pidFile = path.join(f.root, 'idow.pid');
 	const child = f.start(['STE-20'], {
 		IDOW_TEST_PID_FILE: pidFile,
@@ -588,7 +558,7 @@ test('CLI handles a broken stdout pipe and stops idow before returning failure',
 test('CLI cancels idow subprocesses on a broken pipe even after the shell exits', async () => {
 	for (const background of [false, true]) {
 		const f = fixture();
-		f.seed();
+		await f.seed();
 		const pidFile = path.join(f.root, 'worker.pid');
 		const sideEffect = path.join(f.root, 'worker.finished');
 		const worker = path.join(f.root, 'worker.mjs');
@@ -647,7 +617,7 @@ setTimeout(() => fs.writeFileSync(process.env.IDOW_TEST_SIDE_EFFECT, 'finished')
 test('CLI forwards termination signals to idow subprocesses and preserves its signal exit', async () => {
 	for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
 		const f = fixture();
-		f.seed();
+		await f.seed();
 		const pidFile = path.join(f.root, 'worker.pid');
 		const sideEffect = path.join(f.root, 'worker.finished');
 		const worker = path.join(f.root, 'worker.mjs');
@@ -693,7 +663,7 @@ setTimeout(() => {}, 30000);
 
 test('CLI preserves idow failure status without saving a space even after a ready message', async () => {
 	const f = fixture();
-	f.seed();
+	await f.seed();
 	const result = await f.run(['STE-20'], {IDOW_TEST_STATUS: '7'});
 	expect(result.code).toBe(7);
 	expect(f.readRegistry()).toStrictEqual(['STE-1']);
@@ -701,7 +671,7 @@ test('CLI preserves idow failure status without saving a space even after a read
 
 test('CLI reports spawn failure instead of succeeding or saving a space', async () => {
 	const f = fixture();
-	f.seed();
+	await f.seed();
 	fs.rmSync(f.idow);
 	const result = await f.run(['STE-20']);
 	expect(result.code).toBe(1);
@@ -711,7 +681,7 @@ test('CLI reports spawn failure instead of succeeding or saving a space', async 
 
 test('CLI treats idow signal termination as failure without registering', async () => {
 	const f = fixture();
-	f.seed();
+	await f.seed();
 	const result = await f.run(['STE-20'], {IDOW_TEST_SIGNAL: '1'});
 	expect(result.code).toBe(1);
 	expect(result.stderr).toMatch(/SIGTERM/);
@@ -725,26 +695,30 @@ test('CLI explains successful setup with an unresolved space key and fails', asy
 	});
 	expect(result.code).toBe(1);
 	expect(result.stderr).toMatch(/setup completed.*register.*issue key/i);
-	expect(fs.existsSync(f.registry)).toBe(false);
+	expect(f.readRegistry()).toStrictEqual([]);
 });
 
-test('CLI explains registration failure and leaves invalid registry state intact', async () => {
+test('CLI explains registration failure and leaves the registry as it was', async () => {
 	const f = fixture();
-	f.seed();
-	fs.writeFileSync(f.registry, '{');
-	const result = await f.run(['STE-20']);
+	await f.seed();
+	const release = f.holdWriteLock();
+	let result;
+	try {
+		result = await f.run(['STE-20']);
+	} finally {
+		release();
+	}
+
 	expect(result.code).toBe(1);
 	expect(result.stderr).toMatch(/setup completed.*register/i);
-	expect(fs.readFileSync(f.registry, 'utf8')).toBe('{');
-	expect(fs.existsSync(`${f.registry}.lock`)).toBe(false);
+	expect(f.readRegistry()).toStrictEqual(['STE-1']);
 });
 
 test('CLI streams output while setup is running and waits for registry persistence', async () => {
 	const f = fixture();
-	f.seed();
-	const lock = `${f.registry}.lock`;
-	fs.mkdirSync(lock);
-	fs.writeFileSync(path.join(lock, `${process.pid}-abcdef`), '');
+	await f.seed();
+	const release = f.holdWriteLock();
+	teardown(release);
 	const child = f.start(['STE-20']);
 	child.stdin.end();
 	child.stderr.resume();
@@ -769,8 +743,7 @@ test('CLI streams output while setup is running and waits for registry persisten
 	expect(exited).toBe(false);
 	await delay(100);
 	expect(exited).toBe(false);
-	expect(f.readRegistry()).toStrictEqual(['STE-1']);
-	fs.rmSync(lock, {recursive: true});
+	release();
 	expect(await completion).toBe(0);
 	expect(f.readRegistry()).toStrictEqual(['STE-1', 'STE-20']);
 });
@@ -802,7 +775,7 @@ test('CLI --resume without input fails with usage before running idow or the TUI
 	expect(result.code).toBe(1);
 	expect(result.stderr).toMatch(/Usage: pappardelle --resume/);
 	expect(fs.existsSync(f.record)).toBe(false);
-	expect(fs.existsSync(f.registry)).toBe(false);
+	expect(f.readRegistry()).toStrictEqual([]);
 });
 
 test('CLI help documents --resume', async () => {
@@ -815,15 +788,7 @@ test('CLI help documents --resume', async () => {
 
 test('CLI highlight asks a running Pappardelle to select the space', async () => {
 	const f = fixture();
-	const stateDir = path.join(f.home, '.pappardelle');
-	teardown(() => {
-		closeStateDb(stateDbPath(stateDir));
-	});
-	const {highlight} = createStateDaos({
-		repo: 'project',
-		stateDir,
-		sqlite: sqliteRun,
-	});
+	const {highlight} = f.stores();
 	const selected: string[] = [];
 	teardown(highlight.watch(request => selected.push(request.issueKey)));
 
@@ -834,13 +799,12 @@ test('CLI highlight asks a running Pappardelle to select the space', async () =>
 	expect(fs.existsSync(f.record)).toBe(false);
 });
 
-test('CLI commands reject experimental.sqliteState in project or local config', async () => {
+test('CLI commands still run with experimental.sqliteState in project or local config', async () => {
 	const f = fixture();
 	const localPath = path.join(f.repo, '.pappardelle.local.yml');
 	fs.writeFileSync(localPath, 'experimental:\n  sqliteState: true\n');
 	const localResult = await f.run(['highlight', 'STE-7']);
-	expect(localResult.code).toBe(1);
-	expect(localResult.stderr).toMatch(/experimental\.sqliteState/);
+	expect(localResult.code, localResult.stderr).toBe(0);
 
 	fs.unlinkSync(localPath);
 	fs.appendFileSync(
@@ -848,8 +812,7 @@ test('CLI commands reject experimental.sqliteState in project or local config', 
 		'\nexperimental:\n  sqliteState: true\n',
 	);
 	const projectResult = await f.run(['highlight', 'STE-7']);
-	expect(projectResult.code).toBe(1);
-	expect(projectResult.stderr).toMatch(/experimental\.sqliteState/);
+	expect(projectResult.code, projectResult.stderr).toBe(0);
 });
 
 test('CLI commands still run when an unrelated config section is invalid', async () => {

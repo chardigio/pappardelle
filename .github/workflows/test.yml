@@ -8,18 +8,12 @@ on:
 
 jobs:
   bun-tests:
-    name: Bun Tests (${{ matrix.os }}, sqliteState ${{ matrix.sqlite_state }})
+    name: Bun Tests (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        # experimental.sqliteState off and on: the files alone, then the
-        # database with the files kept beside it and status through the
-        # status daemon.
-        sqlite_state: ['0', '1']
     runs-on: ${{ matrix.os }}
-    env:
-      PAPPARDELLE_SQLITE_STATE: ${{ matrix.sqlite_state }}
 
     steps:
       - name: Checkout repository
@@ -81,23 +75,18 @@ jobs:
           PAPPARDELLE_TEST_STANDALONE: '1'
         run: bun run test:unit source/open-space-command.test.ts
 
-      # Linux has no osascript, and the test reads no state, so one leg runs it.
+      # Linux has no osascript.
       - name: Launcher session names through osascript (macOS)
-        if: runner.os == 'macOS' && matrix.sqlite_state == '0'
+        if: runner.os == 'macOS'
         run: ./scripts/test-session-name-encoding.sh
 
       - name: Integration checks
         run: bun run test:integration
 
   tmux-floor:
-    name: Program status on tmux 3.4 (sqliteState ${{ matrix.sqlite_state }})
-    strategy:
-      fail-fast: false
-      matrix:
-        sqlite_state: ['0', '1']
+    name: Program status on tmux 3.4
     runs-on: ubuntu-latest
     env:
-      PAPPARDELLE_SQLITE_STATE: ${{ matrix.sqlite_state }}
       # The oldest tmux Pappardelle supports: MIN_TMUX_VERSION in
       # source/tmux-version.ts. Move both together.
       TMUX_FLOOR_VERSION: '3.4'
@@ -208,14 +197,8 @@ jobs:
         run: ./scripts/test-install-shim.sh
 
   python-tests:
-    name: Python Tests (sqliteState ${{ matrix.sqlite_state }})
-    strategy:
-      fail-fast: false
-      matrix:
-        sqlite_state: ['0', '1']
+    name: Python Tests
     runs-on: ubuntu-latest
-    env:
-      PAPPARDELLE_SQLITE_STATE: ${{ matrix.sqlite_state }}
 
     steps:
       - name: Checkout repository

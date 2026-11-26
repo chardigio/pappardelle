@@ -36,14 +36,14 @@ type MainWorktree = {path: string; branch: string};
 
 export interface WorkspaceRefreshDeps {
 	detailReady?: Promise<void>;
-	readRegistry: () => Promise<string[] | null>;
+	readRegistry: () => Promise<string[]>;
 	/** A reader whose reads share one tmux listing. */
 	statusReader: () => StatusReader;
 	readWorktreePath: (key: string) => Promise<string | null>;
 	readMainWorktree: () => Promise<MainWorktree | null>;
 	readDirty: (path: string) => Promise<boolean | null>;
-	/** Hook status key of a space; the main space's is read with its branch. */
-	statusKey: (key: string, mainBranch?: string) => Promise<string>;
+	/** Hook status key of a space. */
+	statusKey: (key: string) => Promise<string>;
 	getCachedIssue: (key: string) => TrackerIssue | null;
 	fetchIssues: (keys: string[]) => Promise<unknown>;
 	readEmoji: (
@@ -156,7 +156,7 @@ export class WorkspaceRefresh {
 		if (this.stopped) return;
 		const generation = this.listGeneration;
 		const names = await this.deps.readRegistry();
-		if (this.stopped || generation !== this.listGeneration || !names) return;
+		if (this.stopped || generation !== this.listGeneration) return;
 		this.names = [...new Set(names)]
 			.filter(name => name !== MAIN_WORKTREE_KEY)
 			.sort(compareSpaceNames);
@@ -226,7 +226,7 @@ export class WorkspaceRefresh {
 					const detail = byName.get(space.name);
 					if (!detail || space.isPending || space.isMainWorktree) return space;
 					// An agent restarted since the space was listed moves from the
-					// bare status file to the qualified one.
+					// bare status key to the qualified one.
 					const patch: Partial<SpaceData> = {statusKey: detail.statusKey};
 					if (detail.worktreePath.status === 'fulfilled')
 						patch.worktreePath = detail.worktreePath.value;
@@ -311,7 +311,7 @@ export class WorkspaceRefresh {
 		);
 		const info = await this.deps.readMainWorktree();
 		if (!info || this.stopped) return;
-		const statusKey = await this.deps.statusKey(MAIN_WORKTREE_KEY, info.branch);
+		const statusKey = await this.deps.statusKey(MAIN_WORKTREE_KEY);
 		if (this.stopped) return;
 		this.publish(previous => {
 			const current = previous.find(space => space.isMainWorktree);

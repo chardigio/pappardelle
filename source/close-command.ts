@@ -34,7 +34,7 @@ const log = createLogger('close-command');
 export type CloseCommandDeps = {
 	registry: Pick<
 		SpaceRegistryDao,
-		'keepsLifecycle' | 'phase' | 'settle' | 'markClosing' | 'reopen' | 'remove'
+		'phase' | 'settle' | 'markClosing' | 'reopen' | 'remove'
 	>;
 	liveSessions: () => ReadonlySet<string> | null;
 	getIssue: (key: string) => Promise<TrackerIssue | null>;
@@ -191,8 +191,6 @@ async function tearDown(key: string, deps: CloseCommandDeps): Promise<boolean> {
 		result.outcome !== 'unregister-failed'
 	)
 		return result.outcome === 'closed';
-	// A registry with no record of the close fails as it always has.
-	if (!deps.registry.keepsLifecycle) throw result.error;
 	const cause =
 		result.error instanceof Error ? result.error.message : String(result.error);
 	deps.print(

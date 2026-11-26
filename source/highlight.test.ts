@@ -1,24 +1,23 @@
 import {execFile} from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
-import {contractTest} from '../test/helpers/dao-contract.ts';
+import {storeTest} from '../test/helpers/store-test.ts';
 import {testState, type TestState} from '../test/helpers/state.ts';
 import {spaceData} from '../test/helpers/space-fixtures.ts';
+import {tempDir} from '../test/helpers/temp-dir.ts';
 import {until, watcherReady} from '../test/helpers/wait.ts';
 import {
 	findSpaceIndexByIssueKey,
-	getHighlightFilePath,
+	highlightShellCommand,
 	type HighlightRequest,
 } from './highlight.ts';
+import {openStateDb, stateDbPath} from './state-db.ts';
 
 const exec = promisify(execFile);
 const daosUrl = new URL('state-daos.ts', import.meta.url).href;
-
-const targetFile = (s: TestState) => getHighlightFilePath('repo', s.stateDir);
 
 /** The keys a watcher is told to select, in order. */
 async function watching(s: TestState): Promise<string[]> {
@@ -31,50 +30,55 @@ async function watching(s: TestState): Promise<string[]> {
 /** Long enough for a request that was going to be reported to have been. */
 const settle = async () => delay(150);
 
-// ============================================================================
-// What every highlight store does, whichever way it is stored
-// ============================================================================
+const rows = (s: TestState) =>
+	openStateDb(stateDbPath(s.stateDir))
+		.db.query<
+			{key: string; requested_at: number},
+			[]
+		>("SELECT key, requested_at FROM highlight_targets WHERE repo = 'repo'")
+		.all();
 
-contractTest('a request writes the key to the target file', async s => {
-	expect(targetFile(s)).toBe(
-		path.join(s.stateDir, 'repos', 'repo', 'highlight-target'),
-	);
-	await s.daos.highlight.request({issueKey: 'STA-313', focus: false});
-	expect(fs.readFileSync(targetFile(s), 'utf8')).toBe('STA-313\n');
-	await s.daos.highlight.request({issueKey: 'STA-200', focus: false});
-	expect(fs.readFileSync(targetFile(s), 'utf8')).toBe('STA-200\n');
+storeTest('a focus request reaches a listener as one', async s => {
+	const requests: HighlightRequest[] = [];
+	teardown(s.daos.highlight.watch(request => requests.push(request)));
+	await watcherReady();
+	await s.daos.highlight.request({issueKey: 'main', focus: true});
+	await until(() => requests.length > 0, {what: 'a highlight request'});
+	expect(requests[0]).toStrictEqual({issueKey: 'main', focus: true});
 });
 
-contractTest(
-	'a focus request is written with its marker and reaches a listener as one',
-	async s => {
-		const requests: HighlightRequest[] = [];
-		teardown(s.daos.highlight.watch(request => requests.push(request)));
-		await watcherReady();
-		await s.daos.highlight.request({issueKey: 'main', focus: true});
-		expect(fs.readFileSync(targetFile(s), 'utf8')).toBe('main\tfocus\n');
-		await until(() => requests.length > 0, {what: 'a highlight request'});
-		expect(requests[0]).toStrictEqual({issueKey: 'main', focus: true});
-	},
-);
-
-// The sous-chef key runs this line from tmux, without starting Pappardelle.
-contractTest(
-	'the shell form of a request reaches a watching listener',
-	async s => {
-		const requests: HighlightRequest[] = [];
-		teardown(s.daos.highlight.watch(request => requests.push(request)));
-		await watcherReady();
-		await exec('sh', [
+// The sous-chef key runs this line from tmux, whose environment is not the
+// TUI's: HOME and PAPPARDELLE_STATE_DB there name another database.
+test('the shell form of a request reaches a watching listener', async () => {
+	const home = tempDir('papp-highlight-home-');
+	const s = testState({stateDir: path.join(home, '.pappardelle')});
+	const elsewhere = tempDir('papp-highlight-other-');
+	const requests: HighlightRequest[] = [];
+	teardown(s.daos.highlight.watch(request => requests.push(request)));
+	await watcherReady();
+	await exec(
+		'sh',
+		[
 			'-c',
-			s.daos.highlight.shellRequest({issueKey: 'main', focus: true}),
-		]);
-		await until(() => requests.length > 0, {what: 'a highlight request'});
-		expect(requests[0]).toStrictEqual({issueKey: 'main', focus: true});
-	},
-);
+			highlightShellCommand('repo', stateDbPath(s.stateDir), {
+				issueKey: 'main',
+				focus: true,
+			}),
+		],
+		{
+			env: {
+				...process.env,
+				HOME: elsewhere,
+				PAPPARDELLE_STATE_DB: path.join(elsewhere, 'state.db'),
+			},
+			timeout: 30_000,
+		},
+	);
+	await until(() => requests.length > 0, {what: 'a highlight request'});
+	expect(requests[0]).toStrictEqual({issueKey: 'main', focus: true});
+});
 
-contractTest('a request reaches a watching listener', async s => {
+storeTest('a request reaches a watching listener', async s => {
 	const selected = await watching(s);
 	await s.daos.highlight.request({issueKey: 'STA-500', focus: false});
 	await until(() => selected.length > 0, {what: 'a highlight request'});
@@ -82,7 +86,7 @@ contractTest('a request reaches a watching listener', async s => {
 });
 
 // The user asks for a space, moves the selection away, and asks again.
-contractTest('asking for the same key twice selects it twice', async s => {
+storeTest('asking for the same key twice selects it twice', async s => {
 	const selected = await watching(s);
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
 	await until(() => selected.length > 0, {what: 'a highlight request'});
@@ -93,7 +97,7 @@ contractTest('asking for the same key twice selects it twice', async s => {
 	expect([...new Set(selected)]).toStrictEqual(['STA-1']);
 });
 
-contractTest(
+storeTest(
 	'a request made before the watcher subscribed is not reported, and the next one is',
 	async s => {
 		await s.daos.highlight.request({issueKey: 'OLD-1', focus: false});
@@ -109,14 +113,37 @@ contractTest(
 	},
 );
 
-contractTest('clearing removes the target file', async s => {
-	await s.daos.highlight.request({issueKey: 'STA-100', focus: false});
-	await s.daos.highlight.clear();
-	expect(fs.existsSync(targetFile(s))).toBe(false);
-	expect(await s.daos.highlight.clear()).toBeUndefined();
+test('a request is one row per repo, stamped by the clock', async () => {
+	const clock = {now: 1000};
+	const s = testState({clock: () => new Date(clock.now)});
+	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
+	clock.now = 5000;
+	await s.daos.highlight.request({issueKey: 'STA-2', focus: false});
+	expect(rows(s)).toStrictEqual([{key: 'STA-2', requested_at: 5000}]);
 });
 
-contractTest('a request after a clear is reported', async s => {
+test('a request is newer than the one it replaces when the clock has not moved', async () => {
+	const clock = {now: 1000};
+	const s = testState({clock: () => new Date(clock.now)});
+	const selected = await watching(s);
+	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
+	await until(() => selected.length === 1, {what: 'a highlight request'});
+	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
+	await until(() => selected.length === 2, {what: 'a highlight request'});
+	expect(rows(s)).toStrictEqual([{key: 'STA-1', requested_at: 1001}]);
+	clock.now = 500;
+	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
+	await until(() => selected.length === 3, {what: 'a highlight request'});
+	expect(rows(s)).toStrictEqual([{key: 'STA-1', requested_at: 1002}]);
+});
+
+storeTest('clearing removes the request', async s => {
+	await s.daos.highlight.request({issueKey: 'STA-100', focus: false});
+	await s.daos.highlight.clear();
+	expect(rows(s)).toStrictEqual([]);
+});
+
+storeTest('a request after a clear is reported', async s => {
 	const selected = await watching(s);
 	await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
 	await until(() => selected.length > 0, {what: 'a highlight request'});
@@ -128,7 +155,7 @@ contractTest('a request after a clear is reported', async s => {
 	expect(selected.at(-1)).toBe('STA-1');
 });
 
-contractTest('a listener that stopped watching is not told', async s => {
+storeTest('a listener that stopped watching is not told', async s => {
 	let calls = 0;
 	const unwatch = s.daos.highlight.watch(() => {
 		calls++;
@@ -140,41 +167,24 @@ contractTest('a listener that stopped watching is not told', async s => {
 });
 
 // `pappardelle highlight KEY` runs in another terminal than the TUI.
-for (const sqlite of [false, true]) {
-	test(`${sqlite ? 'sqlite' : 'json'}: a request from another process reaches a watching listener`, async () => {
-		const s = testState({sqlite});
-		const selected = await watching(s);
-		await exec(
-			process.execPath,
-			[
-				'--input-type=module',
-				'-e',
-				`
+test('a request from another process reaches a watching listener', async () => {
+	const s = testState();
+	const selected = await watching(s);
+	await exec(
+		process.execPath,
+		[
+			'--input-type=module',
+			'-e',
+			`
 import {createStateDaos} from ${JSON.stringify(daosUrl)};
-const {highlight} = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(s.stateDir)}, sqlite: ${sqlite}});
+const {highlight} = createStateDaos({repo: 'repo', stateDir: ${JSON.stringify(s.stateDir)}});
 await highlight.request({issueKey: 'STA-700', focus: false});
 `,
-			],
-			{timeout: 30_000},
-		);
-		await until(() => selected.length > 0, {what: 'a highlight request'});
-		expect(selected[0]).toBe('STA-700');
-	});
-}
-
-test('the two stores leave the same target file for the same requests', async () => {
-	const files = [];
-	for (const sqlite of [false, true]) {
-		const s = testState({sqlite});
-		await s.daos.highlight.request({issueKey: 'STA-1', focus: false});
-		await s.daos.highlight.clear();
-		await s.daos.highlight.request({issueKey: 'STA-2', focus: false});
-		await s.daos.highlight.request({issueKey: 'STA-3', focus: false});
-		files.push(fs.readFileSync(targetFile(s), 'utf8'));
-	}
-
-	expect(files[0]).toBe(files[1]);
-	expect(files[0]).toBe('STA-3\n');
+		],
+		{timeout: 30_000},
+	);
+	await until(() => selected.length > 0, {what: 'a highlight request'});
+	expect(selected[0]).toBe('STA-700');
 });
 
 // ============================================================================

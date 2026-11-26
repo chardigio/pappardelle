@@ -12,6 +12,7 @@ import {
 import {
 	checkAgentProfile,
 	getDefaultHomeConfigDir,
+	getMainRepoRoot,
 	loadConfigFromPaths,
 	readConfig,
 	unknownAgentProfileMessage,
@@ -19,7 +20,8 @@ import {
 } from './config.ts';
 import {formatConfigErrors} from './config-errors.ts';
 import {createStateDaos} from './state-daos.ts';
-import {openStateDb} from './state-db.ts';
+import {DEFAULT_STATE_DIR, stateDbPath} from './state-db.ts';
+import {openImportedStateDb} from './state-import.ts';
 
 type Verb = (args: string[]) => number | Promise<number>;
 
@@ -70,6 +72,7 @@ const verbs: Record<string, Verb> = {
 	 * `--worktree <path>` is the space's worktree and `--main-root <path>` the
 	 * main checkout's, recorded with the session names the space is created with.
 	 * `--register --owner <pid>` holds the space for the process setting it up,
+	 * `--open` records it open without its sessions, as a benchmark seeds spaces,
 	 * `--created-issue` says this run created the space's issue,
 	 * `--profile <name>` is the profile the space was created or reopened with,
 	 * `--title=<title>` is the issue's title as idow read it from the tracker,
@@ -84,6 +87,7 @@ const verbs: Record<string, Verb> = {
 				worktree: {type: 'string'},
 				'main-root': {type: 'string'},
 				register: {type: 'boolean'},
+				open: {type: 'boolean'},
 				owner: {type: 'string'},
 				'created-issue': {type: 'boolean'},
 				profile: {type: 'string'},
@@ -117,6 +121,7 @@ const verbs: Record<string, Verb> = {
 		);
 
 		if (values.register) await daos.registry.reserveStart(key, owner);
+		if (values.open) await daos.registry.add(key);
 
 		if (values.fresh) await daos.agentSessions.clear(key);
 		if (values['created-issue']) await daos.issueMeta.markCreated(key);
@@ -247,13 +252,47 @@ const verbs: Record<string, Verb> = {
 		return 1;
 	},
 
-	/** Create or upgrade the database at a path, for the hooks' tests. */
+	/** `pappardelle highlight` for the sous-chef key: `--repo <name> <key> [--focus]`. */
+	async highlight(args) {
+		const {values, positionals} = parseArgs({
+			args,
+			allowPositionals: true,
+			options: {repo: {type: 'string'}, focus: {type: 'boolean'}},
+		});
+		const [issueKey] = positionals;
+		if (!values.repo || !issueKey || positionals.length !== 1)
+			return usage('highlight needs --repo <name> and one issue key');
+		await createStateDaos({repo: values.repo}).highlight.request({
+			issueKey,
+			focus: values.focus === true,
+		});
+		return 0;
+	},
+
+	/**
+	 * Create or upgrade the database at a path, or the one the app opens,
+	 * importing the JSON state beside the default one the first time. For
+	 * install.sh and the hooks' tests.
+	 */
 	migrate(args) {
 		const {positionals} = parseArgs({args, allowPositionals: true});
-		const [dbPath] = positionals;
-		if (!dbPath || positionals.length !== 1)
-			return usage('migrate needs one database path');
-		openStateDb(dbPath);
+		if (positionals.length > 1)
+			return usage('migrate takes at most one database path');
+		const dbPath = positionals[0] ?? stateDbPath();
+		try {
+			openImportedStateDb(dbPath, DEFAULT_STATE_DIR, {
+				home: homedir(),
+				socket: statusSocket(),
+				mainRoot: getMainRepoRoot,
+			});
+		} catch (error) {
+			// SQLite's errors leave out the path, and install.sh no longer knows it.
+			throw new Error(
+				`${dbPath}: ${error instanceof Error ? error.message : String(error)}`,
+				{cause: error},
+			);
+		}
+
 		return 0;
 	},
 };

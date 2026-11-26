@@ -2,7 +2,6 @@
 """Tests for agent_session.py: recording a space's agent session id."""
 
 import importlib.util
-import json
 import os
 import shutil
 import sqlite3
@@ -204,19 +203,8 @@ def every_process_alive(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The home directory whose ~/.pappardelle holds the space's files."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    return tmp_path
-
-
-def sessions_path(home: Path, key: str) -> Path:
-    return home / ".pappardelle" / "repos" / "repo" / "space-state" / f"{key}.agent-sessions.json"
-
-
-@pytest.fixture
-def sessions_file(home: Path) -> Path:
-    return sessions_path(home, "STA-1")
+def _db(state_db: Path) -> None:
+    """Every recording reads and writes the state database."""
 
 
 def agent_session_name(key: str) -> str:
@@ -224,31 +212,26 @@ def agent_session_name(key: str) -> str:
 
 
 def launch(key: str = "STA-1", agent_profile: str = "codex", is_claude: bool = False) -> None:
-    """Store what Pappardelle stores when it starts the space's agent session,
-    in this run's mode: the space's identity and the agent profile it started."""
-    if os.environ.get("PAPPARDELLE_SQLITE_STATE") == "1":
-        connection = sqlite3.connect(os.environ["PAPPARDELLE_STATE_DB"])
-        try:
-            connection.execute(
-                """INSERT OR IGNORE INTO space_identities
-                (repo, key, worktree_path, tmux_socket, agent_session, companion_session)
-                VALUES ('repo', ?, ?, 'pappardelle_inner', ?, ?)""",
-                (key, f"/w/{key}", agent_session_name(key), f"companion-repo-{key}"),
-            )
-            connection.execute(
-                """INSERT INTO space_state (repo, key, agent_profile, agent_is_claude)
-                VALUES ('repo', ?, ?, ?)
-                ON CONFLICT (repo, key) DO UPDATE SET agent_profile = excluded.agent_profile,
-                    agent_is_claude = excluded.agent_is_claude""",
-                (key, agent_profile, int(is_claude)),
-            )
-            connection.commit()
-        finally:
-            connection.close()
-        return
-    state_file = Path.home() / ".pappardelle" / "repos" / "repo" / "space-state" / f"{key}.json"
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps({"agentProfile": {"name": agent_profile, "isClaude": is_claude}}))
+    """Store what Pappardelle stores when it starts the space's agent session:
+    the space's identity and the agent profile it started."""
+    connection = sqlite3.connect(os.environ["PAPPARDELLE_STATE_DB"])
+    try:
+        connection.execute(
+            """INSERT OR IGNORE INTO space_identities
+            (repo, key, worktree_path, tmux_socket, agent_session, companion_session)
+            VALUES ('repo', ?, ?, 'pappardelle_inner', ?, ?)""",
+            (key, f"/w/{key}", agent_session_name(key), f"companion-repo-{key}"),
+        )
+        connection.execute(
+            """INSERT INTO space_state (repo, key, agent_profile, agent_is_claude)
+            VALUES ('repo', ?, ?, ?)
+            ON CONFLICT (repo, key) DO UPDATE SET agent_profile = excluded.agent_profile,
+                agent_is_claude = excluded.agent_is_claude""",
+            (key, agent_profile, int(is_claude)),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def env_for(key: str = "STA-1") -> dict[str, str]:
@@ -279,12 +262,25 @@ def payload(session_id: str = "01a117bd-5978", event: str = "SessionStart", cwd:
     return {"session_id": session_id, "hook_event_name": event, "cwd": cwd}
 
 
-def entries(sessions_file: Path):
-    return json.loads(sessions_file.read_text()) if sessions_file.exists() else {}
+def session_rows(sql: str = "SELECT repo, key, agent_profile, session_id, pid, started FROM agent_sessions ORDER BY rowid"):
+    connection = sqlite3.connect(os.environ["PAPPARDELLE_STATE_DB"])
+    try:
+        return connection.execute(sql).fetchall()
+    finally:
+        connection.close()
 
 
-def recorded(sessions_file: Path):
-    return {profile: entry["session_id"] for profile, entry in entries(sessions_file).items()}
+def entries(key: str = "STA-1"):
+    """The sessions recorded for a space, by agent profile."""
+    return {
+        profile: {"session_id": session_id, "pid": pid, "started": started}
+        for repo, row_key, profile, session_id, pid, started in session_rows()
+        if (repo, row_key) == ("repo", key)
+    }
+
+
+def recorded(key: str = "STA-1"):
+    return {profile: entry["session_id"] for profile, entry in entries(key).items()}
 
 
 def no_session(_cwd: str):
@@ -295,43 +291,43 @@ def no_process_walk():
     raise AssertionError("read the process table")
 
 
-def test_records_the_session_under_the_agent_profile_the_space_launched(sessions_file: Path):
+def test_records_the_session_under_the_agent_profile_the_space_launched():
     launch(agent_profile="codex-high")
     assert record(payload(), False, env_for(), lambda: TOP_LEVEL_CODEX)
-    assert recorded(sessions_file) == {"codex-high": "01a117bd-5978"}
+    assert recorded() == {"codex-high": "01a117bd-5978"}
 
 
-def test_the_main_space_records_into_main(home: Path):
+def test_the_main_space_records_into_main():
     launch("main")
     assert record(payload(), False, env_for("main"), lambda: TOP_LEVEL_CODEX)
-    assert recorded(sessions_path(home, "main")) == {"codex": "01a117bd-5978"}
+    assert recorded("main") == {"codex": "01a117bd-5978"}
 
 
-def test_a_space_with_no_launched_agent_profile_records_nothing(sessions_file: Path):
+def test_a_space_with_no_launched_agent_profile_records_nothing():
     assert not record(payload(), False, env_for(), lambda: TOP_LEVEL_CODEX)
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
-def test_a_new_conversation_replaces_the_recorded_one(sessions_file: Path):
+def test_a_new_conversation_replaces_the_recorded_one():
     launch()
     record(payload("first"), False, env_for(), lambda: TOP_LEVEL_CODEX)
     record(payload("second", "UserPromptSubmit"), False, env_for(), lambda: TOP_LEVEL_CODEX)
-    assert recorded(sessions_file) == {"codex": "second"}
+    assert recorded() == {"codex": "second"}
 
 
-def test_a_nested_agent_does_not_overwrite_the_id(sessions_file: Path):
+def test_a_nested_agent_does_not_overwrite_the_id():
     launch(agent_profile="claude", is_claude=True)
     record(payload("claude-id"), True, env_for(), lambda: TOP_LEVEL_CLAUDE)
     assert not record(payload("codex-id"), False, env_for(), lambda: CODEX_INSIDE_CLAUDE)
-    assert recorded(sessions_file) == {"claude": "claude-id"}
+    assert recorded() == {"claude": "claude-id"}
 
 
-def test_each_agent_profile_keeps_its_own_id(sessions_file: Path):
+def test_each_agent_profile_keeps_its_own_id():
     launch()
     record(payload("codex-id"), False, env_for(), lambda: TOP_LEVEL_CODEX)
     launch(agent_profile="opus-high", is_claude=True)
     record(payload("claude-id"), True, env_for(), lambda: TOP_LEVEL_CLAUDE)
-    assert recorded(sessions_file) == {"codex": "codex-id", "opus-high": "claude-id"}
+    assert recorded() == {"codex": "codex-id", "opus-high": "claude-id"}
 
 
 @pytest.mark.parametrize(
@@ -343,28 +339,28 @@ def test_each_agent_profile_keeps_its_own_id(sessions_file: Path):
         PaneSession("companion-repo-STA-1", True),
     ],
 )
-def test_an_agent_outside_the_agent_sessions_first_pane_is_not_recorded(sessions_file: Path, session):
+def test_an_agent_outside_the_agent_sessions_first_pane_is_not_recorded(session):
     launch()
     assert not record(payload("other-id"), False, env_for(), lambda: TOP_LEVEL_CODEX, session=session)
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
-def test_an_agent_outside_tmux_panes_is_not_recorded(sessions_file: Path):
+def test_an_agent_outside_tmux_panes_is_not_recorded():
     launch()
     assert not record_agent_session(
         payload(), False, env_for(), HOOK_PID, lambda: TOP_LEVEL_CODEX, no_session, lambda _env: None
     )
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
-def test_with_the_database_only_the_stored_agent_session_is_the_spaces(state_db: Path, sessions_file: Path):
+def test_only_the_stored_agent_session_is_the_spaces():
     # Another space's agent session carrying this space's variables.
     launch()
     launch("STA-2")
     assert not record(
         payload(), False, env_for(), lambda: TOP_LEVEL_CODEX, session=PaneSession(agent_session_name("STA-2"), True)
     )
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
 def guarded_tmux_tmpdir() -> str:
@@ -398,20 +394,20 @@ def test_the_hooks_pane_is_found_in_its_session():
         subprocess.run(["tmux", "-S", socket, "kill-server"], capture_output=True)
 
 
-def test_the_agent_process_is_recorded_with_its_id(sessions_file: Path):
+def test_the_agent_process_is_recorded_with_its_id():
     launch()
     record(payload(), False, env_for(), lambda: TOP_LEVEL_CODEX)
-    assert entries(sessions_file) == {"codex": {"session_id": "01a117bd-5978", "pid": 98, "started": STARTED}}
+    assert entries() == {"codex": {"session_id": "01a117bd-5978", "pid": 98, "started": STARTED}}
 
 
-def test_an_agent_of_the_same_kind_spawned_without_a_shell_does_not_overwrite_the_id(sessions_file: Path):
+def test_an_agent_of_the_same_kind_spawned_without_a_shell_does_not_overwrite_the_id():
     launch(agent_profile="claude", is_claude=True)
     record(payload("pane-id"), True, env_for(), lambda: TOP_LEVEL_CLAUDE)
     assert not record(payload("nested-id"), True, env_for(), lambda: CLAUDE_IN_CLAUDE_MCP)
-    assert recorded(sessions_file) == {"claude": "pane-id"}
+    assert recorded() == {"claude": "pane-id"}
 
 
-def test_a_relaunched_agent_takes_over_once_the_old_one_has_exited(sessions_file: Path):
+def test_a_relaunched_agent_takes_over_once_the_old_one_has_exited():
     launch()
     record(payload("first"), False, env_for(), lambda: TOP_LEVEL_CODEX)
     assert not record(payload("second"), False, env_for(), lambda: RELAUNCHED_CODEX)
@@ -422,10 +418,10 @@ def test_a_relaunched_agent_takes_over_once_the_old_one_has_exited(sessions_file
         lambda: RELAUNCHED_CODEX,
         started=lambda pid: None if pid == 98 else STARTED,
     )
-    assert entries(sessions_file) == {"codex": {"session_id": "second", "pid": 88, "started": STARTED}}
+    assert entries() == {"codex": {"session_id": "second", "pid": 88, "started": STARTED}}
 
 
-def test_resuming_the_recorded_id_after_a_relaunch_takes_it_over(sessions_file: Path):
+def test_resuming_the_recorded_id_after_a_relaunch_takes_it_over():
     launch()
     record(payload("same"), False, env_for(), lambda: TOP_LEVEL_CODEX)
     assert record(
@@ -435,10 +431,10 @@ def test_resuming_the_recorded_id_after_a_relaunch_takes_it_over(sessions_file: 
         lambda: RELAUNCHED_CODEX,
         started=lambda pid: None if pid == 98 else STARTED,
     )
-    assert entries(sessions_file) == {"codex": {"session_id": "same", "pid": 88, "started": STARTED}}
+    assert entries() == {"codex": {"session_id": "same", "pid": 88, "started": STARTED}}
 
 
-def test_a_reused_pid_does_not_keep_the_lock(sessions_file: Path):
+def test_a_reused_pid_does_not_keep_the_lock():
     launch()
     record(payload("first"), False, env_for(), lambda: TOP_LEVEL_CODEX)
     assert record(
@@ -448,21 +444,23 @@ def test_a_reused_pid_does_not_keep_the_lock(sessions_file: Path):
         lambda: RELAUNCHED_CODEX,
         started=lambda pid: "Tue Oct 27 10:00:00 2026" if pid == 98 else STARTED,
     )
-    assert entries(sessions_file) == {"codex": {"session_id": "second", "pid": 88, "started": STARTED}}
+    assert entries() == {"codex": {"session_id": "second", "pid": 88, "started": STARTED}}
 
 
-def test_an_entry_without_a_start_time_has_no_owner(sessions_file: Path):
+def test_an_entry_without_a_start_time_has_no_owner():
     launch()
-    sessions_file.parent.mkdir(parents=True, exist_ok=True)
-    sessions_file.write_text(json.dumps({"codex": {"session_id": "first", "pid": 98}}))
+    connection = sqlite3.connect(os.environ["PAPPARDELLE_STATE_DB"])
+    connection.execute("INSERT INTO agent_sessions VALUES ('repo', 'STA-1', 'codex', 'first', 98, NULL)")
+    connection.commit()
+    connection.close()
     assert record(payload("second"), False, env_for(), lambda: RELAUNCHED_CODEX)
-    assert recorded(sessions_file) == {"codex": "second"}
+    assert recorded() == {"codex": "second"}
 
 
-def test_a_nested_agent_without_a_shell_between_is_not_recorded(sessions_file: Path):
+def test_a_nested_agent_without_a_shell_between_is_not_recorded():
     launch(agent_profile="claude", is_claude=True)
     assert not record(payload("codex-id"), False, env_for(), lambda: CODEX_IN_CLAUDE_MCP)
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
 # The agent profile's command isn't the agent's process: claude-local runs
@@ -471,10 +469,10 @@ def test_a_nested_agent_without_a_shell_between_is_not_recorded(sessions_file: P
     ("is_claude", "table"),
     [(True, CLAUDE_WRAPPER), (False, TOP_LEVEL_CODEX)],
 )
-def test_an_agent_launched_through_a_wrapper_records_its_session(sessions_file: Path, is_claude, table):
+def test_an_agent_launched_through_a_wrapper_records_its_session(is_claude, table):
     launch(agent_profile="wrapped", is_claude=is_claude)
     assert record(payload(), is_claude, env_for(), lambda: table)
-    assert recorded(sessions_file) == {"wrapped": "01a117bd-5978"}
+    assert recorded() == {"wrapped": "01a117bd-5978"}
 
 
 def test_an_unchanged_id_skips_the_process_walk():
@@ -487,10 +485,10 @@ def test_a_claude_outside_pappardelle_skips_the_process_walk():
     assert not record(payload(cwd="/tmp"), True, {}, no_process_walk)
 
 
-def test_a_codex_under_tmux_outside_a_spaces_sessions_is_not_recorded(sessions_file: Path):
+def test_a_codex_under_tmux_outside_a_spaces_sessions_is_not_recorded():
     launch()
     assert not record(payload(), False, {}, lambda: TOP_LEVEL_CODEX)
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
 @pytest.mark.parametrize("event", ["PreToolUse", "Stop", "SessionEnd"])
@@ -499,33 +497,24 @@ def test_other_events_are_ignored(event: str):
     assert not record(payload(event=event), False, env_for(), no_process_walk)
 
 
-def test_a_python_agent_records_its_session(sessions_file: Path):
+def test_a_python_agent_records_its_session():
     launch(agent_profile="aider")
     assert record(payload(), False, env_for(), lambda: TOP_LEVEL_PYTHON_AGENT)
-    assert recorded(sessions_file) == {"aider": "01a117bd-5978"}
+    assert recorded() == {"aider": "01a117bd-5978"}
 
 
-def test_an_agent_of_the_other_kind_run_by_hand_in_the_pane_is_not_recorded(sessions_file: Path):
+def test_an_agent_of_the_other_kind_run_by_hand_in_the_pane_is_not_recorded():
     launch()
     record(payload("codex-id"), False, env_for(), lambda: TOP_LEVEL_CODEX)
     assert not record(payload("claude-id"), True, env_for(), lambda: TOP_LEVEL_CLAUDE)
-    assert recorded(sessions_file) == {"codex": "codex-id"}
-
-
-@pytest.mark.parametrize("content", ["", '{"codex": "co', "[]"])
-def test_an_unreadable_sessions_file_is_left_alone(sessions_file: Path, content: str):
-    launch()
-    sessions_file.parent.mkdir(parents=True, exist_ok=True)
-    sessions_file.write_text(content)
-    assert not record(payload(), False, env_for(), lambda: TOP_LEVEL_CODEX)
-    assert sessions_file.read_text() == content
+    assert recorded() == {"codex": "codex-id"}
 
 
 def pane_of(key: str):
     return lambda _cwd: AgentPane(Space("repo", key), AGENT_PANE_PID)
 
 
-def test_the_codex_daemon_records_into_the_space_holding_its_cwd(home: Path):
+def test_the_codex_daemon_records_into_the_space_holding_its_cwd():
     # The daemon was started from STA-1's pane, so it carries STA-1's env.
     launch("STA-1")
     launch("STA-2")
@@ -543,11 +532,11 @@ def test_the_codex_daemon_records_into_the_space_holding_its_cwd(home: Path):
         pane_for,
     )
     assert lookups == ["/Users/me/.worktrees/repo/STA-2"]
-    assert entries(sessions_path(home, "STA-2")) == {"codex": {"session_id": "01a117bd-5978", "pid": 52, "started": STARTED}}
-    assert not sessions_path(home, "STA-1").exists()
+    assert entries("STA-2") == {"codex": {"session_id": "01a117bd-5978", "pid": 52, "started": STARTED}}
+    assert entries("STA-1") == {}
 
 
-def test_the_codex_daemon_keeps_the_first_id_while_the_pane_agent_lives(sessions_file: Path):
+def test_the_codex_daemon_keeps_the_first_id_while_the_pane_agent_lives():
     # codex run by hand in the companion pane shares the daemon and the cwd.
     launch()
 
@@ -563,13 +552,13 @@ def test_the_codex_daemon_keeps_the_first_id_while_the_pane_agent_lives(sessions
 
     assert run("pane-convo", AGENT_PANE, lambda _pid: STARTED)
     assert not run("companion-convo", AGENT_PANE, lambda _pid: STARTED)
-    assert recorded(sessions_file) == {"codex": "pane-convo"}
+    assert recorded() == {"codex": "pane-convo"}
 
     assert run("restarted-convo", AGENT_PANE_RESTARTED, lambda pid: None if pid == 52 else STARTED)
-    assert entries(sessions_file) == {"codex": {"session_id": "restarted-convo", "pid": 54, "started": STARTED}}
+    assert entries() == {"codex": {"session_id": "restarted-convo", "pid": 54, "started": STARTED}}
 
 
-def test_the_codex_daemon_records_nothing_while_the_pane_runs_no_agent(sessions_file: Path):
+def test_the_codex_daemon_records_nothing_while_the_pane_runs_no_agent():
     launch()
     assert not record(
         payload(cwd="/Users/me/.worktrees/repo/STA-1"),
@@ -578,10 +567,10 @@ def test_the_codex_daemon_records_nothing_while_the_pane_runs_no_agent(sessions_
         lambda: {**CODEX_DAEMON, 50: (49, "-zsh"), 49: (1, "tmux")},
         pane_of("STA-1"),
     )
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
-def test_the_codex_daemon_does_not_record_into_a_claude_space(sessions_file: Path):
+def test_the_codex_daemon_does_not_record_into_a_claude_space():
     launch(agent_profile="claude", is_claude=True)
     assert not record(
         payload(cwd="/Users/me/.worktrees/repo/STA-1"),
@@ -590,7 +579,7 @@ def test_the_codex_daemon_does_not_record_into_a_claude_space(sessions_file: Pat
         lambda: {**CODEX_DAEMON, **AGENT_PANE},
         pane_of("STA-1"),
     )
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
 # The daemon runs codex's shell commands, so an agent the pane's codex runs
@@ -616,7 +605,7 @@ CLAUDE_UNDER_DAEMON = {
 @pytest.mark.parametrize(
     ("is_claude", "table"), [(False, CODEX_EXEC_UNDER_DAEMON), (True, CLAUDE_UNDER_DAEMON)]
 )
-def test_an_agent_run_by_the_daemons_shell_tool_is_not_recorded(sessions_file: Path, is_claude, table):
+def test_an_agent_run_by_the_daemons_shell_tool_is_not_recorded(is_claude, table):
     launch(agent_profile="claude" if is_claude else "codex", is_claude=is_claude)
     assert not record(
         payload(cwd="/Users/me/.worktrees/repo/STA-1"),
@@ -625,7 +614,7 @@ def test_an_agent_run_by_the_daemons_shell_tool_is_not_recorded(sessions_file: P
         lambda: {**table, **AGENT_PANE},
         pane_of("STA-1"),
     )
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
 # As seen on Linux with codex 0.169: the hook runs straight under the daemon,
@@ -648,7 +637,7 @@ CODEX_DAEMON_UNDER_ITS_STARTER = {
 
 
 @pytest.mark.parametrize("daemon", [CODEX_DAEMON_UNDER_UPDATER, CODEX_DAEMON_UNDER_ITS_STARTER])
-def test_the_codex_daemon_records_into_the_space_holding_the_cwd_not_its_starters(home: Path, daemon):
+def test_the_codex_daemon_records_into_the_space_holding_the_cwd_not_its_starters(daemon):
     launch("STA-1")
     launch("STA-2")
     assert record(
@@ -658,8 +647,8 @@ def test_the_codex_daemon_records_into_the_space_holding_the_cwd_not_its_starter
         lambda: {**daemon, **AGENT_PANE},
         pane_of("STA-2"),
     )
-    assert entries(sessions_path(home, "STA-2"))["codex"]["pid"] == 52
-    assert not sessions_path(home, "STA-1").exists()
+    assert entries("STA-2")["codex"]["pid"] == 52
+    assert entries("STA-1") == {}
 
 
 @pytest.mark.parametrize(
@@ -674,7 +663,7 @@ def test_the_codex_daemon_records_into_the_space_holding_the_cwd_not_its_starter
         },
     ],
 )
-def test_an_agent_the_daemon_runs_under_its_starters_pane_is_not_recorded(sessions_file: Path, spawned):
+def test_an_agent_the_daemon_runs_under_its_starters_pane_is_not_recorded(spawned):
     launch()
     assert not record(
         payload(cwd="/home/me/.worktrees/repo/STA-1"),
@@ -682,7 +671,7 @@ def test_an_agent_the_daemon_runs_under_its_starters_pane_is_not_recorded(sessio
         env_for(),
         lambda: {**CODEX_DAEMON_UNDER_ITS_STARTER, **spawned},
     )
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
 @pytest.mark.parametrize(
@@ -710,17 +699,17 @@ def test_an_agent_the_daemon_runs_under_its_starters_pane_is_not_recorded(sessio
     ],
 )
 def test_an_agent_outside_tmux_other_than_the_codex_daemon_is_not_recorded(
-    sessions_file: Path, is_claude_hook, table
+    is_claude_hook, table
 ):
     launch(agent_profile="agent", is_claude=is_claude_hook)
     assert not record(payload(cwd="/Users/me/.worktrees/repo/STA-1"), is_claude_hook, env_for(), lambda: table)
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
-def test_a_hook_outside_tmux_and_any_space_is_not_recorded(sessions_file: Path):
+def test_a_hook_outside_tmux_and_any_space_is_not_recorded():
     launch()
     assert not record(payload(cwd="/tmp/elsewhere"), False, env_for(), lambda: CODEX_DAEMON, lambda _cwd: None)
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
 @pytest.fixture
@@ -740,51 +729,16 @@ def tmux_server(monkeypatch: pytest.MonkeyPatch):
     subprocess.run(["tmux", "-L", name, "kill-server"], capture_output=True)
 
 
-def test_the_space_comes_from_the_agent_session_holding_the_cwd(
-    tmp_path: Path, tmux_server, monkeypatch: pytest.MonkeyPatch
-):
-    # Without the database the space is the one named by the agent session
-    # started nearest cwd.
-    monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
-    for key in ("STA-1", "STA-12", "main"):
-        worktree = tmp_path / key
-        (worktree / "sub").mkdir(parents=True)
-        for kind in ("agent", "companion"):
-            space = [] if key == "main" else ["-e", f"PAPPARDELLE_SPACE={key}"]
-            tmux_server(
-                "new-session", "-d", "-s", f"{kind}-repo-{key}", "-c", str(worktree),
-                "-e", "PAPPARDELLE_REPO=repo", *space,
-            )  # fmt: skip
-
-    pane = agent_session.tmux_agent_pane(str(tmp_path / "STA-1" / "sub"))
-    assert pane is not None
-    assert pane.space == Space("repo", "STA-1")
-    shell = subprocess.run(["ps", "-o", "args=", "-p", str(pane.pid)], capture_output=True, text=True).stdout
-    assert shell.strip()
-    main = agent_session.tmux_agent_pane(str(tmp_path / "main"))
-    assert main is not None and main.space == Space("repo", "main")
-    assert agent_session.tmux_agent_pane(str(tmp_path)) is None
-
-
-def test_the_space_comes_from_the_stored_space_holding_the_cwd(
-    tmp_path: Path, tmux_server, state_db: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_the_space_comes_from_the_stored_space_holding_the_cwd(tmp_path: Path, tmux_server, state_db: Path):
     worktree = tmp_path / "STA-1"
     (worktree / "sub").mkdir(parents=True)
     tmux_server("new-session", "-d", "-s", "hand-named-agent", "-c", str(tmp_path))
     record_space(state_db, "repo", "STA-1", str(worktree), "hand-named-agent")
-    asked: list[list[str]] = []
-    real_run = subprocess.run
-
-    def recording_run(args, *rest, **kwargs):
-        asked.append(list(args))
-        return real_run(args, *rest, **kwargs)
-
-    monkeypatch.setattr(agent_session.subprocess, "run", recording_run)
     pane = agent_session.tmux_agent_pane(str(worktree / "sub"))
     assert pane is not None
     assert pane.space == Space("repo", "STA-1")
-    assert not any("list-sessions" in args or "show-environment" in args for args in asked)
+    shell = subprocess.run(["ps", "-o", "args=", "-p", str(pane.pid)], capture_output=True, text=True).stdout
+    assert shell.strip()
     assert agent_session.tmux_agent_pane(str(tmp_path)) is None
 
 
@@ -792,22 +746,22 @@ def agy_payload(conversation_id: str):
     return {"conversationId": conversation_id, "workspacePaths": ["/w"], "lastUserInput": "hi"}
 
 
-def test_agy_records_its_conversation(sessions_file: Path):
+def test_agy_records_its_conversation():
     launch(agent_profile="argon")
     assert record(agy_payload("first"), False, env_for(), lambda: TOP_LEVEL_AGY)
-    assert entries(sessions_file)["argon"]["session_id"] == "first"
-    assert entries(sessions_file)["argon"]["pid"] == 99
+    assert entries()["argon"]["session_id"] == "first"
+    assert entries()["argon"]["pid"] == 99
 
 
-def test_agy_updates_conversation_after_clear_for_same_live_pid(sessions_file: Path):
+def test_agy_updates_conversation_after_clear_for_same_live_pid():
     launch(agent_profile="argon")
     assert record(agy_payload("first"), False, env_for(), lambda: TOP_LEVEL_AGY)
     assert record(agy_payload("second"), False, env_for(), lambda: TOP_LEVEL_AGY)
-    assert recorded(sessions_file) == {"argon": "second"}
+    assert recorded() == {"argon": "second"}
     assert not record(agy_payload("second"), False, env_for(), no_process_walk)
 
 
-def test_another_live_agy_cannot_overwrite_the_conversation(sessions_file: Path):
+def test_another_live_agy_cannot_overwrite_the_conversation():
     launch(agent_profile="argon")
     assert record(agy_payload("first"), False, env_for(), lambda: TOP_LEVEL_AGY)
     assert not record(
@@ -817,7 +771,7 @@ def test_another_live_agy_cannot_overwrite_the_conversation(sessions_file: Path)
         lambda: RELAUNCHED_AGY,
         started=lambda _pid: STARTED,
     )
-    assert entries(sessions_file)["argon"] == {"session_id": "first", "pid": 99, "started": STARTED}
+    assert entries()["argon"] == {"session_id": "first", "pid": 99, "started": STARTED}
 
 
 def test_agy_outside_pappardelle_skips_the_process_walk():
@@ -825,7 +779,7 @@ def test_agy_outside_pappardelle_skips_the_process_walk():
     assert not record(agy_payload("first"), False, {}, no_process_walk)
 
 
-def test_a_relaunched_agy_records_again(sessions_file: Path):
+def test_a_relaunched_agy_records_again():
     launch(agent_profile="argon")
     record(agy_payload("first"), False, env_for(), lambda: TOP_LEVEL_AGY)
     assert record(
@@ -835,13 +789,13 @@ def test_a_relaunched_agy_records_again(sessions_file: Path):
         lambda: RELAUNCHED_AGY,
         started=lambda pid: STARTED if pid == 89 else None,
     )
-    assert entries(sessions_file)["argon"] == {"session_id": "second", "pid": 89, "started": STARTED}
+    assert entries()["argon"] == {"session_id": "second", "pid": 89, "started": STARTED}
 
 
-def test_an_agy_run_by_another_agent_is_not_recorded(sessions_file: Path):
+def test_an_agy_run_by_another_agent_is_not_recorded():
     launch(agent_profile="argon")
     assert not record(agy_payload("nested"), False, env_for(), lambda: AGY_INSIDE_CODEX)
-    assert not sessions_file.exists()
+    assert entries() == {}
 
 
 def test_an_agy_payload_without_a_conversation_id_is_ignored():
@@ -849,83 +803,61 @@ def test_an_agy_payload_without_a_conversation_id_is_ignored():
     assert not record(agy_payload(""), False, env_for(), no_process_walk)
 
 
-# With experimental.sqliteState the hook writes the file's rows as well
-# (state_db.py), named by the space's repo and key.
-
-
-def session_rows(db: Path, sql: str = "SELECT repo, key, agent_profile, session_id, pid, started FROM agent_sessions ORDER BY rowid"):
-    connection = sqlite3.connect(db)
-    try:
-        return connection.execute(sql).fetchall()
-    finally:
-        connection.close()
-
-
 @pytest.mark.parametrize("key", ["STA-1", "main"])
-def test_the_session_is_written_to_the_file_and_the_database(state_db: Path, home: Path, key: str):
+def test_the_session_row_is_named_by_the_spaces_repo_and_key(key: str):
     launch(key)
     assert record(payload(), False, env_for(key), lambda: TOP_LEVEL_CODEX)
-
-    sessions_file = sessions_path(home, key)
-    assert entries(sessions_file) == {"codex": {"session_id": "01a117bd-5978", "pid": 98, "started": STARTED}}
-    assert session_rows(state_db) == [("repo", key, "codex", "01a117bd-5978", 98, STARTED)]
-    stat = os.stat(sessions_file)
-    assert session_rows(state_db, "SELECT path, ino, size, mtime_ns, malformed FROM json_sync") == [
-        (str(sessions_file), str(stat.st_ino), stat.st_size, str(stat.st_mtime_ns), 0)
-    ]
+    assert session_rows() == [("repo", key, "codex", "01a117bd-5978", 98, STARTED)]
 
 
-def test_the_rows_of_a_space_are_replaced_from_its_whole_file(state_db: Path, sessions_file: Path):
+def test_recording_one_agent_profile_leaves_the_other_rows_in_place(state_db: Path):
     launch()
-    # A hook without the database recorded claude; its entry has no row yet.
-    sessions_file.parent.mkdir(parents=True, exist_ok=True)
-    sessions_file.write_text(json.dumps({"claude": {"session_id": "claude-id", "pid": 7, "started": None}}))
     connection = sqlite3.connect(state_db)
-    connection.execute("INSERT INTO agent_sessions VALUES ('repo', 'STA-1', 'gone', 'stale', 1, NULL)")
+    connection.execute("INSERT INTO agent_sessions VALUES ('repo', 'STA-1', 'opus', 'claude-id', 7, NULL)")
     connection.execute("INSERT INTO agent_sessions VALUES ('repo', 'STA-2', 'codex', 'other-space', 1, NULL)")
     connection.commit()
     connection.close()
 
     assert record(payload("codex-id"), False, env_for(), lambda: TOP_LEVEL_CODEX)
-    assert session_rows(state_db) == [
+    assert session_rows() == [
+        ("repo", "STA-1", "opus", "claude-id", 7, None),
         ("repo", "STA-2", "codex", "other-space", 1, None),
-        ("repo", "STA-1", "claude", "claude-id", 7, None),
         ("repo", "STA-1", "codex", "codex-id", 98, STARTED),
     ]
 
 
-def test_a_session_the_hook_does_not_record_changes_no_rows(state_db: Path, sessions_file: Path):
+def test_a_session_the_hook_does_not_record_changes_no_rows_and_rings_no_bell(state_db: Path):
     launch(agent_profile="claude", is_claude=True)
     record(payload("pane"), True, env_for(), lambda: TOP_LEVEL_CLAUDE)
-    before = os.stat(sessions_file)
+    bell = Path(f"{state_db}.bell")
+    bell.unlink()
     # A nested claude is not the pane's agent, which is alive and owns the id.
     assert not record(payload("nested"), True, env_for(), lambda: CLAUDE_IN_CLAUDE_MCP)
-    assert session_rows(state_db) == [("repo", "STA-1", "claude", "pane", 98, STARTED)]
-    assert os.stat(sessions_file).st_mtime_ns == before.st_mtime_ns
+    assert session_rows() == [("repo", "STA-1", "claude", "pane", 98, STARTED)]
+    assert not bell.exists()
 
 
-def test_a_locked_database_still_gets_the_file_written(state_db: Path, sessions_file: Path, home: Path):
+def test_a_locked_database_records_nothing_and_logs_it(state_db: Path):
     launch()
     holder = sqlite3.connect(state_db, isolation_level=None)
     holder.execute("BEGIN IMMEDIATE")
     try:
-        assert record(payload(), False, env_for(), lambda: TOP_LEVEL_CODEX)
+        assert not record(payload(), False, env_for(), lambda: TOP_LEVEL_CODEX)
     finally:
         holder.execute("ROLLBACK")
         holder.close()
 
-    assert recorded(sessions_file) == {"codex": "01a117bd-5978"}
-    assert session_rows(state_db) == []
-    # The failure is logged under the home directory.
-    log = (home / ".pappardelle" / "logs" / "hook-events.log").read_text()
-    assert "State database write failed" in log and str(sessions_file) in log
+    assert session_rows() == []
+    log = (Path.home() / ".pappardelle" / "logs" / "hook-events.log").read_text()
+    assert "State database write failed for the agent session of STA-1" in log
 
 
-def test_with_the_flag_off_the_database_is_left_alone(
-    state_db: Path, sessions_file: Path, monkeypatch: pytest.MonkeyPatch
+def test_without_a_database_nothing_is_recorded_or_created_and_the_failure_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setenv("PAPPARDELLE_SQLITE_STATE", "0")
-    launch()
-    assert record(payload(), False, env_for(), lambda: TOP_LEVEL_CODEX)
-    assert recorded(sessions_file) == {"codex": "01a117bd-5978"}
-    assert session_rows(state_db) == []
+    missing = tmp_path / "missing" / "state.db"
+    monkeypatch.setenv("PAPPARDELLE_STATE_DB", str(missing))
+    assert not record(payload(), False, env_for(), lambda: TOP_LEVEL_CODEX)
+    assert not missing.parent.exists()
+    log = (Path.home() / ".pappardelle" / "logs" / "hook-events.log").read_text()
+    assert "State database read failed" in log

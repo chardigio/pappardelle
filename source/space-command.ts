@@ -9,7 +9,6 @@ import {
 	readAgentStatus,
 	statusPaneOf,
 } from './agent-state.ts';
-import {spaceStatusKey} from './claude-status.ts';
 import {SPACE_HELP, SPACE_USAGE} from './cli-args.ts';
 import {companionMainPane} from './companion.ts';
 import {getMainRepoRoot, getRepoName} from './config.ts';
@@ -224,11 +223,7 @@ export async function spaceRecord(
 
 	const tmux = identity?.tmux;
 	const branch =
-		identity &&
-		(groups.has('branch') ||
-			(groups.has('status') &&
-				key === MAIN_WORKTREE_KEY &&
-				daos.claudeStatus.mainKeyedByBranch))
+		identity && groups.has('branch')
 			? await deps.gitBranch(identity.worktreePath)
 			: null;
 	const agentPane =
@@ -244,12 +239,7 @@ export async function spaceRecord(
 			: undefined;
 	const status = groups.has('status')
 		? await readAgentStatus(key, agentPane, {
-				hookKey: await spaceStatusKey(
-					daos.claudeStatus,
-					repo,
-					key,
-					async () => branch ?? undefined,
-				),
+				hookKey: await daos.claudeStatus.readableKey(repo, key),
 				readHook: async hookKey => daos.claudeStatus.read(hookKey),
 				readSnapshot: async (space, pane) =>
 					daos.programStatus.read(space, pane),
@@ -559,7 +549,7 @@ async function runList(
 
 	let open: string[];
 	try {
-		open = deps.daos(repo).registry.openSpaces() ?? [];
+		open = deps.daos(repo).registry.openSpaces();
 	} catch (error) {
 		deps.err(`Could not read the open spaces: ${errorMessage(error)}`);
 		return 3;

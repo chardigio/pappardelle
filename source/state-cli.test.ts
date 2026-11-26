@@ -4,14 +4,21 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {sqliteRun, testState} from '../test/helpers/state.ts';
+import {testState} from '../test/helpers/state.ts';
+import {teardown} from '../test/helpers/teardown.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {until} from '../test/helpers/wait.ts';
+import type {HighlightRequest} from './highlight.ts';
 
 const helper = fileURLToPath(
 	new URL('../scripts/state-cli.sh', import.meta.url),
 );
 
-function pappardelleState(args: string[], home: string) {
+function pappardelleState(
+	args: string[],
+	home: string,
+	env: Record<string, string> = {},
+) {
 	return spawnSync(
 		'bash',
 		['-c', 'source "$0"; pappardelle_state "$@"', helper, ...args],
@@ -23,6 +30,7 @@ function pappardelleState(args: string[], home: string) {
 				PATH: process.env['PATH'],
 				TMUX_TMPDIR: process.env['TMUX_TMPDIR'],
 				HOME: home,
+				...env,
 			},
 		},
 	);
@@ -35,9 +43,36 @@ test('a script can ask the binary to create the database', () => {
 	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
 	const db = new Database(dbPath, {readonly: true});
 	expect(
-		db.query("SELECT name FROM sqlite_master WHERE name = 'json_sync'").get(),
+		db.query("SELECT name FROM sqlite_master WHERE name = 'json_import'").get(),
 	).toBeTruthy();
 	db.close();
+});
+
+// install.sh passes no path, so it sets up whichever database the app opens.
+test('migrate without a path creates the database PAPPARDELLE_STATE_DB names', () => {
+	const home = tempDir('papp-state-cli-');
+	const dbPath = path.join(home, 'moved', 'state.db');
+	const result = pappardelleState(['migrate'], home, {
+		PAPPARDELLE_STATE_DB: dbPath,
+	});
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	expect(fs.existsSync(dbPath)).toBe(true);
+	expect(fs.existsSync(path.join(home, '.pappardelle', 'state.db'))).toBe(
+		false,
+	);
+});
+
+// install.sh's own message does not name the database it could not set up.
+test('a migrate that fails names the database', () => {
+	const home = tempDir('papp-state-cli-');
+	const notADir = path.join(home, 'file');
+	fs.writeFileSync(notADir, '');
+	const dbPath = path.join(notADir, 'state.db');
+	const result = pappardelleState(['migrate'], home, {
+		PAPPARDELLE_STATE_DB: dbPath,
+	});
+	expect(result.status).toBe(3);
+	expect(result.stderr).toContain(dbPath);
 });
 
 test('an unknown verb fails without starting anything else', () => {
@@ -153,6 +188,41 @@ test('prepare-space stores an issue title that starts with a dash', () => {
 	expect(spaceState.read('STA-1')?.issueTitle).toBe('-x');
 });
 
+test('prepare-space --open lists the space as open, with the worktree it was given', () => {
+	const home = tempDir('papp-state-cli-');
+	const stateDir = path.join(home, '.pappardelle');
+	const worktree = path.join(home, 'elsewhere');
+	const result = spawnSync(
+		process.execPath,
+		[
+			fileURLToPath(new URL('state-cli.ts', import.meta.url)),
+			'prepare-space',
+			'--repo',
+			'repo',
+			'--worktree',
+			worktree,
+			'--main-root',
+			path.join(home, 'repo'),
+			'--open',
+			'STA-1',
+		],
+		{
+			encoding: 'utf8',
+			env: {
+				...process.env,
+				HOME: home,
+				PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
+			},
+		},
+	);
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	const {registry, spaceIdentities} = testState({stateDir}).daos;
+	expect(registry.openSpaces()).toStrictEqual(['STA-1']);
+	expect(spaceIdentities.get('STA-1')).toMatchObject({
+		identity: {worktreePath: worktree},
+	});
+});
+
 test("launch-agent records the agent profile a space's agent session starts with", () => {
 	const home = tempDir('papp-state-cli-');
 	const stateDir = path.join(home, '.pappardelle');
@@ -222,7 +292,7 @@ test('check-config passes a valid or missing config and fails an invalid one wit
 	);
 });
 
-test('migrate takes one database path and nothing else', () => {
+test('migrate takes at most one database path', () => {
 	const dir = tempDir('papp-state-cli-');
 	const migrate = (...args: string[]) =>
 		spawnSync(
@@ -240,7 +310,7 @@ test('migrate takes one database path and nothing else', () => {
 	expect(flag.stderr).toMatch(/migrate: Unknown option '--bogus'/);
 	const extra = migrate('a.db', 'b.db');
 	expect(extra.status, `stderr: ${extra.stderr}`).toBe(2);
-	expect(extra.stderr).toMatch(/migrate needs one database path/);
+	expect(extra.stderr).toMatch(/migrate takes at most one database path/);
 	expect(fs.readdirSync(dir)).toStrictEqual([]);
 });
 
@@ -277,8 +347,38 @@ test('prepare-space --register without an owner records nothing', () => {
 		'pappardelle --internal-state: prepare-space: --register needs --owner <pid>',
 	);
 	expect(fs.existsSync(stateDir)).toBe(false);
-	if (sqliteRun)
-		expect(testState({stateDir}).daos.spaceIdentities.get('STA-1').kind).toBe(
-			'unknown',
-		);
+	expect(testState({stateDir}).daos.spaceIdentities.get('STA-1').kind).toBe(
+		'unknown',
+	);
+});
+
+test('a highlight request made through the highlight verb reaches the TUI watching that repo', async () => {
+	const home = tempDir('papp-state-cli-');
+	const stateDir = path.join(home, '.pappardelle');
+	const {highlight} = testState({stateDir}).daos;
+	const seen: HighlightRequest[] = [];
+	teardown(highlight.watch(request => seen.push(request)));
+
+	const result = spawnSync(
+		process.execPath,
+		[
+			fileURLToPath(new URL('state-cli.ts', import.meta.url)),
+			'highlight',
+			'--repo',
+			'repo',
+			'STA-1',
+			'--focus',
+		],
+		{
+			encoding: 'utf8',
+			env: {
+				...process.env,
+				HOME: home,
+				PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
+			},
+		},
+	);
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	await until(() => seen.length > 0, {what: 'the request to reach the watch'});
+	expect(seen).toStrictEqual([{issueKey: 'STA-1', focus: true}]);
 });

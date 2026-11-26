@@ -25,8 +25,11 @@ esac
 	const script = `
 import {attachToSpace, initTmuxState} from ${JSON.stringify(moduleUrl)};
 import {getRepoName} from ${JSON.stringify(new URL('config.ts', import.meta.url).href)};
+import {newSpaceIdentity} from ${JSON.stringify(new URL('space-identity.ts', import.meta.url).href)};
 import {createStateDaos} from ${JSON.stringify(new URL('state-daos.ts', import.meta.url).href)};
-initTmuxState(createStateDaos({repo: getRepoName(), stateDir: ${JSON.stringify(path.join(dir, 'state'))}, sqlite: false}));
+const daos = createStateDaos({repo: getRepoName(), stateDir: ${JSON.stringify(path.join(dir, 'state'))}});
+initTmuxState(daos);
+await daos.spaceIdentities.record(newSpaceIdentity({repo: getRepoName(), key: 'TEST-SLOW', worktreePath: '/w/TEST-SLOW', socket: 'pappardelle_inner'}));
 let ticks = 0;
 const timer = setInterval(() => ticks++, 10);
 const success = await attachToSpace('%1', '%2', 'TEST-SLOW', '%0', undefined, undefined, {configLoad: {kind: 'missing'}});

@@ -31,15 +31,12 @@ def main():
                    PATH=str(bin_dir) + os.pathsep + os.environ['PATH'],
                    TMUX_TMPDIR=str(root), PAPPARDELLE_TMUX_SOCKET='trace-inner',
                    GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null')
-        # With the flag on the TUI starts a status daemon that outlives it. The
-        # fixture's teardown stops every process that carries this marker.
+        # The TUI starts a status daemon that outlives it. The fixture's
+        # teardown stops every process that carries this marker.
         env[harness['FIXTURE_MARKER']] = tmp
         # Beside the database under HOME, the socket's path is too long for
         # macOS, whose temp directory is deep.
         env['PAPPARDELLE_STATUS_SOCKET'] = str(root / 'status-1.sock')
-        # The fixture's HOME has no config, so the state mode comes from the override.
-        if 'PAPPARDELLE_SQLITE_STATE' in os.environ:
-            env['PAPPARDELLE_SQLITE_STATE'] = os.environ['PAPPARDELLE_SQLITE_STATE']
         for tool in ('bd', 'gh', 'glab', 'acli', 'claude', 'codex'):
             target = bin_dir / tool
             target.write_text(f'#!{sys.executable}\nprint("[]")\n')

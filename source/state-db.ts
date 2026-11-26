@@ -1,13 +1,6 @@
-// The SQLite database behind experimental.sqliteState.
-//
-// While the flag exists, every store here also keeps its JSON file, so that
-// turning the flag off loses nothing. `json_sync` records what each file
-// looked like the last time a write went through the database. A file that
-// no longer matches was written by a process that bypassed the database (the
-// flag was off, or the binary older), and its rows are replaced from it.
+// The SQLite database that holds Pappardelle's state.
 
 import {Database} from 'bun:sqlite';
-import {randomUUID} from 'node:crypto';
 import fs from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
@@ -216,6 +209,10 @@ const MIGRATIONS: string[] = [
 	) STRICT`,
 	`ALTER TABLE schedules ADD COLUMN defer_reason TEXT;
 	ALTER TABLE schedules ADD COLUMN defer_count INTEGER`,
+	// Present once the JSON files from before the database held all the state
+	// have been imported. json_sync is emptied then, not dropped, so that a
+	// build from before reads its files as gone, not as changed.
+	`CREATE TABLE json_import (imported_at INTEGER NOT NULL) STRICT`,
 ];
 
 let defaultPathForTests: string | undefined;
@@ -290,127 +287,37 @@ export async function retryBusy<T>(
 	}
 }
 
-type FileSignature = {ino: string; size: number; mtimeNs: string};
-
-function signatureOf(stat: fs.BigIntStats): FileSignature {
-	return {
-		ino: String(stat.ino),
-		size: Number(stat.size),
-		mtimeNs: String(stat.mtimeNs),
-	};
-}
-
-function statSignature(file: string): FileSignature | null {
-	try {
-		return signatureOf(fs.statSync(file, {bigint: true}));
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-		throw error;
-	}
-}
-
-/**
- * Replace `file` by rename so a reader never sees half of it. The signature
- * is taken before the rename, which keeps inode, size and mtime: read
- * afterwards it could be another writer's file.
- */
-export function writeFileAtomic(file: string, content: string): FileSignature {
-	const temporary = `${file}.tmp.${process.pid}.${randomUUID()}`;
-	try {
-		fs.mkdirSync(path.dirname(file), {recursive: true});
-		fs.writeFileSync(temporary, content);
-		const signature = signatureOf(fs.statSync(temporary, {bigint: true}));
-		fs.renameSync(temporary, file);
-		return signature;
-	} finally {
-		fs.rmSync(temporary, {force: true});
-	}
-}
-
 /** A lookup in a store that could not be read, which must never look empty. */
 export type Unreadable = {kind: 'unreadable'; error: unknown};
 
-/** A JSON file that mirrors some rows. */
-export type JsonMirror = {
-	file: string;
-	/**
-	 * Replace the rows this file holds from its content, or from `null` when
-	 * the file is gone. Throws when the content is not what the store writes.
-	 */
-	importRows(content: string | null): void;
-};
-
-export type SyncResult = 'in-sync' | 'imported' | 'malformed' | 'busy';
-
-/** What a write transaction may do to the mirrored files. */
-export type WriteTx = {
-	/** Bring the file's rows up to date before changing them. */
-	sync(mirror: JsonMirror): SyncResult;
-	/** Write the file from the rows just changed, or remove it with `null`. */
-	mirror(file: string, content: string | null): void;
-};
-
-type SyncRow = {ino: string; size: number; mtime_ns: string; malformed: number};
-
 export class StateDb {
-	private readonly reportedMalformed = new Set<string>();
-
 	constructor(
 		readonly db: Database,
 		readonly path: string,
 	) {}
 
-	/**
-	 * Make `mirror`'s rows match its file if a writer that bypassed the
-	 * database changed it. Reads call this before querying.
-	 */
-	sync(mirror: JsonMirror): SyncResult {
-		const known = this.known(mirror.file);
-		if (known) return known;
-		try {
-			return this.db
-				.transaction(() => this.syncInTransaction(mirror))
-				.immediate();
-		} catch (error) {
-			// Another process is writing. Its rows are served now and the file
-			// is looked at again on the next read.
-			if (isBusyError(error)) return 'busy';
-			throw error;
-		}
-	}
-
-	/**
-	 * One write transaction, attempted once: throws SQLITE_BUSY when another
-	 * process holds the write lock. Callers that already hold a file lock use
-	 * this and retry around both.
-	 */
-	tryWrite<T>(body: (tx: WriteTx) => T): T {
-		const tx: WriteTx = {
-			sync: mirror => this.syncInTransaction(mirror),
-			mirror: (file, content) => {
-				if (content === null) {
-					fs.rmSync(file, {force: true});
-					this.db.query('DELETE FROM json_sync WHERE path = ?').run(file);
-				} else {
-					this.record(file, writeFileAtomic(file, content), false);
-				}
-			},
-		};
-		return this.notifying(() =>
-			this.db.transaction(() => body(tx)).immediate(),
-		);
+	/** One write transaction, attempted once: throws SQLITE_BUSY when another process holds the write lock. */
+	tryWrite<T>(body: () => T): T {
+		return this.notifying(() => this.db.transaction(body).immediate());
 	}
 
 	/** A write transaction that waits out other writers without blocking. */
-	async write<T>(body: (tx: WriteTx) => T): Promise<T> {
+	async write<T>(body: () => T): Promise<T> {
 		return retryBusy(() => this.tryWrite(body));
 	}
 
-	/** Rows changed without a mirrored file, for stores that keep none. */
-	async writeRows<T>(body: () => T): Promise<T> {
-		return retryBusy(() =>
-			this.notifying(() => this.db.transaction(body).immediate()),
-		);
+	/**
+	 * `tryWrite`, waiting for the write lock as long as opening waits for a
+	 * migration. For the one-time import, which every process that opens the
+	 * database must find done before it reads.
+	 */
+	writeOnOpen<T>(body: () => T): T {
+		this.db.run(`PRAGMA busy_timeout = ${OPEN_BUSY_TIMEOUT_MS}`);
+		try {
+			return this.tryWrite(body);
+		} finally {
+			this.db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+		}
 	}
 
 	/** Ring the bell for watchers in other processes when rows changed. */
@@ -425,80 +332,6 @@ export class StateDb {
 		return this.db
 			.query<{changes: number}, []>('SELECT total_changes() AS changes')
 			.get()!.changes;
-	}
-
-	/** The recorded state of `file` when it still matches what is on disk. */
-	private known(file: string): 'in-sync' | 'malformed' | null {
-		const row = this.db
-			.query<
-				SyncRow,
-				[string]
-			>('SELECT ino, size, mtime_ns, malformed FROM json_sync WHERE path = ?')
-			.get(file);
-		const signature = statSignature(file);
-		if (!row && !signature) return 'in-sync';
-		if (
-			!row ||
-			!signature ||
-			row.ino !== signature.ino ||
-			row.size !== signature.size ||
-			row.mtime_ns !== signature.mtimeNs
-		)
-			return null;
-		return row.malformed ? 'malformed' : 'in-sync';
-	}
-
-	private syncInTransaction(mirror: JsonMirror): SyncResult {
-		// Checked again under the write lock: the writer that changed the file
-		// may have committed its rows since the first look.
-		const known = this.known(mirror.file);
-		if (known) return known;
-		const read = readWithSignature(mirror.file);
-		try {
-			// Nested, so an import that fails halfway leaves no rows behind.
-			this.db.transaction(() => {
-				mirror.importRows(read?.content ?? null);
-			})();
-		} catch (error) {
-			if (read) this.record(mirror.file, read.signature, true);
-			if (!this.reportedMalformed.has(mirror.file)) {
-				this.reportedMalformed.add(mirror.file);
-				log.warn(
-					`Kept the stored rows: ${mirror.file} is not readable as state`,
-					error instanceof Error ? error : undefined,
-				);
-			}
-			return 'malformed';
-		}
-
-		if (read) this.record(mirror.file, read.signature, false);
-		else this.db.query('DELETE FROM json_sync WHERE path = ?').run(mirror.file);
-		// Each import means some writer still bypasses the database, which has
-		// to stop before the files can go.
-		log.info(`Imported ${mirror.file}, written outside the state database`);
-		return 'imported';
-	}
-
-	private record(
-		file: string,
-		signature: FileSignature,
-		malformed: boolean,
-	): void {
-		this.db
-			.query(
-				`INSERT INTO json_sync (path, ino, size, mtime_ns, malformed)
-				VALUES (?, ?, ?, ?, ?)
-				ON CONFLICT (path) DO UPDATE SET ino = excluded.ino,
-					size = excluded.size, mtime_ns = excluded.mtime_ns,
-					malformed = excluded.malformed`,
-			)
-			.run(
-				file,
-				signature.ino,
-				signature.size,
-				signature.mtimeNs,
-				malformed ? 1 : 0,
-			);
 	}
 }
 
@@ -531,26 +364,6 @@ export class GuardedReads {
 
 			return unknown;
 		}
-	}
-}
-
-/** The file's content with the signature of the bytes that were read. */
-function readWithSignature(
-	file: string,
-): {content: string; signature: FileSignature} | null {
-	let descriptor: number;
-	try {
-		descriptor = fs.openSync(file, 'r');
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-		throw error;
-	}
-
-	try {
-		const signature = signatureOf(fs.fstatSync(descriptor, {bigint: true}));
-		return {content: fs.readFileSync(descriptor, 'utf8'), signature};
-	} finally {
-		fs.closeSync(descriptor);
 	}
 }
 
@@ -622,6 +435,47 @@ export function openStateDb(dbPath: string): StateDb {
 	const state = new StateDb(db, dbPath);
 	connections.set(dbPath, state);
 	return state;
+}
+
+/**
+ * Every repo with Pappardelle state, by the name its sessions carry: those
+ * the database at `dbPath` holds, and those with a directory under
+ * `<stateDir>/repos` from before it held them. None when neither can be read.
+ */
+export function listKnownRepos(
+	dbPath = stateDbPath(),
+	stateDir = DEFAULT_STATE_DIR,
+): string[] {
+	const repos = new Set<string>();
+	try {
+		for (const entry of fs.readdirSync(path.join(stateDir, 'repos'), {
+			withFileTypes: true,
+		}))
+			if (entry.isDirectory()) repos.add(entry.name);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+			log.warn(
+				`Could not list the repos in ${stateDir}`,
+				error instanceof Error ? error : undefined,
+			);
+	}
+
+	try {
+		for (const {repo} of openStateDb(dbPath)
+			.db.query<{repo: string}, []>(
+				`SELECT repo FROM spaces UNION SELECT repo FROM space_identities
+				UNION SELECT repo FROM tui_markers`,
+			)
+			.all())
+			repos.add(repo);
+	} catch (error) {
+		log.warn(
+			'Could not read the repos the state database knows',
+			error instanceof Error ? error : undefined,
+		);
+	}
+
+	return [...repos].sort();
 }
 
 const checkpointTimers = new WeakMap<StateDb, ReturnType<typeof setInterval>>();

@@ -1,5 +1,5 @@
 import {bunIsolationArgs} from './runtime.ts';
-import {existsSync, readdirSync} from 'node:fs';
+import {existsSync} from 'node:fs';
 import {sameFile} from './same-file.ts';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -40,15 +40,8 @@ export type RunningTui = {session: string; repo: string};
 // TUIs; a user's own `pappardelle-*` session stays off the list.
 export function listRunningTuis(
 	tmux: OuterTmuxRunner,
-	repoStateRoot: string,
+	repos: string[],
 ): RunningTui[] {
-	let repos: string[];
-	try {
-		repos = readdirSync(repoStateRoot);
-	} catch {
-		return [];
-	}
-
 	// Two repos can claim one session name once tmux's rewriting is allowed
 	// for (`my.app` and `my_app`); the repo named exactly like the session wins.
 	const repoBySession = new Map([

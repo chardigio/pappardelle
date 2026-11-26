@@ -30,7 +30,7 @@ export function applyStatusUpdates(
 }
 
 /**
- * An agent's status from its hook file and its pane's status snapshot. Once
+ * An agent's status from its hook record and its pane's status snapshot. Once
  * the agent has reported natively, the snapshot is the authority.
  */
 export function mergeProgramStatus(

@@ -10,14 +10,13 @@ import {ensureCompanionSession} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {getRepoName} from './config.ts';
 
-// tmux.ts names a space's sessions from the stores. Without the database they
-// are the names idow gives a space, which is all this file needs.
+// tmux.ts names a space's sessions from the stores.
 const stateTeardowns: Array<() => unknown> = [];
 beforeAll(() => {
 	testTmuxState({
 		cleanup: fn => stateTeardowns.push(fn),
 		repo: getRepoName(),
-		sqlite: false,
+		spaces: ['BAR-1'],
 	});
 });
 afterAll(async () => {

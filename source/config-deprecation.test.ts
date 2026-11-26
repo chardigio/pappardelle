@@ -127,3 +127,25 @@ profiles:
 		cleanup();
 	}
 });
+
+test('experimental.sqliteState in a project config gets a deprecation warning naming that file, and the config still loads', () => {
+	const {dir, cleanup} = setupTempDir({
+		'project/.pappardelle.local.yml': `experimental:
+  sqliteState: true
+`,
+		'project/.pappardelle.yml':
+			'version: 1\nprofiles:\n  only:\n    display_name: T\n',
+	});
+	try {
+		loadConfigFromPaths({projectDir: path.join(dir, 'project')});
+		expect(
+			getRecentErrors().some(entry =>
+				entry.message.includes(
+					'.pappardelle.local.yml: experimental.sqliteState is deprecated',
+				),
+			),
+		).toBe(true);
+	} finally {
+		cleanup();
+	}
+});
