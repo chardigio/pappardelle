@@ -3153,6 +3153,7 @@ test('determineProfileForInput reserves a blank emoji slot when siblings have on
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'personal notes');
+	expect(info?.kind).toBe('resolved');
 	if (info?.kind === 'resolved') {
 		expect(info.emoji).toBe('');
 	}
@@ -3164,6 +3165,7 @@ test('determineProfileForInput leaves emoji undefined when nothing configures on
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'personal notes');
+	expect(info?.kind).toBe('resolved');
 	if (info?.kind === 'resolved') {
 		expect(info.emoji).toBe(undefined);
 	}
@@ -3178,6 +3180,7 @@ test('determineProfileForInput emoji survives the default-profile fallback', () 
 		'personal',
 	);
 	const info = determineProfileForInput(config, 'something unmatched');
+	expect(info?.kind).toBe('resolved');
 	if (info?.kind === 'resolved') {
 		expect(info.isDefault).toBe(true);
 		expect(info.emoji).toBe('🎸');
