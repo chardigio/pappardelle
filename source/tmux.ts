@@ -124,9 +124,11 @@ const runTmux: AsyncTmuxRunner = async args => {
 import {
 	DEFAULT_COMPANION_COMMAND,
 	DEFAULT_RESOLVED_AGENT_PROFILE,
+	checkAgentProfile,
+	type ConfigLoad,
 	getAgentProfile,
 	getNamedAgentProfile,
-	resolveAgentProfileName,
+	getSpaceAgentProfile,
 	getCompanionCommand,
 	getCompanionSplits,
 	getDangerouslySkipPermissions,
@@ -144,6 +146,8 @@ import {
 	workspaceAwareAgents,
 } from './config.ts';
 import {
+	AGENT_NAME_FALLBACK,
+	agentDisplayName,
 	bindResumeArgs,
 	renderAgentLaunchFlags,
 	renderAgentPrompt,
@@ -648,7 +652,7 @@ function viewerNoSessionCommand(
 	return `clear; printf ${shellQuote(format)} ${shellQuote(issueKey)}`;
 }
 
-const AGENT_PANE_TITLE = 'agent';
+const AGENT_PANE_TITLE = AGENT_NAME_FALLBACK;
 const COMPANION_FRAME_TITLE = 'companion';
 
 function paneTitleArgs(paneId: string, title: string): string[] {
@@ -668,16 +672,16 @@ function viewerTitleArgs(
 	return args;
 }
 
-function agentFrameTitle(title: string): string {
-	return `agent · ${title}`;
+function agentFrameTitle(agentName: string, title: string): string {
+	return `${agentName} · ${title}`;
 }
 
 function agentTitleAndFocusArgs(
 	agentViewerPaneId: string,
-	title: string,
+	frameTitle: string,
 	listPaneId?: string,
 ): string[] {
-	const args = paneTitleArgs(agentViewerPaneId, agentFrameTitle(title));
+	const args = paneTitleArgs(agentViewerPaneId, frameTitle);
 	if (listPaneId) args.push(';', 'select-pane', '-t', listPaneId);
 	return args;
 }
@@ -2587,20 +2591,37 @@ export function runningAgentProfile(
 	issueKey: string,
 	issueTitle?: string,
 ): ResolvedAgentProfile {
-	const profileName = savedSpaceProfile(issueKey);
-	const launched = spaceState().read(issueKey)?.agentProfile?.name;
-	const name =
-		launched && isDefinedAgentProfile(config, launched)
-			? launched
-			: resolveAgentProfileName(config, issueTitle, profileName);
-	return getNamedAgentProfile(config, name, issueTitle, profileName);
+	return getSpaceAgentProfile(config, {
+		agentProfile: spaceState().read(issueKey)?.agentProfile,
+		issueTitle,
+		profile: savedSpaceProfile(issueKey),
+	});
 }
 
-function isDefinedAgentProfile(
-	config: PappardelleConfig,
-	name: string,
-): boolean {
-	return name === 'claude' || config.agent_profiles?.[name] !== undefined;
+/**
+ * The name the agent viewer's frame gives a space's agent. Without a config
+ * the built-in claude profile runs; an invalid one holds the agent back.
+ */
+export function spaceAgentName(
+	load: ConfigLoad,
+	issueKey: string,
+	issueTitle?: string,
+): string {
+	switch (load.kind) {
+		case 'valid': {
+			return agentDisplayName(
+				runningAgentProfile(load.config, issueKey, issueTitle),
+			);
+		}
+
+		case 'missing': {
+			return agentDisplayName(DEFAULT_RESOLVED_AGENT_PROFILE);
+		}
+
+		case 'invalid': {
+			return AGENT_NAME_FALLBACK;
+		}
+	}
 }
 
 /**
@@ -2617,7 +2638,7 @@ export async function storeLaunchedAgentProfiles(
 	for (const key of sessions.keys()) {
 		if (states.read(key)?.agentProfile) continue;
 		const name = sessions.latestProfile(key);
-		if (!name || !isDefinedAgentProfile(config, name)) continue;
+		if (!name || checkAgentProfile(config, name).kind !== 'known') continue;
 		const {isClaude} = getNamedAgentProfile(config, name);
 		await states.write(key, {agentProfile: {name, isClaude}});
 	}
@@ -2628,6 +2649,8 @@ type AttachOptions = {
 	run?: AsyncTmuxRunner;
 	/** Titles the agent frame in place of the key. */
 	label?: string;
+	/** The agent's name in the frame on a fast switch; see spaceAgentName. */
+	agentName: string;
 };
 
 /**
@@ -2642,10 +2665,10 @@ export async function attachToSpace(
 	companionViewerPaneId: string,
 	...rest: [
 		issueKey: string,
-		listPaneId?: string,
-		mainWorktreePath?: string,
-		issueTitle?: string,
-		options?: AttachOptions,
+		listPaneId: string | undefined,
+		mainWorktreePath: string | undefined,
+		issueTitle: string | undefined,
+		options: AttachOptions,
 	]
 ): Promise<boolean> {
 	return attachViewers(
@@ -2666,14 +2689,19 @@ const PANE_GONE = /^(?:can't find pane|no such pane):/m;
 // rebuilt, and a workspace then has only its agent to show.
 const closedCompanionPanes = new Set<string>();
 
+// The startup config the TUI hands fast switches can be older than the one a
+// space's last slow attach read, so that name wins. An invalid config's
+// `agent` is not kept: it names no agent.
+const slowAttachAgentNames = new Map<string, string>();
+
 async function attachViewers(
 	agentViewerPaneId: string,
 	companionViewerPaneId: string,
 	issueKey: string,
-	listPaneId?: string,
-	mainWorktreePath?: string,
-	issueTitle?: string,
-	options: AttachOptions = {},
+	listPaneId: string | undefined,
+	mainWorktreePath: string | undefined,
+	issueTitle: string | undefined,
+	options: AttachOptions,
 ): Promise<boolean> {
 	const traceDone = startupTrace.current?.begin('attachment');
 	const {signal} = options;
@@ -2750,6 +2778,10 @@ async function attachViewers(
 		agentViewerTty &&
 		(!companionViewerPaneId || (companionViewerHasClient && companionViewerTty))
 	) {
+		const fastAgentTitle = agentFrameTitle(
+			slowAttachAgentNames.get(issueKey) ?? options.agentName,
+			name,
+		);
 		try {
 			const commands = [
 				'switch-client',
@@ -2770,10 +2802,7 @@ async function attachViewers(
 			}
 			// After the switches, so a session not created yet still fails as a
 			// missing session.
-			commands.push(
-				';',
-				...viewerSessionArgs(sessions.agent, agentFrameTitle(name)),
-			);
+			commands.push(';', ...viewerSessionArgs(sessions.agent, fastAgentTitle));
 			if (companionViewerPaneId)
 				commands.push(
 					';',
@@ -2783,7 +2812,9 @@ async function attachViewers(
 			// Existing clients can switch directly. tmux validates both targets;
 			// an exited client or missing session falls back to setup below.
 			const listing = await run(innerTmuxArgs(commands));
-			await run(agentTitleAndFocusArgs(agentViewerPaneId, name, listPaneId));
+			await run(
+				agentTitleAndFocusArgs(agentViewerPaneId, fastAgentTitle, listPaneId),
+			);
 			currentlyViewingSpace = issueKey;
 			const shown = await syncSplitsAfterAttach(listing);
 			traceDone?.(shown ? undefined : 'cancelled');
@@ -2878,6 +2909,10 @@ async function attachViewers(
 			});
 		const hasAgentSession = agent.value;
 		const hasCompanionSession = companion.value;
+		// After the launch, which records the profile it started.
+		const agentName = spaceAgentName(load, issueKey, issueTitle);
+		if (!invalidConfig) slowAttachAgentNames.set(issueKey, agentName);
+		const agentTitle = agentFrameTitle(agentName, name);
 
 		const viewersDone = startupTrace.current?.begin('viewer-attachment');
 		try {
@@ -2905,7 +2940,7 @@ async function attachViewers(
 					? [frameTerminalFeaturesArgs(), FRAME_ESCAPE_TIME_ARGS]
 					: []),
 				...(hasAgentSession
-					? [viewerSessionArgs(sessions.agent, agentFrameTitle(name))]
+					? [viewerSessionArgs(sessions.agent, agentTitle)]
 					: []),
 				...(hasCompanionSession
 					? [viewerSessionArgs(sessions.companion, COMPANION_FRAME_TITLE)]
@@ -2949,7 +2984,7 @@ async function attachViewers(
 					agentTty,
 					sessions.agent,
 					hasAgentSession,
-					agentFrameTitle(name),
+					agentTitle,
 					'agent',
 				),
 				companionViewerPaneId
@@ -2981,7 +3016,9 @@ async function attachViewers(
 				);
 			}
 
-			await run(agentTitleAndFocusArgs(agentViewerPaneId, name, listPaneId));
+			await run(
+				agentTitleAndFocusArgs(agentViewerPaneId, agentTitle, listPaneId),
+			);
 			({attached: agentViewerHasClient, tty: agentViewerTty} =
 				agentAttachment.value);
 			if (

@@ -178,6 +178,7 @@ for (const delayed of ['agent-gate', 'companion-create']) {
 		const select = async (key: string) =>
 			queue.run(async signal => {
 				await attachToSpace('%1', '%2', key, '%0', home, undefined, {
+					agentName: 'claude',
 					run,
 					signal,
 				});
@@ -254,7 +255,7 @@ for (const delayed of ['%1', '%2']) {
 						'%0',
 						undefined,
 						undefined,
-						{run, signal},
+						{agentName: 'claude', run, signal},
 					),
 				).toBe(false);
 				finished = true;
@@ -272,7 +273,7 @@ for (const delayed of ['%1', '%2']) {
 						'%0',
 						undefined,
 						undefined,
-						{run},
+						{agentName: 'claude', run},
 					),
 				).toBe(true);
 			});
@@ -319,6 +320,7 @@ for (const delayed of ['agent', 'companion']) {
 		const select = async (key: string) =>
 			task.run(async signal => {
 				await attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
+					agentName: 'claude',
 					run,
 					signal,
 				});
@@ -348,13 +350,13 @@ for (const delayed of ['agent', 'companion']) {
 	});
 }
 
-const titleAndFocus = (issueKey: string) => [
+const titleAndFocus = (issueKey: string, agentName = 'claude') => [
 	'set-option',
 	'-p',
 	'-t',
 	'%1',
 	'@pappardelle_title',
-	`agent · ${issueKey}`,
+	`${agentName} · ${issueKey}`,
 	';',
 	'select-pane',
 	'-t',
@@ -392,7 +394,7 @@ for (const {delayed, cancel} of [
 			'%0',
 			undefined,
 			undefined,
-			{run, signal: controller.signal},
+			{agentName: 'claude', run, signal: controller.signal},
 		).then(result => {
 			finished = true;
 			return result;
@@ -416,7 +418,7 @@ for (const {delayed, cancel} of [
 				'%0',
 				undefined,
 				undefined,
-				{run: fake.run},
+				{agentName: 'claude', run: fake.run},
 			),
 		).toBe(true);
 		expect(fake.calls.some(args => isSwitchBatch(args))).toBe(false);
@@ -459,7 +461,10 @@ test('failed cold respawn discards cached ttys before a recycled pty can target 
 		return '';
 	};
 	const attach = async (key: string) =>
-		attachToSpace('%1', '%2', key, '%0', undefined, undefined, {run});
+		attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
+			agentName: 'claude',
+			run,
+		});
 	expect(await attach('TEST-EMPTY')).toBe(true);
 	phase = 'failed';
 	expect(await attach('TEST-FAILED')).toBe(false);
@@ -496,7 +501,7 @@ for (const selected of ['qa-custom', "/tmp/socket with ' quotes"]) {
 				'%0',
 				undefined,
 				undefined,
-				{run},
+				{agentName: 'claude', run},
 			),
 		).toBe(true);
 		const commands = fake.calls
@@ -533,7 +538,7 @@ test('switching yields to input and sends both clients to the selected inner ses
 		'%0',
 		undefined,
 		undefined,
-		{run},
+		{agentName: 'claude', run},
 	).then(result => {
 		finished = true;
 		return result;
@@ -556,6 +561,7 @@ test('a superseded partial switch can return to the previously viewed space', as
 	const fake = fakeTmux();
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -568,6 +574,7 @@ test('a superseded partial switch can return to the previously viewed space', as
 	};
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run,
 			signal: controller.signal,
 		}),
@@ -579,6 +586,7 @@ test('a superseded partial switch can return to the previously viewed space', as
 	fake.calls.length = 0;
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -593,11 +601,13 @@ test('a superseded partial switch can return to the previously viewed space', as
 test('a label titles the agent frame in place of the key', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	fake.calls.length = 0;
 	expect(
 		await attachToSpace('%1', '%2', 'main', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run: fake.run,
 			label: 'sous-chef',
 		}),
@@ -605,18 +615,20 @@ test('a label titles the agent frame in place of the key', async () => {
 	const titles = splitBatch(fake.calls[0]!.slice(2))
 		.filter(command => command[3] === 'set-titles-string')
 		.map(command => command[4]);
-	expect(titles).toStrictEqual(['agent · sous-chef', 'companion']);
+	expect(titles).toStrictEqual(['claude · sous-chef', 'companion']);
 	expect(fake.calls[1]).toStrictEqual(titleAndFocus('sous-chef'));
 });
 
 test('warm switches move both viewers in one request without setup probes', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	fake.calls.length = 0;
 	expect(
-		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+		await attachToSpace('%1', '%2', 'TEST-WARM-B', '%0', undefined, undefined, {
+			agentName: 'codex',
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -636,19 +648,19 @@ test('warm switches move both viewers in one request without setup probes', asyn
 		'/dev/claude',
 		'-t',
 	]);
-	expect(target('agent')![4]!.endsWith('-TEST-B:')).toBe(true);
+	expect(target('agent')![4]!.endsWith('-TEST-WARM-B:')).toBe(true);
 	expect(target('companion')?.slice(0, 4)).toStrictEqual([
 		'switch-client',
 		'-c',
 		'/dev/companion',
 		'-t',
 	]);
-	expect(target('companion')![4]!.endsWith('-TEST-B:')).toBe(true);
+	expect(target('companion')![4]!.endsWith('-TEST-WARM-B:')).toBe(true);
 	const titles = commands
 		.filter(command => command[3] === 'set-titles-string')
 		.map(command => command[4]);
-	expect(titles).toStrictEqual(['agent · TEST-B', 'companion']);
-	expect(fake.calls[1]).toStrictEqual(titleAndFocus('TEST-B'));
+	expect(titles).toStrictEqual(['codex · TEST-WARM-B', 'companion']);
+	expect(fake.calls[1]).toStrictEqual(titleAndFocus('TEST-WARM-B', 'codex'));
 });
 
 test('a switch and a session start use the names stored for the space', async () => {
@@ -673,11 +685,13 @@ test('a switch and a session start use the names stored for the space', async ()
 	});
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	fake.calls.length = 0;
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-HAND', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -711,6 +725,7 @@ test('a switch and a session start use the names stored for the space', async ()
 test("a warm switch finds the space's splits in its own request's listing", async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	fake.calls.length = 0;
@@ -728,6 +743,7 @@ test("a warm switch finds the space's splits in its own request's listing", asyn
 
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run,
 		}),
 	).toBe(true);
@@ -739,6 +755,7 @@ test("a warm switch finds the space's splits in its own request's listing", asyn
 test('an invalid warm cache falls back and retries both viewers after a partial batch', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	fake.calls.length = 0;
@@ -758,6 +775,7 @@ test('an invalid warm cache falls back and retries both viewers after a partial 
 	clearRecentErrors();
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run,
 		}),
 	).toBe(true);
@@ -781,6 +799,7 @@ test('an invalid warm cache falls back and retries both viewers after a partial 
 test('a first switch to a workspace without sessions falls back without reporting an error', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	const run: AsyncTmuxRunner = async args => {
@@ -797,6 +816,7 @@ test('a first switch to a workspace without sessions falls back without reportin
 	clearRecentErrors();
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run,
 		}),
 	).toBe(true);
@@ -807,6 +827,7 @@ test('a first switch to a workspace without sessions falls back without reportin
 test('a switch whose viewer client left with its ended session falls back without reporting an error', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	const run: AsyncTmuxRunner = async args => {
@@ -823,6 +844,7 @@ test('a switch whose viewer client left with its ended session falls back withou
 	clearRecentErrors();
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-B', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run,
 		}),
 	).toBe(true);
@@ -842,6 +864,7 @@ test('a missing companion session says the companion, not the agent, is not runn
 	};
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-C', '%0', '/tmp', undefined, {
+		agentName: 'claude',
 		run,
 	});
 	const respawned = (paneId: string) =>
@@ -875,7 +898,7 @@ test('an absent inner server displays no-session state without hiding real clien
 		'%0',
 		undefined,
 		undefined,
-		{run},
+		{agentName: 'claude', run},
 	);
 	expect(
 		fake.calls.some(args =>
@@ -900,6 +923,7 @@ test('an absent inner server displays no-session state without hiding real clien
 	};
 	expect(
 		await attachToSpace('%1', '', 'TEST-DENIED', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run: denied,
 		}),
 	).toBe(false);
@@ -911,6 +935,7 @@ test('an absent inner server displays no-session state without hiding real clien
 test('companion teardown failure leaves Claude alive and reattachment sends no launch command', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	fake.calls.length = 0;
@@ -932,6 +957,7 @@ test('companion teardown failure leaves Claude alive and reattachment sends no l
 		),
 	).toBe(false);
 	await attachToSpace('%1', '%2', 'TEST-KEEP', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	expect(
@@ -946,11 +972,13 @@ test('companion teardown failure leaves Claude alive and reattachment sends no l
 test('replaced viewer panes invalidate TTYs even for the same selected workspace', async () => {
 	const fake = fakeTmux();
 	await attachToSpace('%1', '%2', 'TEST-A', '%0', undefined, undefined, {
+		agentName: 'claude',
 		run: fake.run,
 	});
 	fake.calls.length = 0;
 	expect(
 		await attachToSpace('%3', '', 'TEST-A', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -972,6 +1000,7 @@ test('rapid navigation skips stale selections while tmux is still responding', a
 	const select = async (key: string) =>
 		task.run(async signal => {
 			await attachToSpace('%1', '%2', key, '%0', undefined, undefined, {
+				agentName: 'claude',
 				run,
 				signal,
 			});
@@ -1001,12 +1030,14 @@ test('a failed tmux switch is reported as failure and can be retried', async () 
 	};
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-FAIL', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run,
 		}),
 	).toBe(false);
 	expect(getCurrentlyViewingSpace()).toBe(null);
 	expect(
 		await attachToSpace('%1', '%2', 'TEST-FAIL', '%0', undefined, undefined, {
+			agentName: 'claude',
 			run: fake.run,
 		}),
 	).toBe(true);
@@ -1130,7 +1161,10 @@ test('a frame started with its pane is handed its program, and a later start res
 		return ttyQueryPane(args) === undefined ? '' : '/dev/frame';
 	};
 	const attach = async (key: string) =>
-		attachToSpace('%7', '', key, '%0', undefined, undefined, {run});
+		attachToSpace('%7', '', key, '%0', undefined, undefined, {
+			agentName: 'claude',
+			run,
+		});
 
 	expect(await attach('TEST-WARM')).toBe(true);
 	const handed = calls.find(args => args.includes(FRAME_COMMAND_OPTION))!;
@@ -1138,7 +1172,7 @@ test('a frame started with its pane is handed its program, and a later start res
 	expect(
 		program.includes(`=${sessionNamesFor('TEST-WARM', getRepoName()).agent}:`),
 	).toBe(true);
-	expect(program.includes('agent · TEST-WARM')).toBe(true);
+	expect(program.includes('claude · TEST-WARM')).toBe(true);
 	expect(handed.slice(-3)).toStrictEqual([
 		'wait-for',
 		'-S',
@@ -1162,7 +1196,10 @@ test('a started signal left by an earlier start does not stand in for the new fr
 		return '';
 	};
 	const attach = async (key: string) =>
-		attachToSpace('%8', '', key, '%0', undefined, undefined, {run});
+		attachToSpace('%8', '', key, '%0', undefined, undefined, {
+			agentName: 'claude',
+			run,
+		});
 
 	expect(await attach('TEST-STALE')).toBe(true);
 	expect(waits).toBe(2);
@@ -1241,6 +1278,7 @@ test('an invalid config holds back dead sessions and says why, once', async () =
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
+		agentName: 'claude',
 		run,
 	});
 	expect(createsSession(calls, agent)).toBe(false);
@@ -1261,10 +1299,105 @@ test('an invalid config holds back dead sessions and says why, once', async () =
 
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-INVALID', '%0', '/tmp', undefined, {
+		agentName: 'claude',
 		run,
 	});
 	expect(invalidConfigErrors('TEST-INVALID').length).toBe(1);
 	clearCurrentlyViewingSpace();
+});
+
+const agentFrameTitles = (calls: string[][]) =>
+	calls
+		.filter(args => args.includes('@pappardelle_title') && args.includes('%1'))
+		.map(args => args[args.indexOf('@pappardelle_title') + 1]);
+
+test('an invalid config titles a cold agent frame agent, whatever name the caller has', async () => {
+	withInvalidConfig();
+	const {agent, companion} = sessionNamesFor(
+		'TEST-INVALID-NAME',
+		getRepoName(),
+	);
+	const {calls, run} = tmuxMissingSessions(agent, companion);
+	clearCurrentlyViewingSpace();
+	await attachToSpace(
+		'%1',
+		'%2',
+		'TEST-INVALID-NAME',
+		'%0',
+		'/tmp',
+		undefined,
+		{
+			agentName: 'codex',
+			run,
+		},
+	);
+	expect(agentFrameTitles(calls)).toStrictEqual(['agent · TEST-INVALID-NAME']);
+});
+
+test('a recreated agent session is titled with the agent it was started with, not the one stored', async () => {
+	isolatedHome();
+	writeFileSync(
+		projectConfig(),
+		'version: 1\nprofiles: {}\nagent_profiles:\n  codex:\n    command: codex\n',
+	);
+	teardown(() => {
+		rmSync(projectConfig(), {force: true});
+	});
+	await derived.daos.spaceState.write('TEST-RELAUNCH', {
+		agentProfile: {name: 'codex', isClaude: false},
+	});
+	const {agent} = sessionNamesFor('TEST-RELAUNCH', getRepoName());
+	const {calls, run} = tmuxMissingSessions(agent);
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-RELAUNCH', '%0', '/tmp', undefined, {
+		agentName: 'codex',
+		run,
+	});
+	expect(createsSession(calls, agent)).toBe(true);
+	expect(agentFrameTitles(calls)).toStrictEqual(['claude · TEST-RELAUNCH']);
+});
+
+test('a fast switch keeps the name the last slow attach found over the startup one', async () => {
+	isolatedHome();
+	writeFileSync(
+		projectConfig(),
+		'version: 1\nprofiles: {}\nagent_profile: codex\nagent_profiles:\n  codex:\n    command: codex\n',
+	);
+	teardown(() => {
+		rmSync(projectConfig(), {force: true});
+	});
+	const {agent, companion} = sessionNamesFor('TEST-SLOW-NAME', getRepoName());
+	const cold = tmuxMissingSessions(agent, companion);
+	clearCurrentlyViewingSpace();
+	await attachToSpace('%1', '%2', 'TEST-SLOW-NAME', '%0', '/tmp', undefined, {
+		agentName: 'agent',
+		run: cold.run,
+	});
+	expect(agentFrameTitles(cold.calls)).toStrictEqual([
+		'codex · TEST-SLOW-NAME',
+	]);
+	const fake = fakeTmux();
+	await attachToSpace('%1', '%2', 'TEST-OTHER', '%0', undefined, undefined, {
+		agentName: 'claude',
+		run: fake.run,
+	});
+	fake.calls.length = 0;
+	await attachToSpace(
+		'%1',
+		'%2',
+		'TEST-SLOW-NAME',
+		'%0',
+		undefined,
+		undefined,
+		{
+			agentName: 'agent',
+			run: fake.run,
+		},
+	);
+	expect(fake.calls.some(args => args.includes('switch-client'))).toBe(true);
+	expect(agentFrameTitles(fake.calls)).toStrictEqual([
+		'codex · TEST-SLOW-NAME',
+	]);
 });
 
 test('an invalid config reports again once the rail has dropped the error', async () => {
@@ -1274,11 +1407,13 @@ test('an invalid config reports again once the rail has dropped the error', asyn
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
+		agentName: 'claude',
 		run,
 	});
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-AGAIN', '%0', '/tmp', undefined, {
+		agentName: 'claude',
 		run,
 	});
 	expect(invalidConfigErrors('TEST-AGAIN').length).toBe(1);
@@ -1292,6 +1427,7 @@ test('an invalid config still attaches sessions that are running', async () => {
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-LIVE', '%0', '/tmp', undefined, {
+		agentName: 'claude',
 		run,
 	});
 	expect(createsSession(calls, agent)).toBe(false);
@@ -1312,6 +1448,7 @@ for (const [recovery, recover] of [
 		clearRecentErrors();
 		clearCurrentlyViewingSpace();
 		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+			agentName: 'claude',
 			run,
 		});
 		expect(invalidConfigErrors('TEST-FIXED').length).toBe(1);
@@ -1319,6 +1456,7 @@ for (const [recovery, recover] of [
 		recover();
 		clearCurrentlyViewingSpace();
 		await attachToSpace('%1', '%2', 'TEST-FIXED', '%0', '/tmp', undefined, {
+			agentName: 'claude',
 			run,
 		});
 		expect(createsSession(calls, agent)).toBe(true);
@@ -1336,6 +1474,7 @@ test('an invalid config explains a held-back companion whose agent is running', 
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-COMPANION', '%0', '/tmp', undefined, {
+		agentName: 'claude',
 		run,
 	});
 	expect(createsSession(calls, companion)).toBe(false);
@@ -1350,6 +1489,7 @@ test('a config that is still invalid in another way replaces the earlier report'
 	clearRecentErrors();
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
+		agentName: 'claude',
 		run,
 	});
 	writeFileSync(
@@ -1358,6 +1498,7 @@ test('a config that is still invalid in another way replaces the earlier report'
 	);
 	clearCurrentlyViewingSpace();
 	await attachToSpace('%1', '%2', 'TEST-EDITED', '%0', '/tmp', undefined, {
+		agentName: 'claude',
 		run,
 	});
 	expect(invalidConfigErrors('TEST-EDITED').length).toBe(1);

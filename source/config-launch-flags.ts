@@ -34,8 +34,7 @@ export function builtinAgentDefaults(
 	definition: Pick<AgentProfileConfig, 'command' | 'is_claude'>,
 ): BuiltinAgentDefaults {
 	if (isClaudeAgentProfile(definition)) return BUILTIN_AGENTS['claude']!;
-	const word = unwrapCommand(definition.command)?.word;
-	const name = word ? path.basename(word) : '';
+	const name = commandName(definition.command) ?? '';
 	return name !== 'claude' && Object.hasOwn(BUILTIN_AGENTS, name)
 		? BUILTIN_AGENTS[name]!
 		: {};
@@ -188,11 +187,10 @@ export function supportsSousChefPrompt(
 		'command' | 'isClaude' | 'promptArgs'
 	>,
 ): boolean {
-	const word = unwrapCommand(agentProfile.command)?.word;
 	return (
 		agentProfile.isClaude ||
 		Boolean(agentProfile.promptArgs) ||
-		(word !== undefined && path.basename(word) === 'codex')
+		commandName(agentProfile.command) === 'codex'
 	);
 }
 
@@ -268,6 +266,20 @@ export function unwrapCommand(command: string): UnwrappedCommand | null {
 }
 
 export function isAgyCommand(command: string): boolean {
+	return commandName(command) === 'agy';
+}
+
+export function commandName(command: string): string | undefined {
 	const word = unwrapCommand(command)?.word;
-	return word !== undefined && path.posix.basename(word) === 'agy';
+	return word === undefined ? undefined : path.posix.basename(word);
+}
+
+export const AGENT_NAME_FALLBACK = 'agent';
+
+/** Profiles that get claude treatment are claude whatever wrapper launches them. */
+export function agentDisplayName(
+	agentProfile: Pick<ResolvedAgentProfile, 'command' | 'isClaude'>,
+): string {
+	if (agentProfile.isClaude) return 'claude';
+	return commandName(agentProfile.command) ?? AGENT_NAME_FALLBACK;
 }

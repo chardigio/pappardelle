@@ -3,7 +3,11 @@ import path from 'node:path';
 import {test, expect} from 'bun:test';
 import {testTmuxState} from '../test/helpers/state.ts';
 import type {PappardelleConfig} from './config.ts';
-import {runningAgentProfile, storeLaunchedAgentProfiles} from './tmux.ts';
+import {
+	runningAgentProfile,
+	spaceAgentName,
+	storeLaunchedAgentProfiles,
+} from './tmux.ts';
 
 // No space has this key, so no agent has recorded a session under it.
 const KEY = 'no-such-space-r29';
@@ -83,4 +87,19 @@ test('an agent launched before its space stored the agent profile gets the one t
 		isClaude: false,
 	});
 	expect(daos.spaceState.read('STA-3')?.agentProfile).toBe(undefined);
+});
+
+test('the agent frame names the agent a space runs, claude without a config, and agent with an invalid one', async () => {
+	const {daos} = testTmuxState();
+	const config: PappardelleConfig = {
+		version: 1,
+		agent_profiles: {custom: {command: 'env X=1 my-agent'}},
+		profiles: {},
+	};
+	await daos.spaceState.write(KEY, {
+		agentProfile: {name: 'custom', isClaude: false},
+	});
+	expect(spaceAgentName({kind: 'valid', config}, KEY)).toBe('my-agent');
+	expect(spaceAgentName({kind: 'missing'}, KEY)).toBe('claude');
+	expect(spaceAgentName({kind: 'invalid', errors: ['bad']}, KEY)).toBe('agent');
 });
