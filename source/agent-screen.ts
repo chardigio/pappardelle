@@ -33,17 +33,22 @@ export type PermissionPrompt = {
 	question: string;
 	options: PromptOption[];
 	/**
-	 * How an option is chosen: Claude takes its digit, Codex the key shown at
-	 * the end of its label. A digit on Codex only moves the highlight.
+	 * How an option is chosen: Claude and agy prompts take their digit, Codex
+	 * and agy subagent banners use the option's shortcut key. A digit on Codex
+	 * only moves the highlight.
 	 */
 	choose: 'digit' | 'shortcut';
+	/** Set for agy prompts, which carry no Claude hook state. */
+	source?: 'agy';
+	/** Single absolute file path read directly from an agy file prompt. */
+	filePath?: string;
+	/** Inline agy subagent approval banner drawn above the live composer. */
+	subagentBanner?: {vimInsert: boolean};
 	/** The files a Codex patch would change, as absolute paths. */
 	files?: string[];
 	/**
-	 * The prompt is taller than the agent's screen and its top is cut off:
-	 * `tool`, `subagent` and `description` are unknown and `command` holds
-	 * only the part shown. Claude draws on the alternate screen, so tmux keeps
-	 * no scrollback to read the rest from.
+	 * The prompt is taller than the agent's screen and its top is cut off (or
+	 * agy hid lines inside the command block): the full call cannot be read.
 	 */
 	cutOff: boolean;
 };
@@ -89,7 +94,28 @@ export type CodexDialog = {
 	selected: number | null;
 };
 
-export type AgyDialogKind = 'trust' | 'artifact_review' | 'subagent_manage';
+export type AgyDialogKind =
+	| 'trust'
+	| 'artifact_review'
+	| 'subagent_manage'
+	| 'config'
+	| 'model_picker'
+	| 'quota_panel';
+
+/**
+ * Agy keeps OSC blocked/permission "Approve plan" while showing its open
+ * composer under `N artifact · /artifact to review`; that is not a modal prompt.
+ */
+export function isAgyArtifactBanner(
+	status: {status?: string; message?: string} | null | undefined,
+	screen: Pick<AgentScreen, 'agyComposer'>,
+): boolean {
+	return (
+		status?.status === 'blocked' &&
+		status.message === 'Approve plan' &&
+		Boolean(screen.agyComposer?.artifactReview)
+	);
+}
 
 export type AgyComposerState = {
 	/** Agy's vim composer is currently in INSERT mode (`-- INSERT --` in footer). */
@@ -103,6 +129,11 @@ export type AgyComposerState = {
 	 * no modal prompt on screen; OSC still emits blocked/permission "Approve plan".
 	 */
 	artifactReview: boolean;
+	/**
+	 * True when an unparsed inline `┃` approval banner sits above the open
+	 * composer, so OSC blocked must continue to block sends.
+	 */
+	inlineApproval?: true;
 };
 
 export type AgentScreen = {
@@ -163,13 +194,63 @@ const AGY_WRITE_IN_FOOTER = /^\s*enter Submit · esc Back\s*$/;
 const AGY_YOUR_ANSWER = /^\s*Your answer:\s*$/;
 const AGY_MANAGE_FOOTER =
 	/^\s*↑\/↓ navigate · \/ select · enter confirm · esc cancel\s*$/;
+// After an approval inside subagent manage is answered, agy stays on the
+// subagent trajectory screen with this footer until Escape returns to main.
+const AGY_SUBAGENT_DETAIL_FOOTER =
+	/^\s*↑\/↓ scroll · pgup\/pgdown page\b.*\besc back\s*$/;
 const AGY_TRUST_FOOTER = /^\s*↑\/↓ Navigate · enter Confirm\s*$/;
 const AGY_TRUST_PROMPT = /^\s*Do you trust the contents of this project\?\s*$/;
 const AGY_ARTIFACT_REVIEW_FOOTER =
 	/^\s*Keyboard:\s+↑\/↓ Navigate\b.*(?:\by\/n Approve\/reject\b|\bp [Pp]review\b).*\besc (?:Done|Dismiss)\s*$/;
+const AGY_CONFIG_FOOTER =
+	/^\s*Keyboard:\s+↑\/↓ Navigate\b.*\s←\/→ Change\b.*\besc Clear Search\/Exit\s*$/;
+const AGY_MODEL_PICKER_FOOTER =
+	/^\s*Keyboard:\s+↑\/↓ Navigate\b.*\s←\/→ Effort\b.*\besc Go Back\s*$/;
+const AGY_CONFIG_SUBMENU_FOOTER =
+	/^\s*Keyboard:\s+↑\/↓ Navigate\b.*\benter (?:Select|Save)\b.*\besc (?:Go Back|Cancel)\s*$/;
+const AGY_QUOTA_PANEL_FOOTER = /^\s*↑\/↓ Scroll\b.*\besc Close\s*$/;
+const AGY_QUOTA_PANEL_CONTENT =
+	/^\s*(?:└\s+Models & Quota|(?:GEMINI|CLAUDE AND GPT) MODELS|(?:Weekly|Five Hour) Limit Remaining|Quota exhausted)\s*$/i;
+// Agy permission footers start with `↑/↓ Navigate` and omit `enter` (unlike
+// questions `enter Select` and trust `enter Confirm`).
+const AGY_PERMISSION_FOOTER = /^\s*↑\/↓ Navigate(?:\s+·\s+(?!enter\b).*)?\s*$/;
+const AGY_COL0_RULE = /^[─━]{8,}\s*$/;
+const AGY_HIDDEN_LINES = /^\s*⋯\s*\(\d+\s+lines?\s+hidden\)\s*$/;
+const AGY_DIFF_LINE = /^\s*(?:\d+\s+[+-]?|@@|[+-]{3}\s|$)/;
+const AGY_TRUNCATED_ARGS = /(?:\.{3}|…)\)?$/;
 const AGY_ARTIFACT_REVIEW_BANNER =
 	/\b\d+\s+artifacts?(?:\(s\))?\s+·\s+\/artifact to review\s*$/;
 const AGY_SUBAGENT_APPROVAL_BANNER = /^\s*┃\s+ctrl\+k approve\b/;
+const AGY_INLINE_APPROVAL_BANNER =
+	/^\s*┃\s+(?:ctrl\+k approve\b|.+?\s+needs approval\b)/;
+const AGY_SUBAGENT_HEADER = /^(.+?)\s+needs approval for\s+(.+?)\s*$/;
+const AGY_SUBAGENT_TOOL_NAMES: Record<string, string> = {
+	Bash: 'Bash command',
+	RunCommand: 'Bash command',
+	Create: 'Create file',
+	Write: 'Create file',
+	WriteFile: 'Create file',
+	Edit: 'Edit file',
+	EditFile: 'Edit file',
+	Update: 'Edit file',
+	Read: 'Read file',
+	ReadFile: 'Read file',
+};
+const AGY_FILE_HEADERS = new Set([
+	'Create file',
+	'Edit file',
+	'Update file',
+	'Write file',
+	'Overwrite file',
+]);
+const AGY_FILE_QUESTION =
+	/^Allow (?:creation|editing|updating|writing|overwriting) of this file\?$/;
+const AGY_HEADER_QUESTIONS: Record<string, RegExp> = {
+	Command: /^Run this command\?$/,
+	'File access': /^Allow access to this file\?$/,
+	MCP: /^Allow calling this tool\?$/,
+};
+const AGY_EXPAND_HINT = /\s+\(ctrl\+o to expand\)\s*$/;
 const AGY_ANNOUNCEMENT_DISMISS = /^\s*┃\s+esc to dismiss\s*$/;
 const AGY_VIM_INSERT = /^\s*--\s+INSERT\s+--(?:\s|$)/;
 const AGY_ESC_TO_CANCEL =
@@ -191,10 +272,22 @@ const CHECKBOX = /^\[([ ✔])\]\s*/;
 // limit that reset at 4:28 AM, read at 5:00 AM, isn't tomorrow's.
 const BARE_TIME_GRACE_MS = 6 * 60 * 60 * 1000;
 
+const APPROVE_ONCE_LABELS = new Set([
+	'Yes',
+	'Yes, proceed',
+	'Yes, run command',
+	'Yes, allow creation',
+	'Yes, allow edit',
+	'Yes, allow update',
+	'Yes, allow access',
+	'Yes, allow tool call',
+	'Yes, approve',
+]);
+
 function optionKind(label: string): OptionKind {
-	if (label === 'Yes' || label === 'Yes, proceed') return 'approve_once';
-	// "Yes, and don't ask again …" and "Yes, and switch to auto mode" widen
-	// what the agent may do from then on, beyond the one command shown.
+	if (APPROVE_ONCE_LABELS.has(label)) return 'approve_once';
+	// "Yes, and don't ask again …", "Yes, and switch to auto mode" and
+	// "Yes, and always allow …" widen what the agent may do beyond this call.
 	if (/^Yes\b/.test(label)) return 'approve_always';
 	if (/^No\b/.test(label)) return 'deny';
 	return 'other';
@@ -353,9 +446,380 @@ function parseCodexApproval(lines: string[]): PermissionPrompt | null {
 	};
 }
 
-function parsePermission(lines: string[]): PermissionPrompt | null {
+function trimBlankLines(lines: readonly string[]): string[] {
+	let start = 0;
+	let end = lines.length;
+	while (start < end && !lines[start]!.trim()) start++;
+	while (end > start && !lines[end - 1]!.trim()) end--;
+	return lines.slice(start, end);
+}
+
+/**
+ * Scan backwards above an agy `MCP` permission header for the `● server/tool(args)`
+ * transcript call line in the current turn so the approval gate and classifier
+ * see the arguments too.
+ */
+function findAgyMcpCallLine(
+	lines: readonly string[],
+	before: number,
+	mcpName: string,
+): string {
+	for (let index = before - 1; index >= 0; index--) {
+		const rawLine = lines[index]!;
+		const trimmed = rawLine.trim();
+		if (!trimmed) continue;
+		if (trimmed.startsWith('● ')) {
+			const stripped = trimmed.slice(2).replace(AGY_EXPAND_HINT, '').trim();
+			if (
+				!mcpName ||
+				stripped.startsWith(`${mcpName}(`) ||
+				stripped === mcpName
+			) {
+				return stripped;
+			}
+
+			return '';
+		}
+
+		// Stop at a turn separator rule or user prompt so an earlier turn's call
+		// to the same MCP tool is never attributed to this prompt.
+		if (RULE.test(trimmed) || /^>\s+\S/.test(rawLine)) return '';
+	}
+
+	return '';
+}
+
+function anchoredFooterAt(
+	lines: readonly string[],
+	match: (line: string) => boolean,
+): number {
+	const at = lastIndex(lines, match);
+	if (at === -1) return -1;
+	return lines
+		.slice(at + 1)
+		.every(line => !line.trim() || AGY_BOTTOM_LINE.test(line))
+		? at
+		: -1;
+}
+
+export type AgySubagentManageApproval = {
+	cursor: number;
+	denyNumber: number;
+	tool: string;
+	rawTool: string;
+	command: string | null;
+};
+
+/**
+ * Parse the approval choices and highlighted call inside agy's `subagent_manage`
+ * view so denying can verify the right pending action and move to `No, deny`.
+ */
+export function parseAgySubagentManageApproval(
+	screen: string,
+): AgySubagentManageApproval | null {
+	const lines = stripVTControlCharacters(screen).split('\n');
+	const markerAt = lastIndex(lines, line =>
+		/^\s*⚠\s+Approval Required\s*$/.test(line),
+	);
+	if (markerAt === -1) return null;
+	const endRel = lines
+		.slice(markerAt + 1)
+		.findIndex(line => RULE.test(line) || AGY_MANAGE_FOOTER.test(line));
+	const sectionEnd = endRel === -1 ? lines.length : markerAt + 1 + endRel;
+	const section = lines.slice(markerAt + 1, sectionEnd);
+	const firstOption = section.findIndex(line =>
+		/^\s*(?:>\s*)?1\.\s/.test(line),
+	);
+	if (firstOption === -1) return null;
+	const beforeOptions = section.slice(0, firstOption);
+	const toolRowAt = beforeOptions.findIndex(line => /^\s*>\s+\S/.test(line));
+	if (toolRowAt === -1) return null;
+	const rawTool = /^\s*>\s+(.+?)\s*$/.exec(beforeOptions[toolRowAt]!)![1]!;
+	const tool = AGY_SUBAGENT_TOOL_NAMES[rawTool] ?? rawTool;
+	const detail = beforeOptions
+		.slice(toolRowAt + 1)
+		.map(line => line.trim())
+		.filter(line => line !== '' && line !== rawTool)
+		.join('\n');
+
+	const options = readOptions(section, firstOption, {
+		joinWrapped: true,
+		optionPattern: AGY_OPTION,
+	});
+	const selected = options.find(option => option.selected);
+	const deny = options.find(option => option.kind === 'deny');
+	if (!selected || !deny) return null;
+
+	// Trajectory lines below the approval section show the pending `● tool(args)` call.
+	let trajectoryCommand = '';
+	const below = lines.slice(sectionEnd);
+	for (let index = below.length - 1; index >= 0; index--) {
+		const cleaned = below[index]!.trim().replace(AGY_EXPAND_HINT, '');
+		const match = /^●\s+([^(]+)\((.*)\)$/.exec(cleaned);
+		if (match && match[1]!.trim() === rawTool) {
+			trajectoryCommand = match[2]!.trim();
+			break;
+		}
+	}
+
+	return {
+		cursor: selected.number,
+		denyNumber: deny.number,
+		tool,
+		rawTool,
+		command: detail || trajectoryCommand || null,
+	};
+}
+
+function parseAgyPermission(lines: string[]): PermissionPrompt | null {
+	const footerAt = anchoredFooterAt(lines, line =>
+		AGY_PERMISSION_FOOTER.test(line),
+	);
+	if (footerAt === -1) return null;
+	const firstOptionAt = lastIndex(lines.slice(0, footerAt), line =>
+		/^\s*(?:>\s*)?1\.\s/.test(line),
+	);
+	if (firstOptionAt === -1) return null;
+	const options = readOptions(lines.slice(0, footerAt), firstOptionAt, {
+		joinWrapped: true,
+		optionPattern: AGY_OPTION,
+	});
+	if (options.length === 0) return null;
+	const questionAt = lastIndex(
+		lines.slice(0, firstOptionAt),
+		line => line.trim() !== '',
+	);
+	if (questionAt === -1) return null;
+	const question = lines[questionAt]!.trim();
+	if (!question.endsWith('?')) return null;
+
+	// Require column-0 rule + header and question-type agreement so a shell
+	// command or diff printing `File access\n────` cannot spoof the tool type.
+	let ruleAt = -1;
+	let headerAt = -1;
+	for (let index = questionAt - 1; index >= 1; index--) {
+		if (!AGY_COL0_RULE.test(lines[index]!)) continue;
+		const candidateAt = lastIndex(
+			lines.slice(0, index),
+			line => line.trim() !== '',
+		);
+		if (candidateAt === -1) continue;
+		const candidateLine = lines[candidateAt]!;
+		if (candidateLine.startsWith(' ') || candidateLine.startsWith('\t'))
+			continue;
+		const headerName = candidateLine.trim();
+		const expectedQuestion = AGY_FILE_HEADERS.has(headerName)
+			? AGY_FILE_QUESTION
+			: AGY_HEADER_QUESTIONS[headerName];
+		if (expectedQuestion?.test(question)) {
+			ruleAt = index;
+			headerAt = candidateAt;
+			break;
+		}
+	}
+
+	if (ruleAt === -1 || headerAt === -1) return null;
+	const header = lines[headerAt]!.trim();
+	const body = trimBlankLines(lines.slice(ruleAt + 1, questionAt));
+	const base = {
+		subagent: null,
+		question,
+		options,
+		choose: 'digit' as const,
+		source: 'agy' as const,
+	};
+
+	if (header === 'Command') {
+		const reqAt = body.findIndex(line =>
+			/^\s*Requesting permission for:\s*$/.test(line),
+		);
+		const commandLines = trimBlankLines(
+			reqAt === -1 ? body : body.slice(reqAt + 1),
+		).map(line => line.replace(/^ {1,3}/, '').trimEnd());
+		return {
+			...base,
+			tool: 'Bash command',
+			description: '',
+			command: commandLines.join('\n'),
+			cutOff: commandLines.some(line => AGY_HIDDEN_LINES.test(line)),
+		};
+	}
+
+	if (AGY_FILE_HEADERS.has(header)) {
+		const firstLine = body[0]?.trim() ?? '';
+		const pathCandidate = firstLine
+			.replace(/\s+(?:[+-]\d+(?:\s+[+-]\d+)*)$/, '')
+			.trim();
+		// If line 2 does not look like a diff/hunk line, the path may have wrapped.
+		const unwrappedPath = body.length <= 1 || AGY_DIFF_LINE.test(body[1]!);
+		const filePath =
+			unwrappedPath && pathCandidate.startsWith('/')
+				? pathCandidate
+				: undefined;
+		const diff = trimBlankLines(body.slice(1))
+			.map(line => line.trimEnd())
+			.join('\n');
+		return {
+			...base,
+			tool: header === 'Update file' ? 'Edit file' : header,
+			description: filePath ?? firstLine,
+			command: diff,
+			...(filePath ? {filePath} : {}),
+			cutOff: false,
+		};
+	}
+
+	if (header === 'File access') {
+		const detail = body.map(line => line.trim()).join('\n');
+		const firstLine = body[0]?.trim() ?? '';
+		const singleLine = body.length === 1;
+		const readMatch = /^Read:\s+(.+)$/.exec(firstLine);
+		if (readMatch) {
+			const rawPath = readMatch[1]!.trim();
+			const filePath =
+				singleLine && rawPath.startsWith('/') ? rawPath : undefined;
+			return {
+				...base,
+				tool: 'Read file',
+				description: rawPath,
+				command: detail,
+				...(filePath ? {filePath} : {}),
+				cutOff: false,
+			};
+		}
+
+		// Non-`Read:` file access stays `File access` so `{reading: true}` is never granted.
+		const otherPath = singleLine
+			? /^[A-Za-z][A-Za-z0-9 _-]*:\s+(\/\S.*)$/.exec(firstLine)?.[1]?.trim()
+			: undefined;
+		return {
+			...base,
+			tool: 'File access',
+			description: firstLine,
+			command: detail,
+			...(otherPath ? {filePath: otherPath} : {}),
+			cutOff: false,
+		};
+	}
+
+	const mcpName = body[0]?.trim() ?? '';
+	const callLine = findAgyMcpCallLine(lines, headerAt, mcpName);
+	const command = callLine || body.map(line => line.trim()).join('\n');
+	return {
+		...base,
+		tool: 'MCP',
+		description: mcpName,
+		command,
+		cutOff: !callLine || AGY_TRUNCATED_ARGS.test(callLine),
+	};
+}
+
+/**
+ * Agy draws subagent approval requests as an inline `┃` banner above its live
+ * composer while the subagent pauses (`ctrl+k approve · alt+j manage`).
+ */
+function parseAgySubagentBanner(
+	lines: string[],
+	raw: string[],
+): PermissionPrompt | null {
+	const input = composerLine(lines, raw);
+	if (input?.glyph !== '>') return null;
+	const topRule = input.at - 1;
+	const actionAt = lastIndex(
+		lines.slice(0, topRule),
+		line => line.trim() !== '',
+	);
+	if (actionAt === -1 || !AGY_SUBAGENT_APPROVAL_BANNER.test(lines[actionAt]!))
+		return null;
+	let start = actionAt;
+	while (start > 0 && /^\s*┃/.test(lines[start - 1]!)) start--;
+	const stripped = lines
+		.slice(start, actionAt)
+		.map(line => line.replace(/^\s*┃ ?/, '').trimEnd());
+	const headerLine = stripped.find(line => line.trim() !== '')?.trim() ?? '';
+	const headerMatch = AGY_SUBAGENT_HEADER.exec(headerLine);
+	if (!headerMatch) return null;
+	const subagent = headerMatch[1]!.trim();
+	const rawTool = headerMatch[2]!.trim();
+
+	const callStart = stripped.findIndex(line =>
+		line.trimStart().startsWith('● '),
+	);
+	if (callStart === -1) return null;
+	const callLines = trimBlankLines(stripped.slice(callStart));
+	let cutOff = callLines.some(line => AGY_HIDDEN_LINES.test(line));
+	const joinedCall = callLines
+		.map((line, index) =>
+			(index === 0 ? line.trimStart() : line.replace(/^ {1,2}/, '')).trimEnd(),
+		)
+		.join('\n');
+	const afterBullet = joinedCall.replace(/^●\s+/, '');
+	const openMatch = /^([^(]+)\(([\s\S]*)$/.exec(afterBullet);
+	let args: string;
+	if (!openMatch) {
+		args = afterBullet;
+		if (AGY_TRUNCATED_ARGS.test(afterBullet)) cutOff = true;
+	} else if (afterBullet.endsWith(')')) {
+		args = openMatch[2]!.slice(0, -1).trim();
+		if (AGY_TRUNCATED_ARGS.test(args)) cutOff = true;
+	} else {
+		args = openMatch[2]!.trim();
+		cutOff = true;
+	}
+
+	const tool = AGY_SUBAGENT_TOOL_NAMES[rawTool] ?? rawTool;
+	const filePath =
+		(tool === 'Create file' || tool === 'Edit file' || tool === 'Read file') &&
+		!args.includes('\n') &&
+		!cutOff &&
+		args.startsWith('/')
+			? args
+			: undefined;
+
+	const bottomRule = findBottomRule(lines, input.at);
+	const footerLines = bottomRule === -1 ? [] : lines.slice(bottomRule + 1);
+	const vimInsert = footerLines.some(line => AGY_VIM_INSERT.test(line));
+
+	return {
+		tool,
+		subagent,
+		description: '',
+		command: args,
+		question: headerLine,
+		options: [
+			{
+				number: 1,
+				label: 'Yes, approve',
+				kind: 'approve_once',
+				selected: true,
+				shortcut: 'C-k',
+			},
+			{
+				number: 2,
+				label: 'No, deny',
+				kind: 'deny',
+				selected: false,
+				shortcut: 'M-j',
+			},
+		],
+		choose: 'shortcut',
+		source: 'agy',
+		...(filePath ? {filePath} : {}),
+		subagentBanner: {vimInsert},
+		cutOff,
+	};
+}
+
+function parsePermission(
+	lines: string[],
+	raw: string[],
+): PermissionPrompt | null {
 	const codex = parseCodexApproval(lines);
 	if (codex) return codex;
+	const agy = parseAgyPermission(lines);
+	if (agy) return agy;
+	const agySubagent = parseAgySubagentBanner(lines, raw);
+	if (agySubagent) return agySubagent;
 	const questionAt = lastIndex(lines, line => PROMPT_QUESTION.test(line));
 	if (questionAt === -1) return null;
 	const options = readOptions(lines, questionAt + 1, {joinWrapped: true});
@@ -441,38 +905,61 @@ function withCheckboxes(options: PromptOption[]): PromptOption[] {
 	});
 }
 
-function isAgyBottomAnchored(
+const AGY_OVERLAY_LOOKBACK = 45;
+
+function agyOverlayHeaderAbove(
 	lines: readonly string[],
 	footerAt: number,
-): boolean {
-	return lines
-		.slice(footerAt + 1)
-		.every(line => !line.trim() || AGY_BOTTOM_LINE.test(line));
+): 'config' | 'model_picker' | null {
+	const floor = Math.max(0, footerAt - AGY_OVERLAY_LOOKBACK);
+	for (let index = footerAt - 1; index >= floor; index--) {
+		const line = lines[index]!;
+		// Stop at the composer line above the overlay so scrollback text can't match.
+		if (/^>(?: |$)/.test(line)) break;
+		if (/^\s*Settings\s*$/.test(line)) return 'config';
+		if (/^\s*Switch Model\s*$/.test(line)) return 'model_picker';
+	}
+
+	return null;
 }
 
 const AGY_DIALOG_SPECS: ReadonlyArray<{
 	kind: AgyDialogKind;
 	footer: RegExp;
 	requireAbove?: RegExp;
+	lookback?: number;
 }> = [
 	{kind: 'subagent_manage', footer: AGY_MANAGE_FOOTER},
+	{kind: 'subagent_manage', footer: AGY_SUBAGENT_DETAIL_FOOTER},
 	{kind: 'trust', footer: AGY_TRUST_FOOTER, requireAbove: AGY_TRUST_PROMPT},
 	{kind: 'artifact_review', footer: AGY_ARTIFACT_REVIEW_FOOTER},
+	{kind: 'model_picker', footer: AGY_MODEL_PICKER_FOOTER},
+	{kind: 'config', footer: AGY_CONFIG_FOOTER},
+	{
+		kind: 'quota_panel',
+		footer: AGY_QUOTA_PANEL_FOOTER,
+		requireAbove: AGY_QUOTA_PANEL_CONTENT,
+		lookback: AGY_OVERLAY_LOOKBACK,
+	},
 ];
 
 function parseAgyDialogKind(lines: string[]): AgyDialogKind | null {
-	for (const {kind, footer, requireAbove} of AGY_DIALOG_SPECS) {
-		const footerAt = lastIndex(lines, line => footer.test(line));
+	for (const {kind, footer, requireAbove, lookback} of AGY_DIALOG_SPECS) {
+		const footerAt = anchoredFooterAt(lines, line => footer.test(line));
+		if (footerAt === -1) continue;
+		const floor = lookback === undefined ? 0 : Math.max(0, footerAt - lookback);
 		if (
-			footerAt !== -1 &&
-			isAgyBottomAnchored(lines, footerAt) &&
-			(!requireAbove ||
-				lines.slice(0, footerAt).some(line => requireAbove.test(line)))
+			!requireAbove ||
+			lines.slice(floor, footerAt).some(line => requireAbove.test(line))
 		) {
 			return kind;
 		}
 	}
 
+	const submenuAt = anchoredFooterAt(lines, line =>
+		AGY_CONFIG_SUBMENU_FOOTER.test(line),
+	);
+	if (submenuAt !== -1) return agyOverlayHeaderAbove(lines, submenuAt);
 	return null;
 }
 
@@ -489,11 +976,11 @@ function questionBlock(
 }
 
 function parseAgyQuestion(lines: string[]): QuestionDialog | null {
-	const footerAt = lastIndex(
+	const footerAt = anchoredFooterAt(
 		lines,
 		line => AGY_QUESTION_FOOTER.test(line) || AGY_WRITE_IN_FOOTER.test(line),
 	);
-	if (footerAt === -1 || !isAgyBottomAnchored(lines, footerAt)) return null;
+	if (footerAt === -1) return null;
 	const open = AGY_WRITE_IN_FOOTER.test(lines[footerAt]!);
 	const firstOptionAt = lastIndex(lines.slice(0, footerAt), line =>
 		/^\s*(?:>\s*)?1\.\s/.test(line),
@@ -633,16 +1120,29 @@ const INLINE_ISO_TIMESTAMP = new RegExp(
 	String.raw`\b(${ISO_TIMESTAMP_SOURCE})\b`,
 );
 const TRY_AGAIN_AT = /try again at (.*?\d{1,2}:\d{2} ?[AP]M)/i;
+const RELATIVE_DURATION =
+	/^(?:refreshes?\s+in\s+)?(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?$/i;
 
 /**
  * Codex shows a bare `4:28 AM`, or a date when the reset is days away; agy
- * quota output reports ISO timestamps.
+ * quota output reports ISO timestamps and its Models & Quota panel reports
+ * relative `Refreshes in Xd Yh Zm` countdowns.
  */
 export function parseResetTime(text: string, now: Date): Date | null {
 	const trimmed = text.trim();
 	if (ISO_TIMESTAMP.test(trimmed)) {
 		const parsed = new Date(trimmed);
 		return Number.isNaN(parsed.getTime()) ? null : parsed;
+	}
+
+	const relative = RELATIVE_DURATION.exec(trimmed);
+	if (relative && (relative[1] || relative[2] || relative[3] || relative[4])) {
+		const days = Number(relative[1] ?? 0);
+		const hours = Number(relative[2] ?? 0);
+		const minutes = Number(relative[3] ?? 0);
+		const seconds = Number(relative[4] ?? 0);
+		const ms = (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
+		return ms > 0 ? new Date(now.getTime() + ms) : null;
 	}
 
 	const dated =
@@ -701,9 +1201,11 @@ function agyQuotaMatchesModel(group: string, model?: string): boolean {
 }
 
 /** Infer the active agy model name from the screen's bottom status bar. */
-export function inferAgyModel(screen: string): string | undefined {
-	const tail = screen
-		.split('\n')
+export function inferAgyModel(
+	screen: string | readonly string[],
+): string | undefined {
+	const source = typeof screen === 'string' ? screen.split('\n') : screen;
+	const tail = source
 		.map(line => line.trim())
 		.filter(Boolean)
 		.slice(-2);
@@ -721,6 +1223,18 @@ export type AgyQuotaParseResult =
 	| {kind: 'limited'; limit: UsageLimit}
 	| {kind: 'available'}
 	| {kind: 'unparsed'};
+
+function latestUsageLimit(depleted: readonly UsageLimit[]): UsageLimit {
+	let best = depleted[0]!;
+	for (const row of depleted.slice(1)) {
+		if (!row.resetAt) continue;
+		if (!best.resetAt || row.resetAt.getTime() > best.resetAt.getTime()) {
+			best = row;
+		}
+	}
+
+	return best;
+}
 
 export function parseAgyQuota(
 	output: string,
@@ -743,22 +1257,81 @@ export function parseAgyQuota(
 	if (matchedRows === 0) return {kind: 'unparsed'};
 	if (depleted.length === 0) return {kind: 'available'};
 	// When both five-hour and weekly buckets are at 0%, wait for the latest reset.
-	let best = depleted[0]!;
-	for (const row of depleted.slice(1)) {
-		if (!row.resetAt) continue;
-		if (!best.resetAt || row.resetAt.getTime() > best.resetAt.getTime()) {
-			best = row;
-		}
-	}
-
-	return {kind: 'limited', limit: best};
+	return {kind: 'limited', limit: latestUsageLimit(depleted)};
 }
 
 const AGY_LIMIT_NOTICE =
-	/^(?:[✕✖■⚠!]\s+|Error:\s+).*?(?:usage limit|quota (?:exceeded|exhausted|reached)|rate limit)/i;
+	/^(?:(?:[✕✖■⚠!]\s+|Error:\s+).*?(?:usage limit|quota (?:exceeded|exhausted|reached)|rate limit|ai credits balance is too low)|\s*your ai credits balance is too low to continue\b)/i;
+const AGY_REFRESHES_IN = /\b(Refreshes in\s+(?:\d+\s*[dhms]\s*)+)/i;
+const AGY_QUOTA_DEPLETED_LINE =
+	/(?:\]\s*0(?:\.0+)?%(?=\s|$)|\bquota exhausted\b)/i;
+const AGY_QUOTA_GROUP_LINE = /^\s*(GEMINI MODELS|CLAUDE AND GPT MODELS)\s*$/i;
+const AGY_QUOTA_BUCKET_BOUNDARY =
+	/(?:\bLimit Remaining\b|\]\s*\d+(?:\.\d+)?%)/i;
 const TRANSCRIPT_BOLD_PROMPT = new RegExp(
 	`^\\s*(?:${ESC}\\[0m)?${ESC}\\[1m(?:${ESC}\\[[0-9;]*m)*>`,
 );
+
+function parseAgyQuotaPanelLimit(
+	lines: readonly string[],
+	now: Date,
+): {limit: UsageLimit | null; panelStart: number} {
+	const footerAt = anchoredFooterAt(lines, line =>
+		AGY_QUOTA_PANEL_FOOTER.test(line),
+	);
+	const limitEnd = footerAt === -1 ? lines.length : footerAt;
+	const headerAt = lastIndex(lines.slice(0, limitEnd), line =>
+		/^\s*└\s+Models & Quota\s*$/.test(line),
+	);
+	const panelStart =
+		headerAt !== -1 ? headerAt : Math.max(0, limitEnd - AGY_OVERLAY_LOOKBACK);
+	const panelLines = lines.slice(panelStart, limitEnd);
+	const activeModel = inferAgyModel(lines);
+	let currentGroup = '';
+	const depleted: UsageLimit[] = [];
+
+	for (let index = 0; index < panelLines.length; index++) {
+		const line = panelLines[index]!;
+		const groupMatch = AGY_QUOTA_GROUP_LINE.exec(line);
+		if (groupMatch) {
+			currentGroup = groupMatch[1]!;
+			continue;
+		}
+
+		if (currentGroup && !agyQuotaMatchesModel(currentGroup, activeModel)) {
+			continue;
+		}
+
+		if (!AGY_QUOTA_DEPLETED_LINE.test(line)) continue;
+		let resetText = AGY_REFRESHES_IN.exec(line)?.[1]?.trim() ?? '';
+		if (!resetText) {
+			for (
+				let next = index + 1;
+				next < Math.min(panelLines.length, index + 4);
+				next++
+			) {
+				const candidate = panelLines[next]!;
+				if (
+					AGY_QUOTA_GROUP_LINE.test(candidate) ||
+					AGY_QUOTA_BUCKET_BOUNDARY.test(candidate)
+				)
+					break;
+				const match = AGY_REFRESHES_IN.exec(candidate);
+				if (match) {
+					resetText = match[1]!.trim();
+					break;
+				}
+			}
+		}
+
+		depleted.push(toUsageLimit(resetText, now));
+	}
+
+	return {
+		limit: depleted.length > 0 ? latestUsageLimit(depleted) : null,
+		panelStart,
+	};
+}
 
 type ComposerGlyph = '›' | '❯' | '!' | '>';
 
@@ -813,26 +1386,37 @@ function parseUsageLimit(
 	}
 
 	if (!looksLikeAgyScreen(raw, lines, input, agyDialog)) return null;
-	const agyAt = lastIndex(lines, line => AGY_LIMIT_NOTICE.test(line));
+	const panel =
+		agyDialog === 'quota_panel' ? parseAgyQuotaPanelLimit(lines, now) : null;
+	if (panel?.limit) return panel.limit;
+	const noticeEnd = panel ? panel.panelStart : lines.length;
+	const agyAt = lastIndex(lines.slice(0, noticeEnd), line =>
+		AGY_LIMIT_NOTICE.test(line),
+	);
 	if (agyAt === -1) return null;
 	const composerTopRule = input?.glyph === '>' ? input.at - 1 : -1;
 	const composerBottomRule =
 		input?.glyph === '>' ? findBottomRule(lines, input.at) : -1;
-	const stale = lines.slice(agyAt + 1).some((line, offset) => {
+	const stale = lines.slice(agyAt + 1, noticeEnd).some((line, offset) => {
 		const index = agyAt + 1 + offset;
+		// When quota_panel nulls `input`, `panelStart - 3` spans the 3-line composer box drawn directly above `└ Models & Quota`.
+		const isPanelComposerRule =
+			panel !== null && index >= panel.panelStart - 3 && RULE.test(line);
 		return (
 			line.startsWith('● ') ||
 			line.startsWith('• ') ||
 			TRANSCRIPT_BOLD_PROMPT.test(raw[index]!) ||
 			(RULE.test(line) &&
+				!isPanelComposerRule &&
 				index !== composerTopRule &&
 				index !== composerBottomRule)
 		);
 	});
 	if (stale) return null;
-	const joined = lines.slice(agyAt).join(' ').replace(/\s+/g, ' ');
+	const joined = lines.slice(agyAt, noticeEnd).join(' ').replace(/\s+/g, ' ');
 	const resetText =
 		INLINE_ISO_TIMESTAMP.exec(joined)?.[1] ??
+		AGY_REFRESHES_IN.exec(joined)?.[1]?.trim() ??
 		TRY_AGAIN_AT.exec(joined)?.[1] ??
 		'';
 	return toUsageLimit(resetText, now);
@@ -996,6 +1580,11 @@ function parseAgyComposer(
 	const bottomRule = findBottomRule(lines, input.at);
 	const footerLines = bottomRule === -1 ? [] : lines.slice(bottomRule + 1);
 	const bannerZone = linesAbove(lines, topRule, AGY_BANNER_LOOKBACK);
+	const inlineApproval = linesAbove(
+		lines,
+		topRule,
+		AGY_SUBAGENT_BANNER_LOOKBACK,
+	).some(line => AGY_INLINE_APPROVAL_BANNER.test(line));
 	return {
 		vimInsert: footerLines.some(line => AGY_VIM_INSERT.test(line)),
 		announcementBanner: bannerZone.some(line =>
@@ -1008,9 +1597,8 @@ function parseAgyComposer(
 			),
 		artifactReview:
 			bannerZone.some(line => AGY_ARTIFACT_REVIEW_BANNER.test(line)) &&
-			!linesAbove(lines, topRule, AGY_SUBAGENT_BANNER_LOOKBACK).some(line =>
-				AGY_SUBAGENT_APPROVAL_BANNER.test(line),
-			),
+			!inlineApproval,
+		...(inlineApproval ? {inlineApproval: true as const} : {}),
 	};
 }
 
@@ -1019,7 +1607,8 @@ export function parseAgentScreen(capture: string, now: Date): AgentScreen {
 	const lines = raw.map(line => stripVTControlCharacters(line));
 	const codexDialog = parseCodexDialog(raw, lines);
 	const agyDialog = codexDialog ? null : parseAgyDialogKind(lines);
-	const permission = parsePermission(lines);
+	const permission =
+		codexDialog || agyDialog ? null : parsePermission(lines, raw);
 	const question = parseQuestion(lines);
 	// A dialog takes the keyboard and hides Claude's input box, and its own
 	// rows can look like one: a highlighted `❯ 4. Chat about this` under a rule,

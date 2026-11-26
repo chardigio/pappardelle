@@ -1,3 +1,4 @@
+import {classifierBackend} from './approve-classifier.ts';
 import {
 	isPaneName,
 	isSplitDirection,
@@ -316,6 +317,10 @@ export function configErrors(config: unknown): string[] {
 		typeof cfg['workspace_aware_agents'] !== 'boolean'
 	) {
 		errors.push('workspace_aware_agents: must be a boolean');
+	}
+
+	if (cfg['approval_classifier'] !== undefined) {
+		errors.push(...validateApprovalClassifier(cfg['approval_classifier']));
 	}
 
 	const {experimental} = cfg;
@@ -1211,6 +1216,49 @@ function validateRailGroups(value: unknown): string[] {
 		) {
 			errors.push(
 				`${at}.categories: must be a list of ${STATUS_CATEGORIES.map(c => `"${c}"`).join(', ')}`,
+			);
+		}
+	}
+
+	return errors;
+}
+
+function isSingleLineString(value: unknown): value is string {
+	return (
+		typeof value === 'string' &&
+		value.trim().length > 0 &&
+		!/[\r\n]/.test(value.trimEnd())
+	);
+}
+
+function validateApprovalClassifier(value: unknown): string[] {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		return ['approval_classifier: must be an object'];
+	}
+
+	const errors: string[] = [];
+	const cfg = value as Record<string, unknown>;
+	if (cfg['command'] !== undefined) {
+		const {command} = cfg;
+		if (!isSingleLineString(command)) {
+			errors.push(
+				'approval_classifier.command: must be a non-empty single-line string',
+			);
+		} else if (!classifierBackend(command)) {
+			errors.push(
+				'approval_classifier.command: must be claude, agy, or an absolute path to one',
+			);
+		}
+	}
+
+	if (cfg['model'] !== undefined) {
+		if (!isSingleLineString(cfg['model'])) {
+			errors.push(
+				'approval_classifier.model: must be a non-empty single-line string',
+			);
+		} else if (cfg['command'] === undefined) {
+			errors.push(
+				'approval_classifier.model requires approval_classifier.command',
 			);
 		}
 	}

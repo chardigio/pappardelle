@@ -123,12 +123,12 @@ function harness(dialog: Dialog) {
 			load: () => null,
 			list: () => [],
 		}),
-		sendKeys(_key, keys) {
+		async sendKeys(_key, keys) {
 			sent.push(...keys);
 			for (const key of keys) dialog.press(key);
 			return 'sent';
 		},
-		typeText(_key, text) {
+		async typeText(_key, text) {
 			sent.push(`text:${text}`);
 			dialog.type(text);
 			return 'sent';

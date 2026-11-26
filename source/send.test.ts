@@ -7,6 +7,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {test, expect, beforeAll, afterAll} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {agentScreenFixture} from '../test/helpers/agent-screens.ts';
+import {agyBlockedSnapshot} from '../test/helpers/program-status.ts';
 import {
 	sqliteRun,
 	testTmuxSpaces,
@@ -62,6 +63,10 @@ function makeRunner(options: {
 			}
 
 			return {status: 0, stdout: (options.sessions ?? []).join('\n') + '\n'};
+		}
+
+		if (args[0] === 'list-panes') {
+			return {status: 1, stdout: ''};
 		}
 
 		if (args[0] === 'capture-pane') {
@@ -743,10 +748,12 @@ test('forced send over an agy vim normal-mode draft enters insert mode once the 
 	expect(calls.slice(insertAt + 1).some(args => args.includes('C-u'))).toBe(
 		true,
 	);
+	// Clearing an agy composer must never send C-k (agy's subagent approve key).
+	expect(calls.some(args => args.includes('C-k'))).toBe(false);
 	expect(calls.at(-1)?.at(-1)).toBe('Enter');
 });
 
-test('sendKeysToSpaceAgent allows Escape on agy question and subagent manage views while refusing answer keys', () => {
+test('sendKeysToSpaceAgent allows Escape on agy question and subagent manage views while refusing answer keys', async () => {
 	for (const fixtureName of ['agy-question', 'agy-subagent-manage']) {
 		const calls: string[][] = [];
 		const runner = (args: readonly string[]) => {
@@ -758,10 +765,14 @@ test('sendKeysToSpaceAgent allows Escape on agy question and subagent manage vie
 			return {status: 0, stdout: ''};
 		};
 
-		expect(sendKeysToSpaceAgent('STA-1', ['1'], {runner})).toBe('prompt');
-		expect(sendKeysToSpaceAgent('STA-1', ['Enter'], {runner})).toBe('prompt');
+		expect(await sendKeysToSpaceAgent('STA-1', ['1'], {runner})).toBe('prompt');
+		expect(await sendKeysToSpaceAgent('STA-1', ['Enter'], {runner})).toBe(
+			'prompt',
+		);
 		expect(calls).toStrictEqual([]);
-		expect(sendKeysToSpaceAgent('STA-1', ['Escape'], {runner})).toBe('sent');
+		expect(await sendKeysToSpaceAgent('STA-1', ['Escape'], {runner})).toBe(
+			'sent',
+		);
 		expect(calls).toStrictEqual([
 			['send-keys', '-t', '=agent-r-STA-1:', '--', 'Escape'],
 		]);
@@ -787,14 +798,26 @@ test('sendToSpaceAgent blocks on agy subagent manage view even with force', asyn
 	expect(sendCalls).toStrictEqual([]);
 });
 
-test('sendToSpaceAgent blocks on agy trust dialog and /artifact review even with force', async () => {
-	for (const name of ['agy-trust', 'agy-plan-artifact-review'] as const) {
+test('sendToSpaceAgent blocks on agy trust dialog, /artifact review, /config, /model, permissions and OSC blocked prompts even with force', async () => {
+	for (const name of [
+		'agy-trust',
+		'agy-plan-artifact-review',
+		'agy-config',
+		'agy-config-factory',
+		'agy-model-picker',
+		'agy-permission-shell',
+		'agy-permission-edit',
+		'agy-permission-read',
+		'agy-permission-mcp',
+		'agy-subagent-banner-1',
+	] as const) {
 		const {runner, calls} = makeRunner({
 			sessions: ['agent-r-STA-1'],
 			screen: agentScreenFixture(name),
 		});
 		expect(
 			await sendToSpaceAgent('STA-1', 'hi', {runner, lockDir, sleep}),
+			name,
 		).toBe('prompt');
 		expect(
 			await sendToSpaceAgent('STA-1', 'hi', {
@@ -803,7 +826,108 @@ test('sendToSpaceAgent blocks on agy trust dialog and /artifact review even with
 				force: true,
 				sleep,
 			}),
+			name,
 		).toBe('prompt');
-		expect(calls).toStrictEqual([]);
+		expect(calls, name).toStrictEqual([]);
 	}
+
+	const paneListing = '11\t%1\t%1\t42\t0\t1\t42.marker\n';
+	const makeOscSendRunner = (
+		screen:
+			| string
+			| ((sent: {cleared: boolean; pasted: boolean; enters: number}) => string),
+	) => {
+		const base = makeRunner({sessions: ['agent-r-STA-1'], screen});
+		const runner: SendTmuxRunner = async (args, input) => {
+			if (args[0] === 'list-panes') return {status: 0, stdout: paneListing};
+			return base.runner(args, input);
+		};
+
+		return {runner, calls: base.calls};
+	};
+
+	const blockedSnapshot = async (message: string, authoritative = true) =>
+		agyBlockedSnapshot(message, {repo: 'r', authoritative});
+
+	// Unparsed OSC-blocked prompt is refused even with force.
+	const unparsed = makeOscSendRunner('unparsed custom agy prompt');
+	expect(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner: unparsed.runner,
+			lockDir,
+			force: true,
+			sleep,
+			readSnapshot: async () => blockedSnapshot('Approve CustomTool'),
+		}),
+	).toBe('prompt');
+	expect(unparsed.calls).toStrictEqual([]);
+
+	// A non-authoritative snapshot does not falsely block a send.
+	const stale = makeOscSendRunner(({pasted, enters}) => {
+		if (!pasted) return agentScreenFixture('agy-idle');
+		return enters >= 1
+			? agentScreenFixture('agy-idle')
+			: agentScreenFixture('agy-draft');
+	});
+	expect(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner: stale.runner,
+			lockDir,
+			sleep,
+			readSnapshot: async () => blockedSnapshot('Approve CustomTool', false),
+		}),
+	).toBe('sent');
+
+	// Non-modal `Approve plan` + artifactReview still allows send.
+	const planBanner = makeOscSendRunner(({pasted, enters}) => {
+		if (!pasted) return agentScreenFixture('agy-plan-approval');
+		return enters >= 1
+			? agentScreenFixture('agy-plan-approval')
+			: agentScreenFixture('agy-draft');
+	});
+	expect(
+		await sendToSpaceAgent('STA-1', 'refine step 2', {
+			runner: planBanner.runner,
+			lockDir,
+			sleep,
+			readSnapshot: async () => blockedSnapshot('Approve plan'),
+		}),
+	).toBe('sent');
+
+	// Open agy composer with stale authoritative OSC blocked (e.g. right after
+	// holdPrompt denies a modal prompt) still allows send.
+	const afterDeny = makeOscSendRunner(({pasted, enters}) => {
+		if (!pasted) return agentScreenFixture('agy-idle');
+		return enters >= 1
+			? agentScreenFixture('agy-idle')
+			: agentScreenFixture('agy-draft');
+	});
+	expect(
+		await sendToSpaceAgent('STA-1', 'Held for the chef (h1)', {
+			runner: afterDeny.runner,
+			lockDir,
+			sleep,
+			readSnapshot: async () => blockedSnapshot('Approve Bash'),
+		}),
+	).toBe('sent');
+
+	// Unparsed inline approval banner above an open agy composer stays blocked.
+	const inlineBanner = [
+		' ┃ worker needs approval for CustomTool',
+		' ┃ (unparsed body without bullet)',
+		'────────────────────────────────────────',
+		'\u001B[94m>\u001B[39m',
+		'────────────────────────────────────────',
+		'? for shortcuts    auto · Gemini 4 Hydrogen · medium',
+	].join('\n');
+	const unparsedInline = makeOscSendRunner(inlineBanner);
+	expect(
+		await sendToSpaceAgent('STA-1', 'hi', {
+			runner: unparsedInline.runner,
+			lockDir,
+			sleep,
+			readSnapshot: async () => blockedSnapshot('Approve CustomTool'),
+		}),
+	).toBe('prompt');
+	expect(unparsedInline.calls).toStrictEqual([]);
 });

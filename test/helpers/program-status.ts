@@ -36,6 +36,41 @@ export function snapshotOf(
 	};
 }
 
+/** An antigravity OSC `blocked`/permission snapshot for send/send-keys tests. */
+export function agyBlockedSnapshot(
+	message: string,
+	{
+		repo = 'repo',
+		key = 'STA-1',
+		authoritative = true,
+	}: {repo?: string; key?: string; authoritative?: boolean} = {},
+): ProgramStatusSnapshot {
+	return snapshotOf(
+		{
+			repo,
+			key,
+			pane: {
+				id: '%1',
+				pid: '42',
+				dead: false,
+				piped: true,
+				marker: '42.marker',
+				generation: 'gen',
+			},
+		},
+		[
+			{
+				state: 'blocked',
+				id: '',
+				app: 'antigravity',
+				kind: 'permission',
+				message,
+			},
+		],
+		{authoritative},
+	);
+}
+
 /** The snapshot file of a pane under the test's state directory. */
 export function snapshotFile(
 	state: TestState,

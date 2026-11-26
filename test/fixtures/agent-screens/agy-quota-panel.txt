@@ -1,0 +1,60 @@
+
+      [38;5;179m▄[38;5;208m[48;5;208m▀[38;5;203m[48;5;209m▀[49m▄[39m        [1m[38;5;32mAntigravity CLI 1.5.18
+[0m     [38;5;149m[48;5;113m▀[38;5;143m[48;5;107m▀[38;5;173m[48;5;173m▀[38;5;209m[48;5;209m▀[38;5;203m[48;5;167m▀▀[39m[49m       [38;5;246mqa-user@example.com (Google AI Pro)
+[39m    [38;5;107m[48;5;113m▀[38;5;71m[48;5;72m▀[38;5;72m[48;5;68m▀[38;5;67m[49m▀[38;5;103m▀[38;5;98m[48;5;68m▀[38;5;97m[48;5;62m▀[38;5;132m[48;5;97m▀[39m[49m      [38;5;246mGemini 4 Hydrogen (Medium)
+[39m   [38;5;78m▄[48;5;74m▀[38;5;73m▀[39m[49m    [38;5;68m[48;5;69m▀▀[49m▄[39m     [38;5;246m~/.worktrees/qagy-pr5q/qa-a1
+[39m  [38;5;75m▄[38;5;79m[48;5;75m▀[38;5;75m[49m▀[39m      [38;5;69m▀[48;5;69m▀[49m▄
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[38;5;23m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;32m>
+[38;5;23m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;109m└ Models & Quota
+
+[0m  Account: [38;5;32mqa-user@example.com
+
+[1m[39mGEMINI MODELS
+[0m  [38;5;246mModels within this group: Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen, Orchestrator (Neon), Orch
+
+[39m  [1mWeekly Limit Remaining
+[0m    [[32m████████████████████████████████████[38;5;246m░░░░░░░░░░░░░░[39m][38;5;246m 71.08%
+[39m    [32mRefreshes in 6d 18h 55m
+
+[39m  [1mFive Hour Limit Remaining
+[0m    [[32m█████████████████████████████████████████████[38;5;246m░░░░░[39m][38;5;246m 89.55%
+[39m    [32mRefreshes in 4h 55m
+
+
+[1m[39mCLAUDE AND GPT MODELS
+[0m  [38;5;246mModels within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B
+
+[39m  [1mWeekly Limit Remaining
+[0m    [[32m███████████████████████████████████████████[38;5;246m░░░░░░░[39m][38;5;246m 86.93%
+[39m    [32mRefreshes in 6d 19h 2m
+
+[39m  [1mFive Hour Limit Remaining
+[0m    [[32m█████████████████████████████████████[38;5;246m░░░░░░░░░░░░░[39m][38;5;246m 73.86%
+[39m    [32mRefreshes in 2m
+
+
+[39m  [38;5;23m│[38;5;246mWithin each group, models share a weekly limit and a 5-hour limit. Quota is
+[39m  [38;5;23m│[38;5;246mconsumed proportionally to the cost of the tokens. Thus, limits will last
+[39m  [38;5;23m│[38;5;246mlonger with shorter tasks or using more cost-effective models. The 5-hour[39m                                            
+  [38;5;23m│[38;5;246mlimit smooths out aggregate demand to fairly distribute global capacity
+[39m  [38;5;23m│[38;5;246macross all users, while your weekly limit is tied directly to your individual[39m                                        
+  [38;5;23m│[38;5;246mtier.[39m                                
+
+  [1m[38;5;32m↑/↓[0m[38;5;246m Scroll · [1m[38;5;32mpgup/pgdown[0m[38;5;246m Page · [1m[38;5;32mctrl+end[0m[38;5;246m Bottom · [1m[38;5;32mctrl+home[0m[38;5;246m Top · [1m[38;5;32mesc[0m[38;5;246m Close
+[39m                                                                                       [38;5;166mauto[38;5;246m · Gemini 4 Hydrogen · medium

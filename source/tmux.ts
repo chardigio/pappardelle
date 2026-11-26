@@ -243,9 +243,13 @@ import {
 } from './layout-sizing.ts';
 import {nextSizeOverride, type WindowSize} from './pane-drag.ts';
 import {
+	AGENT_PANE_FORMAT,
+	statusPaneOf,
 	statusSocket,
 	statusTmuxArgs,
 	type ProgramStatusDao,
+	type ProgramStatusSnapshot,
+	type StatusPane,
 } from './program-status-monitor.ts';
 
 // Re-export sizing constants and functions for external use
@@ -1822,10 +1826,12 @@ const defaultInnerSendRunner = spawnTmuxRunnerAsync(innerTmuxArgs);
 // and the chunks stayed apart also while the agent streamed output.
 export const CLEAR_COMPOSER_ROUNDS = 200;
 export const CLEAR_COMPOSER_ROUNDS_PER_CALL = 4;
-const CLEAR_COMPOSER_CHUNK = Array.from(
-	{length: CLEAR_COMPOSER_ROUNDS_PER_CALL},
-	() => ['C-e', 'C-k', 'C-u', 'BSpace'],
-).flat();
+const clearChunk = (keys: readonly string[]) =>
+	Array.from({length: CLEAR_COMPOSER_ROUNDS_PER_CALL}, () => keys).flat();
+const CLEAR_COMPOSER_CHUNK = clearChunk(['C-e', 'C-k', 'C-u', 'BSpace']);
+// Agy binds ctrl+k to approve inline subagent banners, so clearing an agy
+// composer must never send C-k.
+const CLEAR_AGY_COMPOSER_CHUNK = clearChunk(['C-e', 'C-u', 'BSpace']);
 const CLEAR_COMPOSER_CALLS =
 	CLEAR_COMPOSER_ROUNDS / CLEAR_COMPOSER_ROUNDS_PER_CALL;
 
@@ -1856,16 +1862,21 @@ async function runSteps(
  */
 async function prepareComposer(
 	pane: AgentPane,
-	{clear, enterInsert = false}: {clear: boolean; enterInsert?: boolean},
+	{
+		clear,
+		agy = false,
+		enterInsert = false,
+	}: {clear: boolean; agy?: boolean; enterInsert?: boolean},
 ): Promise<boolean> {
 	const {target} = pane;
+	const clearChunk = agy ? CLEAR_AGY_COMPOSER_CHUNK : CLEAR_COMPOSER_CHUNK;
 	return runSteps(pane, [
 		{args: ['copy-mode', '-q', '-t', target]},
 		...(clear
 			? [
 					...(enterInsert ? [{args: ['send-keys', '-t', target, 'i']}] : []),
 					...Array.from({length: CLEAR_COMPOSER_CALLS}, () => ({
-						args: ['send-keys', '-t', target, ...CLEAR_COMPOSER_CHUNK],
+						args: ['send-keys', '-t', target, ...clearChunk],
 					})),
 				]
 			: []),
@@ -1978,20 +1989,27 @@ async function submit(
 ): Promise<'sent' | 'unsubmitted' | 'failed'> {
 	const watched = before.composer !== null;
 	const clear = before.composer !== '' || before.shellMode;
-	if (!(await prepareComposer(pane, {clear}))) return 'failed';
+	const agy = Boolean(before.agyComposer);
+	if (!(await prepareComposer(pane, {clear, agy}))) return 'failed';
 	if (watched && clear) {
-		const polls = before.agyComposer ? AGY_CLEARED_POLLS : CLEARED_POLLS;
+		const polls = agy ? AGY_CLEARED_POLLS : CLEARED_POLLS;
 		let cleared = await waitForScreen(
 			pane,
 			polls,
 			screen => screen.composer === '' && !screen.shellMode,
 		);
-		if (!cleared && before.agyComposer) {
+		if (!cleared && agy) {
 			// Agy's vim normal mode ignores readline clear keys without showing a
 			// mode label, so only a draft that survived them gets `i` + re-clear.
 			const current = await readAgentScreen(pane);
 			if (current?.agyComposer && current.composer) {
-				if (!(await prepareComposer(pane, {clear: true, enterInsert: true})))
+				if (
+					!(await prepareComposer(pane, {
+						clear: true,
+						agy: true,
+						enterInsert: true,
+					}))
+				)
 					return 'failed';
 				cleared = await waitForScreen(
 					pane,
@@ -2083,6 +2101,60 @@ function sendBlocker(
 	return screen.composer && !force ? 'draft' : null;
 }
 
+type SnapshotReader = (
+	key: string,
+	pane: StatusPane,
+) => Promise<ProgramStatusSnapshot | null>;
+
+/**
+ * OSC fallback for prompts the screen parser didn't recognise: when the agent
+ * reports OSC `blocked` (permission, question, auth), refuse sends and
+ * non-Escape keys so an unparsed prompt is never answered by accident.
+ * Agy's non-modal `Approve plan` artifact banner stays open to sends.
+ */
+async function isOscBlockedPrompt(
+	issueKey: string,
+	session: string,
+	screen: AgentScreen,
+	{
+		runner,
+		readSnapshot,
+	}: {
+		runner: SendTmuxRunner;
+		readSnapshot?: SnapshotReader;
+	},
+): Promise<boolean> {
+	const reader: SnapshotReader | null =
+		readSnapshot ??
+		(stateDaos
+			? async (key: string, pane: StatusPane) => programStatus().read(key, pane)
+			: null);
+	if (!reader) return false;
+	const listing = await runner([
+		'list-panes',
+		'-s',
+		'-t',
+		exactSessionTarget(session),
+		'-F',
+		AGENT_PANE_FORMAT,
+	]);
+	if (listing.error || listing.status !== 0) return false;
+	const pane = statusPaneOf(
+		listing.stdout.split('\n').filter(Boolean),
+		statusSocket(),
+	);
+	if (!pane) return false;
+	const snapshot = await reader(issueKey, pane);
+	if (!snapshot?.authoritative) return false;
+	const status = snapshot.info;
+	if (status.status !== 'blocked') return false;
+	// Agy modal prompts hide the `>` composer; an open composer without an inline
+	// approval banner means OSC `blocked` is either the non-modal artifact strip
+	// or has not cleared yet after a deny.
+	if (screen.agyComposer && !screen.agyComposer.inlineApproval) return false;
+	return true;
+}
+
 /**
  * Submit `text` as a prompt to the agent session of a space.
  * Backs `pappardelle send`, which the sous-chef skill relays through.
@@ -2097,6 +2169,7 @@ export async function sendToSpaceAgent(
 		/** Send over a draft in the input box. Never over a prompt. */
 		force?: boolean;
 		sleep?: (ms: number) => Promise<void>;
+		readSnapshot?: SnapshotReader;
 	} = {},
 ): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerSendRunner;
@@ -2115,6 +2188,14 @@ export async function sendToSpaceAgent(
 				// Unread, the screen may hold a prompt the keys would answer.
 				if (!screen) return 'failed';
 				const blocker = sendBlocker(screen, options.force ?? false);
+				if (blocker === 'prompt') return 'prompt';
+				if (
+					await isOscBlockedPrompt(issueKey, session, screen, {
+						runner,
+						readSnapshot: options.readSnapshot,
+					})
+				)
+					return 'prompt';
 				if (blocker) return blocker;
 				return submit(pane, text, screen);
 			},
@@ -2185,7 +2266,7 @@ function adaptAgySupervisorKeys(
  * in order. Nothing is cleared or submitted around them, so a keybinding
  * reaches the TUI exactly as if the user pressed it.
  */
-export function sendKeysToSpaceAgent(
+export async function sendKeysToSpaceAgent(
 	issueKey: string,
 	keys: readonly string[],
 	options: {
@@ -2196,8 +2277,9 @@ export function sendKeysToSpaceAgent(
 		literal?: boolean;
 		/** Override the pause between injected Escape keys in tests. */
 		pause?: (ms: number) => void;
+		readSnapshot?: SnapshotReader;
 	} = {},
-): SendToSpaceAgentResult {
+): Promise<SendToSpaceAgentResult> {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const session = spaceSessionNames(issueKey)?.agent;
 	const target = session && resolveInnerSessionTargetSync(session, runner);
@@ -2213,13 +2295,24 @@ export function sendKeysToSpaceAgent(
 		const parsed = parseAgentScreen(screen.stdout ?? '', new Date());
 		if (parsed.codexDialog || parsed.agyDialog === 'trust') return 'prompt';
 		const answers = keys.some(key => key !== 'Escape');
-		if (answers && (parsed.permission || parsed.question || parsed.agyDialog))
+		if (
+			answers &&
+			(parsed.permission ||
+				parsed.question ||
+				parsed.agyDialog ||
+				(await isOscBlockedPrompt(issueKey, session, parsed, {
+					runner,
+					readSnapshot: options.readSnapshot,
+				})))
+		)
 			return 'prompt';
 		if (!options.literal && parsed.agyComposer) {
 			const adapted = adaptAgySupervisorKeys(keys, parsed.agyComposer);
 			effectiveKeys = adapted.keys;
 			settleAfterEscape = adapted.settleAfterEscape;
 		}
+	} else {
+		settleAfterEscape = !options.literal;
 	}
 
 	const pause = options.pause ?? sleepSync;

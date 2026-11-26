@@ -1,0 +1,61 @@
+
+
+[32m●[39m [1m[33mRan[0m [37m(printf qa > qa.txt)[39m [37m(ctrl+o to expand)
+
+[39m  DONE                                      
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Run exactly this shell command and nothing else, then reply DONE: rm qa.txt
+
+[0m[32m●[39m [1m[33mRan[0m [37m(rm qa.txt)[39m [37m(ctrl+o to expand)[39m             
+
+  DONE                                                                                                                  
+
+[90m────────────────────────────────────────────────────────────[39m                                                            
+[1m[34m> Run exactly this shell command and nothing else, then reply DONE: printf qa > /tmp/q-agy-dfac/outside.txt[0m             
+
+[32m●[39m [1m[33mRan[0m 2 commands [37m(printf qa > /tmp/q-agy-dfac/outside.txt ×2)[39m [37m(ctrl+o to expand)[39m                                        
+
+  DONE                                                                                                                  
+
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[94m>[39m                                                                                                                       
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[39mSettings[0m                                                                                                                
+
+  Search: [7m[37m [0m                                                                                                             
+          [90m────────────────────
+
+[94m> Agent Mode[39m			[94mauto[39m                                                                                    
+  Animation Speed		medium
+  Artifact Review		asks for review                                                                         
+  Color Scheme			terminal
+  Conversation Picker Grouping  none                                                                                    
+  Copy on Select		on
+  Editor			auto ($EDITOR)                                                                          
+  Editor Mode			default                                                                                 
+  Enable Telemetry		on                                                                                      
+  Non-Workspace Access          off                                                                                     
+  Notifications			off
+  Queued Messages		Queue
+  Rendering Mode		native terminal (inline)
+  Sandbox Mode			off
+  Show Active Tasks             on
+  Show Feedback Survey          on
+  Show Tips			on
+  Tool Permission		request-review
+  Use AI Credits		off
+  Verbosity			medium
+  Voice Mode			auto
+  Voice Mode › Full Duplex      off
+  Voice Mode › Playback Speed   1
+  Voice Mode › Voice            default
+  Voice Mode › Volume           100
+
+  [2m'default': standard behavior. 'accept-edits': auto-approve file edits, prompt for commands. 'auto': auto-approve edits
+[0m  [2mand safe commands, prompt on irreversible actions. 'plan': research and plan without making changes
+
+
+[0;1mKeyboard: [0m[94m↑/↓[39m [90mNavigate[39m  [94m←/→[39m [90mChange[39m  [94menter[39m [90mSelect[39m  [94mesc[39m [90mClear Search/Exit
+
+[39m                                                                                       [33mauto[2m[39m · Gemini 4 Hydrogen · medium

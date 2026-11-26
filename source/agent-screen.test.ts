@@ -788,6 +788,19 @@ test('agy subagent manage view is flagged as agyDialog and never as codexDialog 
 		NOW,
 	);
 	expect(scrollbackManage.agyDialog).toBe(null);
+
+	// Subagent detail view after denying/answering stays `subagent_manage` until Escape.
+	const postDenyDetail = parseAgentScreen(
+		[
+			'  main › self',
+			'  ● done · Gemini 4 Hydrogen (Medium) · worked 3s · 3 steps',
+			'  ↑/↓ scroll · pgup/pgdown page · ctrl+end bottom · ctrl+home top · ctrl+o expand · shift+k kill · esc back',
+			'                                                                       auto · Gemini 4 Hydrogen · medium · 1 subagent(s)',
+		].join('\n'),
+		NOW,
+	);
+	expect(postDenyDetail.agyDialog).toBe('subagent_manage');
+	expect(postDenyDetail.composer).toBe(null);
 });
 
 test('agy trust dialog and /artifact review parse as agyDialog with no false draft', () => {

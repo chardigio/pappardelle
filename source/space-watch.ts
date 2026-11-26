@@ -62,6 +62,18 @@ export function stateOf(seen: string): AgentState | null {
 		: null;
 }
 
+function shortHash(value: unknown): string {
+	return createHash('sha256')
+		.update(JSON.stringify(value))
+		.digest('hex')
+		.slice(0, 8);
+}
+
+/** The deferred-schedules fingerprint segment of a cursor entry, if present. */
+function deferredOf(seen: string | undefined): string {
+	return seen?.split(':')[2] ?? '';
+}
+
 function seenAs(report: AgentStateReport): string {
 	const prompt = [
 		report.permission
@@ -77,12 +89,13 @@ function seenAs(report: AgentStateReport): string {
 		report.codexDialog?.title ?? null,
 		report.agyDialog ?? null,
 	].filter(part => part !== null);
-	if (prompt.length === 0) return report.state;
-	const hash = createHash('sha256')
-		.update(JSON.stringify(prompt))
-		.digest('hex')
-		.slice(0, 8);
-	return `${report.state}:${hash}`;
+	const promptHash = prompt.length > 0 ? shortHash(prompt) : '';
+	const deferredHash = report.deferredSchedules?.length
+		? `d${shortHash(report.deferredSchedules.map(job => [job.id, job.reason]))}`
+		: '';
+	if (!promptHash && !deferredHash) return report.state;
+	if (!deferredHash) return `${report.state}:${promptHash}`;
+	return `${report.state}:${promptHash}:${deferredHash}`;
 }
 
 export function targetStates(
@@ -111,11 +124,16 @@ export function changesSince(
 	reports: readonly AgentStateReport[],
 	targets: ReadonlySet<AgentState> | null,
 ): AgentStateReport[] {
-	return reports.filter(
-		report =>
-			seenAs(report) !== baseline[report.key] &&
+	return reports.filter(report => {
+		const seen = seenAs(report);
+		const previous = baseline[report.key];
+		return (
+			seen !== previous &&
 			(targets === null ||
 				targets.has(report.state) ||
-				isEndedAgentState(report.state)),
-	);
+				(Boolean(report.deferredSchedules?.length) &&
+					deferredOf(seen) !== deferredOf(previous)) ||
+				isEndedAgentState(report.state))
+		);
+	});
 }

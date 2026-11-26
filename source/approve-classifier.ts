@@ -7,7 +7,9 @@
 
 import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
+import path from 'node:path';
 import type {ApprovalVerdict} from './approve-policy.ts';
+import type {ApprovalClassifierConfig} from './config.ts';
 
 export type ClassifierVerdict =
 	| ApprovalVerdict
@@ -27,11 +29,23 @@ export type ClassifyRequest = {
 	tempRoots: readonly string[];
 };
 
-export type ClassifierRun = (
+export type SpawnClassifier = (
+	command: string,
 	args: string[],
 	input: string,
 	timeoutMs: number,
 ) => Promise<{status: number | null; stdout: string}>;
+
+export type ClassifierBackend = 'claude' | 'agy';
+
+type ClassifierCall = {
+	command: string;
+	args: string[];
+	stdin: string;
+};
+
+export const DEFAULT_CLAUDE_CLASSIFIER_MODEL = 'haiku';
+export const DEFAULT_AGY_CLASSIFIER_MODEL = 'gemini-4-hydrogen-low';
 
 const TIMEOUT_MS = 30_000;
 
@@ -53,11 +67,21 @@ const SCHEMA = JSON.stringify({
 	required: ['approve', 'reason'],
 });
 
-export function classifierArgs(): string[] {
+// Deny all tools and non-workspace access so prompt injection inside a
+// classified command cannot cause agy to run anything during classification.
+const AGY_CLASSIFIER_SETTINGS = JSON.stringify({
+	permissions: {allow: [], deny: ['*']},
+	toolPermission: 'strict',
+	allowNonWorkspaceAccess: false,
+});
+
+export function classifierArgs(
+	model = DEFAULT_CLAUDE_CLASSIFIER_MODEL,
+): string[] {
 	return [
 		'-p',
 		'--model',
-		'haiku',
+		model,
 		'--tools',
 		'',
 		'--strict-mcp-config',
@@ -72,6 +96,25 @@ export function classifierArgs(): string[] {
 		SCHEMA,
 		'--system-prompt',
 		RUBRIC,
+	];
+}
+
+export function agyClassifierArgs(
+	prompt: string,
+	model = DEFAULT_AGY_CLASSIFIER_MODEL,
+): string[] {
+	return [
+		'--disable-slash-commands',
+		'--model',
+		model,
+		'--output-format',
+		'json',
+		'--json-schema',
+		SCHEMA,
+		'--settings',
+		AGY_CLASSIFIER_SETTINGS,
+		'-p',
+		prompt,
 	];
 }
 
@@ -90,13 +133,15 @@ export function classifierInput(request: ClassifyRequest): string {
 export function parseClassifierOutput(stdout: string): ClassifierVerdict {
 	let verdict: unknown;
 	try {
-		verdict = (JSON.parse(stdout) as {structured_output?: unknown})
-			.structured_output;
+		const parsed = JSON.parse(stdout) as {structured_output?: unknown};
+		verdict = parsed.structured_output;
 	} catch {
 		return {kind: 'unavailable', reason: 'the approval check gave no answer'};
 	}
 
-	const {approve, reason} = (verdict ?? {}) as {
+	const {approve, reason} = (
+		verdict && typeof verdict === 'object' ? verdict : {}
+	) as {
 		approve?: unknown;
 		reason?: unknown;
 	};
@@ -107,38 +152,134 @@ export function parseClassifierOutput(stdout: string): ClassifierVerdict {
 	return {kind: 'unavailable', reason: 'the approval check gave no answer'};
 }
 
-async function classifyOnce(
-	request: ClassifyRequest,
-	run: ClassifierRun,
-): Promise<ClassifierVerdict> {
+function isEnoent(error: unknown): boolean {
+	return Boolean(
+		error &&
+		typeof error === 'object' &&
+		(error as NodeJS.ErrnoException).code === 'ENOENT',
+	);
+}
+
+/**
+ * Resolve a classifier command to its backend, or null when unsupported.
+ * Rejects relative paths with separators because the classifier runs in `tmpdir()`.
+ */
+export function classifierBackend(command: string): ClassifierBackend | null {
+	const trimmed = command.trim();
+	if (!trimmed) return null;
+	if (/[\\/]/.test(trimmed) && !path.isAbsolute(trimmed)) return null;
+	const base = path.posix.basename(trimmed);
+	if (base === 'agy' || base === 'claude') return base;
+	return null;
+}
+
+function invocationFor(
+	backend: ClassifierBackend,
+	command: string,
+	model: string | undefined,
+	input: string,
+): ClassifierCall {
+	const trimmedModel = model?.trim() || undefined;
+	if (backend === 'agy') {
+		return {
+			command,
+			args: agyClassifierArgs(`${RUBRIC}\n\n${input}`, trimmedModel),
+			stdin: '',
+		};
+	}
+
+	return {
+		command,
+		args: classifierArgs(trimmedModel),
+		stdin: input,
+	};
+}
+
+async function runOnce(
+	call: ClassifierCall,
+	spawnFn: SpawnClassifier,
+): Promise<{verdict: ClassifierVerdict; enoent: boolean}> {
 	let result;
 	try {
-		result = await run(classifierArgs(), classifierInput(request), TIMEOUT_MS);
+		result = await spawnFn(call.command, call.args, call.stdin, TIMEOUT_MS);
 	} catch (error) {
 		return {
-			kind: 'unavailable',
-			reason: `the approval check didn't run: ${(error as Error).message}`,
+			verdict: {
+				kind: 'unavailable',
+				reason: `the approval check didn't run: ${(error as Error).message}`,
+			},
+			enoent: isEnoent(error),
 		};
 	}
 
 	if (result.status !== 0) {
-		return {kind: 'unavailable', reason: 'the approval check failed'};
+		return {
+			verdict: {kind: 'unavailable', reason: 'the approval check failed'},
+			enoent: false,
+		};
 	}
 
-	return parseClassifierOutput(result.stdout);
+	return {verdict: parseClassifierOutput(result.stdout), enoent: false};
 }
 
-/** One retry, since a check that failed to run says nothing about the call. */
-export async function classifyCommand(
-	request: ClassifyRequest,
-	run: ClassifierRun,
+async function runWithRetry(
+	call: ClassifierCall,
+	spawnFn: SpawnClassifier,
 ): Promise<ClassifierVerdict> {
-	const first = await classifyOnce(request, run);
-	return first.kind === 'unavailable' ? classifyOnce(request, run) : first;
+	const first = await runOnce(call, spawnFn);
+	if (first.verdict.kind !== 'unavailable') return first.verdict;
+	const second = await runOnce(call, spawnFn);
+	return second.verdict;
 }
 
-/** Runs `claude` away from any space, so its hooks can't report as one. */
-export const defaultClassifierRun: ClassifierRun = async (
+/**
+ * Runs the configured classifier backend (`claude` or `agy`). When unset, tries
+ * `claude` first and falls back to `agy` only when `claude` is missing (`ENOENT`).
+ */
+export async function classifyWithConfig(
+	request: ClassifyRequest,
+	options: {
+		config?: ApprovalClassifierConfig;
+		spawn?: SpawnClassifier;
+	} = {},
+): Promise<ClassifierVerdict> {
+	const spawnFn = options.spawn ?? spawnClassifier;
+	const input = classifierInput(request);
+	const configuredCommand = options.config?.command?.trim();
+	if (configuredCommand) {
+		const backend = classifierBackend(configuredCommand);
+		if (!backend) {
+			return {
+				kind: 'unavailable',
+				reason: `unsupported approval classifier command: ${configuredCommand}`,
+			};
+		}
+
+		return runWithRetry(
+			invocationFor(backend, configuredCommand, options.config?.model, input),
+			spawnFn,
+		);
+	}
+
+	const claudeCall = invocationFor(
+		'claude',
+		'claude',
+		options.config?.model,
+		input,
+	);
+	const first = await runOnce(claudeCall, spawnFn);
+	if (first.verdict.kind !== 'unavailable') return first.verdict;
+	if (first.enoent) {
+		return runWithRetry(invocationFor('agy', 'agy', undefined, input), spawnFn);
+	}
+
+	const second = await runOnce(claudeCall, spawnFn);
+	return second.verdict;
+}
+
+/** Runs a classifier CLI away from any space, so its hooks can't report as one. */
+export const spawnClassifier: SpawnClassifier = async (
+	command,
 	args,
 	input,
 	timeoutMs,
@@ -147,18 +288,16 @@ export const defaultClassifierRun: ClassifierRun = async (
 		const env = Object.fromEntries(
 			Object.entries(process.env).filter(
 				([name]) =>
-					!name.startsWith('PAPPARDELLE_') &&
-					name !== 'TMUX' &&
-					name !== 'TMUX_PANE',
+					!name.startsWith('PAPPARDELLE_') && !name.startsWith('TMUX'),
 			),
 		);
-		const child = spawn('claude', args, {
+		const child = spawn(command, args, {
 			cwd: tmpdir(),
 			env,
 			stdio: ['pipe', 'pipe', 'ignore'],
 		});
-		// Settles on the deadline itself: a child of claude that keeps stdout
-		// open would otherwise hold the answer past it.
+		// Settles on the deadline itself: a child that keeps stdout open would
+		// otherwise hold the answer past it.
 		const timer = setTimeout(() => {
 			child.kill();
 			reject(new Error(`timed out after ${timeoutMs / 1000}s`));

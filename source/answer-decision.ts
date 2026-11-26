@@ -3,7 +3,11 @@
 // an error.
 
 import path from 'node:path';
-import type {CodexDialog, PermissionPrompt} from './agent-screen.ts';
+import type {
+	AgySubagentManageApproval,
+	CodexDialog,
+	PermissionPrompt,
+} from './agent-screen.ts';
 import type {AgentStateReport} from './agent-state.ts';
 import {checkApproval, placeOf, type ApprovalPolicy} from './approve-policy.ts';
 import type {ClaudeSessionState} from './claude-status.ts';
@@ -60,12 +64,43 @@ export function holdPlan(
 }
 
 /** The arrows from the highlighted option to `option`, then Enter. */
-function arrowKeys(selected: number, option: number): string[] {
+export function arrowKeys(selected: number, option: number): string[] {
 	const steps = option - selected;
 	return [
 		...Array.from({length: Math.abs(steps)}, () => (steps > 0 ? 'Down' : 'Up')),
 		'Enter',
 	];
+}
+
+const TRAILING_ELLIPSIS = /(?:\.{3}|…)$/;
+
+/** Verify that agy's `subagent_manage` approval matches the banner being denied. */
+export function matchesSubagentManage(
+	permission: PermissionPrompt | null,
+	approval: AgySubagentManageApproval,
+): boolean {
+	if (!permission) return false;
+	if (approval.tool !== permission.tool && approval.rawTool !== permission.tool)
+		return false;
+	const normalize = (text: string | null) => {
+		const collapsed = (text ?? '').replace(/\s+/g, ' ').trim();
+		const truncated = TRAILING_ELLIPSIS.test(collapsed);
+		return {
+			text: truncated
+				? collapsed.replace(TRAILING_ELLIPSIS, '').trim()
+				: collapsed,
+			truncated,
+		};
+	};
+
+	const shown = normalize(approval.command);
+	const expected = normalize(permission.command);
+	if (!shown.text && !expected.text) return true;
+	if (!shown.text || !expected.text) return false;
+	if (shown.text === expected.text) return true;
+	if (expected.truncated && shown.text.startsWith(expected.text)) return true;
+	if (shown.truncated && expected.text.startsWith(shown.text)) return true;
+	return false;
 }
 
 /**
@@ -93,6 +128,12 @@ export function optionKeys(
 		candidate => candidate.number === option,
 	)?.shortcut;
 	if (!shortcut) return null;
+	if (permission.subagentBanner) {
+		return permission.subagentBanner.vimInsert
+			? ['Escape', shortcut]
+			: [shortcut];
+	}
+
 	return [shortcut === 'esc' ? 'Escape' : shortcut];
 }
 
@@ -104,7 +145,7 @@ const FILE_TOOLS = new Set([
 	'NotebookEdit',
 ]);
 const FILE_HEADER =
-	/^(?:Edit|Create|Write|Overwrite|Read) file$|^Edit notebook$/;
+	/^(?:Edit|Create|Write|Overwrite|Read) file$|^Edit notebook$|^File access$/;
 // What a file prompt asks when its header is off the screen.
 const FILE_QUESTION = /^Do you want to (?:create|make this edit to|overwrite) /;
 // Answering prompts is the chef's: a call to these from a space would let
@@ -121,6 +162,12 @@ function promptFile(
 	permission: PermissionPrompt,
 	hook: ClaudeSessionState | null,
 ): {kind: 'file'; file: string} | {kind: 'hold'; reason: string} {
+	if (permission.source === 'agy') {
+		return permission.filePath
+			? {kind: 'file', file: permission.filePath}
+			: {kind: 'hold', reason: "the file this prompt is for isn't known"};
+	}
+
 	const pending = hook?.pendingFiles ?? [];
 	if (pending.length === 0)
 		return {kind: 'hold', reason: "the file this prompt is for isn't known"};
@@ -328,7 +375,8 @@ export function decideAnswer(
 		? FILE_HEADER.test(permission.tool)
 		: FILE_TOOLS.has(hook?.currentTool ?? '') ||
 			FILE_QUESTION.test(permission.question);
-	if (fileTool && !hook)
+	const isAgy = permission.source === 'agy';
+	if (fileTool && !hook && !isAgy)
 		return {
 			kind: 'error',
 			exit: 1,
@@ -388,7 +436,9 @@ export function decideAnswer(
 
 	if (permission.cutOff)
 		return held(
-			"the top of the prompt is off the screen, so the call can't be read",
+			isAgy
+				? "part of the command is hidden on screen, so the call can't be read"
+				: "the top of the prompt is off the screen, so the call can't be read",
 		);
 	// A Bash command naming these is only text; pappardelle answer and holds
 	// are hard stops in the rules.
@@ -398,11 +448,11 @@ export function decideAnswer(
 	)
 		return held('it answers prompts for agents, which only the chef does');
 	if (tool === 'Bash command') {
-		// Codex wraps a long command onto more lines with no mark, so its
-		// lines are also read as one.
+		// Codex and agy can wrap a long command onto more lines with no mark, so
+		// its lines are also checked as one.
 		const wrapped =
 			// A heredoc's end must stay on a line of its own.
-			permission.choose === 'shortcut' &&
+			(permission.choose === 'shortcut' || isAgy) &&
 			permission.command.includes('\n') &&
 			!permission.command.includes('<<')
 				? checkApproval(permission.command.replaceAll('\n', ' '), policy, {
@@ -413,7 +463,8 @@ export function decideAnswer(
 		const verdict = checkApproval(permission.command, policy, {
 			// Claude's shell stays where the agent last cd'd, which only the hook
 			// knows.
-			startDir: permission.choose === 'shortcut' ? null : (hook?.cwd ?? null),
+			startDir:
+				permission.choose === 'shortcut' || isAgy ? null : (hook?.cwd ?? null),
 		});
 		if (verdict.kind === 'hold') return held(verdict.reason);
 	}

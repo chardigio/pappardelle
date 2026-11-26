@@ -142,6 +142,38 @@ export function parseStatusPane(
 
 export const STATUS_PANE_FORMAT = `#{pane_id}\t#{pane_pid}\t#{pane_dead}\t#{pane_pipe}\t#{${STATUS_MONITOR_OPTION}}`;
 
+/**
+ * A `list-panes` format for picking a session's status pane with
+ * `statusPaneOf`: whether the pane is the session's current one, the pane
+ * the session pinned, and the pane's status fields.
+ */
+export const AGENT_PANE_FORMAT = `#{window_active}#{pane_active}\t#{${STATUS_PANE_OPTION}}\t${STATUS_PANE_FORMAT}`;
+
+export function selectedStatusPaneRow(lines: string[]): string | undefined {
+	const rows = lines.map(line => {
+		const [active = '', pinned = '', ...pane] = line.split('\t');
+		return {current: active === '11', pinned, pane: pane.join('\t')};
+	});
+	const pinned = rows.find(row => row.pinned)?.pinned;
+	return (
+		pinned
+			? rows.find(each => each.pane.startsWith(`${pinned}\t`))
+			: rows.find(each => each.current)
+	)?.pane;
+}
+
+/**
+ * The pane the TUI's status monitor pinned, else the session's current pane,
+ * from one session's `AGENT_PANE_FORMAT` lines.
+ */
+export function statusPaneOf(
+	lines: string[],
+	socket: string,
+): StatusPane | null {
+	const pane = selectedStatusPaneRow(lines);
+	return pane ? parseStatusPane(pane, socket) : null;
+}
+
 export interface ProgramStatusSnapshot {
 	version: 1;
 	repo: string;

@@ -1,0 +1,60 @@
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Run exactly this shell command and nothing else, then reply DONE: printf qa > qa.txt
+
+[0m[32m●[39m [1m[33mBash[0m[37m(printf qa > qa.txt)[39m [37m(ctrl+o to expand)
+
+[39m  DONE
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Use your file editing tool (not the shell) to create the file x.txt containing the single line: hello
+
+[0m[32m●[39m [1m[33mCreate[0m[37m(~/.worktrees/qagy-d/qa-b2/x.txt)[39m [37m(ctrl+o to expand)
+
+[39m  Created x.txt.                                          
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Use your file reading tool (not the shell) to read AGENTS.md and reply with its first word only.
+
+[0m[32m●[39m [1m[33mRead[0m[37m(~/.worktrees/qagy-d/qa-b2/AGENTS.md)[39m [37m(ctrl+o to expand)
+
+[39m  This
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Use your file reading tool (not the shell) to read /etc/hostname and reply with its contents only.
+
+[0m[31m●[39m [1m[33mRead[0m[37m(/etc/hostname)[39m [37m(ctrl+o to expand)
+
+[1m[34mFile access
+  ⎿  [0m[37mUser declined the tool call
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Call the qa_echo tool from the qastub MCP server once with text \"hi\", then reply DONE.
+
+[33m4.8k in | 312 out | 217 thinking[0m                                                                                  
+[32m●[39m [1m[33mqastub/qa_echo[0m[37m({"text":"hi"})[39m [37m(ctrl+o to expand)[39m                          
+
+  DONE
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Start two subagents in parallel; each must run exactly one shell command (printf a > sub-<n>.txt, where n is 1 or 2)
+  and then call the qa_echo MCP tool once with text sub-<n>. Do nothing else.
+
+[33m2.2k in | 680 out | 412 thinking[0m                                                                                 
+[32m●[39m [1m[33mAgent(self: Subagent 2 Worker)[0m[37m(Run exactly one shell command: `printf a > sub-2.txt`. Then cal...)[39m [37m(ctrl+o to expand)
+
+[39m  Started both subagents ([1mSubagent 1[0m [4mconversation://4dd768ac-8502-4d78-910a-617cfc775f85[0m and [1mSubagent 2
+[0m  [4mconversation://66f67a2e-8857-4c85-bceb-ff7fc34da04a[0m) and waiting for their completion.
+
+ [33m┃[39m [94mself[39m needs approval for [1m[33mBash
+[0m [33m┃[39m [90m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [33m┃
+[39m [33m┃[39m [33m●[39m [1m[33mBash[0m[37m(printf a > sub-1.txt)
+[39m [33m┃
+[39m [33m┃[39m [1m[33mctrl+k[0m approve · [1m[33malt+j[0m manage
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[94m>[39m                                                                                                       
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;5;220m●[39m Agent(self: Subagent 2 Worker)[90m · Gemini 4 Hydrogen[39m  [37mWrite sub-2.txt[90m · 3s[39m                                            
+  [38;5;220m●[39m Agent(self: Subagent 1 Worker)[90m · Gemini 4 Hydrogen[39m  [38;5;214mBlocked[39m · Bash[90m · 4s[39m                                             
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m-- INSERT --[0m [90m? for shortcuts[39m                                           [33mauto[2m[39m · Gemini 4 Hydrogen · medium · 2 subagent(s)

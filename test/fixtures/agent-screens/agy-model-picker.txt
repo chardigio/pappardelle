@@ -1,0 +1,60 @@
+  This  
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Use your file reading tool (not the shell) to read /etc/hostname and reply with its contents only.
+
+[0m[32m●[39m [1m[33mRead[0m[37m(/etc/hostname)[39m [37m(ctrl+o to expand)[39m                    
+
+  omarchy                                    
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Ask me one multiple-choice question with three options (red, green, blue) using your interactive question tool, the
+  one that shows me a selectable list[0m         
+
+[1m[33m?[0m Which color do you choose?                                                                                         
+[1m[34m> green[0m                              
+
+  You selected [1mgreen[0m.              
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> hello[0m                            
+
+  Hello! How can I help?                                    
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> sk me one multiple-choice question with three options (red, green, blue) using your interactive question tool, the
+  one that shows me a selectable list
+
+[33m?[0m Which color do you choose?                                                                                        
+[1m[34m> blue[0m                               
+
+  You selected [1mblue[0m.              
+
+[1m[34m> /config[0m                                                                                                               
+[1m[34m  ⎿  [0m[37mExited /config command[39m                                                                          
+
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[94m>
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[39mSwitch Model
+
+[0m  Search: [7m[37m 
+[0m          [90m────────────────────
+
+[39m  Gemini 4 Neon
+  Gemini 4 Carbon
+  Gemini 4 Argon
+[94m> Gemini 4 Hydrogen    [2m[39m (current)
+[0m  Orchestrator
+  Gemini 3.8 Flash
+  Claude Opus 5.5
+  Claude Sonnet 5.5
+  GPT-OSS 120B (Medium)
+
+  Effort  [94m◂[39m [33m     ●━━━━━━━━━━◉[2m[39m──────────○──────────○     [0m [94m▸
+[39m            [2m    low    [0;1m[33m  medium   [0;2m   high       xhigh   
+[0m            [2;3mBalanced speed and reasoning quality for most tasks
+
+[0;1mKeyboard: [0m[94m↑/↓[39m [90mNavigate[39m  [94m←/→[39m [90mEffort[39m  [94menter[39m [90mSelect[39m  [94mesc[39m [90mGo Back
+
+[39m                                                                                       [33mauto[2m[39m · Gemini 4 Hydrogen · medium

@@ -435,7 +435,7 @@ if (cli.input[0] === 'send') {
 	migrateLegacyAgentSessions();
 	const result =
 		keys.length > 0
-			? sendKeysToSpaceAgent(issueKey, keys)
+			? await sendKeysToSpaceAgent(issueKey, keys)
 			: await sendToSpaceAgent(issueKey, text, {force});
 	recordSupervision(
 		getRepoName(),
