@@ -364,8 +364,8 @@ test('createComment with ENOENT — fails immediately, no retry', async () => {
 
 // ============================================================================
 // State color disk persistence (STA-590)
-// The stateColorMap is persisted to ~/.pappardelle/state-colors.json so the
-// main worktree color works even when no active issue has "Done" state.
+// The stateColorMap is persisted in the state database so the main worktree
+// color works even when no active issue has "Done" state.
 // ============================================================================
 
 test('getIssue stores the state colors it reads', async () => {

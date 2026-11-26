@@ -191,16 +191,13 @@ test('a TUI that never reports ready times out', async () => {
 
 test('a marker left by the previous TUI does not count as ready', async () => {
 	const h = setup(['pappardelle-app'], {'pappardelle-app': 'silent'});
-	fs.writeFileSync(
-		path.join(h.root, 'app', 'tui.json'),
-		JSON.stringify({
-			pid: 1,
-			cliPath: FAKE_CLI_PATH,
-			sha: FAKE_SHA,
-			paneId: '%0',
-			startedAt: Date.now() - 1000,
-		}),
-	);
+	await h.deps.tuiMarker('app').write({
+		pid: 1,
+		cliPath: FAKE_CLI_PATH,
+		sha: FAKE_SHA,
+		paneId: '%0',
+		startedAt: Date.now() - 1000,
+	});
 
 	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
 });
@@ -208,16 +205,13 @@ test('a marker left by the previous TUI does not count as ready', async () => {
 test("a marker written from another pane does not count as this TUI's", async () => {
 	const h = setup(['pappardelle-app'], {'pappardelle-app': 'silent'});
 	setTimeout(() => {
-		fs.writeFileSync(
-			path.join(h.root, 'app', 'tui.json'),
-			JSON.stringify({
-				pid: 1,
-				cliPath: FAKE_CLI_PATH,
-				sha: FAKE_SHA,
-				paneId: '%7',
-				startedAt: Date.now(),
-			}),
-		);
+		void h.deps.tuiMarker('app').write({
+			pid: 1,
+			cliPath: FAKE_CLI_PATH,
+			sha: FAKE_SHA,
+			paneId: '%7',
+			startedAt: Date.now(),
+		});
 	}, 30);
 
 	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(false);
@@ -228,16 +222,13 @@ test("a marker written from another pane does not count as this TUI's", async ()
 
 test('a TUI whose panes were rearranged is restarted in the pane its marker names', async () => {
 	const h = setup(['pappardelle-app'], {}, {'pappardelle-app': '%5'});
-	fs.writeFileSync(
-		path.join(h.root, 'app', 'tui.json'),
-		JSON.stringify({
-			pid: 1,
-			cliPath: FAKE_CLI_PATH,
-			sha: FAKE_SHA,
-			paneId: '%5',
-			startedAt: Date.now() - 1000,
-		}),
-	);
+	await h.deps.tuiMarker('app').write({
+		pid: 1,
+		cliPath: FAKE_CLI_PATH,
+		sha: FAKE_SHA,
+		paneId: '%5',
+		startedAt: Date.now() - 1000,
+	});
 
 	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(true);
 	expect(
@@ -247,16 +238,13 @@ test('a TUI whose panes were rearranged is restarted in the pane its marker name
 
 test('a marker naming a pane that left the window falls back to the first pane', async () => {
 	const h = setup(['pappardelle-app']);
-	fs.writeFileSync(
-		path.join(h.root, 'app', 'tui.json'),
-		JSON.stringify({
-			pid: 1,
-			cliPath: FAKE_CLI_PATH,
-			sha: FAKE_SHA,
-			paneId: '%44',
-			startedAt: Date.now() - 1000,
-		}),
-	);
+	await h.deps.tuiMarker('app').write({
+		pid: 1,
+		cliPath: FAKE_CLI_PATH,
+		sha: FAKE_SHA,
+		paneId: '%44',
+		startedAt: Date.now() - 1000,
+	});
 
 	expect(await restartAndVerifyTui(app, COMMAND, null, h.deps)).toBe(true);
 	expect(

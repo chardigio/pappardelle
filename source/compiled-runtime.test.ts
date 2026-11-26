@@ -17,12 +17,7 @@ test('relocated executable renders and exits without Bun, Node, or node_modules'
 	const home = path.join(root, 'home');
 	const repo = path.join(home, 'repo');
 	const bin = path.join(root, 'tools');
-	for (const dir of [
-		path.join(install, 'dist'),
-		repo,
-		bin,
-		path.join(home, '.pappardelle'),
-	])
+	for (const dir of [path.join(install, 'dist'), repo, bin])
 		fs.mkdirSync(dir, {recursive: true});
 	const executable = path.join(install, 'dist/pappardelle');
 	fs.copyFileSync(
@@ -42,10 +37,6 @@ test('relocated executable renders and exits without Bun, Node, or node_modules'
 	fs.writeFileSync(
 		path.join(repo, '.pappardelle.yml'),
 		'version: 1\nissue_tracker:\n  provider: beads\nprofiles: {}\n',
-	);
-	fs.writeFileSync(
-		path.join(home, '.pappardelle/update-check.json'),
-		JSON.stringify({checkedAt: Date.now(), latestVersion: 'v0.0.0'}),
 	);
 	const env = {
 		...stripHostPappardelleEnv(),

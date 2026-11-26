@@ -72,6 +72,7 @@ const verbs: Record<string, Verb> = {
 	 * `--worktree <path>` is the space's worktree and `--main-root <path>` the
 	 * main checkout's, recorded with the session names the space is created with.
 	 * `--register --owner <pid>` holds the space for the process setting it up,
+	 * `--open` records it open without its sessions, as a benchmark seeds spaces,
 	 * `--created-issue` says this run created the space's issue,
 	 * `--profile <name>` is the profile the space was created or reopened with,
 	 * `--title=<title>` is the issue's title as idow read it from the tracker,
@@ -86,6 +87,7 @@ const verbs: Record<string, Verb> = {
 				worktree: {type: 'string'},
 				'main-root': {type: 'string'},
 				register: {type: 'boolean'},
+				open: {type: 'boolean'},
 				owner: {type: 'string'},
 				'created-issue': {type: 'boolean'},
 				profile: {type: 'string'},
@@ -119,6 +121,7 @@ const verbs: Record<string, Verb> = {
 		);
 
 		if (values.register) await daos.registry.reserveStart(key, owner);
+		if (values.open) await daos.registry.add(key);
 
 		if (values.fresh) await daos.agentSessions.clear(key);
 		if (values['created-issue']) await daos.issueMeta.markCreated(key);

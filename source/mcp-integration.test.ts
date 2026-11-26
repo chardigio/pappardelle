@@ -89,6 +89,22 @@ function prepareSpace(
 	expect(recorded.status, recorded.stderr).toBe(0);
 }
 
+/** The children's state, as this process reads and writes it. */
+function stateDaos(f: ReturnType<typeof fixture>) {
+	const stateDir = path.join(f.home, '.pappardelle');
+	const daos = createStateDaos({
+		repo: 'project',
+		stateDir,
+		home: f.home,
+		env: f.env,
+	});
+	teardown(() => {
+		daos.disconnectStatusDaemon();
+		closeStateDb(stateDbPath(stateDir));
+	});
+	return daos;
+}
+
 async function connect(
 	f: ReturnType<typeof fixture>,
 	env: Record<string, string> = {},
@@ -126,15 +142,8 @@ test('a repo that leaves workspace_aware_agents off gets no tools or instruction
 
 test('spaces_list answers from the CLI in a configured repo', async () => {
 	const f = fixture();
-	const registry = path.join(
-		f.home,
-		'.pappardelle',
-		'repos',
-		'project',
-		'open-spaces.json',
-	);
-	fs.mkdirSync(path.dirname(registry), {recursive: true});
-	fs.writeFileSync(registry, '["STE-1"]\n');
+	prepareSpace(f, 'STE-1');
+	await stateDaos(f).registry.add('STE-1');
 	const client = await connect(f);
 	expect(client.getInstructions() ?? '').toMatch(/isn't in a space/);
 	const result = await client.callTool({name: 'spaces_list', arguments: {}});
@@ -207,13 +216,7 @@ echo '{"state":"open","number":7,"head":{"repo":{"full_name":"o/child"},"ref":"s
 	});
 
 	expect(result.isError, text(result)).toBeFalsy();
-	const stateDir = path.join(f.home, '.pappardelle');
-	const daos = createStateDaos({repo: 'project', stateDir, home: f.home});
-	teardown(() => {
-		daos.disconnectStatusDaemon();
-		closeStateDb(stateDbPath(stateDir));
-	});
-	expect(daos.spaceState.read('KEY-5')?.prLinks?.[0]).toMatchObject({
+	expect(stateDaos(f).spaceState.read('KEY-5')?.prLinks?.[0]).toMatchObject({
 		project: 'o/child',
 		localBranch: 'nested',
 		remoteBranch: 'sd-child',

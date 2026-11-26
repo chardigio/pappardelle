@@ -253,9 +253,6 @@ signal.pause()
             **({'default_emoji': profile_emoji} if profile_emoji is not None else {}),
         }))
         (home / '.bashrc').write_text(f'sleep {shell_delay_ms / 1000}\n' if shell_delay_ms else '')
-        (home / '.pappardelle/update-check.json').write_text(json.dumps({
-            'checkedAt': int(time.time() * 1000), 'latestVersion': 'v0.0.0',
-        }))
         for index in range(skill_count):
             skill = home / '.claude/skills' / f'fixture-{index}' / 'SKILL.md'
             skill.parent.mkdir(parents=True)
@@ -279,9 +276,9 @@ signal.pause()
             worktree.parent.mkdir(parents=True, exist_ok=True)
             subprocess.run([real_tools['git'], 'worktree', 'add', '-qb', key, str(worktree)],
                            cwd=repo, env=env, check=True)
-        registry = home / '.pappardelle/repos/repo/open-spaces.json'
-        registry.parent.mkdir(parents=True, exist_ok=True)
-        registry.write_text(json.dumps(keys))
+            subprocess.run([str(binary), '--internal-state', 'prepare-space', '--repo', 'repo',
+                            '--worktree', str(worktree), '--main-root', str(repo), '--open', key],
+                           cwd=repo, env={**env, 'PATH': os.environ['PATH']}, check=True)
 
         def tmux(socket, *args):
             # Observer calls bypass wrappers and are excluded from command traces.

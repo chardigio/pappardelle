@@ -156,6 +156,41 @@ test('prepare-space stores an issue title that starts with a dash', () => {
 	expect(spaceState.read('STA-1')?.issueTitle).toBe('-x');
 });
 
+test('prepare-space --open lists the space as open, with the worktree it was given', () => {
+	const home = tempDir('papp-state-cli-');
+	const stateDir = path.join(home, '.pappardelle');
+	const worktree = path.join(home, 'elsewhere');
+	const result = spawnSync(
+		process.execPath,
+		[
+			fileURLToPath(new URL('state-cli.ts', import.meta.url)),
+			'prepare-space',
+			'--repo',
+			'repo',
+			'--worktree',
+			worktree,
+			'--main-root',
+			path.join(home, 'repo'),
+			'--open',
+			'STA-1',
+		],
+		{
+			encoding: 'utf8',
+			env: {
+				...process.env,
+				HOME: home,
+				PAPPARDELLE_STATE_DB: path.join(stateDir, 'state.db'),
+			},
+		},
+	);
+	expect(result.status, `stderr: ${result.stderr}`).toBe(0);
+	const {registry, spaceIdentities} = testState({stateDir}).daos;
+	expect(registry.openSpaces()).toStrictEqual(['STA-1']);
+	expect(spaceIdentities.get('STA-1')).toMatchObject({
+		identity: {worktreePath: worktree},
+	});
+});
+
 test("launch-agent records the agent profile a space's agent session starts with", () => {
 	const home = tempDir('papp-state-cli-');
 	const stateDir = path.join(home, '.pappardelle');

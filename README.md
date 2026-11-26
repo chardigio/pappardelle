@@ -579,7 +579,7 @@ Two paths feed the release workflow:
 - **Direct merge on `chardigio/pappardelle`** — an external contributor opens a PR here and you merge it. The release workflow reads the `release:*` label on the chardigio-side PR directly.
 - **Forward sync from `stardust-labs-io/stardust-labs`** — rsync pushes straight to `main` with no PR on this side. The monorepo's sync workflow reads the merged _monorepo_ PR's `release:*` label and propagates it to the synced commit as a `Release-bump: <major|minor|patch>` trailer, which the release workflow here consumes.
 
-On startup, the TUI checks the GitHub Releases API (cached for 24h at `~/.pappardelle/update-check.json`) and, if a newer tag is available, renders a magenta banner above the workspace list:
+On startup, the TUI checks the GitHub Releases API (cached for 24h in the [state database](pappardelle-config.md#state-database)) and, if a newer tag is available, renders a magenta banner above the workspace list:
 
 ```
 Update available: v0.1.0 → v0.2.0 · U to update · X to dismiss
