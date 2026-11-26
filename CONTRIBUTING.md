@@ -68,7 +68,7 @@ The run also gets a **throwaway HOME** (`/tmp/ph-*`), so nothing a test starts w
 
 Every run also gets the test tmux guard: the unit tests and the shell tests that start tmux run with a private `TMUX_TMPDIR`, no `TMUX`, and a `tmux` on PATH that refuses any socket in your live tmux directory, where the inner server holding every agent session lives. A refused call fails the run and is listed at the end, even when the test swallowed the error. Fix such a test by giving it the run's `TMUX_TMPDIR` or a `-S` socket of its own.
 
-The suites outside the unit tests that start tmux (the integration checks, the Python hook tests and `scripts/test-workspace-launchers.sh`) run through `test/helpers/tmux-guard-run.sh`, which sets up the same guard. It fails on a refusal, and fails a suite that passed but left a tmux server running in its `TMUX_TMPDIR`. The integration checks that start tmux refuse to run without it.
+The suites outside the unit tests that start tmux (the integration checks, the Python hook tests and `scripts/test-workspace-launchers.sh`) run through `test/helpers/tmux-guard-run.sh`, which sets up the same guard. It fails on a refusal, and fails a suite that passed but left a tmux server running in its `TMUX_TMPDIR`. The TypeScript integration checks that start tmux refuse to run without it.
 
 ## Code style
 

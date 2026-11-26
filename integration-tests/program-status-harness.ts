@@ -45,6 +45,8 @@ import {
 import type {ProgramStatusInfo} from '../source/program-status.ts';
 import type {SpaceData} from '../source/types.ts';
 
+requireTmuxGuard();
+
 export const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 
 export async function until<T>(
@@ -105,7 +107,6 @@ export class StatusHarness {
 	private view?: Awaited<ReturnType<typeof render>>;
 	private spaces: SpaceData[] = [];
 	constructor() {
-		requireTmuxGuard();
 		for (const [name, value] of Object.entries({
 			PAPPARDELLE_TMUX_SOCKET: this.socket,
 			PAPPARDELLE_STATUS_DIR: path.join(this.root, 'hooks'),

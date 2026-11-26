@@ -13,20 +13,33 @@ set -euo pipefail
 # paths below.
 CDPATH=''
 
+private_prefix=/tmp/pt-
+
 if [[ ${1:-} == --finish ]]; then
 	refusals=${2:-}
 	[[ -n $refusals ]] || exit 0
 	private=${refusals%/*}
+	# Everything under this directory is stopped and removed, so it has to be
+	# one this script made. macOS reaches /tmp through /private/tmp.
+	parent=${private%/*}
+	if [[ ($parent != "${private_prefix%/*}" && $parent != /private"${private_prefix%/*}") || ${private##*/} != "${private_prefix##*/}"* ]]; then
+		echo "tmux-guard-env.sh --finish: $refusals is not in a private TMUX_TMPDIR this script creates (${private_prefix}*)" >&2
+		exit 1
+	fi
 	status=0
 	# Removing the directory below would leave such a server running with no
 	# socket to reach it by.
 	while IFS= read -r socket; do
 		pids=$(tmux -S "$socket" list-panes -a -F '#{pane_pid}' 2>/dev/null) || continue
-		tmux -S "$socket" kill-server 2>/dev/null || true
 		# A pane shell that never got the terminal ignores the SIGHUP from
-		# kill-server and keeps running as an orphan.
+		# kill-server and keeps running as an orphan; one that exits leaves its
+		# children to init, where they can no longer be found by parent.
+		children=''
 		for pid in $pids; do
-			pkill -9 -P "$pid" 2>/dev/null || true
+			children="$children $(pgrep -P "$pid" 2>/dev/null || true)"
+		done
+		tmux -S "$socket" kill-server 2>/dev/null || true
+		for pid in $pids $children; do
 			kill -9 "$pid" 2>/dev/null || true
 		done
 		echo "Stopped a tmux server left running on $socket"
@@ -43,7 +56,6 @@ fi
 
 guard_home=/tmp/pappardelle-test-tmux-$(id -u)
 wrapper=$guard_home/bin/tmux
-private_prefix=/tmp/pt-
 
 real_tmux=''
 while IFS= read -r candidate; do

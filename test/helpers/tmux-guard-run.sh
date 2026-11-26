@@ -15,7 +15,7 @@ if (($# == 0)); then
 fi
 helpers=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
-guard_env=$(env -u TMUX -u TMUX_PANE "$helpers/tmux-guard-env.sh")
+guard_env=$("$helpers/tmux-guard-env.sh")
 # Without tmux the guard sets nothing up and the tmux tests skip themselves.
 if [[ -z $guard_env ]]; then
 	exec "$@"
