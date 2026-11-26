@@ -7,7 +7,7 @@ import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
 import {testSocketPath} from '../test/helpers/status-daemon.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 import type {StoredClaudeStatus} from './claude-status.ts';
 import {isPidAlive} from './file-lock.ts';
 import {statusSocketPath} from './state-db.ts';
@@ -39,11 +39,10 @@ test('a hook event sent to a running daemon reaches a watch in another process, 
 	teardown(() => {
 		if (isPidAlive(daemon)) process.kill(daemon, 'SIGKILL');
 	});
-	await waitUntil(
-		() => fs.existsSync(socketPath),
-		'the daemon to listen',
-		30_000,
-	);
+	await until(() => fs.existsSync(socketPath), {
+		what: 'the daemon to listen',
+		timeoutMs: 30_000,
+	});
 
 	const watcher = spawn(
 		process.execPath,
@@ -75,11 +74,10 @@ test('a hook event sent to a running daemon reaches a watch in another process, 
 		printed += text;
 	});
 	const watcherClosed = once(watcher, 'close');
-	await waitUntil(
-		() => printed.includes('watching\n'),
-		'the watcher to hold the daemon state',
-		30_000,
-	);
+	await until(() => printed.includes('watching\n'), {
+		what: 'the watcher to hold the daemon state',
+		timeoutMs: 30_000,
+	});
 
 	const reporting = execute('python3', [hook], {
 		env: {...env, PAPPARDELLE_REPO: 'repo', PAPPARDELLE_SPACE: 'STA-1'},

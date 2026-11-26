@@ -14,7 +14,7 @@ import {
 import {statusSocketPath} from '../../source/state-db.ts';
 import type {TestState} from './state.ts';
 import {deliver} from './status-daemon.ts';
-import {waitUntil} from './wait.ts';
+import {until} from './wait.ts';
 
 /** The snapshot a pane's monitor holds after `reports`. */
 export function snapshotOf(
@@ -86,10 +86,9 @@ export async function publishSnapshot(
 	});
 	try {
 		await deliver(socketPath, {type: 'snapshot', snapshot});
-		await waitUntil(
-			() => pushed,
-			`the snapshot of ${snapshot.key} to reach the stores`,
-		);
+		await until(() => pushed, {
+			what: `the snapshot of ${snapshot.key} to reach the stores`,
+		});
 	} finally {
 		stop();
 	}

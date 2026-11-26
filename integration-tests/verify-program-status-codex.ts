@@ -12,7 +12,7 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {shellQuoteStatus} from '../source/program-status-monitor.ts';
-import {StatusHarness, until} from './program-status-harness.ts';
+import {StatusHarness, untilSeen} from './program-status-harness.ts';
 
 assert.ok(
 	process.argv.includes('--live'),
@@ -88,7 +88,7 @@ async function turn(text: string, label: string) {
 }
 
 async function expectCompletion(label: string) {
-	const info = await until(
+	const info = await untilSeen(
 		async () => statuses.read(key),
 		value => value?.status === 'idle' || value?.status === 'done',
 		label,
@@ -155,7 +155,7 @@ try {
 		'!',
 		120000,
 	);
-	await until(
+	await untilSeen(
 		async () => harness.screen(session),
 		screen =>
 			/Yes, proceed|Would you like to run|approve this command/.test(screen),

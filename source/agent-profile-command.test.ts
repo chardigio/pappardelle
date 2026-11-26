@@ -1,4 +1,5 @@
 import {test, expect} from 'bun:test';
+import {testConfig} from '../test/helpers/config-fixtures.ts';
 import {
 	runAgentProfileCommand,
 	type AgentProfileCommandDeps,
@@ -22,12 +23,12 @@ function deps(loadConfig: () => PappardelleConfig) {
 	return {commandDeps, out, err};
 }
 
-const config = {
+const config = testConfig({
 	agent_profiles: {
 		'codex-sol:high': {command: 'codex'},
 		aider: {command: 'aider'},
 	},
-} as unknown as PappardelleConfig;
+});
 
 test('list prints one agent profile name per line, the built-in claude first', () => {
 	const d = deps(() => config);

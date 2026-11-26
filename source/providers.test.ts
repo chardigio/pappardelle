@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {test, expect, beforeEach} from 'bun:test';
 import {testState} from '../test/helpers/state.ts';
+import {trackerIssue} from '../test/helpers/space-fixtures.ts';
 import {
 	createIssueTracker,
 	createVcsHost,
@@ -11,7 +12,8 @@ import {
 	setStateColors,
 	setWorkspaceDiscovery,
 	type IssueTrackerConfig,
-	type TrackerIssue,
+	type TrackerProviderName,
+	type VcsProviderName,
 } from './providers/index.ts';
 import {claimIssue} from './tracker.ts';
 
@@ -73,8 +75,12 @@ test('createIssueTracker throws for jira without base_url', () => {
 	);
 });
 
+// Config validation rejects an unknown provider name; this test and the
+// createVcsHost one below cover the factories' throw for a name that got
+// past it.
 test('createIssueTracker throws for unknown provider', () => {
-	expect(() => createIssueTracker({provider: 'unknown'})).toThrow(
+	const provider = 'unknown' as unknown as TrackerProviderName;
+	expect(() => createIssueTracker({provider})).toThrow(
 		/Unknown issue tracker provider/,
 	);
 });
@@ -105,9 +111,8 @@ test('createVcsHost returns GitLabProvider for gitlab config', () => {
 });
 
 test('createVcsHost throws for unknown provider', () => {
-	expect(() => createVcsHost({provider: 'unknown'})).toThrow(
-		/Unknown VCS host provider/,
-	);
+	const provider = 'unknown' as unknown as VcsProviderName;
+	expect(() => createVcsHost({provider})).toThrow(/Unknown VCS host provider/);
 });
 
 test('createVcsHost returns singleton', () => {
@@ -206,12 +211,6 @@ for (const config of [
 // Issue titles
 // ============================================================================
 
-const issue = (title: string): TrackerIssue => ({
-	identifier: 'STA-1',
-	title,
-	state: {name: 'Todo', type: 'unstarted', color: '#000000'},
-});
-
 // The rail reads every space's issue on each refresh, so an unchanged title
 // must not rewrite the space's state.
 test('a title read from the tracker is stored when it changed, and a failed read stores nothing', async () => {
@@ -220,7 +219,7 @@ test('a title read from the tracker is stored when it changed, and a failed read
 	setIssueTitles(spaceState);
 
 	await recordIssueTitles([
-		['STA-1', issue('First')],
+		['STA-1', trackerIssue({title: 'First'})],
 		['STA-2', null],
 	]);
 	const first = spaceState.read('STA-1');
@@ -228,11 +227,11 @@ test('a title read from the tracker is stored when it changed, and a failed read
 	expect(spaceState.read('STA-2')).toBe(null);
 
 	now = 1000;
-	await recordIssueTitles([['STA-1', issue('First')]]);
+	await recordIssueTitles([['STA-1', trackerIssue({title: 'First'})]]);
 	await recordIssueTitles([['STA-1', null]]);
 	expect(spaceState.read('STA-1')).toStrictEqual(first);
 
-	await recordIssueTitles([['STA-1', issue('Renamed')]]);
+	await recordIssueTitles([['STA-1', trackerIssue({title: 'Renamed'})]]);
 	expect(spaceState.read('STA-1')).toMatchObject({
 		issueTitle: 'Renamed',
 		updatedAt: new Date(1000).toISOString(),
@@ -247,7 +246,7 @@ test('a title is not written over a state file that cannot be read', async () =>
 	const halfWritten = '{"profile": "dev", "prLinks": [';
 	fs.writeFileSync(file, halfWritten);
 
-	await recordIssueTitles([['STA-1', issue('First')]]);
+	await recordIssueTitles([['STA-1', trackerIssue({title: 'First'})]]);
 
 	expect(fs.readFileSync(file, 'utf8')).toBe(halfWritten);
 });

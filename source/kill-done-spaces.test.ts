@@ -1,4 +1,5 @@
 import {test, expect} from 'bun:test';
+import {spaceData, trackerIssue} from '../test/helpers/space-fixtures.ts';
 import {
 	buildKillDoneConfirmContent,
 	findDoneSpaces,
@@ -13,23 +14,9 @@ import type {SpaceData} from './types.ts';
 // ============================================================================
 
 function makeIssue(stateType: string, stateName = stateType): TrackerIssue {
-	return {
-		identifier: 'STA-1',
-		title: 'Test issue',
+	return trackerIssue({
 		state: {name: stateName, type: stateType, color: '#95a2b3'},
-		project: null,
-	};
-}
-
-function makeSpace(
-	name: string,
-	overrides: Partial<SpaceData> = {},
-): SpaceData {
-	return {
-		name,
-		worktreePath: `/tmp/${name}`,
-		...overrides,
-	};
+	});
 }
 
 // ============================================================================
@@ -38,30 +25,30 @@ function makeSpace(
 
 test('picks spaces whose tracker state.type is completed', () => {
 	const spaces: SpaceData[] = [
-		makeSpace('STA-10', {trackerIssue: makeIssue('completed', 'Done')}),
-		makeSpace('STA-20', {trackerIssue: makeIssue('started', 'In Progress')}),
+		spaceData('STA-10', {trackerIssue: makeIssue('completed', 'Done')}),
+		spaceData('STA-20', {trackerIssue: makeIssue('started', 'In Progress')}),
 	];
 	expect(findDoneSpaces(spaces).map(s => s.name)).toStrictEqual(['STA-10']);
 });
 
 test('picks spaces whose tracker state.type is canceled', () => {
 	const spaces: SpaceData[] = [
-		makeSpace('STA-10', {trackerIssue: makeIssue('canceled', 'Cancelled')}),
-		makeSpace('STA-20', {trackerIssue: makeIssue('unstarted', 'Todo')}),
+		spaceData('STA-10', {trackerIssue: makeIssue('canceled', 'Cancelled')}),
+		spaceData('STA-20', {trackerIssue: makeIssue('unstarted', 'Todo')}),
 	];
 	expect(findDoneSpaces(spaces).map(s => s.name)).toStrictEqual(['STA-10']);
 });
 
 test('falls back to the deprecated linearIssue field', () => {
 	const spaces: SpaceData[] = [
-		makeSpace('STA-10', {linearIssue: makeIssue('completed', 'Done')}),
+		spaceData('STA-10', {linearIssue: makeIssue('completed', 'Done')}),
 	];
 	expect(findDoneSpaces(spaces).map(s => s.name)).toStrictEqual(['STA-10']);
 });
 
 test('never picks the main worktree, even when its issue reads done', () => {
 	const spaces: SpaceData[] = [
-		makeSpace('master', {
+		spaceData('master', {
 			isMainWorktree: true,
 			trackerIssue: makeIssue('completed', 'Done'),
 		}),
@@ -71,7 +58,7 @@ test('never picks the main worktree, even when its issue reads done', () => {
 
 test('never picks a pending row', () => {
 	const spaces: SpaceData[] = [
-		makeSpace('STA-10', {
+		spaceData('STA-10', {
 			isPending: true,
 			trackerIssue: makeIssue('completed', 'Done'),
 		}),
@@ -80,7 +67,7 @@ test('never picks a pending row', () => {
 });
 
 test('never picks a space with no issue attached', () => {
-	expect(findDoneSpaces([makeSpace('STA-10')])).toStrictEqual([]);
+	expect(findDoneSpaces([spaceData('STA-10')])).toStrictEqual([]);
 });
 
 test('returns an empty array for an empty list', () => {
@@ -89,10 +76,10 @@ test('returns an empty array for an empty list', () => {
 
 test('preserves rail order across a mixed list', () => {
 	const spaces: SpaceData[] = [
-		makeSpace('master', {isMainWorktree: true}),
-		makeSpace('STA-10', {trackerIssue: makeIssue('completed', 'Done')}),
-		makeSpace('STA-20', {trackerIssue: makeIssue('started', 'In Progress')}),
-		makeSpace('STA-30', {trackerIssue: makeIssue('canceled', 'Cancelled')}),
+		spaceData('master', {isMainWorktree: true}),
+		spaceData('STA-10', {trackerIssue: makeIssue('completed', 'Done')}),
+		spaceData('STA-20', {trackerIssue: makeIssue('started', 'In Progress')}),
+		spaceData('STA-30', {trackerIssue: makeIssue('canceled', 'Cancelled')}),
 	];
 	expect(findDoneSpaces(spaces).map(s => s.name)).toStrictEqual([
 		'STA-10',

@@ -1,10 +1,10 @@
 import {test, expect} from 'bun:test';
+import {trackerIssue} from '../test/helpers/space-fixtures.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {readConfig, type PappardelleConfig} from './config.ts';
-import type {TrackerIssue} from './providers/types.ts';
 import {
 	defaultCloseHooksDeps,
 	resolveDeinitCommands,
@@ -30,22 +30,13 @@ const config: PappardelleConfig = {
 	},
 };
 
-function issue(fields: Partial<TrackerIssue>): TrackerIssue {
-	return {
-		identifier: 'STA-1',
-		title: '',
-		state: {name: 'Todo', type: 'unstarted', color: '#fff'},
-		...fields,
-	};
-}
-
 const names = (commands: Array<{name: string}>) =>
 	commands.map(command => command.name);
 
 test('a project match picks its profile over a title keyword match', () => {
 	const commands = resolveDeinitCommands(
 		config,
-		issue({title: 'music player', project: {name: 'The Hive'}}),
+		trackerIssue({title: 'music player', project: {name: 'The Hive'}}),
 	);
 	expect(names(commands)).toStrictEqual(['global', 'hive']);
 });
@@ -53,7 +44,7 @@ test('a project match picks its profile over a title keyword match', () => {
 test('the title picks the profile when no project matches', () => {
 	const commands = resolveDeinitCommands(
 		config,
-		issue({title: 'music player', project: {name: 'Elsewhere'}}),
+		trackerIssue({title: 'music player', project: {name: 'Elsewhere'}}),
 	);
 	expect(names(commands)).toStrictEqual(['global', 'jams']);
 });

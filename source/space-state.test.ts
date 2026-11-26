@@ -168,7 +168,7 @@ for (const sqlite of [false, true]) {
 			unresolvedCommentCount: 2,
 			hasConflict: false,
 		});
-		const expected = {
+		const expected: SpaceState = {
 			pipeline: 'passing',
 			unresolvedCommentCount: 2,
 			hasConflict: false,

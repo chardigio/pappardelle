@@ -17,60 +17,21 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 
 # shellcheck source=provider-helpers.sh
 source "$SCRIPT_DIR/provider-helpers.sh"
 
-# layer_file <home|project|local>
+# layer_file <home|project|local>: the file write_config_layers last wrote it to.
 layer_file() {
     case "$1" in
-        home) echo "$TMPDIR_ROOT/home/.pappardelle.yml" ;;
-        project) echo "$TMPDIR_ROOT/.pappardelle.yml" ;;
-        local) echo "$TMPDIR_ROOT/.pappardelle.local.yml" ;;
+        project) echo "${CONFIG_LAYER_ARGS[1]}" ;;
+        local) echo "${CONFIG_LAYER_ARGS[3]}" ;;
+        home) echo "${CONFIG_LAYER_ARGS[5]}" ;;
     esac
-}
-
-# setup_configs <project_yaml> [local_yaml] [home_yaml]
-setup_configs() {
-    TMPDIR_ROOT=$(mktemp -d)
-    mkdir -p "$TMPDIR_ROOT/home"
-    printf '%s\n' "$1" > "$(layer_file project)"
-    if [[ -n "${2:-}" ]]; then
-        printf '%s\n' "$2" > "$(layer_file local)"
-    fi
-    if [[ -n "${3:-}" ]]; then
-        printf '%s\n' "$3" > "$(layer_file home)"
-    fi
 }
 
 merged() {
@@ -79,20 +40,19 @@ merged() {
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: project-only config passes through unchanged${RESET}"
-setup_configs "version: 1
+section "project-only config passes through unchanged"
+write_config_layers "version: 1
 team_prefix: STA
 profiles:
   api:
     display_name: API"
 assert_eq "team_prefix" "STA" "$(merged | yq -r '.team_prefix')"
 assert_eq "profile list" "api" "$(merged | yq -r '.profiles | keys | .[]')"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home-only settings reach a project that never mentions them${RESET}"
-setup_configs "version: 1
+section "home-only settings reach a project that never mentions them"
+write_config_layers "version: 1
 profiles:
   api:
     display_name: API" "" "version: 1
@@ -119,12 +79,11 @@ assert_eq "home profile links survive" "Jira" "$(merged | yq -r '.profiles.rex-a
 assert_eq "provider from home" "jira" "$(get_issue_tracker_provider <(merged))"
 assert_eq "gitlab host from home" "gitlab.example.com" "$(get_gitlab_host <(merged))"
 assert_eq "companion_command from home" "hunk diff --watch" "$(merged | yq -r '.companion_command')"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: project beats home, local beats both, key by key${RESET}"
-setup_configs "version: 1
+section "project beats home, local beats both, key by key"
+write_config_layers "version: 1
 team_prefix: PROJ
 profiles:
   api:
@@ -149,12 +108,11 @@ assert_eq "profile key only in home survives" "X" "$(merged | yq -r '.profiles.a
 assert_eq "nested map merges across all three layers" "true high opus" \
     "$(merged | yq -r '.profiles.api.claude | [.dangerously_skip_permissions, .effort, .model] | join(" ")')"
 assert_eq "home-only top-level key survives" "hunk diff --watch" "$(merged | yq -r '.companion_command')"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: arrays replace, they do not append (matches deepMerge in config.ts)${RESET}"
-setup_configs "version: 1
+section "arrays replace, they do not append (matches deepMerge in config.ts)"
+write_config_layers "version: 1
 profiles:
   api:
     keywords: [project-kw]" "" "version: 1
@@ -162,24 +120,22 @@ profiles:
   api:
     keywords: [home-kw-1, home-kw-2]"
 assert_eq "project array replaces home array" "project-kw" "$(merged | yq -r '.profiles.api.keywords | join(",")')"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: missing home and local files are skipped, not errors${RESET}"
-setup_configs "version: 1
+section "missing home and local files are skipped, not errors"
+write_config_layers "version: 1
 team_prefix: ONLY"
 assert_eq "no home, no local" "ONLY" "$(merged | yq -r '.team_prefix')"
 assert_eq "nonexistent explicit path is skipped" "ONLY" \
     "$(merge_config_layers "/nonexistent/home.yml" "$(layer_file project)" "" | yq -r '.team_prefix')"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: layer precedence beats init command spelling${RESET}"
+section "layer precedence beats init command spelling"
 # A project still on the deprecated claude.initialization_command must override
 # a home config that has migrated; each layer is renamed before the merge.
-setup_configs "version: 1
+write_config_layers "version: 1
 claude:
   initialization_command: /project
 profiles:
@@ -193,18 +149,16 @@ profiles:
 assert_eq "top level: project's old spelling beats home's new one" "/project" "$(merged | yq -r '.initialization_command')"
 assert_eq "profile: project's old spelling beats home's new one" "/project-api" "$(merged | yq -r '.profiles.api.initialization_command')"
 assert_eq "old spelling is gone after the rename" "null" "$(merged | yq -r '.claude.initialization_command')"
-cleanup; unset TMPDIR_ROOT
 
-setup_configs "version: 1
+write_config_layers "version: 1
 initialization_command: /new
 claude:
   initialization_command: /old"
 assert_eq "a layer with both spellings keeps the new one" "/new" "$(merged | yq -r '.initialization_command')"
-cleanup; unset TMPDIR_ROOT
 
 # A claude list is a schema error for the TUI's validator to report, so the
 # rename must leave it alone rather than fail the merge.
-setup_configs "version: 1
+write_config_layers "version: 1
 claude: [opus]
 profiles:
   api:
@@ -212,11 +166,10 @@ profiles:
 merged > "$TMPDIR_ROOT/merged.yml" 2>&1 || true
 assert_eq "top-level claude list passes through" "opus" "$(yq -r '.claude[0]' "$TMPDIR_ROOT/merged.yml" 2>&1)"
 assert_eq "profile claude list passes through" "sonnet" "$(yq -r '.profiles.api.claude[0]' "$TMPDIR_ROOT/merged.yml" 2>&1)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a layer with no YAML document adds nothing to the merge${RESET}"
+section "a layer with no YAML document adds nothing to the merge"
 # An empty file holds zero documents.
 for kind in empty whitespace-only comments-only; do
     case "$kind" in
@@ -224,7 +177,7 @@ for kind in empty whitespace-only comments-only; do
         whitespace-only) local_text=$'\n  \n' ;;
         comments-only) local_text=$'# only a comment\n  # and another' ;;
     esac
-    setup_configs "version: 1
+    write_config_layers "version: 1
 team_prefix: KEEP
 profiles:
   api:
@@ -232,23 +185,20 @@ profiles:
     printf '%s' "$local_text" > "$(layer_file local)"
     assert_eq "$kind local layer keeps team_prefix" "KEEP" "$(merged | yq -r '.team_prefix')"
     assert_eq "$kind local layer keeps profiles" "api" "$(merged | yq -r '.profiles | keys | .[]')"
-    cleanup; unset TMPDIR_ROOT
 done
 
-setup_configs "version: 1
+write_config_layers "version: 1
 team_prefix: PROJECT" "team_prefix: LOCAL"
 : > "$(layer_file home)"
 assert_eq "zero-byte home layer: local still beats project" "LOCAL" "$(merged | yq -r '.team_prefix')"
-cleanup; unset TMPDIR_ROOT
 
-setup_configs "version: 1
+write_config_layers "version: 1
 claude:
   initialization_command: /project"
 : > "$(layer_file local)"
 assert_eq "empty layer beside a deprecated init command spelling" "/project" "$(merged | yq -r '.initialization_command')"
-cleanup; unset TMPDIR_ROOT
 
-setup_configs "version: 1
+write_config_layers "version: 1
 defaults: &defaults
   display_name: Shared
 profiles:
@@ -257,17 +207,15 @@ profiles:
     team_prefix: API"
 : > "$(layer_file local)"
 assert_eq "empty layer beside a YAML merge key" "Shared/API" "$(merged | yq -r '.profiles.api.display_name + "/" + .profiles.api.team_prefix')"
-cleanup; unset TMPDIR_ROOT
 
-setup_configs ""
+write_config_layers ""
 : > "$(layer_file project)"
 : > "$(layer_file local)"
 : > "$(layer_file home)"
 assert_eq "every layer empty merges to an empty map" "{}" "$(merged)"
-cleanup; unset TMPDIR_ROOT
 
-echo -e "\n${BOLD}Test: resolve-agent-config.sh keeps the project config beside an empty local file${RESET}"
-setup_configs "version: 1
+section "resolve-agent-config.sh keeps the project config beside an empty local file"
+write_config_layers "version: 1
 workspace_aware_agents: true
 initialization_command: /init-workspace
 agent_profile: codex
@@ -281,18 +229,17 @@ RESOLVED=$("$SCRIPT_DIR/resolve-agent-config.sh" \
 assert_eq "agent_command" "codex" "$(jq -r '.agent_command' <<<"$RESOLVED")"
 assert_eq "init_cmd" "/init-workspace" "$(jq -r '.init_cmd' <<<"$RESOLVED")"
 assert_eq "workspace_aware" "true" "$(jq -r '.workspace_aware' <<<"$RESOLVED")"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a layer whose top level is a scalar or a list fails, naming the file${RESET}"
+section "a layer whose top level is a scalar or a list fails, naming the file"
 for kind in scalar list; do
     case "$kind" in
         scalar) bad_text="just a string" ;;
         list) bad_text=$'- a\n- b' ;;
     esac
     for layer in home project local; do
-        setup_configs "version: 1
+        write_config_layers "version: 1
 team_prefix: PROJECT" "team_prefix: LOCAL" "version: 1
 team_prefix: HOME"
         bad_file=$(layer_file "$layer")
@@ -302,16 +249,15 @@ team_prefix: HOME"
         assert_eq "$kind $layer layer fails" "failed" "$([[ $status -ne 0 ]] && echo failed || echo "exit 0")"
         assert_eq "$kind $layer layer error names the file" "$bad_file: the top level must be a map" \
             "$(grep -o "$bad_file: the top level must be a map" <<<"$stderr" || echo "$stderr")"
-        cleanup; unset TMPDIR_ROOT
     done
 done
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a ---, null or ~ layer adds nothing to the merge${RESET}"
+section "a ---, null or ~ layer adds nothing to the merge"
 for doc in --- null "~"; do
     for layer in home project local; do
-        setup_configs "version: 1
+        write_config_layers "version: 1
 team_prefix: PROJECT" "team_prefix: LOCAL" "version: 1
 team_prefix: HOME
 companion_command: hunk"
@@ -322,25 +268,23 @@ companion_command: hunk"
         esac
         printf '%s\n' "$doc" > "$(layer_file "$layer")"
         assert_eq "$doc $layer layer" "$expected" "$(merged | yq -r '.team_prefix + "/" + (.companion_command // "none")')"
-        cleanup; unset TMPDIR_ROOT
     done
 done
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: an alias resolves even when a higher layer overrides its anchor${RESET}"
-setup_configs "version: 1
+section "an alias resolves even when a higher layer overrides its anchor"
+write_config_layers "version: 1
 a: &x {k: 1}
 b: *x" "a: {k: 2}"
 merged > "$TMPDIR_ROOT/merged.yml" || true
 assert_eq "the alias keeps the anchor's own value" "1" "$(yq -r '.b.k' "$TMPDIR_ROOT/merged.yml" 2>&1)"
 assert_eq "the higher layer's value wins" "2" "$(yq -r '.a.k' "$TMPDIR_ROOT/merged.yml" 2>&1)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: an alias, a merge key and the deprecated init spelling across three layers${RESET}"
-setup_configs "version: 1
+section "an alias, a merge key and the deprecated init spelling across three layers"
+write_config_layers "version: 1
 base: &base
   team_prefix: BASE
   display_name: Base
@@ -359,14 +303,13 @@ assert_eq "merge key keys and the profile's own key" "BASE/API" \
 assert_eq "home profile key survives" "X" "$(merged | yq -r '.profiles.api.emoji')"
 assert_eq "local's aliased old spelling beats home's new one" "/local-old" "$(merged | yq -r '.initialization_command')"
 assert_eq "no alias or merge key is left" "0" "$(merged | grep -cE '[*&]|<<' || true)"
-cleanup; unset TMPDIR_ROOT
 
 assert_eq "no layer files merge to an empty map without reading stdin" "{}" \
     "$(merge_config_layers "" "/nonexistent/project.yml" "" </dev/null)"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: idow wiring${RESET}"
+section "idow wiring"
 IDOW="$SCRIPT_DIR/idow"
 assert_eq "idow merges the layers into CONFIG_PATH" "1" "$(grep -c 'CONFIG_PATH="\$MERGED_CONFIG_PATH"' "$IDOW" || true)"
 assert_eq "merge runs before the first provider read" "yes" \
@@ -387,6 +330,4 @@ assert_eq "no resolver re-implements the merge" "" \
 
 # ==========================================================================
 
-echo ""
-echo -e "${BOLD}Results: ${GREEN}$PASS passed${RESET}, ${RED}$FAIL failed${RESET}"
-[[ $FAIL -eq 0 ]]
+summarize

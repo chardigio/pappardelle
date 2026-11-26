@@ -5,7 +5,6 @@ import {once} from 'node:events';
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {fileURLToPath} from 'node:url';
 import {WorkspaceStatuses} from '../source/workspace-status.ts';
 import {
 	LIVENESS_CHECK_MS,
@@ -17,7 +16,11 @@ import {
 	runStatusTmux,
 	shellQuoteStatus,
 } from '../source/program-status-monitor.ts';
-import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
+import {
+	StatusHarness,
+	projectRoot,
+	untilSeen,
+} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
 const previousPath = process.env['PATH'];
@@ -64,7 +67,7 @@ try {
 			return runStatusTmux(args);
 		},
 	);
-	const initial = await until(
+	const initial = await untilSeen(
 		async () => statuses.read(key),
 		info => info?.status === 'working',
 		'initial status',
@@ -208,7 +211,7 @@ try {
 	for (let i = 0; i < 3; i++) {
 		const target = delivered + 1;
 		await harness.emit(session, `state=working:app=fixture:progress=${i + 1}`);
-		await until(deliveredCount, count => count >= target, 'watcher event');
+		await untilSeen(deliveredCount, count => count >= target, 'watcher event');
 	}
 	assert.equal(queries - before, 0);
 	stopWatch();
@@ -221,7 +224,7 @@ try {
 	const afterInterval = await programStatus.read(key, pane);
 	assert.equal(afterInterval?.exited, false);
 	await harness.emit(session, 'state=blocked:app=fixture:kind=question');
-	await until(
+	await untilSeen(
 		async () => statuses.read(key),
 		info => info?.status === 'blocked',
 		'report after a liveness interval',
@@ -279,19 +282,19 @@ original(${JSON.stringify(ready)}, '');
 	publisher = spawn(process.execPath, [script], {
 		stdio: ['pipe', 'ignore', 'inherit'],
 	});
-	await until(() => existsSync(ready), Boolean, 'publisher starts');
+	await untilSeen(() => existsSync(ready), Boolean, 'publisher starts');
 	publisher.stdin?.write(
 		'\x1b]7501;state=idle:app=fixture:msg=cmVjb3JkZWQgbWVzc2FnZQ==\x07',
 	);
 	if (harness.sqlite) {
 		// With the flag on the publisher writes no file to pause in. What a
 		// revoked lease has to stop is its next send.
-		await until(
+		await untilSeen(
 			async () => harness.heldSnapshots(repo, 'race'),
 			held => held === 1,
 			'publisher sends its snapshot to the daemon',
 		);
-		await until(
+		await untilSeen(
 			() => existsSync(target),
 			retained => !retained,
 			'publisher removes the snapshot file it found',
@@ -300,14 +303,14 @@ original(${JSON.stringify(ready)}, '');
 		publisher.stdin?.write('\x1b]7501;state=working:app=fixture\x07');
 		await delay(500);
 	} else {
-		await until(
+		await untilSeen(
 			() => existsSync(paused),
 			Boolean,
 			'publication pauses after initial lease check',
 		);
 		await programStatus.remove('race');
 		writeFileSync(resume, '');
-		await until(() => existsSync(done), Boolean, 'publication resumes');
+		await untilSeen(() => existsSync(done), Boolean, 'publication resumes');
 	}
 
 	assert.equal(existsSync(target), false);
@@ -324,7 +327,7 @@ original(${JSON.stringify(ready)}, '');
 	assert.equal(await programStatus.attach(key, session), null);
 	evidence['missing-pin'] = 'surviving windows are not rebound as agent panes';
 	console.log('PASS missing pinned pane does not rebind another window');
-	await until(
+	await untilSeen(
 		() => publisher!.exitCode !== null || publisher!.signalCode !== null,
 		Boolean,
 		'owner death retires a monitor whose stdin never receives EOF',

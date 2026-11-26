@@ -1,39 +1,31 @@
 import {test, expect} from 'bun:test';
+import {spaceData} from '../test/helpers/space-fixtures.ts';
 import {unreachable} from '../test/helpers/unreachable.ts';
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import {shouldShowLoadingTitle, tearDownSpace} from './space-utils.ts';
-import type {SpaceData} from './types.ts';
 
 // ============================================================================
 // Test helpers
 // ============================================================================
-
-function makeSpace(name: string, opts?: Partial<SpaceData>): SpaceData {
-	return {
-		name,
-		worktreePath: `/worktrees/${name}`,
-		...opts,
-	};
-}
 
 // ============================================================================
 // shouldShowLoadingTitle
 // ============================================================================
 
 test('shows loading when linearIssue is undefined and space is not pending or main', () => {
-	expect(shouldShowLoadingTitle(makeSpace('STA-123'))).toBe(true);
+	expect(shouldShowLoadingTitle(spaceData('STA-123'))).toBe(true);
 });
 
 test('does not show loading for main worktree rows', () => {
 	expect(
-		shouldShowLoadingTitle(makeSpace('main', {isMainWorktree: true})),
+		shouldShowLoadingTitle(spaceData('main', {isMainWorktree: true})),
 	).toBe(false);
 });
 
 test('does not show loading when pendingTitle is set', () => {
 	expect(
 		shouldShowLoadingTitle(
-			makeSpace('STA-123', {pendingTitle: 'Starting new session…'}),
+			spaceData('STA-123', {pendingTitle: 'Starting new session…'}),
 		),
 	).toBe(false);
 });
@@ -41,11 +33,11 @@ test('does not show loading when pendingTitle is set', () => {
 test('does not show loading when linearIssue title is available', () => {
 	expect(
 		shouldShowLoadingTitle(
-			makeSpace('STA-123', {
+			spaceData('STA-123', {
 				linearIssue: {
 					identifier: 'STA-123',
 					title: 'Fix the bug',
-					state: {name: 'In Progress', color: '#f2c94c'},
+					state: {name: 'In Progress', type: 'started', color: '#f2c94c'},
 				},
 			}),
 		),
@@ -53,7 +45,7 @@ test('does not show loading when linearIssue title is available', () => {
 });
 
 test('does not show loading when name is empty', () => {
-	expect(shouldShowLoadingTitle(makeSpace(''))).toBe(false);
+	expect(shouldShowLoadingTitle(spaceData(''))).toBe(false);
 });
 
 // ============================================================================

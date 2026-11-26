@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
+import {testConfig} from '../test/helpers/config-fixtures.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {
 	agentRulesFlags,
@@ -23,7 +24,8 @@ function argv(flags: string): string[] {
 function rulesFlagsFor(command: string, isClaude?: boolean): string {
 	const definition = {command, is_claude: isClaude};
 	return agentRulesFlags(
-		getNamedAgentProfile({agent_profiles: {a: definition}}, 'a').rulesArgs,
+		getNamedAgentProfile(testConfig({agent_profiles: {a: definition}}), 'a')
+			.rulesArgs,
 	);
 }
 
@@ -61,7 +63,9 @@ test('an agent gated as claude takes no rules flag, whatever its command', () =>
 });
 
 const codexProfile = getNamedAgentProfile(
-	{agent_profiles: {codex: {command: 'codex', resume_args: 'resume --last'}}},
+	testConfig({
+		agent_profiles: {codex: {command: 'codex', resume_args: 'resume --last'}},
+	}),
 	'codex',
 );
 

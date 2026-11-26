@@ -17,6 +17,8 @@ import {fileURLToPath} from 'node:url';
 import {isDeepStrictEqual} from 'node:util';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
+import {requireTmuxGuard} from '../test/helpers/tmux-guard-check.ts';
+import {untilValue} from '../test/helpers/wait.ts';
 import {sendHookEvent, subscribeRaw} from '../test/helpers/status-daemon.ts';
 import type {
 	ClaudeSessionState,
@@ -44,21 +46,17 @@ import {
 import type {ProgramStatusInfo} from '../source/program-status.ts';
 import type {SpaceData} from '../source/types.ts';
 
+requireTmuxGuard();
+
 export const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 
-export async function until<T>(
+export async function untilSeen<T>(
 	read: () => T | Promise<T>,
 	accept: (value: T) => boolean,
-	label: string,
-	timeout = 10000,
+	what: string,
+	timeoutMs = 10_000,
 ): Promise<T> {
-	const end = Date.now() + timeout;
-	while (Date.now() < end) {
-		const value = await read();
-		if (accept(value)) return value;
-		await delay(100);
-	}
-	throw new Error(`Timed out: ${label}`);
+	return untilValue(read, accept, {what, timeoutMs, intervalMs: 100});
 }
 
 function entriesIn(directory: string): string[] {
@@ -111,6 +109,10 @@ export class StatusHarness {
 			// the developer's own.
 			PAPPARDELLE_STATE_DB: path.join(this.stateDir, 'state.db'),
 			PAPPARDELLE_STATUS_SOCKET: this.statusSocket,
+			// The monitors in the harness's panes otherwise follow the
+			// state-flag.json the developer's CLI records under HOME, and publish
+			// where the harness does not read.
+			PAPPARDELLE_SQLITE_STATE: this.sqlite ? '1' : '0',
 			PAPPARDELLE_PROGRAM_STATUS_DIR: path.join(this.root, 'status'),
 			PAPPARDELLE_PROGRAM_STATUS_TRACE_DIR: path.join(this.root, 'trace'),
 			PAPPARDELLE_CLAUDE_CONFIG_PATH: path.join(
@@ -207,7 +209,7 @@ export class StatusHarness {
 			.map(value => shellQuoteStatus(value))
 			.join(' ');
 		await this.type(session, command);
-		await until(
+		await untilSeen(
 			() => {
 				try {
 					return JSON.parse(readFileSync(ready, 'utf8')) as {reply: string};
@@ -242,7 +244,7 @@ export class StatusHarness {
 		};
 		if (this.sqlite) {
 			await sendHookEvent(this.statusSocket, state);
-			await until(
+			await untilSeen(
 				async () => this.claudeStatus.readState(key),
 				stored =>
 					stored.kind === 'state' && isDeepStrictEqual(stored.state, state),
@@ -301,7 +303,7 @@ export class StatusHarness {
 		icon?: string,
 		timeout = 10000,
 	) {
-		const info = await until(
+		const info = await untilSeen(
 			() => this.spaces[0]?.programStatus,
 			value =>
 				value?.status === status &&
@@ -313,7 +315,7 @@ export class StatusHarness {
 			timeout,
 		);
 		if (icon)
-			await until(
+			await untilSeen(
 				() => this.view?.lastFrame() ?? '',
 				frame => frame.includes(`${icon} ${this.spaces[0]!.name}`),
 				`${label} visible indicator`,
@@ -330,7 +332,7 @@ export class StatusHarness {
 
 	async expectUnknown(label: string) {
 		assert.equal(this.spaces[0]?.programStatus?.status ?? 'unknown', 'unknown');
-		await until(
+		await untilSeen(
 			() => this.view?.lastFrame() ?? '',
 			frame => frame.includes(`? ${this.spaces[0]!.name}`),
 			`${label} visible indicator`,

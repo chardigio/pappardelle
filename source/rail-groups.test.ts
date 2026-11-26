@@ -53,7 +53,7 @@ function shape(rows: readonly RailRow[]): string[] {
 // ============================================================================
 
 test('default groups put To Do, In Progress and unloaded issues in In Progress', () => {
-	const group = (space: SpaceData) => railGroupOf(space, defaults).name;
+	const group = (space: SpaceData) => railGroupOf(space, defaults)!.name;
 	expect(group(issueSpace('STE-1', 'To Do', 'unstarted'))).toBe('In Progress');
 	expect(group(issueSpace('STE-2', 'In Progress', 'started'))).toBe(
 		'In Progress',
@@ -63,12 +63,12 @@ test('default groups put To Do, In Progress and unloaded issues in In Progress',
 
 test('default groups take In Review by name though Jira files it as started', () => {
 	expect(
-		railGroupOf(issueSpace('STE-1', 'In Review', 'started'), defaults).name,
+		railGroupOf(issueSpace('STE-1', 'In Review', 'started'), defaults)!.name,
 	).toBe('In Review');
 });
 
 test('done covers Jira completed, Linear canceled and beads closed', () => {
-	const group = (space: SpaceData) => railGroupOf(space, defaults).name;
+	const group = (space: SpaceData) => railGroupOf(space, defaults)!.name;
 	expect(group(issueSpace('STE-1', 'Done', 'completed'))).toBe('Done');
 	expect(group(issueSpace('LIN-1', 'Canceled', 'canceled'))).toBe('Done');
 	expect(group(issueSpace('bd-1', 'Closed', 'completed'))).toBe('Done');
@@ -85,13 +85,13 @@ test('a listed status beats a category match', () => {
 		{name: 'Done', color: 'green', categories: ['done']},
 	]);
 	expect(
-		railGroupOf(issueSpace('bd-1', 'Blocked', 'blocked'), groups).name,
+		railGroupOf(issueSpace('bd-1', 'Blocked', 'blocked'), groups)!.name,
 	).toBe('Waiting');
-	expect(railGroupOf(issueSpace('STE-1', 'qa', 'started'), groups).name).toBe(
+	expect(railGroupOf(issueSpace('STE-1', 'qa', 'started'), groups)!.name).toBe(
 		'Waiting',
 	);
 	expect(
-		railGroupOf(issueSpace('bd-2', 'In Progress', 'in_progress'), groups).name,
+		railGroupOf(issueSpace('bd-2', 'In Progress', 'in_progress'), groups)!.name,
 	).toBe('Doing');
 });
 
@@ -101,7 +101,7 @@ test('a status no group claims goes to the first group', () => {
 		{name: 'Done', color: 'green', categories: ['done']},
 	]);
 	expect(
-		railGroupOf(issueSpace('STE-1', 'In Progress', 'started'), groups).name,
+		railGroupOf(issueSpace('STE-1', 'In Progress', 'started'), groups)!.name,
 	).toBe('Review');
 });
 

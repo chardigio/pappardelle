@@ -80,7 +80,7 @@ function fakeTmux(panes: Pane[] = []) {
 }
 
 /** Stores whose spaces live where idow puts them under HOME. */
-function stateOf(options: Parameters<typeof testState>[1] = {}): TestState {
+function stateOf(options: Parameters<typeof testState>[0] = {}): TestState {
 	return testState({home: HOME, mainRoot: () => MAIN_ROOT, ...options});
 }
 

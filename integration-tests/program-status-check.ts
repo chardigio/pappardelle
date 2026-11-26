@@ -16,7 +16,11 @@ import {
 	newSpaceIdentity,
 	sessionNamesFor,
 } from '../source/space-identity.ts';
-import {StatusHarness, projectRoot, until} from './program-status-harness.ts';
+import {
+	StatusHarness,
+	projectRoot,
+	untilSeen,
+} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
 const repo = getRepoName();
@@ -55,7 +59,7 @@ try {
 		},
 	);
 	assert.ok(launched);
-	await until(
+	await untilSeen(
 		() => {
 			try {
 				return readFileSync(launchMarker, 'utf8') === 'launched';
@@ -165,7 +169,7 @@ try {
 	const sizeFile = path.join(harness.root, 'size.json');
 	await delay(100);
 	await harness.type(session, JSON.stringify({size: sizeFile}));
-	await until(
+	await untilSeen(
 		() => {
 			try {
 				return JSON.parse(readFileSync(sizeFile, 'utf8')) as {

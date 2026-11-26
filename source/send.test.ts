@@ -248,9 +248,9 @@ test('sendToSpaceAgent sends nothing when it cannot read the screen for a prompt
 		sessions: ['agent-r-STA-1'],
 		captureFails: true,
 	});
-	expect(
-		await sendToSpaceAgent('STA-1', '1', {repoName: 'r', runner, lockDir}),
-	).toBe('failed');
+	expect(await sendToSpaceAgent('STA-1', '1', {runner, lockDir})).toBe(
+		'failed',
+	);
 	expect(calls).toStrictEqual([]);
 });
 
@@ -524,7 +524,7 @@ test('sendToSpaceAgent reports busy and sends nothing while another live sender 
 	writeFileSync(path.join(heldDir, 'agent-r-STA-1.lock'), `${process.pid}\n`);
 	const calls: string[][] = [];
 	const runner: SendTmuxRunner = async args => {
-		calls.push(args);
+		calls.push([...args]);
 		return {
 			status: 0,
 			stdout: args[0] === 'list-sessions' ? 'agent-r-STA-1\n' : '',

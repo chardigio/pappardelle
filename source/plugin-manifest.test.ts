@@ -44,26 +44,18 @@ test('marketplace lists the pappardelle plugin', () => {
 	expect(marketplaceEntry).toBeTruthy();
 });
 
+function listedEntry(): MarketplacePluginEntry {
+	if (!marketplaceEntry)
+		throw new Error('pappardelle must be listed in marketplace');
+	return marketplaceEntry;
+}
+
 test('plugin manifest version matches its marketplace entry', () => {
-	if (
-		!expect(
-			marketplaceEntry,
-			'pappardelle must be listed in marketplace',
-		).toBeTruthy()
-	)
-		return;
-	expect(plugin.version).toBe(marketplaceEntry.version);
+	expect(plugin.version).toBe(listedEntry().version);
 });
 
 test('plugin manifest description matches its marketplace entry', () => {
-	if (
-		!expect(
-			marketplaceEntry,
-			'pappardelle must be listed in marketplace',
-		).toBeTruthy()
-	)
-		return;
-	expect(plugin.description).toBe(marketplaceEntry.description);
+	expect(plugin.description).toBe(listedEntry().description);
 });
 
 test('the Codex and agy manifests ship the same version as Claude Code', () => {

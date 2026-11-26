@@ -2,11 +2,18 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {test, expect} from 'bun:test';
+import {
+	killProcessesNaming,
+	processesNaming,
+} from '../test/helpers/processes.ts';
 import {teardown} from '../test/helpers/teardown.ts';
+import {until} from '../test/helpers/wait.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {tmuxOn} from '../test/helpers/tmux-test.ts';
 import {
 	TEST_TMUX_GUARD,
 	TEST_TMUX_REFUSALS,
+	TEST_TMUX_SHARED_START,
 } from '../test/helpers/test-run-env.ts';
 
 const guardScript = path.resolve('test/helpers/tmux-guard.sh');
@@ -259,19 +266,24 @@ const guarded = Boolean(process.env[TEST_TMUX_REFUSALS]);
 	},
 );
 
+/** Where the live tmux directories setup has recorded are, for those that exist. */
+function liveBases(): string[] {
+	return fs
+		.readFileSync(path.join(process.env[TEST_TMUX_GUARD]!, 'live-dirs'), 'utf8')
+		.split('\n')
+		.filter(Boolean)
+		.map(live => path.dirname(live))
+		.filter(base => fs.existsSync(base));
+}
+
 (guarded ? test : test.skip)(
 	"the run's own wrapper refuses every live directory setup recorded",
 	() => {
 		const guardHome = process.env[TEST_TMUX_GUARD]!;
 		const refusals = path.join(tempDir('tmux-guard-run-'), 'refusals.log');
-		const liveBases = fs
-			.readFileSync(path.join(guardHome, 'live-dirs'), 'utf8')
-			.split('\n')
-			.filter(Boolean)
-			.map(live => path.dirname(live))
-			.filter(base => fs.existsSync(base));
-		expect(liveBases.length > 0).toBe(true);
-		for (const base of liveBases) {
+		const bases = liveBases();
+		expect(bases.length > 0).toBe(true);
+		for (const base of bases) {
 			// A named socket, since a live directory doesn't exist until its
 			// first server starts.
 			const result = spawnSync(
@@ -291,5 +303,215 @@ const guarded = Boolean(process.env[TEST_TMUX_REFUSALS]);
 				/^refusing to run tmux against the live tmux directory/,
 			);
 		}
+	},
+);
+
+const runScript = path.resolve('test/helpers/tmux-guard-run.sh');
+
+function runGuarded(script: string) {
+	return spawnSync(runScript, ['sh', '-c', script], {encoding: 'utf8'});
+}
+
+(guarded ? test : test.skip)(
+	'a suite run under the guard fails on a refused call it swallowed',
+	() => {
+		const base = liveBases()[0]!;
+		const result = runGuarded(
+			`TMUX_TMPDIR='${base}' tmux -L guard-test-no-such-server ls; true`,
+		);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain(
+			'refusing to run tmux against the live tmux directory',
+		);
+	},
+);
+
+(guarded ? test : test.skip)(
+	'a suite that passed but left a tmux server running fails, and the server is stopped',
+	() => {
+		const name = `guard-run-leak-${process.pid}`;
+		teardown(() => {
+			killProcessesNaming(name);
+		});
+		const result = runGuarded(
+			`echo "$TMUX_TMPDIR"; tmux -f /dev/null -L ${name} new-session -d 'sleep 60'`,
+		);
+		expect(result.status, result.stderr).toBe(1);
+		expect(result.stderr).toContain(`Stopped a tmux server left running on`);
+		expect(fs.existsSync(result.stdout.trim())).toBe(false);
+		expect(processesNaming(name)).toEqual([]);
+	},
+);
+
+(guarded ? test : test.skip)(
+	"a suite run under the guard exits with the suite's own status",
+	() => {
+		expect(runGuarded('exit 3').status).toBe(3);
+	},
+);
+
+(guarded ? test : test.skip)(
+	'finishing a run leaves alone a directory the guard did not create',
+	() => {
+		const outside = tempDir('finish-outside-');
+		const socket = path.join(outside, 's');
+		const tmux = tmuxOn(socket);
+		teardown(() => {
+			tmux('kill-server');
+		});
+		expect(tmux('new-session', '-d', 'sleep 60').status).toBe(0);
+		const result = spawnSync(
+			setupScript,
+			['--finish', path.join(outside, 'refusals.log'), '--fail-on-leaks'],
+			{encoding: 'utf8'},
+		);
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain('is not in a private TMUX_TMPDIR');
+		expect(tmux('has-session').status).toBe(0);
+		expect(fs.existsSync(outside)).toBe(true);
+	},
+);
+
+/** A directory --finish accepts: it refuses any but its own /tmp/pt-* ones. */
+function finishablePrivateDir(): string {
+	const priv = fs.mkdtempSync('/tmp/pt-');
+	teardown(() => {
+		fs.rmSync(priv, {recursive: true, force: true});
+	});
+	return priv;
+}
+
+(guarded ? test : test.skip)(
+	'finishing a run fails on a refusal the shared log gained during the run, and only on those',
+	() => {
+		const guardHome = tempDir('finish-guard-home-');
+		const sharedLog = path.join(guardHome, 'refusals.log');
+		fs.writeFileSync(sharedLog, 'refusal from an earlier run\n');
+		const start = String(fs.statSync(sharedLog).size);
+		// --finish sweeps only with the guard home's own wrapper first on PATH.
+		fs.mkdirSync(path.join(guardHome, 'bin'));
+		fs.copyFileSync(
+			path.join(process.env[TEST_TMUX_GUARD]!, 'bin', 'tmux'),
+			path.join(guardHome, 'bin', 'tmux'),
+		);
+		const finish = () =>
+			spawnSync(
+				setupScript,
+				['--finish', path.join(finishablePrivateDir(), 'refusals.log')],
+				{
+					encoding: 'utf8',
+					env: {
+						...process.env,
+						PATH: `${path.join(guardHome, 'bin')}:${process.env['PATH']}`,
+						[TEST_TMUX_GUARD]: guardHome,
+						[TEST_TMUX_SHARED_START]: start,
+					},
+				},
+			);
+
+		const before = finish();
+		expect(before.status, before.stdout).toBe(0);
+		expect(before.stdout).not.toContain('earlier run');
+
+		fs.appendFileSync(sharedLog, 'refusal from a timer of this run\n');
+		const after = finish();
+		expect(after.status).toBe(1);
+		expect(after.stdout).toContain('refusal from a timer of this run');
+		expect(after.stdout).not.toContain('earlier run');
+	},
+);
+
+(guarded ? test : test.skip)(
+	'finishing a run stops a server under an extra directory and leaves the directory',
+	() => {
+		const extra = tempDir('finish-extra-');
+		const socket = path.join(extra, 's');
+		const tmux = tmuxOn(socket);
+		teardown(() => {
+			tmux('kill-server');
+		});
+		expect(tmux('new-session', '-d', 'sleep 60').status).toBe(0);
+		const result = spawnSync(
+			setupScript,
+			[
+				'--finish',
+				path.join(finishablePrivateDir(), 'refusals.log'),
+				'--fail-on-leaks',
+				extra,
+			],
+			{encoding: 'utf8'},
+		);
+		expect(result.status).toBe(1);
+		expect(result.stdout).toContain(
+			`Stopped a tmux server left running on ${socket}`,
+		);
+		expect(tmux('has-session').status).not.toBe(0);
+		expect(fs.existsSync(extra)).toBe(true);
+	},
+);
+
+(guarded ? test : test.skip)(
+	'finishing a run sweeps nothing when the tmux on PATH is not the guard',
+	() => {
+		const extra = tempDir('finish-unguarded-');
+		const socket = path.join(extra, 's');
+		const tmux = tmuxOn(socket);
+		teardown(() => {
+			tmux('kill-server');
+		});
+		expect(tmux('new-session', '-d', 'sleep 60').status).toBe(0);
+		const stubDir = tempDir('finish-stub-');
+		const calls = path.join(stubDir, 'calls');
+		fs.writeFileSync(
+			path.join(stubDir, 'tmux'),
+			`#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n`,
+			{mode: 0o755},
+		);
+		const result = spawnSync(
+			setupScript,
+			['--finish', path.join(finishablePrivateDir(), 'refusals.log'), extra],
+			{
+				encoding: 'utf8',
+				env: {...process.env, PATH: `${stubDir}:${process.env['PATH']}`},
+			},
+		);
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain('not the test tmux guard');
+		expect(fs.existsSync(calls)).toBe(false);
+	},
+);
+
+(guarded ? test : test.skip)(
+	'finishing a run stops what a pane left behind when its shell exits on the hangup',
+	async () => {
+		const priv = finishablePrivateDir();
+		const left = `${6000 + (process.pid % 1000)}.5`;
+		// The tmux server's own command line names the sleep too.
+		const orphans = () =>
+			spawnSync('pgrep', ['-fx', `sleep ${left}`], {encoding: 'utf8'})
+				.stdout.split('\n')
+				.filter(Boolean);
+		teardown(() => {
+			killProcessesNaming(`sleep ${left}`);
+		});
+		const start = spawnSync(
+			'tmux',
+			[
+				'-f',
+				'/dev/null',
+				'-S',
+				path.join(priv, 's'),
+				'new-session',
+				'-d',
+				`nohup sleep ${left} >/dev/null 2>&1 & exec sleep 600`,
+			],
+			{encoding: 'utf8'},
+		);
+		expect(start.status, start.stderr).toBe(0);
+		await until(() => orphans().length === 1, {
+			what: 'the pane to start its sleep',
+		});
+		spawnSync(setupScript, ['--finish', path.join(priv, 'refusals.log')]);
+		expect(orphans()).toEqual([]);
 	},
 );

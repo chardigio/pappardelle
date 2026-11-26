@@ -14,6 +14,15 @@ export function processesNaming(...texts: string[]): number[] {
 		.filter(pid => pid !== process.pid);
 }
 
+export function isAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /** Kill what `processesNaming` finds. For a teardown. */
 export function killProcessesNaming(...texts: string[]): void {
 	for (const pid of processesNaming(...texts)) {

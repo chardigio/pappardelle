@@ -765,13 +765,7 @@ else
     fi
 fi
 
-# Extract issue number for template variable expansion (e.g., STA-595 → 595,
-# pappardelle-wx0 → wx0).
-#
-# Everything after the last hyphen, not the first digit run: Jira project keys
-# may carry digits of their own, and scanning left-to-right turned A1B-234 into
-# the plausible-looking but wrong "1".
-ISSUE_NUMBER="${ISSUE_KEY##*-}"
+ISSUE_NUMBER=$(issue_number_for "$ISSUE_KEY")
 
 WORKSPACE_LOG="$LOG_DIR/idow-${ISSUE_KEY//[^a-zA-Z0-9._-]/_}-${LOG_FILE##*/idow-}"
 mv "$LOG_FILE" "$WORKSPACE_LOG"

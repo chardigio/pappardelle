@@ -13,8 +13,9 @@ import {createStateDaos} from './state-daos.ts';
 import {closeStateDb, stateDbPath, statusSocketPath} from './state-db.ts';
 import {sqliteRun} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {isAlive} from '../test/helpers/processes.ts';
 import {sendHookEvent, serveTestDaemon} from '../test/helpers/status-daemon.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 // Long enough for a CLI that has begun to wait for its agent to have tried
@@ -285,11 +286,10 @@ test('CLI saves a normalized issue from a non-TTY sous-chef invocation', async (
 		});
 		child.stdin.end('2\n');
 		const closed = once(child, 'close');
-		await waitUntil(
-			() => stdout.includes('Workspace STE-20 is ready!'),
-			'idow to finish',
-			20_000,
-		);
+		await until(() => stdout.includes('Workspace STE-20 is ready!'), {
+			what: 'idow to finish',
+			timeoutMs: 20_000,
+		});
 		await delay(FIRST_CONNECT_ATTEMPT_MS);
 		expect(child.exitCode, stderr).toBe(null);
 		expect(fs.existsSync(socketPath)).toBe(false);
@@ -575,11 +575,7 @@ test('CLI handles a broken stdout pipe and stops idow before returning failure',
 	child.stdout.once('data', () => child.stdout.destroy());
 	const [code] = await once(child, 'exit');
 	const pid = Number(fs.readFileSync(pidFile, 'utf8'));
-	let idowAlive = false;
-	try {
-		process.kill(pid, 0);
-		idowAlive = true;
-	} catch {}
+	const idowAlive = isAlive(pid);
 	if (idowAlive) process.kill(pid, 'SIGKILL');
 	await closed;
 	expect(code).toBe(1);
@@ -833,7 +829,7 @@ test('CLI highlight asks a running Pappardelle to select the space', async () =>
 
 	const result = await f.run(['highlight', 'STE-7']);
 	expect(result.code).toBe(0);
-	await waitUntil(() => selected.length > 0, 'a highlight request');
+	await until(() => selected.length > 0, {what: 'a highlight request'});
 	expect(selected[0]).toBe('STE-7');
 	expect(fs.existsSync(f.record)).toBe(false);
 });

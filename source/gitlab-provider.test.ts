@@ -25,9 +25,12 @@ test('buildPRUrl for self-hosted', async () => {
 	);
 });
 
-test('self-hosted configuration does not change the process environment', () => {
+test('self-hosted configuration does not change the process environment', async () => {
 	const originalHost = process.env['GITLAB_HOST'];
-	const _provider = new GitLabProvider('gitlab.example.com');
+	const provider = new GitLabProvider('gitlab.example.com');
+	expect(await provider.buildPRUrl(1)).toBe(
+		'https://gitlab.example.com/-/merge_requests/1',
+	);
 	expect(process.env['GITLAB_HOST']).toBe(originalHost);
 });
 

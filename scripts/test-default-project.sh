@@ -20,42 +20,15 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/provider-helpers.sh"
 
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
-
 setup_config() {
-    TMPDIR_ROOT=$(mktemp -d)
+    test_tmpdir TMPDIR_ROOT
     cat > "$TMPDIR_ROOT/.pappardelle.yml" <<'EOF'
 version: 1
 team_prefix: STA
@@ -106,7 +79,7 @@ export -f linctl
 
 # ==========================================================================
 
-echo -e "${BOLD}Test: get_profile_default_project_name reads tracker_projects[0]${RESET}"
+section "get_profile_default_project_name reads tracker_projects[0]"
 setup_config
 result=$(get_profile_default_project_name "pappardelle" "$TMPDIR_ROOT/.pappardelle.yml")
 assert_eq "single-entry profile" "Pappardelle Quality" "$result"
@@ -116,7 +89,7 @@ assert_eq "two-entry profile takes [0]" "The Hive Quality" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: get_profile_default_project_name returns empty for off-by-default cases${RESET}"
+section "get_profile_default_project_name returns empty for off-by-default cases"
 result=$(get_profile_default_project_name "no-projects" "$TMPDIR_ROOT/.pappardelle.yml")
 assert_eq "profile without tracker_projects" "" "$result"
 
@@ -129,17 +102,15 @@ assert_eq "missing profile arg" "" "$result"
 result=$(get_profile_default_project_name "ghost" "$TMPDIR_ROOT/.pappardelle.yml")
 assert_eq "unknown profile name" "" "$result"
 
-cleanup; unset TMPDIR_ROOT
-
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: resolve_linear_project_uuid finds exact match${RESET}"
+section "resolve_linear_project_uuid finds exact match"
 result=$(resolve_linear_project_uuid "Pappardelle Quality" 2>/dev/null)
 assert_eq "exact name → UUID" "4e6ef808-9576-4082-8dfd-a1d352a2817e" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: resolve_linear_project_uuid is case-insensitive${RESET}"
+section "resolve_linear_project_uuid is case-insensitive"
 result=$(resolve_linear_project_uuid "PAPPARDELLE QUALITY" 2>/dev/null)
 assert_eq "uppercase input matches" "4e6ef808-9576-4082-8dfd-a1d352a2817e" "$result"
 
@@ -148,32 +119,18 @@ assert_eq "lowercase input matches" "abc-the-hive" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: resolve_linear_project_uuid warns + returns empty on no match${RESET}"
+section "resolve_linear_project_uuid warns + returns empty on no match"
 warn_output=$(resolve_linear_project_uuid "Project That Does Not Exist" 2>&1 1>/dev/null)
 result=$(resolve_linear_project_uuid "Project That Does Not Exist" 2>/dev/null)
 assert_eq "no match → empty stdout" "" "$result"
-case "$warn_output" in
-    *"not found"*) echo -e "  ${GREEN}PASS${RESET} no match → warning on stderr"; PASS=$((PASS + 1)) ;;
-    *) echo -e "  ${RED}FAIL${RESET} no match → warning on stderr"
-       echo "    Expected stderr to contain: \"not found\""
-       echo "    Actual stderr: \"$warn_output\""
-       FAIL=$((FAIL + 1)) ;;
-esac
+assert_contains "no match → warning on stderr" "not found" "$warn_output"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: resolve_linear_project_uuid short-circuits on empty name${RESET}"
+section "resolve_linear_project_uuid short-circuits on empty name"
 result=$(resolve_linear_project_uuid "" 2>/dev/null)
 assert_eq "empty name → empty UUID, no linctl call" "" "$result"
 
 # ==========================================================================
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize

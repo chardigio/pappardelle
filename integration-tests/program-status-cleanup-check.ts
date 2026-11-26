@@ -24,7 +24,7 @@ import {newSpaceIdentity, sessionNamesFor} from '../source/space-identity.ts';
 import {listOpenSpaces} from '../source/space-registry.ts';
 import {createStateDaos} from '../source/state-daos.ts';
 import {cleanupOrphanedInnerSessions, initTmuxState} from '../source/tmux.ts';
-import {StatusHarness, until} from './program-status-harness.ts';
+import {StatusHarness, untilSeen} from './program-status-harness.ts';
 
 const harness = new StatusHarness();
 const originalDirectory = process.cwd();
@@ -101,7 +101,7 @@ try {
 		const pane = await daos.programStatus.attach(key, session);
 		assert.ok(pane);
 		await harness.fixture(session);
-		await until(
+		await untilSeen(
 			async () => daos.programStatus.read(key, pane),
 			value => value?.info.status === 'idle',
 			`${mode} recorded idle report`,
@@ -126,7 +126,7 @@ try {
 					return null;
 				},
 				async runHooks() {
-					return {success: true};
+					return {kind: 'ran' as const};
 				},
 				worktreePath: () => harness.root,
 				currentInnerSession: () => null,
@@ -142,7 +142,7 @@ try {
 		// Revocation is synchronous. An already-running publisher can rename its
 		// snapshot afterwards, then remove it when its final lease check fails.
 		assert.ok(!existsSync(`${target}.lease`), `${mode} revokes the lease`);
-		await until(
+		await untilSeen(
 			() => existsSync(target),
 			retained => !retained,
 			`${mode} in-flight publisher removes its snapshot`,
@@ -190,7 +190,7 @@ try {
 	const pane = await daos.programStatus.attach(key, sessions.agent);
 	assert.ok(pane);
 	await harness.fixture(sessions.agent);
-	await until(
+	await untilSeen(
 		async () => daos.programStatus.read(key, pane),
 		value => value?.info.status === 'idle',
 		'failed close recorded idle report',
@@ -228,7 +228,7 @@ try {
 	assert.ok(existsSync(`${target}.lease`));
 	assert.equal(cleanupOrphanedInnerSessions(nothing, repo, undefined, []), 1);
 	assert.ok(!existsSync(`${target}.lease`));
-	await until(
+	await untilSeen(
 		async () =>
 			existsSync(target) || (await harness.heldSnapshots(repo, key)) > 0,
 		retained => !retained,

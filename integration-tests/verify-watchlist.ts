@@ -92,7 +92,7 @@ async function main() {
 	try {
 		const {loadProviderConfigs} = await import('../source/config.ts');
 		const providerConfigs = loadProviderConfigs();
-		if (providerConfigs.issue_tracker?.type === 'jira') {
+		if (providerConfigs.issue_tracker?.provider === 'jira') {
 			const baseUrl = providerConfigs.issue_tracker.base_url;
 			if (!baseUrl) {
 				fail('Jira configured but no base_url found');

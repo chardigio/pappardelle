@@ -5,12 +5,12 @@ import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
 import {setTimeout as delay} from 'node:timers/promises';
-import {test, expect, afterAll, beforeEach} from 'bun:test';
+import {expect, afterAll, beforeEach} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {captureAgentScreen, READ_WINDOW} from './agent-state.ts';
 import {idowIdentities} from '../test/helpers/state.ts';
+import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
-
-const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
 
 const dir = realpathSync(mkdtempSync(`${tmpdir()}/pw-`));
 const inner = `${dir}/i`;
@@ -52,15 +52,6 @@ const sizeOf = () =>
 // Redraws its terminal's size the way an agent redraws its dialog.
 const SHOW_SIZE = String.raw`while :; do printf '\033[H\033[2J%s\n' "$(stty size)"; sleep 0.05; done`;
 
-async function waitFor(check: () => boolean): Promise<boolean> {
-	for (let attempt = 0; attempt < 60; attempt++) {
-		if (check()) return true;
-		await delay(50);
-	}
-
-	return false;
-}
-
 afterAll(() => {
 	runner(['kill-server']);
 	on(viewer)(['kill-server']);
@@ -95,7 +86,10 @@ tmuxTest(
 			`env -u TMUX tmux -S ${inner} attach -t '=${AGENT}'`,
 		]);
 		// The viewer's status line takes a row of its 20.
-		expect(await waitFor(() => sizeOf() === '70x19'), sizeOf()).toBe(true);
+		await until(() => sizeOf() === '70x19', {
+			frame: sizeOf,
+			timeoutMs: REAL_TMUX_TIMEOUT_MS,
+		});
 	},
 );
 
@@ -111,7 +105,10 @@ tmuxTest('a window a client shows keeps its size', async () => {
 		'22',
 		`env -u TMUX tmux -S ${inner} attach -t '=${AGENT}'`,
 	]);
-	expect(await waitFor(() => sizeOf() === '61x21'), sizeOf()).toBe(true);
+	await until(() => sizeOf() === '61x21', {
+		frame: sizeOf,
+		timeoutMs: REAL_TMUX_TIMEOUT_MS,
+	});
 	await captureAgentScreen('KEY-1', 60, deps);
 	expect(sizeOf()).toBe('61x21');
 });

@@ -15,7 +15,7 @@ import {
 	testPane,
 	testSocketPath,
 } from '../test/helpers/status-daemon.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 import {isPidAlive} from './file-lock.ts';
 import {
 	STATE_WAIT_MS,
@@ -115,7 +115,7 @@ test('after ready() the replica holds what the daemon held, and each push after 
 	sender.send({type: 'hook', state: hookState('repo-B', 'waiting_for_input')});
 	sender.send({type: 'snapshot', snapshot: snapshot('B', 'g1')});
 	sender.send({type: 'forget', repo: 'repo', key: 'A', keep: 'g2'});
-	await waitUntil(() => changes.length === 3, 'the three pushes');
+	await until(() => changes.length === 3, {what: 'the three pushes'});
 
 	expect(changes).toStrictEqual([
 		{kind: 'hook', statusKey: 'repo-B'},
@@ -143,10 +143,9 @@ test('ready() gives up on a daemon that accepts and sends no state, stays connec
 	const waiting = client.ready().then(() => {
 		ready = true;
 	});
-	await waitUntil(
-		() => accepted.length === 1 && clock.delays().length === 1,
-		'the client to wait for the state',
-	);
+	await until(() => accepted.length === 1 && clock.delays().length === 1, {
+		what: 'the client to wait for the state',
+	});
 	expect(ready).toBe(false);
 	expect(clock.delays()).toStrictEqual([STATE_WAIT_MS]);
 
@@ -163,7 +162,7 @@ test('ready() gives up on a daemon that accepts and sends no state, stays connec
 			snapshots: [],
 		}),
 	);
-	await waitUntil(() => changes.length === 1, 'the late state');
+	await until(() => changes.length === 1, {what: 'the late state'});
 	expect(changes).toStrictEqual([{kind: 'hook', statusKey: 'repo-A'}]);
 	expect(client.hook('repo-A')).toStrictEqual(hookState('repo-A'));
 });
@@ -181,10 +180,9 @@ test('after the daemon is replaced the client reconnects, keeps what it knew, se
 	client.onChange(change => changes.push(change));
 
 	await first.close();
-	await waitUntil(
-		() => clock.delays().length === 1,
-		'the client to see that the daemon went away',
-	);
+	await until(() => clock.delays().length === 1, {
+		what: 'the client to see that the daemon went away',
+	});
 	expect(clock.delays()).toStrictEqual([200]);
 
 	// The new daemon has heard from repo-B's agent since, and from nobody else.
@@ -222,10 +220,9 @@ test('after the daemon is replaced the client reconnects, keeps what it knew, se
 	});
 
 	sender.send({type: 'hook', state: hookState('repo-C')});
-	await waitUntil(
-		() => client.hook('repo-C') !== undefined,
-		'a push from the new daemon',
-	);
+	await until(() => client.hook('repo-C') !== undefined, {
+		what: 'a push from the new daemon',
+	});
 });
 
 test('a state from the daemon the client was on replaces the replica: what the daemon forgot while the connection was down is dropped, and nothing is sent back to it', async () => {
@@ -271,12 +268,13 @@ test('a state from the daemon the client was on replaces the replica: what the d
 	client.onChange(change => changes.push(change));
 
 	accepted[0]!.destroy();
-	await waitUntil(
-		() => clock.delays().length === 1,
-		'the client to see that the connection closed',
-	);
+	await until(() => clock.delays().length === 1, {
+		what: 'the client to see that the connection closed',
+	});
 	clock.fire();
-	await waitUntil(() => changes.length > 0, 'the state after the reconnect');
+	await until(() => changes.length > 0, {
+		what: 'the state after the reconnect',
+	});
 
 	expect(client.snapshot('A', 'g1')).toBe(undefined);
 	expect(client.snapshot('B', 'g1')).toStrictEqual(snapshot('B', 'g1'));
@@ -290,8 +288,10 @@ test('a state from the daemon the client was on replaces the replica: what the d
 	// A line sent now is behind anything the client sent on applying the state.
 	const last = {type: 'forget', repo: 'repo', key: 'C'} as const;
 	await client.send(last);
-	await waitUntil(() => received.at(-1)?.type === 'forget', 'the last line');
-	const subscribe = {type: 'subscribe', repo: 'repo'};
+	await until(() => received.at(-1)?.type === 'forget', {
+		what: 'the last line',
+	});
+	const subscribe = {type: 'subscribe', repo: 'repo'} as const;
 	expect(received).toStrictEqual([subscribe, subscribe, last]);
 });
 
@@ -311,10 +311,9 @@ test('with nothing listening and start off, ready() resolves with an empty repli
 	await serveTestDaemon(socketPath);
 	await seed(socketPath, [{type: 'hook', state: hookState('repo-A')}]);
 	clock.fire();
-	await waitUntil(
-		() => client.hook('repo-A') !== undefined,
-		'the state of the daemon that started later',
-	);
+	await until(() => client.hook('repo-A') !== undefined, {
+		what: 'the state of the daemon that started later',
+	});
 
 	expect(changes).toStrictEqual([{kind: 'hook', statusKey: 'repo-A'}]);
 	expect(started).toStrictEqual([]);
@@ -328,10 +327,9 @@ test('with start on, the first refused attempt starts a daemon and later ones do
 	const waits: number[] = [];
 	const startedAfter: number[] = [];
 	for (let attempt = 1; attempt <= 8; attempt++) {
-		await waitUntil(
-			() => clock.delays().length === 1,
-			`attempt ${attempt} to be refused`,
-		);
+		await until(() => clock.delays().length === 1, {
+			what: `attempt ${attempt} to be refused`,
+		});
 		startedAfter.push(started.length);
 		waits.push(...clock.delays());
 		clock.fire();
@@ -351,7 +349,7 @@ test('a client allowed to start a daemon after it was made does so from its next
 	expect(started).toStrictEqual([]);
 	client.allowStart();
 	clock.fire();
-	await waitUntil(() => clock.delays().length === 1, 'the second attempt');
+	await until(() => clock.delays().length === 1, {what: 'the second attempt'});
 
 	expect(started).toStrictEqual([socketPath]);
 });
@@ -367,10 +365,9 @@ test('a connect listener runs on every connection, so a publisher’s latest sta
 	expect(await publisher.send(latest)).toBe('sent');
 
 	await first.close();
-	await waitUntil(
-		() => clock.delays().length === 1,
-		'the publisher to see that the daemon went away',
-	);
+	await until(() => clock.delays().length === 1, {
+		what: 'the publisher to see that the daemon went away',
+	});
 	await serveTestDaemon(socketPath);
 	const rail = await subscribeRaw(socketPath, 'repo');
 	clock.fire();
@@ -396,7 +393,7 @@ test('a client with no repo is pushed nothing', async () => {
 	await Promise.all([publisher.ready(), rail.ready()]);
 
 	await publisher.send({type: 'hook', state: hookState('repo-A')});
-	await waitUntil(() => rail.hook('repo-A') !== undefined, 'the push');
+	await until(() => rail.hook('repo-A') !== undefined, {what: 'the push'});
 
 	expect(changes).toStrictEqual([]);
 	expect(publisher.hook('repo-A')).toBe(undefined);
@@ -437,11 +434,10 @@ test('two clients with start on, started together, end up on one daemon', async 
 	) as [ReturnType<typeof testClient>, ReturnType<typeof testClient>];
 	await Promise.all([one.client.ready(), two.client.ready()]);
 	expect(pids.length).toBe(2);
-	await waitUntil(
-		() => pids.filter(pid => isPidAlive(pid)).length === 1,
-		'one of the two daemons to give way to the other',
-		30_000,
-	);
+	await until(() => pids.filter(pid => isPidAlive(pid)).length === 1, {
+		what: 'one of the two daemons to give way to the other',
+		timeoutMs: 30_000,
+	});
 
 	const connected: StatusClient[] = [];
 	for (const {client} of [one, two]) {
@@ -450,14 +446,13 @@ test('two clients with start on, started together, end up on one daemon', async 
 
 	one.clock.fire();
 	two.clock.fire();
-	await waitUntil(() => connected.length === 2, 'both clients to connect');
+	await until(() => connected.length === 2, {what: 'both clients to connect'});
 	expect(
 		await one.client.send({type: 'hook', state: hookState('repo-A')}),
 	).toBe('sent');
-	await waitUntil(
-		() => two.client.hook('repo-A') !== undefined,
-		'the other client to be pushed what the first sent',
-	);
+	await until(() => two.client.hook('repo-A') !== undefined, {
+		what: 'the other client to be pushed what the first sent',
+	});
 	expect(pids.filter(pid => isPidAlive(pid)).length).toBe(1);
 });
 

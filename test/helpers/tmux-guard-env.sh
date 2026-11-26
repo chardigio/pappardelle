@@ -4,29 +4,81 @@
 # PATH, a private TMUX_TMPDIR and no TMUX. Prints nothing without tmux, since
 # the tmux tests then skip themselves.
 #
-# With --finish <refusal log>, at the end of a run: prints the refusals the log
-# holds, removes the run's private TMUX_TMPDIR, and fails if there were any.
+# With --finish <refusal log> [--fail-on-leaks] [dir...], at the end of a run:
+# stops every tmux server still running in the run's private TMUX_TMPDIR or
+# under one of the extra dirs and names it, prints the refusals the log holds
+# and those the shared log gained since setup, removes the private directory,
+# and fails if there were refusals, or with --fail-on-leaks, servers. The extra
+# dirs are left in place.
 set -euo pipefail
 # cd prints the directory it found through CDPATH, which would end up in the
 # paths below.
 CDPATH=''
 
+private_prefix=/tmp/pt-
+
 if [[ ${1:-} == --finish ]]; then
 	refusals=${2:-}
 	[[ -n $refusals ]] || exit 0
+	private=${refusals%/*}
+	# Everything under this directory is stopped and removed, so it has to be
+	# one this script made. macOS reaches /tmp through /private/tmp.
+	parent=${private%/*}
+	if [[ ($parent != "${private_prefix%/*}" && $parent != /private"${private_prefix%/*}") || ${private##*/} != "${private_prefix##*/}"* ]]; then
+		echo "tmux-guard-env.sh --finish: $refusals is not in a private TMUX_TMPDIR this script creates (${private_prefix}*)" >&2
+		exit 1
+	fi
+	shift 2
+	fail_on_leaks=''
+	if [[ ${1:-} == --fail-on-leaks ]]; then
+		fail_on_leaks=1
+		shift
+	fi
+	# The extra dirs can be anything a caller names, /tmp included, so only the
+	# guard may stop what is under them: the real tmux would reach the live
+	# tmux directory.
+	if [[ -z ${PAPPARDELLE_TEST_TMUX_GUARD:-} || ! $(type -P tmux) -ef $PAPPARDELLE_TEST_TMUX_GUARD/bin/tmux ]]; then
+		echo "tmux-guard-env.sh --finish: the tmux on PATH ($(type -P tmux)) is not the test tmux guard (${PAPPARDELLE_TEST_TMUX_GUARD:-unset}/bin/tmux); put the run's PATH back" >&2
+		exit 1
+	fi
 	status=0
-	if [[ -s $refusals ]]; then
-		echo "The test tmux guard refused tmux calls against the live tmux directory:"
-		cat -- "$refusals"
+	# Removing the private directory would leave such a server running with no
+	# socket to reach it by.
+	while IFS= read -r socket; do
+		pids=$(tmux -S "$socket" list-panes -a -F '#{pane_pid}' 2>/dev/null) || continue
+		# A pane shell that never got the terminal ignores the SIGHUP from
+		# kill-server and keeps running as an orphan; one that exits leaves its
+		# children to init, where they can no longer be found by parent.
+		children=''
+		for pid in $pids; do
+			children="$children $(pgrep -P "$pid" 2>/dev/null || true)"
+		done
+		tmux -S "$socket" kill-server 2>/dev/null || true
+		for pid in $pids $children; do
+			kill -9 "$pid" 2>/dev/null || true
+		done
+		echo "Stopped a tmux server left running on $socket"
+		[[ -z $fail_on_leaks ]] || status=1
+	done < <(find "$private" "$@" -type s 2>/dev/null)
+	# The guard writes here when a process lost the run's refusal log, as a
+	# systemd timer's does. Other runs write here too, and each of their
+	# refusals would also have reached the user's tmux.
+	shared=''
+	if [[ -n ${PAPPARDELLE_TEST_TMUX_GUARD:-} && -n ${PAPPARDELLE_TEST_TMUX_SHARED_START:-} ]]; then
+		shared=$(tail -c "+$((PAPPARDELLE_TEST_TMUX_SHARED_START + 1))" -- "$PAPPARDELLE_TEST_TMUX_GUARD/refusals.log" 2>/dev/null || true)
+	fi
+	if [[ -s $refusals || -n $shared ]]; then
+		echo "The test tmux guard refused tmux calls against the live tmux directory. Give each test its own TMUX_TMPDIR or a -S socket:"
+		[[ ! -s $refusals ]] || cat -- "$refusals"
+		[[ -z $shared ]] || printf '%s\n' "$shared"
 		status=1
 	fi
-	rm -rf -- "${refusals%/*}"
+	rm -rf -- "$private"
 	exit "$status"
 fi
 
 guard_home=/tmp/pappardelle-test-tmux-$(id -u)
 wrapper=$guard_home/bin/tmux
-private_prefix=/tmp/pt-
 
 real_tmux=''
 while IFS= read -r candidate; do
@@ -92,4 +144,7 @@ echo "export PATH=$(quote "$guard_home/bin:$PATH")"
 echo "export TMUX_TMPDIR=$(quote "$private")"
 echo "export PAPPARDELLE_TEST_TMUX_GUARD=$(quote "$guard_home")"
 echo "export PAPPARDELLE_TEST_TMUX_REFUSALS=$(quote "$private/refusals.log")"
+shared_start=0
+[[ ! -f $guard_home/refusals.log ]] || shared_start=$(wc -c <"$guard_home/refusals.log" | tr -d ' ')
+echo "export PAPPARDELLE_TEST_TMUX_SHARED_START=$(quote "$shared_start")"
 echo 'unset TMUX TMUX_PANE'

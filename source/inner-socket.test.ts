@@ -11,6 +11,7 @@ import {readFileSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
 import {testTmuxState, type TestState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
@@ -210,33 +211,34 @@ test('session lookups and kills by name use exact targets', () => {
 	);
 });
 
-test('exactSessionTarget stops tmux prefix-matching another session', () => {
-	// -S rather than -L: a named socket lands in /tmp/tmux-<uid>, outside TMPDIR.
-	const socket = join(tempDir('pappardelle-exact-'), 's');
-	const tmux = (...args: string[]) =>
-		spawnSync('tmux', ['-S', socket, ...args], {encoding: 'utf-8'});
-	if (tmux('-V').error) {
-		expect().pass('tmux not installed');
-		return;
-	}
-
-	try {
-		expect(tmux('new-session', '-d', '-s', 'agent-repo-STA-12').status).toBe(0);
-		expect(tmux('has-session', '-t', 'agent-repo-STA-1').status).toBe(0);
-		expect(
-			tmux('has-session', '-t', exactSessionTarget('agent-repo-STA-1')).status,
-		).not.toBe(0);
-		// tmux 3.6 and older store a '.' as '_', so a name built with a dotted
-		// repo must already be in that spelling to be found again.
-		const dotted = `${sessionPrefix('agent', 'my.repo')}STA-1`;
-		expect(tmux('new-session', '-d', '-s', dotted).status).toBe(0);
-		expect(tmux('has-session', '-t', exactSessionTarget(dotted)).status).toBe(
-			0,
-		);
-	} finally {
-		tmux('kill-server');
-	}
-});
+tmuxTest(
+	'exactSessionTarget stops tmux prefix-matching another session',
+	() => {
+		// -S rather than -L: a named socket lands in /tmp/tmux-<uid>, outside TMPDIR.
+		const socket = join(tempDir('pappardelle-exact-'), 's');
+		const tmux = (...args: string[]) =>
+			spawnSync('tmux', ['-S', socket, ...args], {encoding: 'utf-8'});
+		try {
+			expect(tmux('new-session', '-d', '-s', 'agent-repo-STA-12').status).toBe(
+				0,
+			);
+			expect(tmux('has-session', '-t', 'agent-repo-STA-1').status).toBe(0);
+			expect(
+				tmux('has-session', '-t', exactSessionTarget('agent-repo-STA-1'))
+					.status,
+			).not.toBe(0);
+			// tmux 3.6 and older store a '.' as '_', so a name built with a dotted
+			// repo must already be in that spelling to be found again.
+			const dotted = `${sessionPrefix('agent', 'my.repo')}STA-1`;
+			expect(tmux('new-session', '-d', '-s', dotted).status).toBe(0);
+			expect(tmux('has-session', '-t', exactSessionTarget(dotted)).status).toBe(
+				0,
+			);
+		} finally {
+			tmux('kill-server');
+		}
+	},
+);
 
 test('kill-session for per-issue sessions routes through innerTmuxArgs', () => {
 	// `innerKillSession` must route kill-session through innerTmuxArgs.

@@ -17,7 +17,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {fileURLToPath} from 'node:url';
 import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import type {ProgramStatusSnapshot} from '../source/program-status-monitor.ts';
-import {until} from './program-status-harness.ts';
+import {untilSeen} from './program-status-harness.ts';
 
 assert.ok(
 	process.argv.includes('--live'),
@@ -90,7 +90,7 @@ async function expect(
 	timeout = 120000,
 ) {
 	const accepted = typeof status === 'string' ? [status] : status;
-	const result = await until(
+	const result = await untilSeen(
 		() => ({frame: rail(), snapshot: snapshot()}),
 		value =>
 			value.snapshot?.authoritative === true &&
@@ -231,7 +231,7 @@ profiles:
 		`Run exactly this shell command with sandbox_permissions="require_escalated" and ask me for approval: ${approvalCommand}. Do not use any other tools. After approval reply briefly.`,
 	);
 	await expect('blocked', /!/, 'approval shows attention indicator');
-	await until(
+	await untilSeen(
 		() => tmux(inner, 'capture-pane', '-p', '-t', `=${agent}:`),
 		screen =>
 			/Yes, proceed|Would you like to run|approve this command/.test(screen),

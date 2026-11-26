@@ -1,7 +1,8 @@
 import {test, expect} from 'bun:test';
 import {teardown} from '../../test/helpers/teardown.ts';
 import React from 'react';
-import {render, until} from '../../test/helpers/render.ts';
+import {render} from '../../test/helpers/render.ts';
+import {until} from '../../test/helpers/wait.ts';
 import type {StateChoice} from '../close-state-choice.ts';
 import type {
 	IssueTrackerProvider,
@@ -63,16 +64,14 @@ test('defaults to the closed-id state and Right moves to the next state', async 
 		await dialog.view.unmount();
 	});
 	load();
-	await until(
-		() => dialog.view.lastFrame().includes('Issue state: ‹ Done ›'),
-		dialog.view.lastFrame,
-	);
+	await until(() => dialog.view.lastFrame().includes('Issue state: ‹ Done ›'), {
+		frame: dialog.view.lastFrame,
+	});
 
 	await dialog.view.stdin.write(RIGHT);
-	await until(
-		() => dialog.view.lastFrame().includes('‹ Deferred ›'),
-		dialog.view.lastFrame,
-	);
+	await until(() => dialog.view.lastFrame().includes('‹ Deferred ›'), {
+		frame: dialog.view.lastFrame,
+	});
 
 	await dialog.view.stdin.write('\r');
 	await until(() => dialog.calls() > 0);
@@ -105,22 +104,19 @@ test('a choice made while loading survives the load', async () => {
 	teardown(async () => {
 		await dialog.view.unmount();
 	});
-	await until(
-		() => dialog.view.lastFrame().includes('‹ Leave as Canceled ›'),
-		dialog.view.lastFrame,
-	);
+	await until(() => dialog.view.lastFrame().includes('‹ Leave as Canceled ›'), {
+		frame: dialog.view.lastFrame,
+	});
 
 	await dialog.view.stdin.write(RIGHT);
-	await until(
-		() => dialog.view.lastFrame().includes('‹ Closed ›'),
-		dialog.view.lastFrame,
-	);
+	await until(() => dialog.view.lastFrame().includes('‹ Closed ›'), {
+		frame: dialog.view.lastFrame,
+	});
 
 	load();
-	await until(
-		() => dialog.view.lastFrame().includes('‹ Done ›'),
-		dialog.view.lastFrame,
-	);
+	await until(() => dialog.view.lastFrame().includes('‹ Done ›'), {
+		frame: dialog.view.lastFrame,
+	});
 	expect().pass();
 });
 
@@ -131,7 +127,7 @@ test('a tracker that cannot set states gets the plain dialog', async () => {
 	});
 	await until(
 		() => dialog.view.lastFrame().includes('Press y or Enter to confirm'),
-		dialog.view.lastFrame,
+		{frame: dialog.view.lastFrame},
 	);
 	expect(dialog.view.lastFrame()).not.toMatch(/Issue state/);
 

@@ -4,8 +4,8 @@
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, realpathSync, rmSync} from 'node:fs';
-import {setTimeout as delay} from 'node:timers/promises';
-import {test, expect, beforeAll, afterAll} from 'bun:test';
+import {expect, beforeAll, afterAll} from 'bun:test';
+import {hasTmux, tmuxTest} from '../test/helpers/tmux-test.ts';
 import {
 	closeCompanionPane,
 	CompanionError,
@@ -17,8 +17,7 @@ import {
 } from './companion.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
-
-const tmuxTest = spawnSync('tmux', ['-V']).status === 0 ? test : test.skip;
+import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
 
 const dir = realpathSync(mkdtempSync(`${tmpdir()}/pc-`));
 const socket = `${dir}/s`;
@@ -51,17 +50,8 @@ const panesOf = (session: string) =>
 		'\n',
 	);
 
-async function waitFor(check: () => boolean): Promise<boolean> {
-	for (let attempt = 0; attempt < 60; attempt++) {
-		if (check()) return true;
-		await delay(50);
-	}
-
-	return false;
-}
-
 beforeAll(() => {
-	if (spawnSync('tmux', ['-V']).status !== 0) return;
+	if (!hasTmux) return;
 	tmux(
 		'new-session',
 		'-d',
@@ -127,13 +117,12 @@ tmuxTest('companion verbs on a real tmux server', async () => {
 	expect(sessions().filter(name => name.startsWith(COMPANION)).length).toBe(2);
 	const side = listCompanion('KEY-1', deps).find(p => p.name === 'side')!;
 	expect(side).toMatchObject({split: 'down', size: '30%'});
-	expect(
-		await waitFor(() =>
-			listCompanion('KEY-1', deps)
-				.find(p => p.name === 'side')!
-				.startCommand.includes('sleep 601'),
-		),
-	).toBe(true);
+	const sideCommand = () =>
+		listCompanion('KEY-1', deps).find(p => p.name === 'side')!.startCommand;
+	await until(() => sideCommand().includes('sleep 601'), {
+		frame: sideCommand,
+		timeoutMs: REAL_TMUX_TIMEOUT_MS,
+	});
 	expect(
 		tmux('display-message', '-p', '-t', `=${SIDE}:`, '#{pane_current_path}'),
 	).toBe(dir);
@@ -143,13 +132,12 @@ tmuxTest('companion verbs on a real tmux server', async () => {
 		{pane: 'main', text: 'hello-companion', keys: [], enter: true},
 		deps,
 	);
-	expect(
-		await waitFor(() =>
-			readCompanionPane('KEY-1', {pane: 'main', lines: 20}, deps).includes(
-				'hello-companion',
-			),
-		),
-	).toBe(true);
+	const mainText = () =>
+		readCompanionPane('KEY-1', {pane: 'main', lines: 20}, deps);
+	await until(() => mainText().includes('hello-companion'), {
+		frame: mainText,
+		timeoutMs: REAL_TMUX_TIMEOUT_MS,
+	});
 
 	resizeCompanionPane('KEY-1', {pane: 'side', size: 5}, deps);
 	expect(listCompanion('KEY-1', deps).find(p => p.name === 'side')?.size).toBe(

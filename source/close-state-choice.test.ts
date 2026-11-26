@@ -1,4 +1,5 @@
 import {test, expect} from 'bun:test';
+import {trackerIssue} from '../test/helpers/space-fixtures.ts';
 import {
 	applyStateChoice,
 	buildStateChoices,
@@ -22,12 +23,7 @@ const STATES: TrackerState[] = [
 ];
 
 function issue(name: string, type: string): TrackerIssue {
-	return {
-		identifier: 'bd-1',
-		title: 't',
-		state: {name, type, color: ''},
-		project: null,
-	};
+	return trackerIssue({state: {name, type, color: ''}});
 }
 
 const IN_PROGRESS = issue('In Progress', 'in_progress');
@@ -118,6 +114,7 @@ test('applying a choice makes the matching tracker call', async () => {
 		await applyStateChoice(tracker, 'bd-1', {
 			kind: 'leave',
 			currentName: 'Open',
+			currentDone: false,
 		}),
 	).toBe(true);
 	expect(calls).toStrictEqual([

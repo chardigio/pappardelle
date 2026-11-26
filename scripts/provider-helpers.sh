@@ -130,6 +130,16 @@ beads_first_issue() {
            | if type == "array" then (.[0] // {}) else . end'
 }
 
+# The number of an issue key, for ${ISSUE_NUMBER} (STA-595 → 595,
+# pappardelle-wx0 → wx0): everything after the last hyphen, not the first
+# digit run, since Jira project keys may carry digits of their own and
+# scanning left-to-right turned A1B-234 into the plausible-looking but wrong
+# "1".
+# Args: $1=issue key
+issue_number_for() {
+    echo "${1##*-}"
+}
+
 # Get the VCS host provider from .pappardelle.yml
 # Returns: "github" (default) or "gitlab"
 get_vcs_host_provider() {

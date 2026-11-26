@@ -1,5 +1,6 @@
 import {setImmediate as nextTurn} from 'node:timers/promises';
 import {test, expect} from 'bun:test';
+import {workspaceRefreshDeps} from '../test/helpers/workspace-refresh-deps.ts';
 import {
 	WorkspaceRefresh,
 	type WorkspaceRefreshDeps,
@@ -26,27 +27,22 @@ function setup(overrides: Partial<WorkspaceRefreshDeps> = {}) {
 	let spaces: SpaceData[] = [];
 	const errors: unknown[] = [];
 	const publications: SpaceData[][] = [];
-	const deps: WorkspaceRefreshDeps = {
+	const deps = workspaceRefreshDeps({
 		readRegistry: async () => ['STA-1', 'STA-2'],
-		statusReader: () => async () => ({status: 'idle'}),
-		readWorktreePath: async key => `/worktrees/${key}`,
 		readMainWorktree: async () => ({path: '/repo', branch: 'master'}),
-		readDirty: async () => false,
 		statusKey: async (key, mainBranch) => `repo-${mainBranch ?? key}`,
 		getCachedIssue: issue,
-		async fetchIssues() {},
 		readEmoji: async () => '🍝',
 		setSpaces(update) {
 			const next = update(spaces);
 			if (next !== spaces) publications.push(next);
 			spaces = next;
 		},
-		onLoaded() {},
 		onError(error) {
 			errors.push(error);
 		},
 		...overrides,
-	};
+	});
 	const refresh = new WorkspaceRefresh(deps);
 	return {
 		refresh,

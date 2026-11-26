@@ -5,7 +5,7 @@ import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {shellQuoteStatus} from '../source/program-status-monitor.ts';
 import {buildAgentSessionEnvArgs} from '../source/spawn-env.ts';
-import {StatusHarness, until} from './program-status-harness.ts';
+import {StatusHarness, untilSeen} from './program-status-harness.ts';
 
 assert.ok(
 	process.argv.includes('--live'),
@@ -72,7 +72,7 @@ try {
 		session,
 		args.map(value => shellQuoteStatus(value)).join(' '),
 	);
-	await until(
+	await untilSeen(
 		async () => {
 			const screen = await harness.screen(session);
 			if (
@@ -102,7 +102,7 @@ try {
 		undefined,
 		60000,
 	);
-	await until(
+	await untilSeen(
 		async () => {
 			const screen = await harness.screen(session);
 			if (
@@ -141,7 +141,7 @@ try {
 	await harness.tmux(['send-keys', '-t', `=${session}:`, '-l', '/exit']);
 	await delay(250);
 	await harness.tmux(['send-keys', '-t', `=${session}:`, 'Enter']);
-	await until(
+	await untilSeen(
 		async () => harness.screen(session),
 		screen => screen.trimEnd().endsWith('PAPPARDELLE_FIXTURE_PROMPT>'),
 		`${agent} returned to its fixture shell`,

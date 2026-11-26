@@ -11,7 +11,7 @@ import {
 	snapshotOf,
 } from '../test/helpers/program-status.ts';
 import type {TestState} from '../test/helpers/state.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 import {
 	parseStatusPane,
 	programStatusDir,
@@ -143,7 +143,6 @@ contractTest(
 contractTest(
 	'a working status is not read from a pane that has died, on any read, and a finished one is',
 	async state => {
-		const store = state.daos.programStatus;
 		const dead = {...current, dead: true};
 		await publishSnapshot(
 			state,
@@ -201,7 +200,7 @@ contractTest(
 		await waiting;
 
 		expect(performance.now() - started < 4000).toBe(true);
-		await waitUntil(() => seen.includes('STA-1'), 'the watch to be told');
+		await until(() => seen.includes('STA-1'), {what: 'the watch to be told'});
 		expect([...new Set(seen)]).toStrictEqual(['STA-1']);
 	},
 );

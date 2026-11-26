@@ -1,7 +1,6 @@
-import {idowIdentities} from '../test/helpers/state.ts';
+import {superviseDeps} from '../test/helpers/supervise-deps.ts';
 import {test, expect} from 'bun:test';
-import {runSuperviseCommand, type SuperviseDeps} from './supervise-command.ts';
-import type {SuperviseEntry} from './supervise-log.ts';
+import {runSuperviseCommand} from './supervise-command.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 
 const OPTIONS = ['Cheese', 'Olives', 'Peppers', 'Onions'];
@@ -99,9 +98,6 @@ class Dialog {
 }
 
 function harness(dialog: Dialog) {
-	const logged: SuperviseEntry[] = [];
-	const out: string[] = [];
-	const err: string[] = [];
 	const sent: string[] = [];
 	const runner: OuterTmuxRunner = args => {
 		if (args[0] === 'list-sessions')
@@ -110,19 +106,23 @@ function harness(dialog: Dialog) {
 		return {status: 1, stdout: ''};
 	};
 
-	const deps: SuperviseDeps = {
-		repo: () => 'repo',
-		identities: idowIdentities('repo', () => ['STA-1']),
-		resolveKey: raw => raw,
-		hookKey: async key => key,
-		readHook: async () => ({status: 'unknown'}),
-		readSnapshot: async () => null,
+	const {deps, logged, out, err} = superviseDeps({
 		runner,
-		serverRunner: () => ({status: 1, stdout: ''}),
-		now: () => new Date(2026, 10, 9, 12, 0),
-		async sleep() {},
-		async waitForStatusChange() {},
-		send: async () => 'sent',
+		readHookState: async () => ({kind: 'none'}),
+		policy: () => ({
+			worktree: null,
+			roots: [],
+			reserved: [],
+			shared: [],
+			scratchpad: '-repo',
+			defaultBranch: null,
+			realpath: target => target,
+		}),
+		holds: () => ({
+			save: async () => undefined,
+			load: () => null,
+			list: () => [],
+		}),
 		sendKeys(_key, keys) {
 			sent.push(...keys);
 			for (const key of keys) dialog.press(key);
@@ -133,33 +133,7 @@ function harness(dialog: Dialog) {
 			dialog.type(text);
 			return 'sent';
 		},
-		readHookState: async () => ({kind: 'none'}),
-		classify: async () => ({kind: 'approve'}),
-		policy: () => ({
-			worktree: null,
-			roots: [],
-			reserved: [],
-			shared: [],
-			scratchpad: '-repo',
-			defaultBranch: null,
-			realpath: target => target,
-		}),
-		store: () => ({root: '/nonexistent', repo: 'repo'}),
-		holds: () => ({
-			save: async () => undefined,
-			load: () => null,
-			list: () => [],
-		}),
-		newHoldId: () => 'h1',
-		timers: () => ({create() {}, remove() {}}),
-		caller: 'main',
-		readStdin: () => undefined,
-		out: text => out.push(text),
-		err: text => err.push(text),
-		log(_repo, _caller, entry) {
-			logged.push(entry);
-		},
-	};
+	});
 	return {
 		logged,
 		out,
@@ -209,7 +183,9 @@ test('a tick the dialog ignores stops the answer before it is confirmed', async 
 	expect(h.sent).toStrictEqual(['1', '3']);
 	expect(dialog.answered).toBe(false);
 	expect(h.err[0]!).toMatch(/options 1, 3 ticked didn't show/);
-	expect(h.logged[0]!.detail!).toMatch(/stuck: options 1, 3 ticked/);
+	expect(h.logged[0]).toMatchObject({
+		detail: expect.stringMatching(/stuck: options 1, 3 ticked/),
+	});
 });
 
 test('typed text goes into the free-text row and is submitted once it shows there', async () => {

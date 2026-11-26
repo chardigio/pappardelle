@@ -21,41 +21,14 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/provider-helpers.sh"
 
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
-TMPDIR_ROOT=$(mktemp -d)
-# shellcheck disable=SC2329  # invoked via trap
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
+test_tmpdir TMPDIR_ROOT
 
 assert_key() {
     local test_name="$1"
@@ -63,12 +36,9 @@ assert_key() {
     local config="$3"
 
     if is_beads_issue_key "$input" "$config" "$NO_BEADS_CONFIG"; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
+        pass "$test_name"
     else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected \"$input\" to be recognized as a beads ID"
-        FAIL=$((FAIL + 1))
+        fail "$test_name" "Expected \"$input\" to be recognized as a beads ID"
     fi
 }
 
@@ -78,12 +48,9 @@ assert_not_key() {
     local config="$3"
 
     if is_beads_issue_key "$input" "$config" "$NO_BEADS_CONFIG"; then
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected \"$input\" to be treated as a description"
-        FAIL=$((FAIL + 1))
+        fail "$test_name" "Expected \"$input\" to be treated as a description"
     else
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
+        pass "$test_name"
     fi
 }
 
@@ -117,8 +84,7 @@ printf 'version: 1\nteam_prefix: solo\n' > "$SOLO"
 BARE="$TMPDIR_ROOT/bare.yml"
 printf 'version: 1\n' > "$BARE"
 
-echo ""
-echo -e "${BOLD}beads_id_prefixes${RESET}"
+section "beads_id_prefixes"
 
 assert_eq "collects every configured source, lowercased and sorted" \
     "my_service
@@ -158,8 +124,7 @@ assert_eq "the bd database prefix when config.yaml has none" \
     "qa" "$(PATH="$TMPDIR_ROOT/fakebin:$PATH" PAPPARDELLE_MAIN_REPO_ROOT="$TMPDIR_ROOT/db-only" \
         beads_id_prefixes "$BARE" "$DB_ONLY_CONFIG")"
 
-echo ""
-echo -e "${BOLD}is_beads_issue_key${RESET}"
+section "is_beads_issue_key"
 
 assert_key "global prefix" "myproj-a1b2" "$MULTI"
 assert_key "hierarchical child" "myproj-a3f8e9.1" "$MULTI"
@@ -178,19 +143,9 @@ assert_not_key "nesting deeper than beads allows" "myproj-a1b2.1.2.3.4" "$MULTI"
 assert_not_key "anything at all when no prefix is configured" "solo-a1b2" "$BARE"
 
 if is_beads_issue_key "dbprefix-a1b2" "$BARE" "$BEADS_CONFIG"; then
-    echo -e "  ${GREEN}PASS${RESET} database issue-prefix alone recognizes a key"
-    PASS=$((PASS + 1))
+    pass "database issue-prefix alone recognizes a key"
 else
-    echo -e "  ${RED}FAIL${RESET} database issue-prefix alone recognizes a key"
-    FAIL=$((FAIL + 1))
+    fail "database issue-prefix alone recognizes a key"
 fi
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize

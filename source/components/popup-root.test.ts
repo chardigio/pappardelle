@@ -1,7 +1,8 @@
 import {test, expect} from 'bun:test';
 import {teardown} from '../../test/helpers/teardown.ts';
 import React from 'react';
-import {render, until} from '../../test/helpers/render.ts';
+import {render} from '../../test/helpers/render.ts';
+import {until} from '../../test/helpers/wait.ts';
 import {setTimeout as delay} from 'node:timers/promises';
 import type {LogEntry} from '../logger.ts';
 import type {ConfirmPayload, PopupActions, PopupSpec} from '../popup/spec.ts';
@@ -65,17 +66,15 @@ test('confirming shows the spinner and waits for the TUI to finish', async () =>
 	teardown(async () => {
 		await popup.view.unmount();
 	});
-	await until(
-		() => popup.view.lastFrame().includes('Close space bd-1?'),
-		popup.view.lastFrame,
-	);
+	await until(() => popup.view.lastFrame().includes('Close space bd-1?'), {
+		frame: popup.view.lastFrame,
+	});
 
 	const rows = popup.view.lastFrame().split('\n').length;
 	await popup.view.stdin.write('y');
-	await until(
-		() => popup.view.lastFrame().includes('Closing space bd-1…'),
-		popup.view.lastFrame,
-	);
+	await until(() => popup.view.lastFrame().includes('Closing space bd-1…'), {
+		frame: popup.view.lastFrame,
+	});
 	const frame = popup.view.lastFrame() ?? '';
 	expect(frame.split('\n').length).toBe(rows);
 	expect(frame.includes('Close space bd-1?')).toBe(true);
@@ -108,10 +107,9 @@ test('the errors popup follows live updates and asks the TUI to clear', async ()
 	teardown(async () => {
 		await popup.view.unmount();
 	});
-	await until(
-		() => popup.view.lastFrame().includes('No errors.'),
-		popup.view.lastFrame,
-	);
+	await until(() => popup.view.lastFrame().includes('No errors.'), {
+		frame: popup.view.lastFrame,
+	});
 
 	popup.pushErrors([
 		{
@@ -121,10 +119,9 @@ test('the errors popup follows live updates and asks the TUI to clear', async ()
 			message: 'fetch failed',
 		},
 	]);
-	await until(
-		() => popup.view.lastFrame().includes('fetch failed'),
-		popup.view.lastFrame,
-	);
+	await until(() => popup.view.lastFrame().includes('fetch failed'), {
+		frame: popup.view.lastFrame,
+	});
 
 	await popup.view.stdin.write('c');
 	await until(() => popup.clears() === 1);

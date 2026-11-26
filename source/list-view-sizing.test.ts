@@ -19,37 +19,6 @@ import {
 } from './list-view-sizing.ts';
 
 // ============================================================================
-// Test helpers
-// ============================================================================
-
-/** Create N dummy items for testing. */
-function makeItems(count: number) {
-	return Array.from({length: count}, (_, i) => ({
-		issueKey: `STA-${(400 + i).toString()}`,
-		icon: '\u00b7', // ·
-		title: `Issue title number ${i + 1}`,
-	}));
-}
-
-/**
- * Render a complete list-view ASCII snapshot and compare it with expected.
- */
-function assertListView(actual: string, expected: string, label: string) {
-	const trimmedActual = actual.trim();
-	const trimmedExpected = expected.trim();
-
-	if (trimmedActual !== trimmedExpected) {
-		console.log(`\n${label} - MISMATCH`);
-		console.log('Expected:');
-		console.log(trimmedExpected);
-		console.log('\nActual:');
-		console.log(trimmedActual);
-	}
-
-	expect(trimmedActual, label).toBe(trimmedExpected);
-}
-
-// ============================================================================
 // Constants Verification
 // ============================================================================
 
@@ -298,10 +267,6 @@ test('edge: variable-length keys get different title room', () => {
 test('STA-460: correct pane width renders issue key fully within pane', () => {
 	// After tmux split, list pane is ~37 chars wide (horizontal layout, 160-wide terminal)
 	const correctWidth = 37;
-	const items = [
-		{issueKey: 'STA-460', icon: '·', title: 'Fix pappardelle initialization'},
-	];
-
 	// renderListRow uses the full width for content (no prefix)
 	const row = renderListRow(
 		'STA-460',
@@ -323,10 +288,6 @@ test('STA-460: stale pre-split width produces rows wider than actual pane', () =
 	const staleWidth = 160;
 	// After fix: tmux reports the actual list pane width (37)
 	const correctWidth = 37;
-
-	const items = [
-		{issueKey: 'STA-460', icon: '·', title: 'Fix pappardelle initialization'},
-	];
 
 	const staleRow = renderListRow(
 		'STA-460',
@@ -818,7 +779,7 @@ test('the status row gives way when a group header would take the only list row'
 	expect(atTop.statusFits).toBe(false);
 	expect(
 		rows.slice(atTop.scrollOffset, atTop.scrollOffset + atTop.visibleCount),
-	).toStrictEqual([rows[0], rows[1]]);
+	).toStrictEqual(rows.slice(0, 2));
 	// Cursor deep in the list: the header has scrolled out, so the status row stays.
 	const deep = railWindow({...layout, cursorRow: 6, linesPerItem: 2});
 	expect(deep.statusFits).toBe(true);

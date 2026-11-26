@@ -10,7 +10,6 @@ import {
 	loadConfigFromPaths,
 	readHomeSqliteState,
 	getTeamPrefix,
-	getProfileTeamPrefix,
 	getInitializationCommand,
 	getAgentProfile,
 	getDangerouslySkipPermissions,
@@ -1642,14 +1641,14 @@ test('keybindings that are not a list of bindings fail validation, not the merge
 			'.pappardelle.local.yml: keybindings: must be an array',
 		],
 		['keybindings:\n  - ~\n', 'keybindings[0]: must be a map'],
-	]) {
+	] as const) {
 		const errors = schemaErrors({
 			'project/.pappardelle.yml': `${opusProfile}keybindings:
   - key: x
     name: X
     run: echo x
 `,
-			'project/.pappardelle.local.yml': local!,
+			'project/.pappardelle.local.yml': local,
 		});
 		expect(errors).toStrictEqual([expected]);
 	}

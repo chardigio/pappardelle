@@ -14,48 +14,20 @@
 # so CI runs only the portable tests that precede it: prompt and worktree path
 # quoting, and the viewer rebuild, which needs tmux.
 #
-# Usage: ./test-workspace-launchers.sh
+# Usage: ./scripts/test-workspace-launchers.sh (it puts itself under
+# test/helpers/tmux-guard-run.sh)
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
+run_under_tmux_guard "$0" "$@"
 
 # idow exports the space's socket from `pappardelle space get`.
 export PAPPARDELLE_TMUX_SOCKET=pappardelle_inner
-
-summarize() {
-    echo ""
-    local total=$((PASS + FAIL))
-    if [[ "$FAIL" -eq 0 ]]; then
-        echo -e "${GREEN}${BOLD}All $total tests passed${RESET}"
-        exit 0
-    fi
-    echo -e "${RED}${BOLD}$FAIL of $total tests failed${RESET}"
-    exit 1
-}
 
 # Runs anywhere: the default-terminal agent line, executed with tmux swapped
 # for sh, hands agy the prompt as one literal word through both shell parses,
@@ -63,8 +35,8 @@ summarize() {
 # shellcheck disable=SC2016 # the $ signs are the prompt's own text
 PROMPT_RAW='/idow it'"'"'s "q" $HOME $(touch PWNED) `touch PWNED` \\n & x'
 for prompt_args in "-i {prompt}" ""; do
-    echo -e "${BOLD}Test: prompt survives both shell parses (prompt_args [$prompt_args])${RESET}"
-    PROMPT_TMP=$(mktemp -d)
+    section "prompt survives both shell parses (prompt_args [$prompt_args])"
+    test_tmpdir PROMPT_TMP
     mkdir -p "$PROMPT_TMP/bin"
     cat > "$PROMPT_TMP/bin/agy" <<SHIM
 #!/bin/bash
@@ -87,15 +59,14 @@ SHIM
     assert_eq "resume attempt" "<--model><m1><--conversation><RESUME_FAIL>$PROMPT_ARGV" "$(sed -n 1p "$PROMPT_TMP/argv")"
     assert_eq "fresh launch" "<--model><m1>$PROMPT_ARGV" "$(sed -n 2p "$PROMPT_TMP/argv")"
     assert_eq "nothing in the prompt ran" "no" "$([[ -e "$PROMPT_TMP/pwned" ]] && echo yes || echo no)"
-    rm -rf "$PROMPT_TMP"
 done
 
 # Runs anywhere: both default-terminal pane lines, executed with tmux swapped
 # for a shim, cd into a worktree whose path holds quotes and a $(), title the
 # pane with the key and name the sessions it is given, quotes and all, and
 # claude gets the key as one --name word, without running any of the inputs.
-echo -e "${BOLD}Test: worktree path, repo name and key survive the pane shell${RESET}"
-PATH_TMP=$(mktemp -d)
+section "worktree path, repo name and key survive the pane shell"
+test_tmpdir PATH_TMP
 mkdir -p "$PATH_TMP/bin"
 PATH_WT="$PATH_TMP/o'brien \$(touch $PATH_TMP/pwned) it's \"wt\""
 mkdir -p "$PATH_WT"
@@ -137,11 +108,10 @@ assert_eq "claude gets the key as one --name word" \
     "<--name><$PATH_KEY><--continue>"$'\n'"<--name><$PATH_KEY>" "$(cat "$PATH_TMP/argv" 2>/dev/null)"
 assert_eq "nothing in the inputs ran" "no" \
     "$([[ -e "$PATH_TMP/pwned" || -e "$PATH_WT/pwned" ]] && echo yes || echo no)"
-rm -rf "$PATH_TMP"
 
 # The names come from the space's stored identity, so a launcher attaches to
 # what it is given, even a name that agent-<repo>-<key> would never spell.
-echo -e "\n${BOLD}Test: the default-terminal launcher attaches to the names it is given${RESET}"
+section "the default-terminal launcher attaches to the names it is given"
 NAMED_LINES=$("$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree /tmp/wt --issue-key QA-1 \
     --repo-name testrepo --agent-session hand.named_agent --companion-session hand-named_companion \
     --prompt "" --print-command)
@@ -152,8 +122,8 @@ assert_eq "companion pane" "1" "$(sed -n 2p <<< "$NAMED_LINES" | grep -c "new-se
 # server, rebuilds a viewer that lost a pane inside the same session. Killing
 # the viewer and creating it again can empty the user's default server, and a
 # new-session that reaches a server on its way out fails with it.
-echo -e "\n${BOLD}Test: the default-terminal viewer is rebuilt in place${RESET}"
-VIEW_TMP=$(mktemp -d /tmp/pappardelle-test-view.XXXXXX)
+section "the default-terminal viewer is rebuilt in place"
+test_tmpdir VIEW_TMP
 REAL_TMUX=$(command -v tmux)
 mkdir -p "$VIEW_TMP/bin" "$VIEW_TMP/home" "$VIEW_TMP/wt"
 cat > "$VIEW_TMP/bin/tmux" <<SHIM
@@ -162,7 +132,7 @@ cat > "$VIEW_TMP/bin/tmux" <<SHIM
 if [[ "\$1" == -L ]]; then printf '%s\n' "\$*" >> "$VIEW_TMP/inner"; exec sleep 600; fi
 # attach needs a terminal.
 [[ "\$1" == attach ]] && exit 0
-exec env -u TMUX -u TMUX_PANE "$REAL_TMUX" -f /dev/null -S "$VIEW_TMP/s" "\$@"
+exec env -u TMUX -u TMUX_PANE "$REAL_TMUX" -f /dev/null -S "$TMUX_TMPDIR/view" "\$@"
 SHIM
 cat > "$VIEW_TMP/bin/open" <<'SHIM'
 #!/bin/bash
@@ -171,9 +141,6 @@ SHIM
 chmod +x "$VIEW_TMP/bin/tmux" "$VIEW_TMP/bin/open"
 vrun() { HOME="$VIEW_TMP/home" PATH="$VIEW_TMP/bin:$PATH" SHELL=/bin/sh PAPPARDELLE_TMUX_SOCKET=view_inner "$@"; }
 vtmux() { vrun tmux "$@"; }
-# shellcheck disable=SC2329 # invoked by the EXIT trap
-view_cleanup() { vtmux kill-server 2>/dev/null || true; rm -rf "$VIEW_TMP"; }
-trap view_cleanup EXIT
 open_viewer() {
     vrun "$SCRIPT_DIR/open-default-terminal-agent.sh" --worktree "$VIEW_TMP/wt" --issue-key QA-1 \
         --repo-name testrepo --agent-session agent-testrepo-QA-1 --companion-session companion-testrepo-QA-1 \
@@ -186,7 +153,9 @@ open_viewer
 assert_eq "the last session on the server is the same one afterwards" "$BEFORE" \
     "$(vtmux display-message -p -t "$VIEWER" '#{pid} #{session_id}' 2>/dev/null)"
 assert_eq "it has the agent and companion panes" "2" "$(vtmux list-panes -t "$VIEWER" 2>/dev/null | wc -l | tr -d ' ')"
-for _ in $(seq 50); do [[ "$(grep -c '' "$VIEW_TMP/inner" 2>/dev/null)" == 2 ]] && break; sleep 0.1; done
+# shellcheck disable=SC2329  # invoked through wait_until
+both_panes_attached() { [[ "$(grep -c '' "$VIEW_TMP/inner" 2>/dev/null)" == 2 ]]; }
+wait_until both_panes_attached || true
 assert_eq "both panes attach to the inner sessions" \
     "-L view_inner new-session -A -s agent-testrepo-QA-1"$'\n'"-L view_inner new-session -A -s companion-testrepo-QA-1" \
     "$(cut -d' ' -f1-6 "$VIEW_TMP/inner" 2>/dev/null | sort)"
@@ -195,11 +164,10 @@ assert_eq "the agent pane is the active one" "1" \
 vtmux kill-server 2>/dev/null || true
 open_viewer
 assert_eq "a missing viewer is created with both panes" "2" "$(vtmux list-panes -t "$VIEWER" 2>/dev/null | wc -l | tr -d ' ')"
-view_cleanup
-trap - EXIT
+vtmux kill-server 2>/dev/null || true
 
 if ! command -v osascript >/dev/null 2>&1; then
-    echo "SKIP (no osascript — macOS only)"
+    skip "launcher parity (no osascript — macOS only)"
     summarize
 fi
 
@@ -228,7 +196,7 @@ FLAG_CASES=(
     "--agent-command claude-local --agent-is-claude true --skip-permissions"
 )
 
-echo -e "${BOLD}Test: launch flags are byte-identical${RESET}"
+section "launch flags are byte-identical"
 for flags in "${FLAG_CASES[@]}"; do
     read -r -a flag_args <<< "$flags"
     assert_eq "flags [${flags:-none}]" \
@@ -239,7 +207,7 @@ for flags in "${FLAG_CASES[@]}"; do
         "$(default_term --prompt "" "${flag_args[@]}" --print-launch-flags)"
 done
 
-echo -e "\n${BOLD}Test: assembled command lines are byte-identical${RESET}"
+section "assembled command lines are byte-identical"
 for flags in "${FLAG_CASES[@]}"; do
     read -r -a flag_args <<< "$flags"
     assert_eq "command [${flags:-none}]" \
@@ -252,7 +220,7 @@ done
 
 # The agent profile's model/effort flags arrive as one multi-word value, so
 # they can't ride the whitespace-split FLAG_CASES above.
-echo -e "\n${BOLD}Test: agent profile launch flags are byte-identical${RESET}"
+section "agent profile launch flags are byte-identical"
 LAUNCH_FLAG_CASES=(
     "codex|false|-m 'gpt-5.5 [1m]' -c model_reasoning_effort=high"
     "claude|true|--model opus --effort max"
@@ -275,7 +243,7 @@ done
 # The names are passed in, so a launcher that rebuilt one from the key would
 # still pass every assertion above for QA-1 while attaching to a session
 # nothing else uses.
-echo -e "\n${BOLD}Test: the given session names are attached by every launcher${RESET}"
+section "the given session names are attached by every launcher"
 for names in "bd-a1b2.1|agent-testrepo-bd-a1b2_1|companion-testrepo-bd-a1b2_1" \
     "my_svc-a1b2|hand.named_agent|hand-named_companion"; do
     IFS='|' read -r KEY AGENT_NAME COMPANION_NAME <<< "$names"
@@ -341,31 +309,26 @@ assert_eq "--window-id does not change the assembled bytes" \
     "$(ghostty --prompt "" --print-command)" \
     "$(ghostty --prompt "" --window-id tab-group-abc123 --print-command)"
 
-echo -e "\n${BOLD}Test: companion pane does not replay into a live session${RESET}"
+section "companion pane does not replay into a live session"
 # idow step 7 usually created the companion session already. new-session -A
 # attaches to it instead of starting the companion command a second time, and
 # nothing is typed into the pane, so a running gitui is left alone on reopen.
 for launcher in iterm ghostty; do
     COMPANION_LINE=$("$launcher" --prompt "" --print-command | tail -1)
-    case "$COMPANION_LINE" in
-        *"new-session -A -s 'companion-testrepo-QA-1'"*)
-            assert_eq "$launcher: companion session is attached when it exists" "ok" "ok" ;;
-        *)
-            assert_eq "$launcher: companion session is attached when it exists" \
-                "new-session -A -s 'companion-testrepo-QA-1'" "$COMPANION_LINE" ;;
-    esac
+    assert_contains "$launcher: companion session is attached when it exists" \
+        "new-session -A -s 'companion-testrepo-QA-1'" "$COMPANION_LINE"
     assert_eq "$launcher: nothing is typed into the companion pane" "0" \
         "$(grep -c 'send-keys' <<< "$COMPANION_LINE" || true)"
 
     # The generated line crosses into a real shell, so it has to parse there.
     if printf '%s\n' "$COMPANION_LINE" | bash -n /dev/stdin 2>/dev/null; then
-        assert_eq "$launcher: companion line is valid shell" "ok" "ok"
+        pass "$launcher: companion line is valid shell"
     else
-        assert_eq "$launcher: companion line is valid shell" "parses" "$COMPANION_LINE"
+        fail "$launcher: companion line is valid shell" "Expected a line bash -n accepts" "Actual: \"$COMPANION_LINE\""
     fi
 done
 
-echo -e "\n${BOLD}Test: idow captures the window after --open is parsed${RESET}"
+section "idow captures the window after --open is parsed"
 # idow resolves its config before it parses arguments, so a capture placed with
 # the config sees an unset OPEN_WORKSPACE and silently never runs, disabling
 # window targeting altogether.
@@ -375,10 +338,10 @@ CAPTURE_LINE=$(grep -n '^GHOSTTY_WINDOW_ID=""$' "$IDOW" | head -1 | cut -d: -f1)
 STEP1_LINE=$(grep -n '^# Step 1: Select profile' "$IDOW" | head -1 | cut -d: -f1)
 if [[ -n "$PARSE_LINE" && -n "$CAPTURE_LINE" && -n "$STEP1_LINE" \
       && "$CAPTURE_LINE" -gt "$PARSE_LINE" && "$CAPTURE_LINE" -lt "$STEP1_LINE" ]]; then
-    assert_eq "capture sits between --open parsing and the first slow step" "ok" "ok"
+    pass "capture sits between --open parsing and the first slow step"
 else
-    assert_eq "capture sits between --open parsing and the first slow step" \
-        "parse < capture < step 1" "parse=$PARSE_LINE capture=$CAPTURE_LINE step1=$STEP1_LINE"
+    fail "capture sits between --open parsing and the first slow step" \
+        "Expected: parse < capture < step 1" "Actual:   parse=$PARSE_LINE capture=$CAPTURE_LINE step1=$STEP1_LINE"
 fi
 
 summarize

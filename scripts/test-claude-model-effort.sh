@@ -18,62 +18,19 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 
 # Run the real resolver. Args: [--profile <name>] — config paths are wired to
-# whatever setup_configs() last wrote.
+# whatever write_config_layers last wrote.
 resolve() {
-    "$SCRIPT_DIR/resolve-agent-config.sh" \
-        --config "$TMPDIR_ROOT/.pappardelle.yml" \
-        --local-config "$TMPDIR_ROOT/.pappardelle.local.yml" \
-        --home-config "$TMPDIR_ROOT/home/.pappardelle.yml" \
-        "$@"
+    "$SCRIPT_DIR/resolve-agent-config.sh" "${CONFIG_LAYER_ARGS[@]}" "$@"
 }
 
 field() {
     jq -r ".$1"
-}
-
-# setup_configs <project_yaml> [local_yaml] [home_yaml]
-setup_configs() {
-    TMPDIR_ROOT=$(mktemp -d)
-    mkdir -p "$TMPDIR_ROOT/home"
-    printf '%s\n' "$1" > "$TMPDIR_ROOT/.pappardelle.yml"
-    if [[ -n "${2:-}" ]]; then
-        printf '%s\n' "$2" > "$TMPDIR_ROOT/.pappardelle.local.yml"
-    fi
-    if [[ -n "${3:-}" ]]; then
-        printf '%s\n' "$3" > "$TMPDIR_ROOT/home/.pappardelle.yml"
-    fi
 }
 
 BASE_PROFILES="profiles:
@@ -86,8 +43,8 @@ BASE_PROFILES="profiles:
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: off by default — no model/effort anywhere${RESET}"
-setup_configs "version: 1
+section "off by default — no model/effort anywhere"
+write_config_layers "version: 1
 claude:
   initialization_command: /do
   dangerously_skip_permissions: true
@@ -101,12 +58,11 @@ assert_eq "skip_permissions unchanged" "true" "$(echo "$OUT" | field skip_permis
 OUT=$(resolve --profile backend)
 assert_eq "model is empty (with --profile)" "" "$(echo "$OUT" | field model)"
 assert_eq "effort is empty (with --profile)" "" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: top-level model/effort apply with and without --profile${RESET}"
-setup_configs "version: 1
+section "top-level model/effort apply with and without --profile"
+write_config_layers "version: 1
 claude:
   model: opus
   effort: high
@@ -117,12 +73,11 @@ assert_eq "no profile → top-level effort" "high" "$(echo "$OUT" | field effort
 OUT=$(resolve --profile backend)
 assert_eq "profile without override → top-level model" "opus" "$(echo "$OUT" | field model)"
 assert_eq "profile without override → top-level effort" "high" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: per-profile values beat top-level${RESET}"
-setup_configs "version: 1
+section "per-profile values beat top-level"
+write_config_layers "version: 1
 claude:
   model: opus
   effort: high
@@ -142,12 +97,11 @@ assert_eq "profile effort wins" "medium" "$(echo "$OUT" | field effort)"
 OUT=$(resolve --profile frontend)
 assert_eq "sibling profile inherits model" "opus" "$(echo "$OUT" | field model)"
 assert_eq "sibling profile inherits effort" "high" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: a profile may set one field and inherit the other${RESET}"
-setup_configs "version: 1
+section "a profile may set one field and inherit the other"
+write_config_layers "version: 1
 claude:
   model: opus
   effort: high
@@ -160,12 +114,11 @@ profiles:
 OUT=$(resolve --profile backend)
 assert_eq "model inherited" "opus" "$(echo "$OUT" | field model)"
 assert_eq "effort overridden" "max" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: explicit empty string at profile level clears the global${RESET}"
-setup_configs "version: 1
+section "explicit empty string at profile level clears the global"
+write_config_layers "version: 1
 claude:
   model: opus
   effort: high
@@ -179,12 +132,11 @@ profiles:
 OUT=$(resolve --profile backend)
 assert_eq "profile empty model clears global" "" "$(echo "$OUT" | field model)"
 assert_eq "profile empty effort clears global" "" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: unknown profile name falls back to top-level${RESET}"
-setup_configs "version: 1
+section "unknown profile name falls back to top-level"
+write_config_layers "version: 1
 claude:
   model: opus
   effort: high
@@ -192,24 +144,22 @@ $BASE_PROFILES"
 OUT=$(resolve --profile does_not_exist)
 assert_eq "unknown profile → top-level model" "opus" "$(echo "$OUT" | field model)"
 assert_eq "unknown profile → top-level effort" "high" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: config with no profiles: block at all${RESET}"
-setup_configs "version: 1
+section "config with no profiles: block at all"
+write_config_layers "version: 1
 claude:
   model: opus
 profiles: {}"
 OUT=$(resolve --profile backend)
 assert_eq "empty profiles map → top-level model" "opus" "$(echo "$OUT" | field model)"
 assert_eq "empty profiles map → empty effort" "" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: layered configs — local beats project beats home${RESET}"
-setup_configs "version: 1
+section "layered configs — local beats project beats home"
+write_config_layers "version: 1
 claude:
   model: sonnet
   effort: medium
@@ -222,12 +172,11 @@ claude:
 OUT=$(resolve)
 assert_eq "local config wins for model" "fable" "$(echo "$OUT" | field model)"
 assert_eq "project config wins for effort (local silent)" "medium" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: local config can override a profile's model${RESET}"
-setup_configs "version: 1
+section "local config can override a profile's model"
+write_config_layers "version: 1
 claude:
   model: opus
 profiles:
@@ -242,12 +191,11 @@ profiles:
       model: fable"
 OUT=$(resolve --profile backend)
 assert_eq "local profile override wins" "fable" "$(echo "$OUT" | field model)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home config supplies values when project config is silent${RESET}"
-setup_configs "version: 1
+section "home config supplies values when project config is silent"
+write_config_layers "version: 1
 $BASE_PROFILES" "" "version: 1
 claude:
   model: haiku
@@ -255,12 +203,11 @@ claude:
 OUT=$(resolve --profile backend)
 assert_eq "home model applies" "haiku" "$(echo "$OUT" | field model)"
 assert_eq "home effort applies" "low" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home and local both apply when the project config is silent${RESET}"
-setup_configs "version: 1
+section "home and local both apply when the project config is silent"
+write_config_layers "version: 1
 $BASE_PROFILES" "version: 1
 claude:
   effort: max" "version: 1
@@ -270,7 +217,6 @@ claude:
 OUT=$(resolve --profile backend)
 assert_eq "home model survives — local is silent on it" "haiku" "$(echo "$OUT" | field model)"
 assert_eq "local effort beats home effort" "max" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 # idow is the production caller and can't be run headlessly (needs tmux, a git
@@ -280,7 +226,7 @@ cleanup; unset TMPDIR_ROOT
 # it — the two resolvers disagreeing is the exact failure this file exists to
 # prevent.
 
-echo -e "\n${BOLD}Test: idow passes the home layer to the resolver${RESET}"
+section "idow passes the home layer to the resolver"
 # `|| true` on both counts: grep -c exits 1 when it matches nothing, and this
 # file runs under `set -e`. Without it the regression case this test exists to
 # catch — zero calls carrying --home-config — kills the suite mid-test instead
@@ -295,8 +241,8 @@ assert_eq "idow's home path matches getDefaultHomeConfigDir()" \
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: exotic model ids survive the JSON round-trip${RESET}"
-setup_configs "version: 1
+section "exotic model ids survive the JSON round-trip"
+write_config_layers "version: 1
 claude:
   model: \"claude-opus-5[1m]\"
   effort: xhigh
@@ -304,12 +250,11 @@ $BASE_PROFILES"
 OUT=$(resolve --profile backend)
 assert_eq "bracketed model id intact" "claude-opus-5[1m]" "$(echo "$OUT" | field model)"
 assert_eq "xhigh effort intact" "xhigh" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: profile names with hyphens resolve correctly${RESET}"
-setup_configs "version: 1
+section "profile names with hyphens resolve correctly"
+write_config_layers "version: 1
 claude:
   model: opus
 profiles:
@@ -322,14 +267,13 @@ profiles:
 OUT=$(resolve --profile stardust-jams)
 assert_eq "hyphenated profile model" "sonnet" "$(echo "$OUT" | field model)"
 assert_eq "hyphenated profile effort" "medium" "$(echo "$OUT" | field effort)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 # A skill is invoked as $name in codex and /name elsewhere, unless the agent
 # profile sets its own skill_prefix.
 
-echo -e "\n${BOLD}Test: agent profile skill prefix${RESET}"
-setup_configs "version: 1
+section "agent profile skill prefix"
+write_config_layers "version: 1
 agent_profiles:
   codex:
     command: codex
@@ -348,15 +292,14 @@ profiles:
 assert_eq "codex runs skills with \$" '$' "$(resolve --profile codex | field agent_skill_prefix)"
 assert_eq "claude runs skills with /" "/" "$(resolve --profile plain | field agent_skill_prefix)"
 assert_eq "an agent profile's skill_prefix wins" "!" "$(resolve --profile wrapped | field agent_skill_prefix)"
-cleanup
 
 # ==========================================================================
 # Agent profiles carry their own model/effort, rendered into agent_launch_flags
 # through built-in (claude, codex) or configured templates. The deprecated
 # claude block only fills in for claude agent profiles.
 
-echo -e "\n${BOLD}Test: agent profile model/effort and their flags${RESET}"
-setup_configs "version: 1
+section "agent profile model/effort and their flags"
+write_config_layers "version: 1
 claude:
   model: sonnet
   effort: low
@@ -406,9 +349,8 @@ OUT=$(resolve --profile codex --agent-profile "")
 assert_eq "an empty --agent-profile keeps the profile's" "codex" "$(echo "$OUT" | field agent_profile)"
 ERR=$(resolve --profile plain --agent-profile nope 2>&1 >/dev/null || true)
 assert_eq "an unknown --agent-profile is an error" 'Error: agent profile "nope" not found in agent_profiles' "$ERR"
-cleanup; unset TMPDIR_ROOT
 
-setup_configs "version: 1
+write_config_layers "version: 1
 claude:
   model: sonnet
 agent_profiles:
@@ -419,9 +361,8 @@ profiles:
     display_name: Codex
     agent_profile: codex"
 assert_eq "codex ignores the claude block" "" "$(resolve --profile codex | field agent_launch_flags)"
-cleanup; unset TMPDIR_ROOT
 
-setup_configs "version: 1
+write_config_layers "version: 1
 agent_profiles:
   codex:
     command: codex
@@ -431,11 +372,10 @@ profiles:
   codex:
     model: ~"
 assert_eq "an undefined claude still resolves to the built-in" "claude" "$(resolve --profile plain | field agent_command)"
-cleanup; unset TMPDIR_ROOT
 
 # idow reads the resolved fields a line each, so a newline in one would shift
 # every field after it.
-setup_configs "version: 1
+write_config_layers "version: 1
 agent_profile: codex
 agent_profiles:
   codex:
@@ -445,14 +385,13 @@ agent_profiles:
 OUT=$(resolve)
 assert_eq "a block scalar's trailing newline is trimmed" "--yolo" "$(echo "$OUT" | field agent_args)"
 assert_eq "fields after a trimmed one keep their values" "codex" "$(echo "$OUT" | field agent_profile)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 # open-iterm-agent.sh builds its own flag string because the command is
 # assembled inside AppleScript. The model/effort flags arrive rendered and
 # quoted by the resolver (pinned above); the launcher only orders them.
 
-echo -e "\n${BOLD}Test: open-iterm-agent.sh launch flags${RESET}"
+section "open-iterm-agent.sh launch flags"
 iterm_flags() {
     PAPPARDELLE_TMUX_SOCKET=pappardelle_inner "$SCRIPT_DIR/open-iterm-agent.sh" --worktree /tmp --issue-key STA-1 \
         --repo-name testrepo --agent-session agent-testrepo-STA-1 --companion-session companion-testrepo-STA-1 \
@@ -478,36 +417,35 @@ assert_eq "flag order: dsp → args → launch flags" \
 # AppleScript needs iTerm's scripting dictionary, so machines without iTerm
 # installed skip too.
 
-echo -e "\n${BOLD}Test: open-iterm-agent.sh assembled command line${RESET}"
+section "open-iterm-agent.sh assembled command line"
 iterm_command() {
     PAPPARDELLE_TMUX_SOCKET=pappardelle_inner "$SCRIPT_DIR/open-iterm-agent.sh" --worktree /tmp/wt --issue-key QA-1 \
         --repo-name testrepo --agent-session agent-testrepo-QA-1 --companion-session companion-testrepo-QA-1 \
         --prompt "" "$@" --print-command 2>/dev/null | head -1
 }
 
+# The line starts with the assignments; a check of its prefix fails with both.
+assert_starts_with() {
+    if [[ "$3" == "$2"* ]]; then
+        pass "$1"
+    else
+        fail "$1" "Expected to start with: \"$2\"" "Actual:                 \"$3\""
+    fi
+}
+
 if ! command -v osascript >/dev/null 2>&1; then
-    echo "  SKIP (no osascript — macOS only)"
+    skip "open-iterm-agent.sh assembled command line (no osascript — macOS only)"
 elif [[ -z "$(iterm_command)" ]]; then
-    echo "  SKIP (osascript can't compile the iTerm AppleScript — is iTerm installed?)"
+    skip "open-iterm-agent.sh assembled command line (osascript can't compile the iTerm AppleScript — is iTerm installed?)"
 else
     LINE=$(iterm_command)
-    case "$LINE" in
-        "AGENT_CMD='claude'; AGENT_FLAGS=''; AGENT_RESUME=' --continue';"*)
-            assert_eq "no flags → claude defaults in the assignments" "ok" "ok" ;;
-        *) assert_eq "no flags → claude defaults in the assignments" "AGENT_CMD='claude'; AGENT_FLAGS=''; AGENT_RESUME=' --continue';..." "$LINE" ;;
-    esac
-    case "$LINE" in
-        *'"$AGENT_CMD$AGENT_FLAGS$AGENT_NAME$AGENT_RESUME'*)
-            assert_eq "flags referenced by expansion, not interpolated" "ok" "ok" ;;
-        *) assert_eq "flags referenced by expansion, not interpolated" 'contains "$AGENT_CMD$AGENT_FLAGS$AGENT_NAME$AGENT_RESUME' "$LINE" ;;
-    esac
+    assert_starts_with "no flags → claude defaults in the assignments" \
+        "AGENT_CMD='claude'; AGENT_FLAGS=''; AGENT_RESUME=' --continue';" "$LINE"
+    assert_contains "flags referenced by expansion, not interpolated" '"$AGENT_CMD$AGENT_FLAGS$AGENT_NAME$AGENT_RESUME' "$LINE"
 
     LINE=$(iterm_command --agent-launch-flags "--model sonnet --effort medium")
-    case "$LINE" in
-        "AGENT_CMD='claude'; AGENT_FLAGS=' --model sonnet --effort medium';"*)
-            assert_eq "resolved flags land in the assignment" "ok" "ok" ;;
-        *) assert_eq "resolved flags land in the assignment" "AGENT_CMD='claude'; AGENT_FLAGS=' --model sonnet --effort medium';..." "$LINE" ;;
-    esac
+    assert_starts_with "resolved flags land in the assignment" \
+        "AGENT_CMD='claude'; AGENT_FLAGS=' --model sonnet --effort medium';" "$LINE"
 
     # A value full of shell metacharacters, quoted for the inner `sh -c` the
     # way the resolver renders it, must stay inside the single-quoted
@@ -516,26 +454,19 @@ else
     # exact line and proves nothing is executed.
     LINE=$(iterm_command --agent-launch-flags "--model 'ev\"il; echo PWNED > /tmp/pwned.txt'")
     HOSTILE_PREFIX="AGENT_CMD='claude'; AGENT_FLAGS=' --model '\\''ev\"il; echo PWNED > /tmp/pwned.txt'\\''';"
-    case "$LINE" in
-        "$HOSTILE_PREFIX"*)
-            assert_eq "hostile value stays inside the quoted assignment" "ok" "ok" ;;
-        *) assert_eq "hostile value stays inside the quoted assignment" "escaped assignment prefix" "$LINE" ;;
-    esac
+    assert_starts_with "hostile value stays inside the quoted assignment" "$HOSTILE_PREFIX" "$LINE"
 
     # A non-claude agent gets its own command/args/resume assignments and
     # none of the claude flags (--name, dsp).
     LINE=$(iterm_command --skip-permissions \
         --agent-command codex --agent-args "--yolo" \
         --agent-resume-args "resume --last" --agent-is-claude false)
-    case "$LINE" in
-        "AGENT_CMD='codex'; AGENT_FLAGS=' --yolo'; AGENT_RESUME=' resume --last';"*)
-            assert_eq "codex assignments carry command/args/resume" "ok" "ok" ;;
-        *) assert_eq "codex assignments carry command/args/resume" "AGENT_CMD='codex'; AGENT_FLAGS=' --yolo'; AGENT_RESUME=' resume --last';..." "$LINE" ;;
-    esac
+    assert_starts_with "codex assignments carry command/args/resume" \
+        "AGENT_CMD='codex'; AGENT_FLAGS=' --yolo'; AGENT_RESUME=' resume --last';" "$LINE"
     case "$LINE" in
         *--name*|*--dangerously-skip-permissions*)
-            assert_eq "codex line has no claude flags" "no claude flags" "$LINE" ;;
-        *) assert_eq "codex line has no claude flags" "ok" "ok" ;;
+            fail "codex line has no claude flags" "Expected no --name or --dangerously-skip-permissions" "Actual: \"$LINE\"" ;;
+        *) pass "codex line has no claude flags" ;;
     esac
 
     # Empty resume args → launch-only, no fallback chain (the resolver
@@ -544,9 +475,8 @@ else
     LINE=$(iterm_command --agent-command codex --agent-args "--yolo" \
         --agent-resume-args "" --agent-is-claude false)
     case "$LINE" in
-        *'||'*) assert_eq "codex without resume args has no fallback chain" "no || chain" "$LINE" ;;
-        *'"$AGENT_CMD$AGENT_FLAGS$AGENT_NAME"'*) assert_eq "codex without resume args has no fallback chain" "ok" "ok" ;;
-        *) assert_eq "codex without resume args has no fallback chain" 'contains "$AGENT_CMD$AGENT_FLAGS$AGENT_NAME"' "$LINE" ;;
+        *'||'*) fail "codex without resume args has no fallback chain" "Expected no || chain" "Actual: \"$LINE\"" ;;
+        *) assert_contains "codex without resume args has no fallback chain" '"$AGENT_CMD$AGENT_FLAGS$AGENT_NAME"' "$LINE" ;;
     esac
 fi
 
@@ -556,8 +486,8 @@ fi
 # rendered launch flags after model/effort, one quoted word per item. The
 # profile list replaces the top-level one, an explicit [] on a profile clears
 # it, and other CLIs never get them.
-echo -e "\n${BOLD}Test: extra_args render into claude's launch flags, profile-first${RESET}"
-setup_configs "version: 1
+section "extra_args render into claude's launch flags, profile-first"
+write_config_layers "version: 1
 claude:
   effort: high
   extra_args: [--no-chrome]
@@ -594,16 +524,7 @@ assert_eq "extra_args is reported as deprecated" "claude.effort claude.extra_arg
 assert_eq "a profile's extra_args is reported as deprecated, naming the file" \
     "$TMPDIR_ROOT/.pappardelle.yml: profiles.backend.claude.extra_args is deprecated — set args on an agent profile (agent_profiles.<name>.args) and select it with profiles.backend.agent_profile" \
     "$(resolve --profile backend | field profile_deprecation_warnings)"
-cleanup
 
 # ==========================================================================
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize

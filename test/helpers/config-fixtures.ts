@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {validateConfig} from '../../source/config-validation.ts';
+import type {PappardelleConfig} from '../../source/config.ts';
 
 /** Write each file, at its path relative to `dir`. */
 export function writeFiles(dir: string, files: Record<string, string>): void {
@@ -40,4 +41,10 @@ export function validateListView(listView: Record<string, unknown>): string {
 	} catch (error) {
 		return (error as Error).message;
 	}
+}
+
+export function testConfig(
+	overrides: Partial<PappardelleConfig> = {},
+): PappardelleConfig {
+	return {version: 1, profiles: {}, ...overrides};
 }

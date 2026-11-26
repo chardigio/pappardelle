@@ -1,7 +1,8 @@
 import React from 'react';
 import {test, expect} from 'bun:test';
 import {RGBA} from '@opentui/core';
-import {render, until} from '../../test/helpers/render.ts';
+import {render} from '../../test/helpers/render.ts';
+import {until} from '../../test/helpers/wait.ts';
 import TuiErrorBoundary from './TuiErrorBoundary.tsx';
 
 function Broken(): React.ReactNode {
@@ -38,10 +39,7 @@ test('q in the failed view hands closing to onClose, so the rail can close its l
 	);
 	await until(() => view.lastFrame()?.includes('Press q') ?? false);
 	await view.stdin.write('q');
-	await until(
-		() => closed === 1,
-		() => view.lastFrame(),
-	);
+	await until(() => closed === 1, {frame: () => view.lastFrame()});
 	await view.unmount();
 	expect(closed).toBe(1);
 });

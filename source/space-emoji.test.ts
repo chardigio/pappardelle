@@ -1,32 +1,13 @@
 import fs from 'node:fs';
 import {test, expect} from 'bun:test';
+import {trackerIssue} from '../test/helpers/space-fixtures.ts';
+import {testConfig} from '../test/helpers/config-fixtures.ts';
 import {testState} from '../test/helpers/state.ts';
 import {resolveSpaceEmoji, resolveSpaceProfileName} from './space-emoji.ts';
-import type {PappardelleConfig} from './config.ts';
-import type {TrackerIssue} from './providers/types.ts';
-
-function makeConfig(
-	overrides: Partial<PappardelleConfig> = {},
-): PappardelleConfig {
-	return {
-		version: 1,
-		profiles: {},
-		...overrides,
-	};
-}
-
-function makeIssue(projectName: string | undefined): TrackerIssue {
-	return {
-		identifier: 'STA-1',
-		title: 't',
-		state: {name: 'In Progress', color: '#fff'},
-		project: projectName ? {name: projectName} : undefined,
-	} as unknown as TrackerIssue;
-}
 
 test('the rail emoji honors saved profiles and backfills without dropping other state', async () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			a: {display_name: 'A', emoji: '🅰️'},
 			b: {display_name: 'B', emoji: '🅱️', tracker_projects: ['Project B']},
@@ -36,7 +17,7 @@ test('the rail emoji honors saved profiles and backfills without dropping other 
 		config,
 		spaceState,
 		issueKey: 'STA-1',
-		cachedIssue: makeIssue('Project B'),
+		cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 	};
 	await spaceState.write('STA-1', {profile: 'a'});
 	expect(resolveSpaceEmoji(args)).toBe('🅰️');
@@ -60,7 +41,7 @@ test('the rail emoji honors saved profiles and backfills without dropping other 
 test('reads persisted profile and returns its emoji directly', async () => {
 	const {spaceState} = testState().daos;
 	await spaceState.write('STA-1', {profile: 'pappardelle'});
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {pappardelle: {display_name: 'Pappardelle', emoji: '🍝'}},
 	});
 	expect(
@@ -76,7 +57,7 @@ test('reads persisted profile and returns its emoji directly', async () => {
 test('persisted profile takes precedence over a cached-issue project match', async () => {
 	const {spaceState} = testState().daos;
 	await spaceState.write('STA-1', {profile: 'a'});
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			a: {display_name: 'A', emoji: '🅰️', tracker_projects: ['Project B']},
 			b: {display_name: 'B', emoji: '🅱️', tracker_projects: ['Project B']},
@@ -87,7 +68,7 @@ test('persisted profile takes precedence over a cached-issue project match', asy
 			config,
 			spaceState,
 			issueKey: 'STA-1',
-			cachedIssue: makeIssue('Project B'),
+			cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 		}),
 	).toBe('🅰️');
 });
@@ -101,7 +82,7 @@ test('persisted profile takes precedence over a cached-issue project match', asy
 
 test('backfills persisted profile from cached-issue project match', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			pappardelle: {
 				display_name: 'Pappardelle',
@@ -114,7 +95,7 @@ test('backfills persisted profile from cached-issue project match', () => {
 		config,
 		spaceState,
 		issueKey: 'STA-2',
-		cachedIssue: makeIssue('Pappardelle Quality'),
+		cachedIssue: trackerIssue({project: {name: 'Pappardelle Quality'}}),
 	});
 	expect(result).toBe('🍝');
 	expect(spaceState.read('STA-2')?.profile).toBe('pappardelle');
@@ -122,7 +103,7 @@ test('backfills persisted profile from cached-issue project match', () => {
 
 test('after backfill, subsequent calls resolve emoji without needing the cached issue', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			pappardelle: {
 				display_name: 'Pappardelle',
@@ -135,7 +116,7 @@ test('after backfill, subsequent calls resolve emoji without needing the cached 
 		config,
 		spaceState,
 		issueKey: 'STA-2',
-		cachedIssue: makeIssue('Pappardelle Quality'),
+		cachedIssue: trackerIssue({project: {name: 'Pappardelle Quality'}}),
 	});
 	// Now act as if the in-memory issue cache was evicted — we still get the
 	// emoji from the persisted profile alone.
@@ -157,21 +138,21 @@ test('does not re-write space-state when profile is already persisted', async ()
 	await new Promise<void>(resolve => {
 		setTimeout(resolve, 10);
 	});
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {pappardelle: {display_name: 'P', emoji: '🍝'}},
 	});
 	resolveSpaceEmoji({
 		config,
 		spaceState,
 		issueKey: 'STA-3',
-		cachedIssue: makeIssue('Some Other Project'),
+		cachedIssue: trackerIssue({project: {name: 'Some Other Project'}}),
 	});
 	expect(fs.statSync(filePath).mtimeMs).toBe(mtimeBefore);
 });
 
 test('does not persist when cached-issue project does not match any profile', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			pappardelle: {
 				display_name: 'Pappardelle',
@@ -184,14 +165,14 @@ test('does not persist when cached-issue project does not match any profile', ()
 		config,
 		spaceState,
 		issueKey: 'STA-4',
-		cachedIssue: makeIssue('Some Other Project'),
+		cachedIssue: trackerIssue({project: {name: 'Some Other Project'}}),
 	});
 	expect(spaceState.read('STA-4')).toBe(null);
 });
 
 test('does not persist when cached issue is null', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {pappardelle: {display_name: 'P', emoji: '🍝'}},
 	});
 	resolveSpaceEmoji({
@@ -213,7 +194,7 @@ test('does not persist when cached issue is null', () => {
 test('persisted profile that no longer exists in config returns blank slot, not a cached-issue fallthrough', async () => {
 	const {spaceState} = testState().daos;
 	await spaceState.write('STA-8', {profile: 'deleted_profile'});
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			pappardelle: {
 				display_name: 'Pappardelle',
@@ -227,7 +208,7 @@ test('persisted profile that no longer exists in config returns blank slot, not 
 			config,
 			spaceState,
 			issueKey: 'STA-8',
-			cachedIssue: makeIssue('Pappardelle Quality'),
+			cachedIssue: trackerIssue({project: {name: 'Pappardelle Quality'}}),
 		}),
 	).toBe('');
 });
@@ -239,7 +220,7 @@ test('persisted profile that no longer exists in config returns blank slot, not 
 
 test('returns blank slot when no profile resolves and any sibling has emoji', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			a: {display_name: 'A', emoji: '🎸'},
 			b: {display_name: 'B'},
@@ -257,7 +238,7 @@ test('returns blank slot when no profile resolves and any sibling has emoji', ()
 
 test('returns blank slot when issueKey is undefined (main worktree) and a sibling has emoji', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {a: {display_name: 'A', emoji: '🎸'}},
 	});
 	expect(
@@ -277,7 +258,7 @@ test('returns blank slot when issueKey is undefined (main worktree) and a siblin
 
 test('emoji-free config returns undefined for every signal combination', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			a: {display_name: 'A', tracker_projects: ['Project A']},
 			b: {display_name: 'B'},
@@ -288,7 +269,7 @@ test('emoji-free config returns undefined for every signal combination', () => {
 			config,
 			spaceState,
 			issueKey: 'STA-9',
-			cachedIssue: makeIssue('Project A'),
+			cachedIssue: trackerIssue({project: {name: 'Project A'}}),
 		}),
 	).toBe(undefined);
 	expect(
@@ -313,7 +294,7 @@ test('null config returns undefined and does not persist anything', () => {
 			config: null,
 			spaceState,
 			issueKey: 'STA-10',
-			cachedIssue: makeIssue('Project A'),
+			cachedIssue: trackerIssue({project: {name: 'Project A'}}),
 		}),
 	).toBe(undefined);
 	expect(spaceState.read('STA-10')).toBe(null);
@@ -328,7 +309,7 @@ test('null config returns undefined and does not persist anything', () => {
 test('resolveSpaceProfileName returns the persisted profile', async () => {
 	const {spaceState} = testState().daos;
 	await spaceState.write('STA-20', {profile: 'backend'});
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {backend: {display_name: 'Backend'}},
 	});
 	expect(
@@ -346,7 +327,7 @@ test('resolveSpaceProfileName prefers the persisted profile over a project match
 	// issue belongs to `b`'s project must still resolve to `a`.
 	const {spaceState} = testState().daos;
 	await spaceState.write('STA-21', {profile: 'a'});
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			a: {display_name: 'A'},
 			b: {display_name: 'B', tracker_projects: ['Project B']},
@@ -357,14 +338,14 @@ test('resolveSpaceProfileName prefers the persisted profile over a project match
 			config,
 			spaceState,
 			issueKey: 'STA-21',
-			cachedIssue: makeIssue('Project B'),
+			cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 		}),
 	).toBe('a');
 });
 
 test('resolveSpaceProfileName backfills from a project match and persists it', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({
+	const config = testConfig({
 		profiles: {
 			backend: {display_name: 'Backend', tracker_projects: ['Project B']},
 		},
@@ -374,7 +355,7 @@ test('resolveSpaceProfileName backfills from a project match and persists it', (
 			config,
 			spaceState,
 			issueKey: 'STA-22',
-			cachedIssue: makeIssue('Project B'),
+			cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 		}),
 	).toBe('backend');
 	expect(spaceState.read('STA-22')?.profile).toBe('backend');
@@ -382,7 +363,7 @@ test('resolveSpaceProfileName backfills from a project match and persists it', (
 
 test('resolveSpaceProfileName returns undefined with neither signal', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({profiles: {backend: {display_name: 'Backend'}}});
+	const config = testConfig({profiles: {backend: {display_name: 'Backend'}}});
 	expect(
 		resolveSpaceProfileName({
 			config,
@@ -396,13 +377,13 @@ test('resolveSpaceProfileName returns undefined with neither signal', () => {
 
 test('resolveSpaceProfileName returns undefined for the main worktree row', () => {
 	const {spaceState} = testState().daos;
-	const config = makeConfig({profiles: {backend: {display_name: 'Backend'}}});
+	const config = testConfig({profiles: {backend: {display_name: 'Backend'}}});
 	expect(
 		resolveSpaceProfileName({
 			config,
 			spaceState,
 			issueKey: undefined,
-			cachedIssue: makeIssue('Project B'),
+			cachedIssue: trackerIssue({project: {name: 'Project B'}}),
 		}),
 	).toBe(undefined);
 });

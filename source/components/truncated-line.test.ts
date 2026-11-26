@@ -2,7 +2,8 @@ import {test, expect} from 'bun:test';
 import {teardown} from '../../test/helpers/teardown.ts';
 import React from 'react';
 import stringWidth from 'string-width';
-import {render, until} from '../../test/helpers/render.ts';
+import {render} from '../../test/helpers/render.ts';
+import {until} from '../../test/helpers/wait.ts';
 import HelpOverlay from './HelpOverlay.tsx';
 import TruncatedLine from './TruncatedLine.tsx';
 
@@ -20,13 +21,12 @@ test('a line that does not fit ends in an ellipsis, and widening restores it', a
 	teardown(async () => {
 		await view.unmount();
 	});
-	await until(
-		() => view.lastFrame() === 'Deinit failed: Failing hook e…',
-		view.lastFrame,
-	);
+	await until(() => view.lastFrame() === 'Deinit failed: Failing hook e…', {
+		frame: view.lastFrame,
+	});
 
 	await view.rerender(header(60));
-	await until(() => view.lastFrame() === MESSAGE, view.lastFrame);
+	await until(() => view.lastFrame() === MESSAGE, {frame: view.lastFrame});
 	expect().pass();
 });
 
@@ -52,6 +52,6 @@ test('the help legend is cut with an ellipsis inside a narrow overlay', async ()
 			.lastFrame()
 			.split('\n')
 			.find(line => line.includes('Program status:'));
-	await until(() => /… +│$/.test(legend() ?? ''), view.lastFrame);
+	await until(() => /… +│$/.test(legend() ?? ''), {frame: view.lastFrame});
 	expect(stringWidth(legend()!)).toBe(width);
 });

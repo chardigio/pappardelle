@@ -23,10 +23,13 @@ import {
 	frameReadyChannel,
 	frameStartedChannel,
 } from './pane-frame-options.ts';
-import {getRepoName} from './config.ts';
 import {clearRecentErrors, getRecentErrors} from './logger.ts';
 import {shellQuote} from './shell-quote.ts';
-import {DEFAULT_RESOLVED_AGENT_PROFILE} from './config.ts';
+import {
+	DEFAULT_RESOLVED_AGENT_PROFILE,
+	getRepoName,
+	type ResolvedAgentProfile,
+} from './config.ts';
 import {
 	StartupTrace,
 	startupTrace,
@@ -666,7 +669,6 @@ test('warm switches move both viewers in one request without setup probes', asyn
 test('a switch and a session start use the names stored for the space', async () => {
 	const stored = testState({repo: getRepoName(), sqlite: true});
 	for (const key of ['TEST-A', 'TEST-HAND']) {
-		// eslint-disable-next-line no-await-in-loop -- One store, written in turn.
 		await stored.daos.spaceIdentities.record({
 			repo: getRepoName(),
 			key,
@@ -1072,6 +1074,13 @@ test('cold companion creation completes its command before reporting success', a
 	expect(calls[1]!.includes('custom-ui')).toBe(true);
 });
 
+const CODEX_PROFILE: ResolvedAgentProfile = {
+	...DEFAULT_RESOLVED_AGENT_PROFILE,
+	name: 'codex',
+	command: 'codex',
+	isClaude: false,
+};
+
 // The agent's hook records its session id under the stored agent profile
 // (plugins/pappardelle/hooks/agent_session.py), never one the session carries.
 test('a new agent session stores the agent profile it was started with', async () => {
@@ -1082,14 +1091,7 @@ test('a new agent session stores the agent profile it was started with', async (
 		return '';
 	};
 	expect(
-		await ensureAgentSession('TEST-NEW', '/tmp', false, run, {
-			name: 'codex',
-			command: 'codex',
-			args: '',
-			isClaude: false,
-			model: '',
-			effort: '',
-		}),
+		await ensureAgentSession('TEST-NEW', '/tmp', false, run, CODEX_PROFILE),
 	).toBe(true);
 	expect(derived.daos.spaceState.read('TEST-NEW')?.agentProfile).toStrictEqual({
 		name: 'codex',
@@ -1115,14 +1117,7 @@ test('a new agent session starts when its agent profile cannot be stored', async
 		return '';
 	};
 	expect(
-		await ensureAgentSession('TEST-NEW', '/tmp', false, run, {
-			name: 'codex',
-			command: 'codex',
-			args: '',
-			isClaude: false,
-			model: '',
-			effort: '',
-		}),
+		await ensureAgentSession('TEST-NEW', '/tmp', false, run, CODEX_PROFILE),
 	).toBe(true);
 	expect(calls.some(args => args.includes('new-session'))).toBe(true);
 });

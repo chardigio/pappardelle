@@ -8,7 +8,7 @@ import {
 } from '../test/helpers/processes.ts';
 import {testState} from '../test/helpers/state.ts';
 import {testSocketPath} from '../test/helpers/status-daemon.ts';
-import {waitUntil} from '../test/helpers/wait.ts';
+import {until} from '../test/helpers/wait.ts';
 import {createStateDaos} from './state-daos.ts';
 import {closeStateDb, openStateDb, stateDbPath} from './state-db.ts';
 
@@ -66,11 +66,10 @@ test('the stores start no status daemon until they are told this process may', a
 	expect(fs.existsSync(socketPath)).toBe(false);
 
 	daos.allowStatusDaemonStart();
-	await waitUntil(
-		() => fs.existsSync(socketPath) && daemons().length === 1,
-		'the daemon to be started',
-		30_000,
-	);
+	await until(() => fs.existsSync(socketPath) && daemons().length === 1, {
+		what: 'the daemon to be started',
+		timeoutMs: 30_000,
+	});
 });
 
 test('with the file-backed stores, allowing a status daemon starts none', async () => {

@@ -2,10 +2,10 @@ import {execFile, spawn} from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import {test, expect} from 'bun:test';
 import {teardown} from '../test/helpers/teardown.ts';
+import {until, untilValue} from '../test/helpers/wait.ts';
 import {installSousChefKey} from './tmux.ts';
 import {
 	getHighlightFilePath,
@@ -64,11 +64,11 @@ async function fixture() {
 		fs.rmSync(dir, {recursive: true, force: true});
 	});
 
-	let clientName = '';
-	for (let i = 0; i < 50 && !clientName; i++) {
-		clientName = await run(['list-clients', '-F', '#{client_name}']);
-		if (!clientName) await delay(20);
-	}
+	const clientName = await untilValue(
+		async () => run(['list-clients', '-F', '#{client_name}']),
+		name => name !== '',
+		{what: 'the control client to attach', intervalMs: 20},
+	);
 
 	const pappardellePane = await run([
 		'display-message',
@@ -105,15 +105,6 @@ async function fixture() {
 		return screen.includes(text);
 	};
 
-	const waitFor = async (check: () => Promise<boolean>) => {
-		for (let i = 0; i < 100; i++) {
-			if (await check()) return true;
-			await delay(20);
-		}
-
-		return false;
-	};
-
 	const install = async (key: string | null) =>
 		installSousChefKey(pappardellePane, key, command, run);
 
@@ -121,7 +112,6 @@ async function fixture() {
 		run,
 		press,
 		echoed,
-		waitFor,
 		install,
 		jumped,
 		request,
@@ -135,7 +125,7 @@ test('the key runs the jump in its own window without disturbing the pane', asyn
 	await f.install('M-s');
 	await f.press(0, 'M-s');
 
-	expect(await f.waitFor(async () => f.jumped() !== null)).toBe(true);
+	await until(() => f.jumped() !== null, {what: 'the jump request'});
 	expect(f.jumped()).toStrictEqual(f.request);
 	expect(
 		await f.run([
@@ -154,7 +144,10 @@ test('the key reaches the program in any other window', async () => {
 	await f.install('M-s');
 	await f.press(1, 'M-s');
 
-	expect(await f.waitFor(async () => f.echoed(f.userPane, '^[s'))).toBe(true);
+	await until(async () => f.echoed(f.userPane, '^[s'), {
+		what: 'the key to reach the user pane',
+		intervalMs: 20,
+	});
 	expect(f.jumped()).toBe(null);
 });
 
@@ -164,13 +157,14 @@ test('a changed key stops the old one from acting in the window', async () => {
 	await f.install('M-j');
 
 	await f.press(0, 'M-s');
-	expect(await f.waitFor(async () => f.echoed(f.pappardellePane, '^[s'))).toBe(
-		true,
-	);
+	await until(async () => f.echoed(f.pappardellePane, '^[s'), {
+		what: 'the old key to reach the pane',
+		intervalMs: 20,
+	});
 	expect(f.jumped()).toBe(null);
 
 	await f.press(0, 'M-j');
-	expect(await f.waitFor(async () => f.jumped() !== null)).toBe(true);
+	await until(() => f.jumped() !== null, {what: 'the jump request'});
 });
 
 test('a key turned off passes through in the window', async () => {
@@ -179,8 +173,9 @@ test('a key turned off passes through in the window', async () => {
 	await f.install(null);
 	await f.press(0, 'M-s');
 
-	expect(await f.waitFor(async () => f.echoed(f.pappardellePane, '^[s'))).toBe(
-		true,
-	);
+	await until(async () => f.echoed(f.pappardellePane, '^[s'), {
+		what: 'the key to reach the pane',
+		intervalMs: 20,
+	});
 	expect(f.jumped()).toBe(null);
 });

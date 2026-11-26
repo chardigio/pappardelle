@@ -92,7 +92,7 @@ fi
 				env: {
 					...process.env,
 					HOME: root,
-					PATH: `${bin}:${process.env.PATH!}`,
+					PATH: `${bin}:${process.env['PATH']!}`,
 					PAPPARDELLE_TMUX_SOCKET: 'pappardelle_inner',
 					CLAUDE_TEST_LOG: log,
 					CLAUDE_TEST_RESUME_EXIT: scenario.resume ? '0' : '1',

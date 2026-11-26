@@ -7,18 +7,16 @@ import TitledBox from './TitledBox.tsx';
 
 async function topEdge(isDim: boolean) {
 	const view = await render(
-		React.createElement(
-			TitledBox,
-			{
-				title: 'Profile',
-				borderColor: 'green',
-				titleColor: 'greenBright',
-				borderStyle: isDim ? 'round' : 'double',
-				isDim,
-				paddingY: 0,
-			},
-			React.createElement('text', null, 'row one'),
-		),
+		// eslint-disable-next-line react/no-children-prop -- createElement's types take a required children prop only in the props object
+		React.createElement(TitledBox, {
+			title: 'Profile',
+			borderColor: 'green',
+			titleColor: 'greenBright',
+			borderStyle: isDim ? 'round' : 'double',
+			isDim,
+			paddingY: 0,
+			children: React.createElement('text', null, 'row one'),
+		}),
 		{width: 24, height: 3},
 	);
 	const [top, middle] = view.captureSpans().lines;

@@ -1,4 +1,5 @@
 import {test, expect} from 'bun:test';
+import {testConfig} from '../test/helpers/config-fixtures.ts';
 import {press} from '../test/helpers/key-press.ts';
 import {
 	buildProfileOptions,
@@ -37,13 +38,12 @@ function makeConfig(
 	defaultEmoji?: string,
 	teamPrefix?: string,
 ): PappardelleConfig {
-	return {
-		version: 1,
+	return testConfig({
 		default_profile: defaultProfile,
 		default_emoji: defaultEmoji,
 		team_prefix: teamPrefix,
 		profiles,
-	} as unknown as PappardelleConfig;
+	});
 }
 
 const valid = (config: PappardelleConfig): ConfigLoad => ({

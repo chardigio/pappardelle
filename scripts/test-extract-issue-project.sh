@@ -23,57 +23,14 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/provider-helpers.sh"
 
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-assert_contains() {
-    local test_name="$1"
-    local needle="$2"
-    local haystack="$3"
-
-    if [[ "$haystack" == *"$needle"* ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected to contain: \"$needle\""
-        echo "    Actual:              \"$haystack\""
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-TMPDIR_ROOT=$(mktemp -d)
+test_tmpdir TMPDIR_ROOT
 
 setup_configs() {
     cat > "$TMPDIR_ROOT/.pappardelle-linear.yml" <<'EOF'
@@ -158,7 +115,7 @@ BEADS_NO_PREFIX_JSON='{"id":"nohyphen","title":"Prefixless","status":"open"}'
 
 # ==========================================================================
 
-echo -e "${BOLD}Test: extract_issue_project_candidates — Linear shape${RESET}"
+section "extract_issue_project_candidates — Linear shape"
 result=$(extract_issue_project_candidates "$LINEAR_ISSUE_JSON" "$TMPDIR_ROOT/.pappardelle-linear.yml")
 assert_eq "Linear issue → project name" "Pappardelle Quality" "$result"
 
@@ -167,7 +124,7 @@ assert_eq "Linear issue without project → empty" "" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: extract_issue_project_candidates — Jira shape emits name then key${RESET}"
+section "extract_issue_project_candidates — Jira shape emits name then key"
 result=$(extract_issue_project_candidates "$JIRA_ISSUE_JSON" "$TMPDIR_ROOT/.pappardelle-jira.yml")
 assert_eq "Jira issue → name + key lines" "Pappardelle Testing
 KAN" "$result"
@@ -177,7 +134,7 @@ assert_eq "Jira issue without project → empty" "" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: match_profile_by_tracker_project — Linear name (regression pin)${RESET}"
+section "match_profile_by_tracker_project — Linear name (regression pin)"
 candidates=$(extract_issue_project_candidates "$LINEAR_ISSUE_JSON" "$TMPDIR_ROOT/.pappardelle-linear.yml")
 result=$(match_profile_by_tracker_project "$candidates" "$TMPDIR_ROOT/.pappardelle-linear.yml")
 assert_eq "Linear project name → profile" "pappardelle" "$result"
@@ -187,7 +144,7 @@ assert_eq "case-insensitive name match" "king-bee" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: match_profile_by_tracker_project — Jira name and key${RESET}"
+section "match_profile_by_tracker_project — Jira name and key"
 candidates=$(extract_issue_project_candidates "$JIRA_ISSUE_JSON" "$TMPDIR_ROOT/.pappardelle-jira.yml")
 result=$(match_profile_by_tracker_project "$candidates" "$TMPDIR_ROOT/.pappardelle-jira.yml")
 assert_eq "Jira project name → profile (not first-profile)" "by-name" "$result"
@@ -201,7 +158,7 @@ assert_eq "case-insensitive key match" "by-key" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: match_profile_by_tracker_project — no match / empty input${RESET}"
+section "match_profile_by_tracker_project — no match / empty input"
 result=$(match_profile_by_tracker_project "Unknown Project" "$TMPDIR_ROOT/.pappardelle-jira.yml")
 assert_eq "unknown project → empty" "" "$result"
 
@@ -210,7 +167,7 @@ assert_eq "empty candidates → empty" "" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: fetch_issue_json requests --fields '*all' from acli${RESET}"
+section "fetch_issue_json requests --fields '*all' from acli"
 # acli's default view field set (assignee, description, issuetype, status,
 # summary) omits `project`; without '*all' the candidates above never exist.
 FAKE_BIN="$TMPDIR_ROOT/bin"
@@ -231,7 +188,7 @@ assert_contains "acli argv includes *all" "*all" "$argv"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: extract_issue_project_candidates — beads uses the ID prefix${RESET}"
+section "extract_issue_project_candidates — beads uses the ID prefix"
 BEADS_CONFIG="$TMPDIR_ROOT/.pappardelle-beads.yml"
 
 result=$(extract_issue_project_candidates "$BEADS_ISSUE_JSON" "$BEADS_CONFIG")
@@ -249,7 +206,7 @@ assert_eq "prefixless ID → empty" "" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: match_profile_by_tracker_project — beads prefix routing${RESET}"
+section "match_profile_by_tracker_project — beads prefix routing"
 candidates=$(extract_issue_project_candidates "$BEADS_ISSUE_JSON" "$BEADS_CONFIG")
 result=$(match_profile_by_tracker_project "$candidates" "$BEADS_CONFIG")
 assert_eq "prefix pap → by-prefix profile" "by-prefix" "$result"
@@ -264,13 +221,13 @@ assert_eq "no prefix → no profile match" "" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: extract_issue_url — beads issues have no web page${RESET}"
+section "extract_issue_url — beads issues have no web page"
 result=$(extract_issue_url "$BEADS_ISSUE_JSON" "$BEADS_CONFIG" "pap-a1b2")
 assert_eq "beads issue → empty URL" "" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: extract_issue_title/description — beads shape${RESET}"
+section "extract_issue_title/description — beads shape"
 result=$(extract_issue_title "$BEADS_ISSUE_JSON" "$BEADS_CONFIG")
 assert_eq "beads title read from .title" "A beads issue" "$result"
 
@@ -282,7 +239,7 @@ assert_eq "beads issue without description → empty" "" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: beads_first_issue — every payload shape bd emits${RESET}"
+section "beads_first_issue — every payload shape bd emits"
 # bd show returns a one-element array, not the bare object its schema doc
 # describes, and BD_JSON_ENVELOPE=1 wraps whatever it returns.
 result=$(echo '[{"id":"pap-a1b2","title":"From array"}]' | beads_first_issue | jq -r '.title')
@@ -302,7 +259,7 @@ assert_eq "empty array → empty object" "none" "$result"
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create_issue — beads argv and output${RESET}"
+section "create_issue — beads argv and output"
 # Shadow bd so the test never touches a real database. create_issue asks for
 # --json and reduces the payload with beads_first_issue, so the fake answers in
 # the envelope shape beads 2.0 makes its default.
@@ -359,30 +316,17 @@ assert_eq "warning on stderr stays out of the key" \
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: ISSUE_NUMBER derivation from an issue key${RESET}"
+section "ISSUE_NUMBER derivation from an issue key"
 # Everything after the last hyphen. Scanning left-to-right for the first digit
 # run instead turns the Jira key A1B-234 into "1", and emits one line per digit
 # run for a beads content hash, which makes any ${ISSUE_NUMBER} template it
 # feeds a broken multi-line command.
-issue_number_for() {
-    local key="$1"
-    echo "${key##*-}"
-}
-
 assert_eq "classic key → its number" "595" "$(issue_number_for STA-595)"
 assert_eq "Jira key with digits in the project" "234" "$(issue_number_for A1B-234)"
 assert_eq "beads hash ID → its hash" "a1b2" "$(issue_number_for bd-a1b2)"
 assert_eq "beads child ID → hash and child" "a3f8e9.1" "$(issue_number_for bd-a3f8e9.1)"
-assert_eq "hyphenated beads prefix splits on the last hyphen" "wx0" "$(issue_number_for pappardelle-wx0)"
+assert_eq "hyphenated beads prefix splits on the last hyphen" "7yi" "$(issue_number_for draft-machine-7yi)"
 
 # ==========================================================================
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize

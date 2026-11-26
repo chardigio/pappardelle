@@ -8,6 +8,10 @@ import {
 	openPopupTerminal,
 	type PopupTerminal,
 } from '../source/popup/terminal.ts';
+import {requireTmuxGuard} from '../test/helpers/tmux-guard-check.ts';
+import {until} from '../test/helpers/wait.ts';
+
+requireTmuxGuard();
 
 // Popups only show on an attached client, so this attaches a real one in a
 // pty to a throwaway server. A popup the rail is done with must close and
@@ -16,15 +20,15 @@ const root = mkdtempSync(path.join(tmpdir(), 'pappa-popup-close-'));
 const socket = path.join(root, 'tmux.sock');
 const tmux = (args: string[]) =>
 	execFileSync('tmux', ['-S', socket, ...args], {encoding: 'utf8'});
-const {TMUX_PANE: _pane, ...cleanEnv} = process.env;
-delete cleanEnv.TMUX;
 
 async function settles(promise: Promise<void>, ms: number) {
 	return Promise.race([promise.then(() => true), delay(ms).then(() => false)]);
 }
 
 function popupTtyPath(terminal: PopupTerminal) {
-	return readlinkSync(`/proc/self/fd/${terminal.input.fd}`);
+	// A tty.ReadStream carries its fd at runtime; @types/node does not declare it.
+	const input = terminal.input as typeof terminal.input & {fd: number};
+	return readlinkSync(`/proc/self/fd/${input.fd}`);
 }
 
 function fdsOn(ttyPath: string) {
@@ -51,29 +55,25 @@ async function readLikeRenderer(terminal: PopupTerminal) {
 
 let client: ReturnType<typeof Bun.spawn> | undefined;
 try {
-	execFileSync(
-		'tmux',
-		[
-			'-S',
-			socket,
-			'-f',
-			'/dev/null',
-			'new-session',
-			'-d',
-			'-s',
-			'host',
-			'-x',
-			'120',
-			'-y',
-			'40',
-			'sleep 600',
-		],
-		{env: cleanEnv},
-	);
+	execFileSync('tmux', [
+		'-S',
+		socket,
+		'-f',
+		'/dev/null',
+		'new-session',
+		'-d',
+		'-s',
+		'host',
+		'-x',
+		'120',
+		'-y',
+		'40',
+		'sleep 600',
+	]);
 	let clientOutput = '';
 	// CI runners have no TERM, and tmux refuses to attach without one.
 	client = Bun.spawn(['tmux', '-S', socket, 'attach', '-t', 'host'], {
-		env: {...cleanEnv, TERM: 'xterm-256color'},
+		env: {...process.env, TERM: 'xterm-256color'},
 		terminal: {
 			cols: 120,
 			rows: 40,
@@ -82,14 +82,14 @@ try {
 			},
 		},
 	});
-	const end = Date.now() + 5000;
-	while (!tmux(['list-clients', '-F', '#{client_name}']).trim()) {
-		assert.ok(
-			Date.now() < end,
-			`tmux client never attached: ${JSON.stringify(clientOutput.slice(-300))}`,
-		);
-		await delay(50);
-	}
+	await until(
+		() => tmux(['list-clients', '-F', '#{client_name}']).trim() !== '',
+		{
+			what: 'a tmux client to attach',
+			frame: () => JSON.stringify(clientOutput.slice(-300)),
+			intervalMs: 50,
+		},
+	);
 
 	process.env['TMUX'] = `${socket},0,0`;
 	delete process.env['TMUX_PANE'];

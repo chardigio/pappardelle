@@ -8,32 +8,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 DERIVE="$SCRIPT_DIR/derive-title.sh"
-PASS=0
-FAIL=0
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-echo -e "${BOLD}derive-title.sh${RESET}"
+section "derive-title.sh"
 
 assert_eq "short prompt is the title as is" \
     "Add dark mode to settings" \
@@ -65,6 +44,4 @@ for blank in "" "   " $'\n\t'; do
     assert_eq "blank prompt $(printf '%q' "$blank") exits 1" "1" "$rc"
 done
 
-echo ""
-echo -e "${BOLD}Results:${RESET} ${GREEN}$PASS passed${RESET}, ${RED}$FAIL failed${RESET}"
-[[ $FAIL -eq 0 ]]
+summarize
