@@ -32,6 +32,7 @@ import {
 	type ConfigPaths,
 	type PappardelleConfig,
 } from './config.ts';
+import {BUILTIN_AGENT_PROFILE_FIELDS} from './builtin-agents.ts';
 import {shellQuote} from './shell-quote.ts';
 import {
 	builtinAgentDefaults,
@@ -205,14 +206,6 @@ function removeKeepingComments(
 	found.parent.comment = joinComments(found.parent.comment, comment);
 }
 
-const BUILTIN_FIELDS = [
-	'model_args',
-	'effort_args',
-	'prompt_args',
-	'resume_args',
-	'skill_prefix',
-] as const;
-
 /**
  * Drop each agent profile field that repeats its built-in default, after
  * stripping the trailing prompt flag agy profiles used before prompt_args
@@ -235,7 +228,7 @@ function dropBuiltinDefaults(
 		if (!definition) continue;
 		const builtin = builtinAgentDefaults(definition);
 		const flag = builtinPromptFlag(definition);
-		for (const field of BUILTIN_FIELDS) {
+		for (const field of BUILTIN_AGENT_PROFILE_FIELDS) {
 			const at = ['agent_profiles', name, field];
 			const node = document.getIn(at, true);
 			if (!isScalar(node) || typeof node.value !== 'string') continue;
@@ -500,10 +493,6 @@ function launches(config: PappardelleConfig): Record<string, string> {
 		[undefined, ...Object.keys(config.profiles)].map(profileName => {
 			const agent = getAgentProfile(config, undefined, profileName);
 			const definition = config.agent_profiles?.[agent.name];
-			const promptArgs = definition
-				? (definition.prompt_args ??
-					builtinAgentDefaults(definition).prompt_args)
-				: undefined;
 			// Flag order isn't kept: extra_args move into args, ahead of the
 			// model/effort flags, which no CLI cares about. The prompt template's
 			// flag counts with them, so agy's `-i` moving from model_args into
@@ -511,7 +500,7 @@ function launches(config: PappardelleConfig): Record<string, string> {
 			// more than once, and the rewrite only drops the duplicates.
 			const promptFlag = definition && builtinPromptFlag(definition);
 			const flags =
-				`${agent.command} ${agent.args}${renderAgentLaunchFlags(agent)} ${promptArgs?.replace('{prompt}', '') ?? ''}`
+				`${agent.command} ${agent.args}${renderAgentLaunchFlags(agent)} ${agent.promptArgs?.replace('{prompt}', '') ?? ''}`
 					.split(/\s+/)
 					.filter(
 						(token, index, tokens) =>
@@ -881,7 +870,7 @@ export function buildConfigFixPrompt(
 		'Deprecation warnings:',
 		...warnings.map(warning => `- ${warning}`),
 		'',
-		'Rewrite them so no claude.initialization_command, claude.model, claude.effort or claude.extra_args remain, no initialization_command starts with /, and every profile launches with exactly the same command, args, model, effort and initial prompt as today:',
+		'Rewrite them so no claude.initialization_command, claude.model, claude.effort or claude.extra_args remain, no initialization_command starts with /, and every profile launches with exactly the same command, args, model, effort, mode and initial prompt as today:',
 		'- claude.initialization_command becomes initialization_command at the same level',
 		"- initialization_command names a skill without its prefix (`/idow` becomes `idow`); pappardelle adds the agent profile's skill_prefix at launch",
 		'- a space launches the agent profile its profile selects (profiles.<name>.agent_profile, else the top-level agent_profile, else the built-in claude agent profile `command: claude`)',
@@ -889,7 +878,7 @@ export function buildConfigFixPrompt(
 		"- profiles.<name>.claude.* beat the top-level claude.* for that profile; extra_args (profile list over top-level list) are appended after the agent profile's args and after the flags rendered from model/effort, so an extra arg repeating --model or --effort wins today; keep that value",
 		"- if part of it can't be kept exactly (for example an extra arg spanning several lines, since args are one line), stop and ask me how to handle that part rather than change the launch",
 		"- an agy agent profile's model_args or effort_args that ends with -i drops the -i: the built-in prompt_args (-i {prompt}) passes the prompt now",
-		"- to move a profile's claude.* values, copy the agent profile it launches today (command, args, resume_args, model_args, effort_args, prompt_args, skill_prefix, is_claude) into a new entry under agent_profiles, add the values to it, and select it with profiles.<name>.agent_profile",
+		"- to move a profile's claude.* values, copy the agent profile it launches today (command, args, resume_args, model_args, effort_args, mode_args, mode, prompt_args, skill_prefix, is_claude, env) into a new entry under agent_profiles, add the values to it, and select it with profiles.<name>.agent_profile",
 		'- keep comments and formatting',
 	].join('\n');
 }

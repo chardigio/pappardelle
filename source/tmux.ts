@@ -146,6 +146,7 @@ import {
 import {
 	bindResumeArgs,
 	renderAgentLaunchFlags,
+	renderAgentPrompt,
 	quoteLaunchValue,
 } from './config-launch-flags.ts';
 import {agentRulesFlags, installAgentRules} from './companion-rules.ts';
@@ -851,14 +852,14 @@ export async function installSousChefKey(
  * Claude agent profiles (the default when `agentProfile` is omitted) get the
  * claude-specific injections: `--name <issueKey>` on both branches so the
  * session shows up under the issue key in `/resume` and the terminal title,
- * plus the skip-permissions flag. Model/effort flags come from the agent
+ * plus the skip-permissions flag. Model/effort/mode flags come from the agent
  * profile's templates, for any CLI that has them. Without `resumeArgs` there
  * is no resume attempt at all (a made-up resume flag would error confusingly
  * on unknown CLIs).
  *
- * The model/effort flags sit before `--name` and the resume args, so a
+ * The model/effort/mode flags sit before `--name` and the resume args, so a
  * subcommand like codex's `resume` still comes after every flag. Flag order
- * (`--dangerously-skip-permissions`, args, model, effort, `--name`) and the
+ * (`--dangerously-skip-permissions`, args, model, effort, mode, `--name`) and the
  * agent composition rule are mirrored by start-agent-session.sh and the
  * open-*-agent.sh launchers; keep them in sync so a session created by the TUI
  * and one created by idow are indistinguishable.
@@ -871,11 +872,12 @@ export function buildAgentResumeCommand(
 	launch?: AgentLaunch,
 ): string {
 	let base: string;
-	let prompt = '';
+	const prompt = launch?.prompt
+		? renderAgentPrompt(launch.prompt, agentProfile.promptArgs)
+		: '';
 	const launchFlags = `${renderAgentLaunchFlags(agentProfile)}${launch?.rules ? agentRulesFlags(agentProfile.rulesArgs) : ''}`;
 	if (agentProfile.isClaude) {
 		const safeKey = quoteLaunchValue(launch?.name ?? issueKey);
-		if (launch?.prompt) prompt = ` ${quoteLaunchValue(launch.prompt)}`;
 		const withDsp = skipPermissions
 			? `${agentProfile.command} --dangerously-skip-permissions`
 			: agentProfile.command;
@@ -2819,14 +2821,16 @@ async function attachViewers(
 	const invalidConfig = load.kind === 'invalid';
 	if (load.kind === 'valid') {
 		const {config} = load;
-		launch = {
-			rules: workspaceAwareAgents(config),
-			...(issueKey === MAIN_WORKTREE_KEY ? sousChefLaunch(config) : {}),
-		};
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
 		configuredSplits = getCompanionSplits(config, issueTitle, profileName);
 		agentProfile = getAgentProfile(config, issueTitle, profileName);
+		launch = {
+			rules: workspaceAwareAgents(config),
+			...(issueKey === MAIN_WORKTREE_KEY
+				? sousChefLaunch(config, agentProfile)
+				: {}),
+		};
 	}
 
 	if (agentProfile)

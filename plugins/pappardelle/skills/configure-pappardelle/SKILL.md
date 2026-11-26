@@ -456,7 +456,7 @@ Profile `vars` keys also become template variables (e.g., `vars: { APP_DIR: "src
 
 `workspace_aware_agents: true` (top level, off by default) gives agents in the repo the pappardelle MCP tools and instructions, and the companion rules at launch. Off, the MCP server serves nothing there. Running agents keep what they started with.
 
-`sous_chef: true` (top level, off by default, needs `workspace_aware_agents: true`) runs the main checkout's agent as the sous-chef: it launches as `sous-chef` with `/sous-chef` as its first prompt, the rail and the agent pane's frame show the main space as `sous-chef`, and its instructions say it coordinates the repo's spaces. It applies when the TUI next starts the main checkout's agent session, so a running one needs ending first. The user's own instructions for the sous-chef go in `SOUS-CHEF.md` at the main checkout's root, not in the config. Set it only when the user asks for sous-chef mode or a main session that watches the other spaces.
+`sous_chef: true` (top level, off by default, needs `workspace_aware_agents: true`) runs the main checkout's agent as the sous-chef: the rail and the agent pane's frame show the main space as `sous-chef`, Claude launches with `--name sous-chef`, supported agents (Claude, Codex, agy, or profiles with `prompt_args`) open with `<skill_prefix>sous-chef` as their first prompt, and its instructions say it coordinates the repo's spaces. It applies when the TUI next starts the main checkout's agent session, so a running one needs ending first. The user's own instructions for the sous-chef go in `SOUS-CHEF.md` at the main checkout's root, not in the config. Set it only when the user asks for sous-chef mode or a main session that watches the other spaces.
 
 ## Important Rules
 

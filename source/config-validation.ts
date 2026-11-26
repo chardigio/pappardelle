@@ -4,12 +4,16 @@ import {
 	MAIN_PANE,
 	PANE_NAME_RULE,
 } from './companion-splits.ts';
+import {
+	BUILTIN_AGENT_PROFILE_FIELDS,
+	BUILTIN_AGENTS,
+} from './builtin-agents.ts';
 import type {AgentProfileConfig, PappardelleConfig} from './config.ts';
 import {ConfigValidationError} from './config-errors.ts';
 import {
+	AGENT_PROFILE_LAUNCH_FIELDS,
 	builtinAgentDefaults,
 	LAUNCH_FIELDS,
-	LAUNCH_PLACEHOLDERS,
 	PROMPT_PLACEHOLDER,
 } from './config-launch-flags.ts';
 import {isPaneWidth} from './layout-sizing.ts';
@@ -569,14 +573,15 @@ export function configErrors(config: unknown): string[] {
 
 const AGENT_PROFILE_STRING_FIELDS = [
 	'args',
-	'resume_args',
-	'model',
-	'effort',
-	'model_args',
-	'effort_args',
-	'prompt_args',
-	'skill_prefix',
+	...AGENT_PROFILE_LAUNCH_FIELDS,
+	...BUILTIN_AGENT_PROFILE_FIELDS,
 ] as const;
+
+const AGY_MODES = new Set(['accept-edits', 'auto', 'plan']);
+
+// agy 1.5.16 warns and silently switches to Gemini 4 Neon (High) when an
+// effort-suffixed model id is combined with an explicit --effort flag.
+const AGY_EFFORT_SUFFIX_PATTERN = /-(?:low|medium|high|xhigh|max)$/;
 
 const ENV_NAME_PATTERN = /^[A-Za-z_]\w*$/;
 
@@ -617,10 +622,10 @@ function validateAgentLaunchTemplates(
 		command: agentProfile.command,
 		is_claude: agentProfile.is_claude,
 	});
-	for (const field of LAUNCH_FIELDS) {
+	for (const field of AGENT_PROFILE_LAUNCH_FIELDS) {
 		const templateField = `${field}_args` as const;
 		const template = agentProfile[templateField];
-		const placeholder = LAUNCH_PLACEHOLDERS[field];
+		const placeholder = `{${field}}`;
 		if (typeof template === 'string' && !template.includes(placeholder)) {
 			errors.push(
 				`agent_profiles.${name}.${templateField}: must contain ${placeholder}`,
@@ -638,6 +643,9 @@ function validateAgentLaunchTemplates(
 			);
 		}
 	}
+	if (builtin === BUILTIN_AGENTS['agy']) {
+		errors.push(...validateAgyAgentProfile(name, agentProfile));
+	}
 	const promptArgs = agentProfile.prompt_args;
 	if (
 		typeof promptArgs === 'string' &&
@@ -645,6 +653,36 @@ function validateAgentLaunchTemplates(
 	) {
 		errors.push(
 			`agent_profiles.${name}.prompt_args: must contain ${PROMPT_PLACEHOLDER} exactly once`,
+		);
+	}
+	return errors;
+}
+
+function validateAgyAgentProfile(
+	name: string,
+	agentProfile: Partial<AgentProfileConfig>,
+): string[] {
+	const errors: string[] = [];
+	if (typeof agentProfile.mode === 'string') {
+		const mode = agentProfile.mode.trimEnd();
+		if (mode !== '' && !AGY_MODES.has(mode)) {
+			errors.push(
+				`agent_profiles.${name}.mode: must be "accept-edits", "auto", or "plan"`,
+			);
+		}
+	}
+	const model =
+		typeof agentProfile.model === 'string'
+			? agentProfile.model.trimEnd()
+			: undefined;
+	if (
+		model !== undefined &&
+		typeof agentProfile.effort === 'string' &&
+		agentProfile.effort.trimEnd() !== '' &&
+		AGY_EFFORT_SUFFIX_PATTERN.test(model)
+	) {
+		errors.push(
+			`agent_profiles.${name}: model "${model}" already includes an effort suffix; remove effort or use the base model name`,
 		);
 	}
 	return errors;

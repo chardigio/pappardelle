@@ -1,6 +1,15 @@
 import type {AgentProfileConfig} from './config.ts';
 import builtinAgents from '../scripts/builtin-agents.json';
 
+export const BUILTIN_AGENT_PROFILE_FIELDS = [
+	'model_args',
+	'effort_args',
+	'mode_args',
+	'prompt_args',
+	'resume_args',
+	'skill_prefix',
+] as const;
+
 /**
  * What pappardelle knows about an agent without the profile saying so. The
  * profile fields are defaults a profile's own value always wins over.
@@ -9,7 +18,7 @@ import builtinAgents from '../scripts/builtin-agents.json';
  */
 export type BuiltinAgentDefaults = Pick<
 	AgentProfileConfig,
-	'model_args' | 'effort_args' | 'prompt_args' | 'resume_args' | 'skill_prefix'
+	(typeof BUILTIN_AGENT_PROFILE_FIELDS)[number]
 > & {rules_args?: string[]};
 
 /**
