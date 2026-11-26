@@ -13,8 +13,9 @@
 		"build": "bun scripts/build.ts",
 		"dev": "bun --watch source/cli.tsx",
 		"start": "./dist/pappardelle",
-		"test": "bun --bun prettier --check . && bun --bun xo && bun run test:unit",
+		"test": "bun --bun prettier --check . && bun --bun xo && bun run typecheck:test && bun run test:unit",
 		"typecheck": "bun --bun tsc --noEmit",
+		"typecheck:test": "bun --bun tsc -p tsconfig.test.json",
 		"test:unit": "bun scripts/unit-tests.ts"
 	},
 	"files": [

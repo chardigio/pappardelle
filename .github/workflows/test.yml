@@ -48,7 +48,9 @@ jobs:
         run: bun run build
 
       - name: Typecheck
-        run: bun run typecheck
+        run: |
+          bun run typecheck
+          bun run typecheck:test
 
       - name: Install terminal test tools (Linux)
         if: runner.os == 'Linux'
