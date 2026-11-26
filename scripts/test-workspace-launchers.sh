@@ -19,43 +19,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 
 # idow exports the space's socket from `pappardelle space get`.
 export PAPPARDELLE_TMUX_SOCKET=pappardelle_inner
-
-summarize() {
-    echo ""
-    local total=$((PASS + FAIL))
-    if [[ "$FAIL" -eq 0 ]]; then
-        echo -e "${GREEN}${BOLD}All $total tests passed${RESET}"
-        exit 0
-    fi
-    echo -e "${RED}${BOLD}$FAIL of $total tests failed${RESET}"
-    exit 1
-}
 
 # Runs anywhere: the default-terminal agent line, executed with tmux swapped
 # for sh, hands agy the prompt as one literal word through both shell parses,

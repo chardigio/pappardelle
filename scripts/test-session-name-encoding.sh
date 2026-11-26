@@ -25,14 +25,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 
 # osascript is macOS-only; the whole test is an AppleScript harness, so there is
 # nothing left to exercise elsewhere.
@@ -87,13 +81,11 @@ assert_sessions() {
     actual_companion=$(session_from '-s' "$companion_line")
 
     if [[ "$actual_agent" == "$expected_agent" && "$actual_companion" == "$expected_companion" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
+        pass "$test_name"
     else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    agent     expected: \"$expected_agent\"  actual: \"$actual_agent\""
-        echo "    companion expected: \"$expected_companion\"  actual: \"$actual_companion\""
-        FAIL=$((FAIL + 1))
+        fail "$test_name" \
+            "agent     expected: \"$expected_agent\"  actual: \"$actual_agent\"" \
+            "companion expected: \"$expected_companion\"  actual: \"$actual_companion\""
     fi
 }
 
@@ -103,12 +95,4 @@ assert_sessions "names idow gives a beads child issue" "agent-testrepo-bd-a3f8e9
 assert_sessions "a companion name that is not the agent's with another prefix" "agent-testrepo-STA-1" "hand-named_companion"
 assert_sessions "names in no Pappardelle spelling" "hand.named_agent" "other-companion"
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize

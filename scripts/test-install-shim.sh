@@ -19,38 +19,17 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
-
+# shellcheck disable=SC2329  # invoked via trap
 cleanup() {
     if [[ -n "${SANDBOX:-}" && -d "$SANDBOX" ]]; then
         rm -rf "$SANDBOX"
     fi
 }
 trap cleanup EXIT
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
 
 SANDBOX=$(mktemp -d)
 SANDBOX_HOME="$SANDBOX/home"
@@ -91,6 +70,4 @@ OUT="$(PATH="$SANDBOX/empty-bin" /bin/bash "$SHIM" --version 2>&1)" && STATUS=0 
 assert_eq "shim runs the executable with no Bun or Node on PATH" "0" "$STATUS"
 assert_eq "the executable resolves its package version" "$EXPECTED_VERSION" "$OUT"
 
-echo ""
-echo -e "${BOLD}Results: ${GREEN}$PASS passed${RESET}, ${RED}$FAIL failed${RESET}"
-[[ "$FAIL" -eq 0 ]]
+summarize

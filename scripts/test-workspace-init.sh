@@ -13,14 +13,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PASS=0
-FAIL=0
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 
 cleanup() {
     if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
@@ -28,45 +22,6 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
-
-pass() {
-    echo -e "  ${GREEN}PASS${RESET} $1"
-    PASS=$((PASS + 1))
-}
-
-fail() {
-    echo -e "  ${RED}FAIL${RESET} $1"
-    if [[ -n "${2:-}" ]]; then
-        echo "    $2"
-    fi
-    FAIL=$((FAIL + 1))
-}
-
-assert_file_exists() {
-    if [[ -f "$2" ]]; then
-        pass "$1"
-    else
-        fail "$1" "Expected file: $2"
-    fi
-}
-
-assert_file_content() {
-    local actual
-    actual=$(cat "$2" 2>/dev/null)
-    if [[ "$actual" == "$3" ]]; then
-        pass "$1"
-    else
-        fail "$1" "Expected: '$3', got: '$actual'"
-    fi
-}
-
-assert_file_not_exists() {
-    if [[ ! -f "$2" ]]; then
-        pass "$1"
-    else
-        fail "$1" "Expected file NOT to exist: $2"
-    fi
-}
 
 # ---------------------------------------------------------------------------
 # Extracted from idow: expand_var and run_command
@@ -468,12 +423,4 @@ teardown
 
 # ==========================================================================
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize

@@ -13,13 +13,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
+source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
 
 cleanup() {
     if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
@@ -37,22 +32,6 @@ SCRIPTABLE_BUNDLE="$TMPDIR_ROOT/Ghostty.app"
 # A pre-1.3 Ghostty: the app exists but ships no AppleScript dictionary.
 mkdir -p "$TMPDIR_ROOT/OldGhostty.app/Contents/Resources"
 UNSCRIPTABLE_BUNDLE="$TMPDIR_ROOT/OldGhostty.app"
-
-assert_eq() {
-    local test_name="$1"
-    local expected="$2"
-    local actual="$3"
-
-    if [[ "$actual" == "$expected" ]]; then
-        echo -e "  ${GREEN}PASS${RESET} $test_name"
-        PASS=$((PASS + 1))
-    else
-        echo -e "  ${RED}FAIL${RESET} $test_name"
-        echo "    Expected: \"$expected\""
-        echo "    Actual:   \"$actual\""
-        FAIL=$((FAIL + 1))
-    fi
-}
 
 # Write the three config layers. Args: <home yaml> <project yaml> <local yaml>.
 # An empty string means "this layer does not exist".
@@ -155,12 +134,4 @@ setup_configs "terminal:
 assert_eq "local auto re-enables detection over a lower explicit value" "iTerm" \
     "$(resolve none "$SCRIPTABLE_BUNDLE")"
 
-echo ""
-TOTAL=$((PASS + FAIL))
-if [[ "$FAIL" -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}All $TOTAL tests passed${RESET}"
-    exit 0
-else
-    echo -e "${RED}${BOLD}$FAIL of $TOTAL tests failed${RESET}"
-    exit 1
-fi
+summarize
