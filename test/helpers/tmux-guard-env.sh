@@ -4,29 +4,58 @@
 # PATH, a private TMUX_TMPDIR and no TMUX. Prints nothing without tmux, since
 # the tmux tests then skip themselves.
 #
-# With --finish <refusal log>, at the end of a run: prints the refusals the log
-# holds, removes the run's private TMUX_TMPDIR, and fails if there were any.
+# With --finish <refusal log> [--fail-on-leaks], at the end of a run: stops
+# every tmux server still running in the run's private TMUX_TMPDIR and names
+# it, prints the refusals the log holds, removes that directory, and fails if
+# there were refusals, or with --fail-on-leaks, servers.
 set -euo pipefail
 # cd prints the directory it found through CDPATH, which would end up in the
 # paths below.
 CDPATH=''
 
+private_prefix=/tmp/pt-
+
 if [[ ${1:-} == --finish ]]; then
 	refusals=${2:-}
 	[[ -n $refusals ]] || exit 0
+	private=${refusals%/*}
+	# Everything under this directory is stopped and removed, so it has to be
+	# one this script made. macOS reaches /tmp through /private/tmp.
+	parent=${private%/*}
+	if [[ ($parent != "${private_prefix%/*}" && $parent != /private"${private_prefix%/*}") || ${private##*/} != "${private_prefix##*/}"* ]]; then
+		echo "tmux-guard-env.sh --finish: $refusals is not in a private TMUX_TMPDIR this script creates (${private_prefix}*)" >&2
+		exit 1
+	fi
 	status=0
+	# Removing the directory below would leave such a server running with no
+	# socket to reach it by.
+	while IFS= read -r socket; do
+		pids=$(tmux -S "$socket" list-panes -a -F '#{pane_pid}' 2>/dev/null) || continue
+		# A pane shell that never got the terminal ignores the SIGHUP from
+		# kill-server and keeps running as an orphan; one that exits leaves its
+		# children to init, where they can no longer be found by parent.
+		children=''
+		for pid in $pids; do
+			children="$children $(pgrep -P "$pid" 2>/dev/null || true)"
+		done
+		tmux -S "$socket" kill-server 2>/dev/null || true
+		for pid in $pids $children; do
+			kill -9 "$pid" 2>/dev/null || true
+		done
+		echo "Stopped a tmux server left running on $socket"
+		[[ ${3:-} != --fail-on-leaks ]] || status=1
+	done < <(find "$private" -type s 2>/dev/null)
 	if [[ -s $refusals ]]; then
 		echo "The test tmux guard refused tmux calls against the live tmux directory:"
 		cat -- "$refusals"
 		status=1
 	fi
-	rm -rf -- "${refusals%/*}"
+	rm -rf -- "$private"
 	exit "$status"
 fi
 
 guard_home=/tmp/pappardelle-test-tmux-$(id -u)
 wrapper=$guard_home/bin/tmux
-private_prefix=/tmp/pt-
 
 real_tmux=''
 while IFS= read -r candidate; do

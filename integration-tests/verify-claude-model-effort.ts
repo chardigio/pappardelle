@@ -33,6 +33,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {getAgentProfile, loadConfigFromPaths} from '../source/config.ts';
+import {requireTmuxGuard} from '../test/helpers/tmux-guard-check.ts';
+
+requireTmuxGuard();
 
 const scriptsDir = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),

@@ -4,14 +4,14 @@ Standalone scripts that exercise pappardelle's providers and config against **re
 
 ## Program status
 
-Build first, then run the deterministic checks with Node 22+, Python 3, and tmux installed:
+Build first, then run the deterministic checks with Node 22+, Python 3, and tmux installed. Run every check that starts tmux, here and below, through `test/helpers/tmux-guard-run.sh`, which puts it under the test tmux guard so it stays off your own tmux servers. Those checks refuse to run without it:
 
 ```bash
 bun run build
-bun integration-tests/verify-program-status.ts
-bun integration-tests/verify-program-status-app.ts
-bun integration-tests/verify-program-status-lifecycle.ts
-bun integration-tests/verify-program-status-cleanup.ts
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status.ts
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-app.ts
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-lifecycle.ts
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-cleanup.ts
 ```
 
 The transport test exercises both launch paths on an isolated tmux socket, including read-only capability-query handling, status persistence, source precedence, child records, resizing, pane replacement, and cleanup. The app test mounts the real `App` under OpenTUI, its watcher, and `WorkspaceRefresh`, with fixture issue and VCS providers. Narrow row rendering is covered by the transport harness and the component unit tests. It runs under a throwaway HOME, so your global `~/.pappardelle` config does not apply, and requires no automatic watchlists in the project and local configuration.
@@ -25,7 +25,7 @@ The lifecycle check covers pinned agent panes across window/split selection, eve
 ## Rail boxes
 
 ```bash
-bun integration-tests/verify-rail-boxes.ts
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-rail-boxes.ts
 ```
 
 Mounts the real `App` with fixture issues and checks the rail's two boxes: the workspace name in the top border with the status row above the agents, the space count or range in the rail box's border (left out with no spaces), agent rows staying put while the list scrolls, and search merging both boxes into one flat list. Runs under a throwaway HOME like the app check.
@@ -33,7 +33,7 @@ Mounts the real `App` with fixture issues and checks the rail's two boxes: the w
 ## Unreadable state database
 
 ```bash
-bun integration-tests/verify-unreadable-state-app.ts
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-unreadable-state-app.ts
 ```
 
 Mounts the real `App` with `experimental.sqliteState` stores over a `state.db` that is not a database, under a throwaway HOME and an isolated tmux socket. The rail has to draw, list no space it cannot read, report the failed read, and list the space once the file is replaced, without a restart.
@@ -41,7 +41,7 @@ Mounts the real `App` with `experimental.sqliteState` stores over a `state.db` t
 ## Popups
 
 ```bash
-bun integration-tests/verify-popup-close.ts
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-popup-close.ts
 ```
 
 Attaches a real tmux client in a pty to a throwaway server, opens popups through `openPopupTerminal`, and checks that `close()` makes each one go away even after a renderer-style read on its input, that the process keeps no fd on the closed popup's pty (Linux only), and that a popup opened right after a close stays open. Runs in CI.
@@ -51,7 +51,7 @@ Attaches a real tmux client in a pty to a throwaway server, opens popups through
 To drive real interactive Claude sessions, authenticate Claude Code and opt in explicitly:
 
 ```bash
-bun integration-tests/verify-program-status-claude.ts --live --keep
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-claude.ts --live --keep
 ```
 
 This uses the existing status hooks from the plugin's `plugins/pappardelle/hooks/hooks.json`, restricted to status updates, with no PTY proxy or capability replies. It exercises turns, questions, permission approval/denial, interruption, shell return, and resume. Permissions and normal authentication remain active. Harmless tool actions use a disposable fixture directory; the script removes only its own tmux server. `--keep` preserves parsed protocol events and verification frames in the printed temporary directory. It never runs in CI.
@@ -59,8 +59,8 @@ This uses the existing status hooks from the plugin's `plugins/pappardelle/hooks
 To verify interactive Codex, authenticate it and use a build with OSC 7501 support (verified with stable `0.166.0`):
 
 ```bash
-bun integration-tests/verify-program-status-codex.ts --live --keep
-bun integration-tests/verify-program-status-codex-workspace.ts --live --keep
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-codex.ts --live --keep
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-codex-workspace.ts --live --keep
 ```
 
 `PAPPARDELLE_CODEX_BIN` selects a binary outside your normal installation. Standalone release downloads also require their matching `codex-code-mode-host` executable alongside the Codex binary for tool calls. The fixture uses a temporary Codex configuration, an authentication-file symlink, a read-only sandbox with approval requests, and a harmless approved file write. It verifies idle/working/blocked, completion as idle or done, native precedence, exit, and resume through the monitor and rail row. It deletes its temporary Codex home and authentication link even with `--keep`; only fixture files, parsed protocol evidence, and indicator frames remain. It never runs in CI.
@@ -70,9 +70,9 @@ The workspace verifier runs the built TUI in real tmux panes with an isolated ho
 Other installed CLI checks are also opt-in:
 
 ```bash
-bun integration-tests/verify-program-status-pi.ts --live --keep
-bun integration-tests/verify-program-status-opencode.ts --live --keep
-bun integration-tests/verify-program-status-agy.ts --live --keep
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-pi.ts --live --keep
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-opencode.ts --live --keep
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-program-status-agy.ts --live --keep
 ```
 
 Pi uses its normal provider configuration (`PAPPARDELLE_PI_MODEL` defaults to `openai/gpt-6.1-sol`, and `PAPPARDELLE_PI_BIN` can select another binary). The fixture uses the production agent-session environment to set `PI_PROGRAM_STATUS=1` and registers two temporary extension commands that open Pi's own question and confirmation dialogs; the extension emits no protocol reports. It verifies decoded messages and blocking kinds, real model turns, interruption, hook precedence, exit, and resume. Other extensions, MCP, tools, skills, and context-file discovery are disabled for this fixture.
@@ -123,7 +123,7 @@ bash integration-tests/verify-bash-keyword-matching.sh
 
 # claude.model / claude.effort, config → both resolvers → real launch → live claude
 # (--no-live skips the one real `claude --print` call)
-bun integration-tests/verify-claude-model-effort.ts
+test/helpers/tmux-guard-run.sh bun integration-tests/verify-claude-model-effort.ts
 
 # Run all (that apply to your setup)
 bun integration-tests/verify-linear.ts && \

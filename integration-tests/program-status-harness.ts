@@ -17,6 +17,7 @@ import {fileURLToPath} from 'node:url';
 import {isDeepStrictEqual} from 'node:util';
 import React from 'react';
 import {render} from '../test/helpers/opentui-render.ts';
+import {requireTmuxGuard} from '../test/helpers/tmux-guard-check.ts';
 import {sendHookEvent, subscribeRaw} from '../test/helpers/status-daemon.ts';
 import type {
 	ClaudeSessionState,
@@ -43,6 +44,8 @@ import {
 } from '../source/program-status-monitor.ts';
 import type {ProgramStatusInfo} from '../source/program-status.ts';
 import type {SpaceData} from '../source/types.ts';
+
+requireTmuxGuard();
 
 export const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 

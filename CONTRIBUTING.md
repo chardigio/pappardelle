@@ -48,14 +48,14 @@ bun run test:unit source/config.test.ts
 
 # Python hook tests
 pip install pytest
-pytest plugins/pappardelle/hooks/ -v
+test/helpers/tmux-guard-run.sh pytest plugins/pappardelle/hooks/ -v
 ```
 
 State can live in JSON files or, with `experimental.sqliteState`, in SQLite with the files kept beside it. With the flag on, hook status and program status are stored nowhere: they go through the status daemon, which keeps them in memory. CI runs every suite both ways. `PAPPARDELLE_SQLITE_STATE=1` selects the second for a run, and each test process then gets a database and a status socket of its own, never yours:
 
 ```bash
 PAPPARDELLE_SQLITE_STATE=1 bun run test:unit
-PAPPARDELLE_SQLITE_STATE=1 pytest plugins/pappardelle/hooks/ -v
+PAPPARDELLE_SQLITE_STATE=1 test/helpers/tmux-guard-run.sh pytest plugins/pappardelle/hooks/ -v
 ```
 
 The hook tests need `bun` on `PATH` for that run: the CLI creates the database they write to.
@@ -67,6 +67,8 @@ A run gets a **run tmpdir** of its own (`/tmp/ptr-*`) as `TMPDIR` for every test
 The run also gets a **throwaway HOME** (`/tmp/ph-*`), so nothing a test starts writes to your `~/.pappardelle` or `~/.claude.json`. Bun reads `HOME` once at startup, so `scripts/unit-tests.ts` sets it before the workers start, along with `ZDOTDIR`, and drops the XDG config directories that would bring your zsh and tmux config back. `scripts/test-start-agent-session.sh` runs under a throwaway HOME of its own, with a `claude` shim in place of the real one.
 
 Every run also gets the test tmux guard: the unit tests and the shell tests that start tmux run with a private `TMUX_TMPDIR`, no `TMUX`, and a `tmux` on PATH that refuses any socket in your live tmux directory, where the inner server holding every agent session lives. A refused call fails the run and is listed at the end, even when the test swallowed the error. Fix such a test by giving it the run's `TMUX_TMPDIR` or a `-S` socket of its own.
+
+The suites outside the unit tests that start tmux (the integration checks, the Python hook tests and `scripts/test-workspace-launchers.sh`) run through `test/helpers/tmux-guard-run.sh`, which sets up the same guard. It fails on a refusal, and fails a suite that passed but left a tmux server running in its `TMUX_TMPDIR`. The TypeScript integration checks that start tmux refuse to run without it.
 
 ## Code style
 
