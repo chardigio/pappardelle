@@ -9,47 +9,41 @@
 # - the snapshot's dist holds the executable and its source map, nothing else
 # - the shim runs the executable with no Bun, nor anything else, on PATH
 #
-# Runs `bun install --frozen-lockfile` + `bun run build` in this checkout (LOCAL_MODE). Also
-# runs in CI: the monorepo's pappardelle workflow globs scripts/test-*.sh and
-# executes every match. Sandbox-safe there and locally — nothing outside the
-# sandboxed HOME and this repo's dist/ is touched.
+# Runs `bun install --frozen-lockfile` + `bun run build` in this checkout (LOCAL_MODE).
+# CI runs it in this repo's shell-tests job and in the monorepo's pappardelle
+# workflow, which globs scripts/test-*.sh and executes every match. Nothing
+# outside the sandboxed HOME and this repo's dist/ is touched.
 #
-# Usage: ./test-install-shim.sh
+# Usage: ./scripts/test-install-shim.sh
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
-# shellcheck disable=SC2329  # invoked via trap
-cleanup() {
-    if [[ -n "${SANDBOX:-}" && -d "$SANDBOX" ]]; then
-        rm -rf "$SANDBOX"
-    fi
-}
-trap cleanup EXIT
-
-SANDBOX=$(mktemp -d)
+test_tmpdir SANDBOX
 SANDBOX_HOME="$SANDBOX/home"
 mkdir -p "$SANDBOX_HOME"
 
 EXPECTED_VERSION="$(bun -p "require('$REPO_DIR/package.json').version")"
 
-echo -e "${BOLD}Running install.sh with sandboxed HOME...${RESET}"
+echo "Running install.sh with sandboxed HOME..."
 INSTALL_LOG="$SANDBOX/install.log"
 if ! HOME="$SANDBOX_HOME" bash "$REPO_DIR/install.sh" > "$INSTALL_LOG" 2>&1; then
-    echo -e "${RED}install.sh failed — last 20 lines:${RESET}"
-    tail -20 "$INSTALL_LOG"
-    exit 1
+    INSTALL_TAIL=("last 20 lines of its log:")
+    while IFS= read -r line; do INSTALL_TAIL+=("$line"); done < <(tail -20 "$INSTALL_LOG")
+    fail "install.sh succeeds" "${INSTALL_TAIL[@]}"
+    summarize
 fi
 
 SHIM="$SANDBOX_HOME/.local/bin/pappardelle"
 SNAPSHOT="$SANDBOX_HOME/.pappardelle/local"
 
-echo ""
-echo -e "${BOLD}Snapshot install${RESET}"
+section "Snapshot install"
 
 assert_eq "shim was created" "yes" "$([[ -f "$SHIM" && -x "$SHIM" ]] && echo yes || echo no)"
 assert_eq "shim runs the snapshot's executable" "EXECUTABLE=\"$SNAPSHOT/dist/pappardelle\"" \
@@ -61,8 +55,7 @@ assert_eq "snapshot's dist holds the executable and its source map" "pappardelle
 assert_eq "install links nothing to this checkout" "" \
     "$(grep -rlF "$REPO_DIR" "$SANDBOX_HOME" --exclude-dir=logs --exclude=commit-sha 2>/dev/null || true)"
 
-echo ""
-echo -e "${BOLD}Runtime: nothing on PATH${RESET}"
+section "Runtime: nothing on PATH"
 
 # Invoked via /bin/bash: with PATH this bare even the shebang's `env bash`
 # lookup would fail before the shim ran.

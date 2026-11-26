@@ -23,17 +23,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/provider-helpers.sh"
 
-TMPDIR_ROOT=$(mktemp -d)
-# shellcheck disable=SC2329  # invoked via trap
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
+test_tmpdir TMPDIR_ROOT
 
 assert_key() {
     local test_name="$1"
@@ -89,8 +84,7 @@ printf 'version: 1\nteam_prefix: solo\n' > "$SOLO"
 BARE="$TMPDIR_ROOT/bare.yml"
 printf 'version: 1\n' > "$BARE"
 
-echo ""
-echo -e "${BOLD}beads_id_prefixes${RESET}"
+section "beads_id_prefixes"
 
 assert_eq "collects every configured source, lowercased and sorted" \
     "my_service
@@ -130,8 +124,7 @@ assert_eq "the bd database prefix when config.yaml has none" \
     "qa" "$(PATH="$TMPDIR_ROOT/fakebin:$PATH" PAPPARDELLE_MAIN_REPO_ROOT="$TMPDIR_ROOT/db-only" \
         beads_id_prefixes "$BARE" "$DB_ONLY_CONFIG")"
 
-echo ""
-echo -e "${BOLD}is_beads_issue_key${RESET}"
+section "is_beads_issue_key"
 
 assert_key "global prefix" "myproj-a1b2" "$MULTI"
 assert_key "hierarchical child" "myproj-a3f8e9.1" "$MULTI"

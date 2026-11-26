@@ -164,6 +164,63 @@ test('an aliased post_workspace_init list still runs', async () => {
 	expect(fs.existsSync(path.join(fixture.workspace, 'aliased'))).toBe(true);
 });
 
+test('a post_workspace_init command sees the issue key, number and repo name', async () => {
+	const fixture = setup();
+	fs.appendFileSync(
+		path.join(fixture.main, '.pappardelle.local.yml'),
+		stringify({
+			post_workspace_init: [
+				{
+					run: 'printf "%s|%s|%s" "${ISSUE_KEY}" "${ISSUE_NUMBER}" "${REPO_NAME}" > "${WORKTREE_PATH}/vars"',
+				},
+			],
+		}),
+	);
+	await fixture.run();
+	expect(fs.readFileSync(path.join(fixture.workspace, 'vars'), 'utf8')).toBe(
+		`test-abc|abc|${path.basename(fixture.main)}`,
+	);
+});
+
+// The validator rejects a config with both keys, so post_worktree_init is only
+// ever read from a config without post_workspace_init.
+test('the legacy post_worktree_init runs when post_workspace_init is absent', async () => {
+	const fixture = setup();
+	const config = parse(fixture.config('Main config')) as Record<
+		string,
+		unknown
+	>;
+	delete config['post_workspace_init'];
+	config['post_worktree_init'] = [{run: 'touch "${WORKTREE_PATH}/legacy"'}];
+	fs.writeFileSync(
+		path.join(fixture.main, '.pappardelle.yml'),
+		stringify(config),
+	);
+	await fixture.run();
+	expect(fs.existsSync(path.join(fixture.workspace, 'legacy'))).toBe(true);
+});
+
+test('a new worktree gets copies of the local config files, and a reopened one does not', async () => {
+	const fixture = setup();
+	const settings = '{"permissions": {"allow": []}}\n';
+	fs.mkdirSync(path.join(fixture.linked, '.claude'));
+	fs.writeFileSync(
+		path.join(fixture.linked, '.claude', 'settings.local.json'),
+		settings,
+	);
+	const copies = [
+		path.join(fixture.workspace, '.pappardelle.local.yml'),
+		path.join(fixture.workspace, '.claude', 'settings.local.json'),
+	];
+
+	await fixture.run();
+	expect(fs.readFileSync(copies[1]!, 'utf8')).toBe(settings);
+	for (const copy of copies) fs.rmSync(copy);
+
+	await fixture.run();
+	expect(copies.filter(copy => fs.existsSync(copy))).toStrictEqual([]);
+});
+
 test('a failing required command still stops setup before Claude starts', async () => {
 	const fixture = setup();
 	fs.appendFileSync(

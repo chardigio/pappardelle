@@ -14,13 +14,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
+# The fixture repos commit, and a runner has no git identity of its own.
+export GIT_AUTHOR_NAME=Test GIT_AUTHOR_EMAIL=test@example.com
+export GIT_COMMITTER_NAME=Test GIT_COMMITTER_EMAIL=test@example.com
 
 assert_valid_json() {
     local test_name="$1"
@@ -114,34 +113,40 @@ create_worktree() {
     "$SCRIPT_DIR/create-worktree.sh" "${args[@]}"
 }
 
-# Set up a fresh temp git repo with a local "origin" remote
+# Set up a fresh temp git repo with a local "origin" remote whose default
+# branch is $1 (master when not given)
 setup_repo() {
-    TMPDIR_ROOT=$(mktemp -d)
+    local branch="${1:-master}"
+    test_tmpdir TMPDIR_ROOT
     export MAIN_REPO="$TMPDIR_ROOT/repo"
     export WORKTREES_ROOT="$TMPDIR_ROOT/worktrees"
 
     local bare_repo="$TMPDIR_ROOT/origin.git"
-    git init --bare --quiet --initial-branch=master "$bare_repo"
+    git init --bare --quiet --initial-branch="$branch" "$bare_repo"
 
     git clone --quiet "$bare_repo" "$MAIN_REPO" 2>/dev/null
     cd "$MAIN_REPO"
-    git checkout -b master --quiet
+    git checkout -b "$branch" --quiet
 
     echo "initial" > README.md
     git add README.md
     git commit -m "initial commit" --quiet
-    git push --quiet -u origin master 2>/dev/null
+    git push --quiet -u origin "$branch" 2>/dev/null
 }
 
 teardown_repo() {
     cd /
-    rm -rf "$TMPDIR_ROOT"
     unset MAIN_REPO WORKTREES_ROOT
+}
+
+# The repository a worktree was added to.
+common_dir() {
+    git -C "$1" rev-parse --path-format=absolute --git-common-dir
 }
 
 # ==========================================================================
 
-echo -e "${BOLD}Test: create-worktree with clean repo (main repo untouched)${RESET}"
+section "create-worktree with clean repo (main repo untouched)"
 setup_repo
 
 snapshot_main_repo
@@ -156,7 +161,7 @@ teardown_repo
 
 # A local branch named origin/master shadows refs/remotes/origin/master when the
 # start point is the short name origin/master, so it must be the full ref.
-echo -e "\n${BOLD}Test: local branch names cannot confuse origin's default branch${RESET}"
+section "local branch names cannot confuse origin's default branch"
 setup_repo
 git -C "$MAIN_REPO" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
 git -C "$MAIN_REPO" branch origin/master
@@ -169,7 +174,7 @@ assert_main_repo_unchanged "ambiguous ref"
 teardown_repo
 
 # Respect the repository tag-fetch policy for setup/version commands.
-echo -e "\n${BOLD}Test: new worktrees honor the repository tag-fetch policy${RESET}"
+section "new worktrees honor the repository tag-fetch policy"
 setup_repo
 git -C "$MAIN_REPO" config remote.origin.tagOpt --tags
 tag_clone="$TMPDIR_ROOT/tag-clone"
@@ -189,7 +194,7 @@ teardown_repo
 
 # Existing issue branches do not depend on origin's default branch. Reopening
 # one should work immediately even when the remote is unreachable.
-echo -e "\n${BOLD}Test: reuses an existing branch without fetching${RESET}"
+section "reuses an existing branch without fetching"
 setup_repo
 git -C "$MAIN_REPO" branch STA-150
 git -C "$MAIN_REPO" remote set-url origin "$TMPDIR_ROOT/missing-origin.git"
@@ -203,7 +208,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with uncommitted changes (no auto-stash, no checkout)${RESET}"
+section "create-worktree with uncommitted changes (no auto-stash, no checkout)"
 setup_repo
 
 # Dirty the working tree — old behavior would stash this and switch to master.
@@ -222,7 +227,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with staged changes (staging preserved)${RESET}"
+section "create-worktree with staged changes (staging preserved)"
 setup_repo
 
 echo "staged content" > "$MAIN_REPO/newfile.txt"
@@ -240,7 +245,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: main repo on a feature branch is preserved (not switched to master)${RESET}"
+section "main repo on a feature branch is preserved (not switched to master)"
 setup_repo
 
 # Previously create-worktree.sh would silently `git checkout master`,
@@ -267,7 +272,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: dirty local + divergent remote (no implicit pull, no conflict)${RESET}"
+section "dirty local + divergent remote (no implicit pull, no conflict)"
 setup_repo
 
 cd "$MAIN_REPO"
@@ -308,7 +313,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with multiple dirty files (all preserved untouched)${RESET}"
+section "create-worktree with multiple dirty files (all preserved untouched)"
 setup_repo
 
 for i in $(seq 1 5); do
@@ -332,21 +337,9 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with main-based repo (not master)${RESET}"
+section "create-worktree with main-based repo (not master)"
 
-TMPDIR_ROOT=$(mktemp -d)
-export MAIN_REPO="$TMPDIR_ROOT/repo"
-export WORKTREES_ROOT="$TMPDIR_ROOT/worktrees"
-
-bare_repo="$TMPDIR_ROOT/origin.git"
-git init --bare --quiet --initial-branch=main "$bare_repo"
-git clone --quiet "$bare_repo" "$MAIN_REPO" 2>/dev/null
-cd "$MAIN_REPO"
-git checkout -b main --quiet
-echo "initial" > README.md
-git add README.md
-git commit -m "initial commit" --quiet
-git push --quiet -u origin main 2>/dev/null
+setup_repo main
 
 snapshot_main_repo
 OUTPUT=$(create_worktree --issue-key "CHEX-100" --project-key "test" 2>/dev/null)
@@ -363,13 +356,11 @@ else
     fail "worktree directory exists" "Expected: $EXPECTED_PATH"
 fi
 
-cd /
-rm -rf "$TMPDIR_ROOT"
-unset MAIN_REPO WORKTREES_ROOT
+teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree when branch already exists (no worktree dir)${RESET}"
+section "create-worktree when branch already exists (no worktree dir)"
 setup_repo
 
 cd "$MAIN_REPO"
@@ -406,7 +397,7 @@ teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with stale index.lock (dirty repo)${RESET}"
+section "create-worktree with stale index.lock (dirty repo)"
 setup_repo
 
 # Stale index.lock + dirty working tree. The lock must be cleared before
@@ -426,17 +417,13 @@ fi
 assert_valid_json "stdout is valid JSON (stale index.lock)" "$OUTPUT"
 assert_json_field "issue_key is correct (stale index.lock)" "$OUTPUT" "issue_key" "STA-700"
 
-if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
-    pass "stale index.lock was removed"
-else
-    fail "stale index.lock was removed"
-fi
+assert_file_not_exists "stale index.lock was removed" "$MAIN_REPO/.git/index.lock"
 
 teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: create-worktree with stale index.lock and CLEAN repo${RESET}"
+section "create-worktree with stale index.lock and CLEAN repo"
 setup_repo
 
 # Stale index.lock on a clean repo — the lock would still block git fetch
@@ -455,17 +442,13 @@ fi
 assert_valid_json "stdout is valid JSON (index.lock, clean repo)" "$OUTPUT"
 assert_json_field "issue_key is correct (index.lock, clean repo)" "$OUTPUT" "issue_key" "STA-800"
 
-if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
-    pass "stale index.lock was removed (clean repo)"
-else
-    fail "stale index.lock was removed (clean repo)"
-fi
+assert_file_not_exists "stale index.lock was removed (clean repo)" "$MAIN_REPO/.git/index.lock"
 
 teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: index.lock resolved via git-common-dir when MAIN_REPO is a worktree${RESET}"
+section "index.lock resolved via git-common-dir when MAIN_REPO is a worktree"
 setup_repo
 
 # In a worktree, .git is a file (not a directory), so naively checking
@@ -486,17 +469,13 @@ fi
 # step runs before any git operation that would observe the lock.
 MAIN_REPO="$WORKTREE_EXTRA" create_worktree --issue-key "STA-900" --project-key "test" >/dev/null 2>&1 || true
 
-if [[ ! -f "$MAIN_REPO/.git/index.lock" ]]; then
-    pass "stale index.lock removed via git-common-dir resolution"
-else
-    fail "stale index.lock removed via git-common-dir resolution"
-fi
+assert_file_not_exists "stale index.lock removed via git-common-dir resolution" "$MAIN_REPO/.git/index.lock"
 
 teardown_repo
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: the worktree goes where it is told${RESET}"
+section "the worktree goes where it is told"
 # The path is decided by the stores (a stored space's own, or the one a new
 # space gets), so the script never builds one from the key.
 setup_repo
@@ -506,6 +485,31 @@ assert_json_field "worktree_path is the path given" "$OUTPUT" "worktree_path" "$
 assert_eq "worktree is a checkout of the branch" "STA-950" "$(git -C "$TOLD" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 OUTPUT=$("$SCRIPT_DIR/create-worktree.sh" --issue-key "STA-951" --project-key "test" 2>&1 || true)
 assert_eq "--worktree is required" "Error: --worktree is required" "$OUTPUT"
+teardown_repo
+
+# ==========================================================================
+
+# idow exports PAPPARDELLE_PROJECT_ROOT and runs the script from wherever it
+# was started, which need not be inside the repository.
+section "PAPPARDELLE_PROJECT_ROOT names the repository when MAIN_REPO is unset"
+setup_repo
+PROJECT_REPO="$MAIN_REPO"
+(cd / && env -u MAIN_REPO -u PAPPARDELLE_MAIN_REPO_ROOT PAPPARDELLE_PROJECT_ROOT="$PROJECT_REPO" \
+    "$SCRIPT_DIR/create-worktree.sh" --issue-key STA-960 --project-key test \
+    --worktree "$WORKTREES_ROOT/repo/STA-960" >/dev/null 2>&1) || true
+assert_eq "the worktree is added to PAPPARDELLE_PROJECT_ROOT" "$(common_dir "$PROJECT_REPO")" \
+    "$(common_dir "$WORKTREES_ROOT/repo/STA-960" 2>/dev/null)"
+teardown_repo
+
+section "MAIN_REPO wins over PAPPARDELLE_PROJECT_ROOT"
+setup_repo
+PROJECT_REPO="$MAIN_REPO"
+setup_repo
+(cd / && env -u PAPPARDELLE_MAIN_REPO_ROOT PAPPARDELLE_PROJECT_ROOT="$PROJECT_REPO" \
+    "$SCRIPT_DIR/create-worktree.sh" --issue-key STA-970 --project-key test \
+    --worktree "$WORKTREES_ROOT/repo/STA-970" >/dev/null 2>&1) || true
+assert_eq "the worktree is added to MAIN_REPO" "$(common_dir "$MAIN_REPO")" \
+    "$(common_dir "$WORKTREES_ROOT/repo/STA-970" 2>/dev/null)"
 teardown_repo
 
 # ==========================================================================

@@ -18,34 +18,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=SCRIPTDIR/../test/helpers/shell-asserts.sh
 source "$SCRIPT_DIR/../test/helpers/shell-asserts.sh"
+# shellcheck source=SCRIPTDIR/../test/helpers/shell-fixtures.sh
+source "$SCRIPT_DIR/../test/helpers/shell-fixtures.sh"
 
-cleanup() {
-    if [[ -n "${TMPDIR_ROOT:-}" && -d "$TMPDIR_ROOT" ]]; then
-        rm -rf "$TMPDIR_ROOT"
-    fi
-}
-trap cleanup EXIT
-
-# Run the real resolver for a profile against whatever setup_configs() last wrote.
+# Run the real resolver for a profile against whatever write_config_layers last wrote.
 resolve_companion_command() {
-    "$SCRIPT_DIR/resolve-agent-config.sh" \
-        --config "$TMPDIR_ROOT/.pappardelle.yml" \
-        --local-config "$TMPDIR_ROOT/.pappardelle.local.yml" \
-        --home-config "$TMPDIR_ROOT/home/.pappardelle.yml" \
-        --profile "$1" | jq -r '.companion_command'
-}
-
-# setup_configs <project_yaml> [local_yaml] [home_yaml]
-setup_configs() {
-    TMPDIR_ROOT=$(mktemp -d)
-    mkdir -p "$TMPDIR_ROOT/home"
-    printf '%s\n' "$1" > "$TMPDIR_ROOT/.pappardelle.yml"
-    if [[ -n "${2:-}" ]]; then
-        printf '%s\n' "$2" > "$TMPDIR_ROOT/.pappardelle.local.yml"
-    fi
-    if [[ -n "${3:-}" ]]; then
-        printf '%s\n' "$3" > "$TMPDIR_ROOT/home/.pappardelle.yml"
-    fi
+    "$SCRIPT_DIR/resolve-agent-config.sh" "${CONFIG_LAYER_ARGS[@]}" --profile "$1" | jq -r '.companion_command'
 }
 
 API_PROFILE="profiles:
@@ -55,27 +33,25 @@ API_PROFILE="profiles:
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: defaults to gitui when no layer sets it${RESET}"
-setup_configs "version: 1
+section "defaults to gitui when no layer sets it"
+write_config_layers "version: 1
 default_profile: api
 $API_PROFILE"
 assert_eq "default → gitui" "GIT_OPTIONAL_LOCKS=0 gitui" "$(resolve_companion_command api)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: top-level companion_command applies when profile has none${RESET}"
-setup_configs "version: 1
+section "top-level companion_command applies when profile has none"
+write_config_layers "version: 1
 default_profile: api
 companion_command: lazygit
 $API_PROFILE"
 assert_eq "top-level lazygit" "lazygit" "$(resolve_companion_command api)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: per-profile companion_command beats top-level${RESET}"
-setup_configs "version: 1
+section "per-profile companion_command beats top-level"
+write_config_layers "version: 1
 default_profile: backend
 companion_command: gitui
 profiles:
@@ -88,22 +64,20 @@ profiles:
     keywords: [frontend]"
 assert_eq "profile override wins" "make run" "$(resolve_companion_command backend)"
 assert_eq "profile without override → top-level" "gitui" "$(resolve_companion_command frontend)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: explicit empty string is preserved (plain shell)${RESET}"
-setup_configs "version: 1
+section "explicit empty string is preserved (plain shell)"
+write_config_layers "version: 1
 default_profile: api
 companion_command: \"\"
 $API_PROFILE"
 assert_eq "empty top-level stays empty" "" "$(resolve_companion_command api)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: per-profile empty string overrides a non-empty top-level${RESET}"
-setup_configs "version: 1
+section "per-profile empty string overrides a non-empty top-level"
+write_config_layers "version: 1
 default_profile: docs
 companion_command: gitui
 profiles:
@@ -112,33 +86,30 @@ profiles:
     keywords: [docs]
     companion_command: \"\""
 assert_eq "profile empty wins over top-level" "" "$(resolve_companion_command docs)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home-config top-level reaches a project that never mentions it${RESET}"
-setup_configs "version: 1
+section "home-config top-level reaches a project that never mentions it"
+write_config_layers "version: 1
 default_profile: api
 $API_PROFILE" "" "version: 1
 companion_command: hunk diff --watch"
 assert_eq "home top-level → project profile" "hunk diff --watch" "$(resolve_companion_command api)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: project top-level beats home top-level${RESET}"
-setup_configs "version: 1
+section "project top-level beats home top-level"
+write_config_layers "version: 1
 default_profile: api
 companion_command: tig
 $API_PROFILE" "" "version: 1
 companion_command: hunk diff --watch"
 assert_eq "project top-level wins" "tig" "$(resolve_companion_command api)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: home-config per-profile override applies to a project-declared profile${RESET}"
-setup_configs "version: 1
+section "home-config per-profile override applies to a project-declared profile"
+write_config_layers "version: 1
 default_profile: api
 companion_command: tig
 $API_PROFILE" "" "version: 1
@@ -146,22 +117,20 @@ profiles:
   api:
     companion_command: make run"
 assert_eq "home profile override beats project top-level" "make run" "$(resolve_companion_command api)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: local config beats project and home${RESET}"
-setup_configs "version: 1
+section "local config beats project and home"
+write_config_layers "version: 1
 default_profile: api
 companion_command: tig
 $API_PROFILE" "companion_command: \"\"" "version: 1
 companion_command: hunk diff --watch"
 assert_eq "local empty string wins over both" "" "$(resolve_companion_command api)"
-cleanup; unset TMPDIR_ROOT
 
 # ==========================================================================
 
-echo -e "\n${BOLD}Test: idow reads companion_command from the layered resolver, not the project file${RESET}"
+section "idow reads companion_command from the layered resolver, not the project file"
 IDOW_RAW_LOOKUPS=$(grep -c 'companion_command // .companion_command' "$SCRIPT_DIR/idow" || true)
 assert_eq "no single-file yq lookup left in idow" "0" "$IDOW_RAW_LOOKUPS"
 
