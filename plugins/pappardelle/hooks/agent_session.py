@@ -236,10 +236,10 @@ def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
         text=True,
         timeout=5,
     )
-    panes = result.stdout if result.returncode == 0 else None
-    if not panes or not panes.split()[0].isdigit():
+    panes = result.stdout.split()
+    if result.returncode != 0 or not panes or not panes[0].isdigit():
         return None
-    return AgentPane(Space(row.repo, row.key), int(panes.split()[0]))
+    return AgentPane(Space(row.repo, row.key), int(panes[0]))
 
 
 def tmux_pane_session(environ: Mapping[str, str]) -> Optional[PaneSession]:
