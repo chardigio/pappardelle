@@ -189,7 +189,7 @@ test("a monitor keeps the stored records of owners still under its pane, and dro
 		cwd: '/repo',
 	};
 	const {records, saves} = setup({
-		records: [stored],
+		records: [gone, stored],
 		times: {200: 50, 300: 40},
 	});
 	expect(records.handle(set(300, 39))).toBe('ignored: stale');
