@@ -7,8 +7,9 @@
 # cancelled one leaves no unit behind. Skipped without a systemd user bus.
 #
 # The tmux server lives under its own TMUX_TMPDIR with $TMUX unset, and is
-# killed through its socket path only. The repo name is unique per run, so its
-# job files and units can't collide with real ones.
+# killed through its socket path only. HOME is a throwaway one, which the timer
+# is handed too, so the supervise log is the test's own. The repo name is
+# unique per run, so its units can't collide with real ones.
 #
 # Usage: ./test-schedule-systemd.sh
 
@@ -33,7 +34,11 @@ ROOT="$(mktemp -d /tmp/pq-XXXXXX)"
 REPO_NAME="pappardelle-qa-$(basename "$ROOT" | cut -d- -f2 | tr '[:upper:]' '[:lower:]')"
 REPO="$ROOT/$REPO_NAME"
 export TMUX_TMPDIR="$ROOT/t"
-mkdir -p "$REPO" "$TMUX_TMPDIR"
+# A version manager's bun shim finds its config through HOME, so it would fail
+# under the throwaway one.
+PATH="$(dirname "$(bun -e 'console.log(process.execPath)')"):$PATH"
+export HOME="$ROOT/home"
+mkdir -p "$REPO" "$TMUX_TMPDIR" "$HOME"
 SOCKET=""
 
 T() { env -u TMUX -u TMUX_PANE tmux -L pappardelle_inner "$@"; }
@@ -48,7 +53,7 @@ cleanup() {
     if [[ -n "$SOCKET" && "$SOCKET" == "$TMUX_TMPDIR"/* ]]; then
         env -u TMUX -u TMUX_PANE tmux -S "$SOCKET" kill-server 2>/dev/null
     fi
-    rm -rf "$ROOT" "$HOME/.pappardelle/repos/$REPO_NAME"
+    rm -rf "$ROOT"
     "$SCRIPT_DIR/../test/helpers/tmux-guard-env.sh" --finish "$TMUX_REFUSALS" || status=1
     exit "$status"
 }
@@ -68,8 +73,8 @@ fi
 # This may itself run inside a space, whose PAPPARDELLE_* would point the
 # timer at that space's repo.
 for name in $(compgen -e | grep '^PAPPARDELLE_' | grep -v '^PAPPARDELLE_TEST_'); do unset "$name"; done
-# This test runs under the real $HOME, so the database and the status
-# daemon's socket are its own, and the timer it starts is handed both.
+# Set apart from HOME, so a timer that wasn't handed HOME still can't reach
+# the real database or status daemon.
 export PAPPARDELLE_STATE_DB="$ROOT/state.db"
 export PAPPARDELLE_STATUS_SOCKET="$ROOT/status-1.sock"
 

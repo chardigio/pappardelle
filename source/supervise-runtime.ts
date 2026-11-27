@@ -169,10 +169,11 @@ function agyQuotaTargetForSpace(
 		: null;
 }
 
-// Timer services start with a bare environment; these decide which tmux
-// server, monitor leases, state database and status daemon `pappardelle`
-// reaches when one fires.
+// Timer services don't start with the shell's environment; these decide which
+// home, tmux server, monitor leases, state database and status daemon
+// `pappardelle` reaches when one fires.
 const PASSED_TO_TIMERS = [
+	'HOME',
 	'PATH',
 	'TMUX_TMPDIR',
 	'PAPPARDELLE_TMUX_SOCKET',
