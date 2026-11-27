@@ -25,14 +25,22 @@ const split = (name: string) => ({kind: 'split', name}) as const;
 test("a save lands only while its token is the pane's current one", async () => {
 	const {daos} = testState();
 	const dao = daos.resumeRecords;
-	expect(await dao.save('k', agent, 'old', state(record(1)))).toBe(false);
+	expect(await dao.save('k', agent, tokenHash('old'), state(record(1)))).toBe(
+		false,
+	);
 	await dao.commitLaunch('k', agent, tokenHash('old'));
-	expect(await dao.save('k', agent, 'old', state(record(1)))).toBe(true);
+	expect(await dao.save('k', agent, tokenHash('old'), state(record(1)))).toBe(
+		true,
+	);
 	expect(dao.read('k', agent)).toStrictEqual(state(record(1)));
 	await dao.commitLaunch('k', agent, tokenHash('new'));
 	expect(dao.read('k', agent)).toStrictEqual({records: [], times: {}});
-	expect(await dao.save('k', agent, 'old', state(record(2)))).toBe(false);
-	expect(await dao.save('k', agent, 'new', state(record(3)))).toBe(true);
+	expect(await dao.save('k', agent, tokenHash('old'), state(record(2)))).toBe(
+		false,
+	);
+	expect(await dao.save('k', agent, tokenHash('new'), state(record(3)))).toBe(
+		true,
+	);
 	expect(dao.read('k', agent).records.map(each => each.pid)).toStrictEqual([3]);
 });
 
@@ -40,7 +48,7 @@ test('times of pids without a record are kept', async () => {
 	const {daos} = testState();
 	const dao = daos.resumeRecords;
 	await dao.commitLaunch('k', agent, tokenHash('t'));
-	await dao.save('k', agent, 't', {
+	await dao.save('k', agent, tokenHash('t'), {
 		records: [record(1)],
 		times: {1: 10, 2: 30},
 	});
@@ -66,8 +74,8 @@ test('a split named agent is its own pane, and splits with records carry their a
 		size: null,
 		order: 3,
 	});
-	await dao.save('k', split('agent'), 's', state(record(5)));
-	await dao.save('k', split('logs'), 'l', state(record(6)));
+	await dao.save('k', split('agent'), tokenHash('s'), state(record(5)));
+	await dao.save('k', split('logs'), tokenHash('l'), state(record(6)));
 	await dao.setArrangement('k', split('logs'), {
 		split: 'down',
 		size: '40%',
@@ -85,16 +93,18 @@ test('remove clears one pane or the whole space, records and times with it', asy
 	const dao = daos.resumeRecords;
 	for (const pane of [agent, split('x')]) {
 		await dao.commitLaunch('k', pane, tokenHash('t'));
-		await dao.save('k', pane, 't', state(record(1)));
+		await dao.save('k', pane, tokenHash('t'), state(record(1)));
 	}
 	await dao.commitLaunch('other', agent, tokenHash('t'));
-	await dao.save('other', agent, 't', state(record(1)));
+	await dao.save('other', agent, tokenHash('t'), state(record(1)));
 	await dao.remove('k', split('x'));
 	expect(dao.splitsWithRecords('k')).toStrictEqual([]);
 	expect(dao.read('k', agent).records).toHaveLength(1);
 	await dao.remove('k');
 	expect(dao.read('k', agent)).toStrictEqual({records: [], times: {}});
-	expect(await dao.save('k', agent, 't', state(record(1)))).toBe(false);
+	expect(await dao.save('k', agent, tokenHash('t'), state(record(1)))).toBe(
+		false,
+	);
 	expect(dao.read('other', agent).records).toHaveLength(1);
 });
 

@@ -28,16 +28,18 @@ export type SplitWithRecords = {name: string; arrangement: SplitArrangement};
 export interface ResumeRecordDao {
 	read(key: string, pane: ResumePane): ResumeState;
 	/**
-	 * Replace the pane's records, only while `token` is its current one: a
-	 * closed space or a newer launch stops an old monitor writing. Resolves
-	 * whether it wrote.
+	 * Replace the pane's records, only while `hash` is its launch's: a closed
+	 * space or a newer launch stops an old monitor writing. Resolves whether
+	 * it wrote.
 	 */
 	save(
 		key: string,
 		pane: ResumePane,
-		token: string,
+		hash: string,
 		state: ResumeState,
 	): Promise<boolean>;
+	/** The token hash of the pane's current launch. */
+	launchHash(key: string, pane: ResumePane): string | undefined;
 	/** A new launch: its records are gone and the token hashed to `hash` is the current one. */
 	commitLaunch(
 		key: string,
@@ -114,22 +116,37 @@ export class SqliteResumeRecordDao implements ResumeRecordDao {
 		});
 	}
 
+	launchHash(key: string, pane: ResumePane): string | undefined {
+		return this.reads.or(undefined, () =>
+			this.currentHash(this.openDb().db, key, resumePaneId(pane)),
+		);
+	}
+
+	private currentHash(
+		db: StateDb['db'],
+		key: string,
+		id: string,
+	): string | undefined {
+		return (
+			db
+				.query<
+					{token_hash: string},
+					[string, string, string]
+				>('SELECT token_hash FROM resume_panes WHERE repo = ? AND key = ? AND pane = ?')
+				.get(this.repo, key, id)?.token_hash ?? undefined
+		);
+	}
+
 	async save(
 		key: string,
 		pane: ResumePane,
-		token: string,
+		hash: string,
 		state: ResumeState,
 	): Promise<boolean> {
 		const id = resumePaneId(pane);
 		return this.openDb().write(() => {
 			const {db} = this.openDb();
-			const current = db
-				.query<
-					{token_hash: string},
-					[string, string, string]
-				>('SELECT token_hash FROM resume_panes WHERE repo = ? AND key = ? AND pane = ?')
-				.get(this.repo, key, id);
-			if (current?.token_hash !== tokenHash(token)) return false;
+			if (this.currentHash(db, key, id) !== hash) return false;
 			const args = [this.repo, key, id] as const;
 			db.query(
 				'DELETE FROM resume_records WHERE repo = ? AND key = ? AND pane = ?',

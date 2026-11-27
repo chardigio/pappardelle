@@ -40,7 +40,7 @@ async function withRecords(...records: ResumeRecord[]) {
 		uid: UID,
 	};
 	await deps.dao.commitLaunch('k', agent, tokenHash('seed'));
-	await deps.dao.save('k', agent, 'seed', {records, times: {}});
+	await deps.dao.save('k', agent, tokenHash('seed'), {records, times: {}});
 	return {...s, deps};
 }
 
@@ -97,7 +97,7 @@ test('the records stay until the pane exists, and a launch that made none keeps 
 	await finishPaneLaunch(deps, 'k', made, true);
 	expect(deps.dao.read('k', agent).records).toHaveLength(0);
 	expect(
-		await deps.dao.save('k', agent, made.token, {
+		await deps.dao.save('k', agent, tokenHash(made.token), {
 			records: [record()],
 			times: {},
 		}),

@@ -7,6 +7,7 @@ import {test, expect} from 'bun:test';
 import {testState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
 import type {ProcessInfo} from './process-tree.ts';
+import type {ResumeState} from './program-resume.ts';
 import {watchResume, type ResumeWatchDeps} from './resume-monitor.ts';
 
 const NOW = 1_795_543_200;
@@ -18,10 +19,12 @@ const argv = `argv=${Buffer.from('claude').toString('base64')}`;
 async function setup(
 	state: ReturnType<NonNullable<ResumeWatchDeps['paneState']>> = 'server-gone',
 	withToken = true,
+	stored?: ResumeState,
 ) {
 	const s = testState();
 	const dao = s.daos.resumeRecords;
 	await dao.commitLaunch('k', agent, tokenHash('tok'));
+	if (stored) await dao.save('k', agent, tokenHash('tok'), stored);
 	const tokenFile = path.join(tempDir('resume-monitor-'), 'monitor-token');
 	if (withToken) writeFileSync(tokenFile, 'tok');
 	const tree = new Map<number, ProcessInfo>([
@@ -112,6 +115,33 @@ test('a monitor with no token file records nothing', async () => {
 	f.watcher.stop('eof');
 	await f.flush();
 	expect(f.dao.read('k', agent).records).toHaveLength(0);
+});
+
+test("a monitor attached again keeps the launch's records and drops them when the pane closes", async () => {
+	const stored = {
+		records: [
+			{
+				pid: 20,
+				started: 'a',
+				uid: 501,
+				depth: 1,
+				time: NOW,
+				argv: ['claude'],
+				cwdSource: 'process' as const,
+			},
+		],
+		times: {20: NOW},
+	};
+	for (const newerLaunch of [false, true]) {
+		const f = await setup('pane-gone', false, stored);
+		if (newerLaunch) {
+			await f.dao.commitLaunch('k', agent, tokenHash('newer'));
+			await f.dao.save('k', agent, tokenHash('newer'), stored);
+		}
+		f.watcher.stop('eof');
+		await f.flush();
+		expect(f.dao.read('k', agent).records).toHaveLength(newerLaunch ? 1 : 0);
+	}
 });
 
 test('prompt marks check owners at most once a second', async () => {

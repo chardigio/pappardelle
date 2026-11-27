@@ -17,6 +17,7 @@ import {
 import {readOneShot, type PaneLaunch} from './resume-launch.ts';
 import {
 	SqliteResumeRecordDao,
+	tokenHash,
 	type ResumeRecordDao,
 } from './resume-records-sqlite.ts';
 import {internalEntryCommand} from './runtime.ts';
@@ -176,12 +177,14 @@ export function watchResume(
 	// without one there is nothing to restore and nowhere to save, and opening
 	// it would make the database of a space that is gone.
 	if (!deps.dao && !existsSync(args.dbPath)) return inertWatcher;
-	// A monitor attached again after its launch finds no token: it keeps the
-	// stored records, and records nothing new until the next launch.
+	// A monitor attached again after its launch finds no token: it records
+	// nothing new until the next launch, but still keeps the pane's stored
+	// records, dropping them as their owners exit or the pane closes.
 	const token = readOneShot(args.monitorTokenFile);
 	const dao =
 		deps.dao ??
 		new SqliteResumeRecordDao(() => openStateDb(args.dbPath), args.repo);
+	const hash = token ? tokenHash(token) : dao.launchHash(args.key, args.pane);
 	const now = deps.now ?? (() => Date.now());
 	const timers = deps.timers ?? realTimers;
 	let retries = 0;
@@ -191,9 +194,9 @@ export function watchResume(
 	// another token is tried again for a while. After that a newer launch
 	// owns the pane.
 	const save = (state: Parameters<ResumeRecordDao['save']>[3]) => {
-		if (!token) return;
+		if (!hash) return;
 		dao
-			.save(args.key, args.pane, token, state)
+			.save(args.key, args.pane, hash, state)
 			.then(saved => {
 				if (saved) {
 					retries = SAVE_RETRIES;
