@@ -42,10 +42,13 @@
 #                     filled in, or empty when no session is recorded.
 
 set -e
+# Each pane gets a token of its own; one from the terminal this runs in is never passed on.
+unset OSC7577_TOKEN
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATUS_MONITOR=()
 STATUS_GATE=""
+RESUME_MONITOR_TOKEN=""
 if [[ -x "${PAPPARDELLE_EXECUTABLE:-}" ]]; then
     STATUS_MONITOR=("$PAPPARDELLE_EXECUTABLE" --internal-status-monitor)
 elif [[ -x "$SCRIPT_DIR/../dist/pappardelle" ]]; then
@@ -320,26 +323,64 @@ fi
 # (macOS /bin/sh and /bin/bash) starts the login shell outside the terminal's
 # foreground process group, where it spins at 100% CPU and never reads input.
 new_launch_session() {
-    local session="$1" command="$2"
-    shift 2
-    # shellcheck disable=SC2016 # expanded by the inner sh, not here
-    local shell_handoff='"$1" -ic "$2$(printf "\n:")"; exec "$1" -l'
-    if [[ "$session" == "$AGENT_SESSION" ]]; then
-        # shellcheck disable=SC2016 # expanded by the inner sh, not here
-        shell_handoff='"$1" -ic "$2$(printf "\n:")"; printf "\033]133;A\007"; exec "$1" -l'
+    local session="$1" command="$2" pane="$3"
+    shift 3
+    local report_exit=0
+    [[ "$session" == "$AGENT_SESSION" ]] && report_exit=1
+    prepare_launch "$pane" "$command" "$report_exit"
+    local pipe=()
+    if [[ -n "$RESUME_PIPE" ]]; then
+        pipe=(';' pipe-pane -o -t "=$session:" "$RESUME_PIPE")
     fi
     if [[ "$session" == "$AGENT_SESSION" && ${#STATUS_MONITOR[@]} -gt 0 ]]; then
         STATUS_GATE="pappardelle-status-$$"
         # shellcheck disable=SC2016 # expanded by the inner sh, not here
         new_inner_session "$session" "$@" \
             /bin/sh -c 'tmux "$1" "$2" wait-for "$3"; shift 3; exec "$@"' sh "${TMUX_SOCKET_ARGS[@]}" "$STATUS_GATE" \
-            /bin/sh -c "$shell_handoff" sh "${SHELL:-/bin/sh}" "$command" \
+            "${PANE_ARGV[@]}" \
             ';' set-option -t "=$session:" "$STARTUP_GATE_OPTION" "$STATUS_GATE"
-        return
+    else
+        new_inner_session "$session" "$@" "${PANE_ARGV[@]}" "${pipe[@]}"
     fi
-    # shellcheck disable=SC2016 # expanded by the inner sh, not here
-    new_inner_session "$session" "$@" \
-        /bin/sh -c "$shell_handoff" sh "${SHELL:-/bin/sh}" "$command"
+    # Before the monitor can save: a launch's token is the pane's once it runs.
+    if [[ -n "$RESUME_TOKEN_HASH" ]]; then
+        "${STATUS_MONITOR[@]}" commit "$REPO_NAME" "$ISSUE_KEY" "$pane" "$RESUME_TOKEN_HASH" || true
+    fi
+}
+
+# A resumable pane's argv, from the binary, which also gives it a fresh
+# OSC 7577 token and the record it restores (see resume-launch-cli.ts). Sets
+# PANE_ARGV, RESUME_MONITOR_TOKEN, RESUME_TOKEN_HASH and RESUME_PIPE. Without the binary the
+# pane gets the plain handoff and no token.
+prepare_launch() {
+    local pane="$1" command="$2" report_exit="$3" word index=0
+    PANE_ARGV=()
+    RESUME_MONITOR_TOKEN=""
+    RESUME_TOKEN_HASH=""
+    RESUME_PIPE=""
+    if [[ ${#STATUS_MONITOR[@]} -gt 0 ]]; then
+        while IFS= read -r -d '' word; do
+            case $index in
+                0) RESUME_MONITOR_TOKEN="$word" ;;
+                1) RESUME_TOKEN_HASH="$word" ;;
+                2) RESUME_PIPE="$word" ;;
+                *) PANE_ARGV+=("$word") ;;
+            esac
+            index=$((index + 1))
+        done < <("${STATUS_MONITOR[@]}" prepare "$REPO_NAME" "$ISSUE_KEY" "$pane" "$WORKTREE_PATH" "$report_exit" "$command" 2>/dev/null)
+    fi
+    if [[ ${#PANE_ARGV[@]} -eq 0 ]]; then
+        RESUME_MONITOR_TOKEN=""
+        RESUME_TOKEN_HASH=""
+        RESUME_PIPE=""
+        # shellcheck disable=SC2016 # expanded by the inner sh, not here
+        local handoff='"$1" -ic "$2$(printf "\n:")"; exec "$1" -l'
+        if [[ "$report_exit" == 1 ]]; then
+            # shellcheck disable=SC2016 # expanded by the inner sh, not here
+            handoff='"$1" -ic "$2$(printf "\n:")"; printf "\033]133;A\007"; exec "$1" -l'
+        fi
+        PANE_ARGV=(/bin/sh -c "$handoff" sh "${SHELL:-/bin/sh}" "$command")
+    fi
 }
 
 # The command that starts the inner server sets the server's working
@@ -423,15 +464,20 @@ if ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$AGENT_SESSION:" 2>/dev/null
             if [[ -n "$INIT_CMD" ]]; then
                 RESUME_CMD="${RESUME_CMD}${PROMPT_WORDS:+ $PROMPT_WORDS}"
             fi
-            new_launch_session "$AGENT_SESSION" "${RESUME_CMD} || { printf '\\033[A\\033[2K'; false; } || ${LAUNCH_CMD}" "${AGENT_SESSION_ENV[@]}"
+            new_launch_session "$AGENT_SESSION" "${RESUME_CMD} || { printf '\\033[A\\033[2K'; false; } || ${LAUNCH_CMD}" agent "${AGENT_SESSION_ENV[@]}"
         else
-            new_launch_session "$AGENT_SESSION" "${LAUNCH_CMD}" "${AGENT_SESSION_ENV[@]}"
+            new_launch_session "$AGENT_SESSION" "${LAUNCH_CMD}" agent "${AGENT_SESSION_ENV[@]}"
         fi
     fi
 fi
 
 if [[ ${#STATUS_MONITOR[@]} -gt 0 ]]; then
-    "${STATUS_MONITOR[@]}" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" || true
+    # A new agent pane's monitor also keeps its resume records.
+    if [[ -n "$RESUME_MONITOR_TOKEN" ]]; then
+        "${STATUS_MONITOR[@]}" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" agent "$RESUME_MONITOR_TOKEN" || true
+    else
+        "${STATUS_MONITOR[@]}" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" || true
+    fi
 fi
 STATUS_GATE="$(tmux "${TMUX_SOCKET_ARGS[@]}" show-option -qv -t "=$AGENT_SESSION:" "$STARTUP_GATE_OPTION")"
 if [[ -n "$STATUS_GATE" ]]; then
@@ -443,8 +489,8 @@ fi
 # Ensure companion tmux session (default: gitui; overridable via --companion-command).
 # An empty command leaves a plain shell.
 if ! tmux "${TMUX_SOCKET_ARGS[@]}" has-session -t "=$COMPANION_SESSION:" 2>/dev/null; then
-    if [[ "$NO_AGENT" != true && -n "$COMPANION_COMMAND" ]]; then
-        new_launch_session "$COMPANION_SESSION" "$COMPANION_COMMAND"
+    if [[ "$NO_AGENT" != true && ( -n "$COMPANION_COMMAND" || ${#STATUS_MONITOR[@]} -gt 0 ) ]]; then
+        new_launch_session "$COMPANION_SESSION" "$COMPANION_COMMAND" main
     else
         new_inner_session "$COMPANION_SESSION"
     fi

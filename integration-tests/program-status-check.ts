@@ -48,7 +48,8 @@ try {
 		async args => {
 			const fixtureArgs = args.slice(2);
 			if (fixtureArgs.includes('new-session')) {
-				fixtureArgs[fixtureArgs.indexOf(';') - 1] =
+				// The command, then the launch's token and restore files.
+				fixtureArgs[fixtureArgs.indexOf(';') - 3] =
 					`printf '%s' launched > ${shellQuoteStatus(launchMarker)}`;
 			}
 			return harness.tmux(fixtureArgs);

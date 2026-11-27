@@ -172,6 +172,26 @@ tmux -L pappardelle_inner kill-server
 tmux kill-server
 ```
 
+## Program resume
+
+Pappardelle implements the [OSC 7577 Program Resume Protocol](https://www.superlogical.com/rex/docs/build/program-resume) (revision 0.5) in both directions.
+
+As the terminal of a space's agent pane, its companion main pane and every companion split, it gives each pane's first process a fresh `OSC7577_TOKEN` and keeps what the program in the pane reports. When the pane is made again after the tmux server dies, a reboot or `pappardelle restart --hard`, the pane runs the reported command instead of what it runs by default:
+
+| Pane                                | Runs when there is no record, or the record's program can't start        |
+| ----------------------------------- | ------------------------------------------------------------------------ |
+| Agent                               | The profile's resume-or-fresh launch                                     |
+| Companion main                      | The companion command                                                    |
+| A configured split                  | Its configured command                                                   |
+| A split opened with `companion run` | Nothing: it comes back only from its record, with its direction and size |
+
+- A record is used once: the pane that restores it starts without it until its program reports again
+- Closing a space, closing a split, replacing a pane's program with `companion run` and exiting a pane's shell discard that pane's records. A program that exits on its own loses its record two seconds later
+- Each argument of a record reaches the program as one argument, never as shell source, after the user's shell has run its startup files. A record whose reported directory is gone is not restored
+- Records are rows in the [state database](pappardelle-config.md#state-database), which only the user can read. Running as root, Pappardelle gives no token and restores nothing
+
+As a program, Pappardelle started outside tmux in a terminal that gives it a token, such as Rex, reports itself, so that terminal reopens it in the same directory after it restarts. It reports no arguments: they may describe a new space. It strips an inherited token from everything it starts. Rex resumes only commands its config trusts: add a `resume.trust` rule for the path Pappardelle reports, `~/.local/bin/pappardelle` for an installed one.
+
 ---
 
 ## 3. Spawning New Sessions
@@ -543,6 +563,7 @@ pappardelle plugin install  # installs the plugin (skills, hooks and MCP tools) 
 | `~/.pappardelle/.pappardelle.yml`       | Optional home config layer                                                                                              |
 | `~/.pappardelle/local/`                 | The build a local-clone install runs from, with the commit it came from in `commit-sha`                                 |
 | `~/.pappardelle/program-status/{repo}/` | Monitor leases per workspace and pane generation                                                                        |
+| `~/.pappardelle/resume/{repo}/{space}/` | One-shot [program resume](#program-resume) token files, each deleted by the process that reads it                       |
 | `~/.pappardelle/state.db`               | [State database](pappardelle-config.md#state-database): open spaces, their identities and state, schedules and the rest |
 | `~/.pappardelle/status-1.sock`          | [Status daemon](pappardelle-config.md#status-daemon) socket                                                             |
 | `~/.pappardelle/logs/`                  | Daily log files (7-day retention)                                                                                       |

@@ -257,7 +257,7 @@ for (const delayed of ['agent-gate', 'companion-create']) {
 		)!;
 		expect(agent.some(arg => arg.includes('wait-for'))).toBe(true);
 		for (const creation of [agent, companion]) {
-			const shell = creation.findIndex(arg => arg.includes('"$1" -ic "$2'));
+			const shell = creation.findIndex(arg => arg.includes('-ic "$script'));
 			expect(shell !== -1).toBe(true);
 			expect(creation[shell + 3]?.trim()).toBeTruthy();
 		}

@@ -223,6 +223,7 @@ import {
 } from './rail-search.ts';
 import {listOpenSpaces} from './space-registry.ts';
 import type {StateDaos} from './state-daos.ts';
+import {forgetClosedSpace} from './space-cleanup.ts';
 import {
 	type RailStatusPatch,
 	findSpaceTranscript,
@@ -2188,7 +2189,7 @@ export default function App({
 							void workspaceRefresh.current?.refreshListOnly();
 						},
 						async cleanup(key) {
-							await programStatus.remove(key);
+							await forgetClosedSpace(daos, getRepoName(), key);
 							return deleteQaSimulator(key);
 						},
 						onKillFailure: key =>

@@ -38,7 +38,7 @@ const states = new Set([
 const kinds = new Set(['permission', 'question', 'auth']);
 const decoder = new TextDecoder('utf-8', {fatal: true});
 
-function decodeText(
+export function decodeText(
 	value: string,
 	encodedLimit: number,
 	decodedLimit: number,
@@ -198,6 +198,8 @@ export class ProgramStatusStore {
 
 export type TerminalStatusEvent =
 	| {type: 'report'; report: ProgramReport}
+	/** An OSC 7577 body exactly as received, since its mac covers those bytes. */
+	| {type: 'resume'; body: string}
 	| {type: 'query' | 'prompt' | 'reset'};
 
 export class TerminalStatusParser {
@@ -235,6 +237,8 @@ export class TerminalStatusParser {
 			const value = Buffer.from(this.body).toString('ascii');
 			if (value === '7501;?') this.emit({type: 'query'});
 			else if (/^133;A(?:;|$)/.test(value)) this.emit({type: 'prompt'});
+			else if (value.startsWith('7577;'))
+				this.emit({type: 'resume', body: value.slice(5)});
 			else if (value.startsWith('7501;')) {
 				const report = parseProgramReport(value.slice(5), 7 + terminatorBytes);
 				if (report) this.emit({type: 'report', report});

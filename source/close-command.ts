@@ -1,7 +1,8 @@
 import {legacyAgentSession, type SpaceSessionNames} from './space-identity.ts';
 import {spawn} from 'node:child_process';
 import {selfLaunchArgs} from './runtime.ts';
-import {getMainRepoRoot} from './config.ts';
+import {getMainRepoRoot, getRepoName} from './config.ts';
+import {forgetClosedSpace} from './space-cleanup.ts';
 import {formatConfigErrors} from './config-errors.ts';
 import {confirm} from './confirm.ts';
 import {
@@ -213,7 +214,7 @@ export function defaultCloseCommandDeps(daos: StateDaos): CloseCommandDeps {
 			return killSpaceSessions(key);
 		},
 		async cleanup(key) {
-			await daos.programStatus.remove(key);
+			await forgetClosedSpace(daos, getRepoName(), key);
 			return deleteQaSimulator(key);
 		},
 		sessionNames: spaceSessionNames,

@@ -132,9 +132,9 @@ test('companion session launches the configurable command, never a hardcoded git
 		TMUX_SOURCE,
 		'ensureCompanionSession must launch the companionCommand variable',
 	).toMatch(
-		/companionSessionArgs\(\s*issueKey,\s*sessionName,\s*worktreePath,\s*companionCommand,?\s*\)/,
+		/companionSessionArgs\(\s*issueKey,\s*sessionName,\s*worktreePath,\s*companionCommand,/,
 	);
-	expect(COMPANION_BUILDER).toMatch(/buildShellLaunchArgs\(command\)/);
+	expect(COMPANION_BUILDER).toMatch(/buildShellLaunchArgs\(command\b/);
 	expect(
 		TMUX_SOURCE,
 		'the companion command must come from config (DEFAULT_COMPANION_COMMAND lives in config.ts), not a tmux.ts literal',
@@ -142,12 +142,13 @@ test('companion session launches the configurable command, never a hardcoded git
 });
 
 test('companion session launches nothing when the command is empty (plain shell)', () => {
-	// An empty companion_command means "leave a plain shell", so the session
-	// must be created with tmux's default shell rather than a launch wrapper.
+	// An empty companion_command means "leave a plain shell", so with no resume
+	// launch the session is created with tmux's default shell rather than a
+	// launch wrapper.
 	expect(
 		COMPANION_BUILDER,
 		'the companion builder must skip the launch args for an empty command',
-	).toMatch(/command\.trim\(\)\s*===\s*''\s*\?\s*\[\]/);
+	).toMatch(/command\.trim\(\)\s*===\s*''\s*&&\s*!launch\s*\?\s*\[\]/);
 });
 
 test('no bare `tmux new-session -d` survives for per-issue sessions', () => {

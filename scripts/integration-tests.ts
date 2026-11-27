@@ -14,6 +14,7 @@ const CHECKS = [
 	'program-status-lifecycle',
 	'program-status-cleanup',
 	'program-status-app',
+	'program-resume',
 	'unreadable-state-app',
 	'popup-close',
 	'rail-boxes',

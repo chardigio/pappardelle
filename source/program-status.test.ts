@@ -222,3 +222,32 @@ test('cancellation and oversized streams recover without retaining screen output
 	expect(reports).toStrictEqual(['done']);
 	expect(parser.bufferedBytes).toBe(0);
 });
+
+test('OSC 7577 bodies are passed on whole, across split reads, both terminators and tmux passthrough', () => {
+	const events: TerminalStatusEvent[] = [];
+	const parser = new TerminalStatusParser(event => events.push(event));
+	const body = `pid=7:time=1:argv=${text('vim')}:mac=${'a'.repeat(64)}`;
+	const sequence = Buffer.from(`\u001B]7577;${body}\u001B\\`);
+	for (const byte of sequence) parser.feed(Uint8Array.of(byte));
+	parser.feed(Buffer.from(`\u001B]7577;${body}\u0007`));
+	parser.feed(
+		Buffer.from(`\u001BPtmux;\u001B\u001B]7577;${body}\u0007\u001B\\`),
+	);
+	parser.feed(Buffer.from('\u001B]7577;?\u0007'));
+	expect(events).toStrictEqual([
+		{type: 'resume', body},
+		{type: 'resume', body},
+		{type: 'resume', body},
+		{type: 'resume', body: '?'},
+	]);
+});
+
+test('an OSC 7577 body past the parser limit is dropped, not cut short', () => {
+	const events: TerminalStatusEvent[] = [];
+	const parser = new TerminalStatusParser(event => events.push(event));
+	const fits = `pid=7:time=1:argv=${'A'.repeat(2048 - 31)}`;
+	parser.feed(Buffer.from(`\u001B]7577;${fits}\u0007`));
+	parser.feed(Buffer.from(`\u001B]7577;${'A'.repeat(5000)}\u0007`));
+	parser.feed(Buffer.from(`\u001B]7577;pid=\u00FF\u0007`));
+	expect(events).toStrictEqual([{type: 'resume', body: fits}]);
+});

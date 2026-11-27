@@ -18,6 +18,11 @@ import {
 	type ProgramStatusInfo,
 } from './program-status.ts';
 import {createLogger} from './logger.ts';
+import type {
+	MonitorStop,
+	ResumeWatchArgs,
+	ResumeWatcher,
+} from './resume-monitor.ts';
 
 const execute = promisify(execFile);
 const log = createLogger('program-status');
@@ -291,6 +296,12 @@ export async function listStatusPanes(
 }
 
 /** The status snapshots of one repo's agent panes. */
+/** What a launch hands the agent pane's monitor for its resume records. */
+export type MonitorResume = Pick<
+	ResumeWatchArgs,
+	'pane' | 'monitorTokenFile' | 'dbPath'
+>;
+
 export interface ProgramStatusDao {
 	/**
 	 * Start the monitor of the session's status pane unless one is running,
@@ -301,6 +312,7 @@ export interface ProgramStatusDao {
 		session: string,
 		socket?: string,
 		run?: StatusTmuxRunner,
+		resume?: MonitorResume,
 	): Promise<StatusPane | null>;
 	/** `attach` for a pane already found by `listStatusPanes`. */
 	monitor(
@@ -309,6 +321,7 @@ export interface ProgramStatusDao {
 		located: LocatedStatusPane | undefined,
 		socket?: string,
 		run?: StatusTmuxRunner,
+		resume?: MonitorResume,
 	): Promise<StatusPane | null>;
 	/** Whether the monitor of this pane generation may still publish. */
 	monitored(key: string, generation: string): boolean;
@@ -416,6 +429,7 @@ export function monitorPane(
 	pane: StatusPane,
 	publisher: SnapshotPublisher,
 	traceDir?: string,
+	resume?: ResumeWatcher,
 ): void {
 	const store = new ProgramStatusStore();
 	let changed = false;
@@ -437,6 +451,10 @@ export function monitorPane(
 	};
 	const publishing = new PublishWindow(publish);
 	const parser = new TerminalStatusParser(event => {
+		if (event.type === 'resume') {
+			resume?.event(event);
+			return;
+		}
 		if (traceDir) {
 			try {
 				mkdirSync(traceDir, {recursive: true});
@@ -451,14 +469,17 @@ export function monitorPane(
 		}
 		if (event.type === 'query') return;
 		if (event.type === 'report') store.apply(event.report);
-		else if (event.type === 'prompt') store.processExit();
-		else store.reset();
+		else if (event.type === 'prompt') {
+			store.processExit();
+			resume?.event(event);
+		} else store.reset();
 		changed = true;
 	});
-	const stop = () => {
+	const stop = (why: MonitorStop) => {
 		if (stopped) return;
 		stopped = true;
 		exited = true;
+		resume?.stop(why);
 		publishing.cancel();
 		clearInterval(liveness);
 		store.processExit();
@@ -471,10 +492,11 @@ export function monitorPane(
 	// leave the pipe open, so no EOF arrives. Usually the pane's process is
 	// gone by then.
 	const liveness = setInterval(() => {
+		resume?.tick();
 		try {
 			process.kill(Number(pane.pid), 0);
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === 'ESRCH') stop();
+			if ((error as NodeJS.ErrnoException).code === 'ESRCH') stop('eof');
 		}
 	}, LIVENESS_CHECK_MS);
 	process.stdin.on('data', (bytes: Buffer) => {
@@ -485,9 +507,9 @@ export function monitorPane(
 		changed = false;
 		publishing.request();
 	});
-	process.stdin.on('end', stop);
-	process.stdin.on('error', stop);
-	process.once('SIGTERM', stop);
-	process.once('SIGHUP', stop);
+	process.stdin.on('end', () => stop('eof'));
+	process.stdin.on('error', () => stop('eof'));
+	process.once('SIGTERM', () => stop('signal'));
+	process.once('SIGHUP', () => stop('signal'));
 	publish();
 }
