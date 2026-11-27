@@ -1189,7 +1189,7 @@ export function newOuterSessionArgs(
 		...sessionEnvArgs,
 		command,
 		';',
-		...outerDetachOnDestroyArgs(target),
+		...outerDetachOnDestroyArgs(sessionName),
 		';',
 		'set-option',
 		'-t',
@@ -1212,24 +1212,23 @@ export function newOuterSessionArgs(
 }
 
 // With the user's `detach-on-destroy off`, quitting one repo's TUI would move
-// the terminal into another repo's TUI session instead of back to the shell.
-function outerDetachOnDestroyArgs(target: string): string[] {
-	return ['set-option', '-t', target, 'detach-on-destroy', 'on'];
+// the terminal into another repo's outer session instead of back to the shell.
+export function outerDetachOnDestroyArgs(sessionName: string): string[] {
+	return [
+		'set-option',
+		'-t',
+		exactSessionTarget(sessionName),
+		'detach-on-destroy',
+		'on',
+	];
 }
 
-/**
- * Attach to a repo's TUI session. A session created before the TUI set
- * detach-on-destroy gets it here.
- */
-export function attachOuterSessionArgs(sessionName: string): string[] {
-	const target = exactSessionTarget(sessionName);
-	return [
-		...outerDetachOnDestroyArgs(target),
-		';',
-		'attach-session',
-		'-t',
-		target,
-	];
+export function attachOuterSession(sessionName: string) {
+	return spawnSync(
+		'tmux',
+		['attach-session', '-t', exactSessionTarget(sessionName)],
+		{stdio: 'inherit'},
+	);
 }
 
 // Bare tmux talks to whichever server $TMUX names. From a claude pane that is

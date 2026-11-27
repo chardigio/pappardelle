@@ -8,7 +8,6 @@ import {tempDir} from '../test/helpers/temp-dir.ts';
 import {until} from '../test/helpers/wait.ts';
 import {sessionNamesFor} from './space-identity.ts';
 import {
-	attachOuterSessionArgs,
 	exactSessionTarget,
 	killSession,
 	newOuterSessionArgs,
@@ -16,7 +15,7 @@ import {
 	sessionExists,
 } from './tmux.ts';
 import {tmuxFormatLiteral} from './tmux-format.ts';
-import {reviveTui} from './tui-sessions.ts';
+import {closeTuiLayout, reviveTui} from './tui-sessions.ts';
 
 function privateDefaultServer(): void {
 	const dir = tempDir('pappardelle-tmux-');
@@ -187,9 +186,19 @@ tmuxTest(
 // A control-mode client stands in for the user's terminal: tmux tells it
 // %session-changed when it attaches or moves it to another session, %exit when
 // it detaches.
-async function quitTuiWithAnotherRepoOpen(
-	setUp: (tmux: ReturnType<typeof tmuxOn>, session: string) => string[],
-): Promise<{output: string; otherRepoStillOpen: boolean}> {
+function movedTo(output: string, session: string): boolean {
+	return output
+		.split('\n')
+		.some(
+			line =>
+				line.startsWith('%session-changed ') && line.endsWith(` ${session}`),
+		);
+}
+
+async function expectQuitReturnsToShell(
+	createSession: (tmux: ReturnType<typeof tmuxOn>, session: string) => void,
+	quit: (tmux: ReturnType<typeof tmuxOn>, session: string) => void,
+): Promise<void> {
 	const dir = tempDir('pappardelle-tmux-');
 	const conf = join(dir, 'tmux.conf');
 	writeFileSync(conf, 'set -g detach-on-destroy off\n');
@@ -199,9 +208,18 @@ async function quitTuiWithAnotherRepoOpen(
 	const other = outerSessionName('other');
 	expect(tmux('new-session', '-d', '-s', other, 'sleep 60').status).toBe(0);
 	const session = outerSessionName('pasta');
-	const attach = setUp(tmux, session);
+	createSession(tmux, session);
 
-	const client = spawn('tmux', ['-S', socket, '-f', conf, '-C', ...attach]);
+	const client = spawn('tmux', [
+		'-S',
+		socket,
+		'-f',
+		conf,
+		'-C',
+		'attach-session',
+		'-t',
+		exactSessionTarget(session),
+	]);
 	let output = '';
 	client.stdout.on('data', chunk => {
 		output += String(chunk);
@@ -212,60 +230,63 @@ async function quitTuiWithAnotherRepoOpen(
 		});
 	});
 	teardown(() => client.kill());
-	await until(() => tmux('list-clients').stdout.trim() !== '', {
-		what: 'the client to attach',
+	await until(() => movedTo(output, session), {
+		what: 'the client to attach to the outer session',
 		frame: () => output,
 	});
 
-	tmux('kill-session', '-t', exactSessionTarget(session));
-	await until(
-		() => /%exit|%session-changed \S+ pappardelle-other/.test(output),
-		{
-			what: 'the client to leave the quit TUI session',
-			frame: () => output,
-		},
-	);
+	quit(tmux, session);
+	await until(() => output.includes('%exit') || movedTo(output, other), {
+		what: 'the client to leave the quit outer session',
+		frame: () => output,
+	});
 	const left = output;
 	client.kill();
 	await closed;
-	return {
-		output: left,
-		otherRepoStillOpen:
-			tmux('has-session', '-t', exactSessionTarget(other)).status === 0,
-	};
+
+	expect(movedTo(left, other)).toBe(false);
+	expect(left).toContain('%exit');
+	expect(tmux('has-session', '-t', exactSessionTarget(other)).status).toBe(0);
 }
 
 tmuxTest(
 	'quitting a TUI returns its terminal to the shell when the user keeps detach-on-destroy off',
 	async () => {
-		const {output, otherRepoStillOpen} = await quitTuiWithAnotherRepoOpen(
-			(tmux, session) => {
+		await expectQuitReturnsToShell(
+			tmux => {
 				const [command, ...rest] = newOuterSessionArgs('pasta', [], 'sleep 60');
 				expect(tmux(command!, '-d', ...rest).status).toBe(0);
-				return ['attach-session', '-t', exactSessionTarget(session)];
+			},
+			(tmux, session) => {
+				tmux('kill-session', '-t', exactSessionTarget(session));
 			},
 		);
-
-		expect(output).not.toMatch(/%session-changed \S+ pappardelle-other/);
-		expect(output).toContain('%exit');
-		expect(otherRepoStillOpen).toBe(true);
 	},
 );
 
 tmuxTest(
-	'attaching to a TUI session made before it set detach-on-destroy sets it',
+	'q in an outer session an older build made returns the terminal to the shell',
 	async () => {
-		const {output, otherRepoStillOpen} = await quitTuiWithAnotherRepoOpen(
+		await expectQuitReturnsToShell(
 			(tmux, session) => {
 				expect(
 					tmux('new-session', '-d', '-s', session, 'sleep 60').status,
 				).toBe(0);
-				return attachOuterSessionArgs(session);
+			},
+			(tmux, session) => {
+				closeTuiLayout(
+					'pasta',
+					{listPaneId: '', agentViewerPaneId: '', companionViewerPaneId: ''},
+					{
+						currentSession: () => session,
+						layoutTmux: args => tmux(...args),
+						killSession(name) {
+							tmux('kill-session', '-t', exactSessionTarget(name));
+						},
+						splitPanes: () => [],
+					},
+				);
 			},
 		);
-
-		expect(output).not.toMatch(/%session-changed \S+ pappardelle-other/);
-		expect(output).toContain('%exit');
-		expect(otherRepoStillOpen).toBe(true);
 	},
 );

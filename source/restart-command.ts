@@ -1,9 +1,9 @@
 import {listKnownRepos} from './state-db.ts';
 import {cliFilePath} from './runtime.ts';
-import {spawn, spawnSync} from 'node:child_process';
+import {spawn} from 'node:child_process';
 import {homedir} from 'node:os';
 import {
-	attachOuterSessionArgs,
+	attachOuterSession,
 	currentDefaultServerSession,
 	defaultInnerTmuxRunner,
 	defaultServerTmuxEnv,
@@ -161,10 +161,7 @@ export function defaultRestartCommandDeps(): RestartCommandDeps {
 		onInnerServer: isOnInnerServer(process.env),
 		inTmux: isInTmux(),
 		attach(sessionName) {
-			const result = spawnSync('tmux', attachOuterSessionArgs(sessionName), {
-				stdio: 'inherit',
-			});
-			return result.status ?? 1;
+			return attachOuterSession(sessionName).status ?? 1;
 		},
 		runDetached(steps) {
 			const script = steps

@@ -20,7 +20,7 @@ import {
 	isInTmux,
 	sendKeysToSpaceAgent,
 	newOuterSessionArgs,
-	attachOuterSessionArgs,
+	attachOuterSession,
 	sendToSpaceAgent,
 	type SendToSpaceAgentResult,
 	sessionExists,
@@ -670,12 +670,7 @@ if (!isInTmux() && cli.flags.layout) {
 	if (existing !== undefined) {
 		outerDone?.();
 		startupTrace.current?.finish('delegated');
-		const tmuxArgs = attachOuterSessionArgs(existing);
-		const result = spawnSync('tmux', tmuxArgs, {
-			stdio: 'inherit',
-			env: process.env,
-		});
-		exitWithTmux(result);
+		exitWithTmux(attachOuterSession(existing));
 	}
 
 	const tmuxArgs = newOuterSessionArgs(repoName, startupSessionEnvArgs(), cmd);
