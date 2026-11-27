@@ -148,6 +148,7 @@ class SpaceRow(NamedTuple):
     repo: str
     key: str
     worktree_path: str
+    tmux_socket: str
     agent_session: str
 
 
@@ -200,7 +201,7 @@ def space_at_path(cwd: str) -> Optional[SpaceRow]:
     """
     # Closed rows are kept forever, and a closed space holds no caller.
     rows = _read(
-        """SELECT i.repo, i.key, i.worktree_path, i.agent_session
+        """SELECT i.repo, i.key, i.worktree_path, i.tmux_socket, i.agent_session
         FROM space_identities i
         WHERE i.key = ? OR EXISTS (
             SELECT 1 FROM spaces s WHERE s.repo = i.repo AND s.key = i.key)""",
