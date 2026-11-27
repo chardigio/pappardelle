@@ -1,6 +1,5 @@
 // Resume records as rows, one set per resumable pane.
 
-import {createHash} from 'node:crypto';
 import type {PaneWidth} from './layout-sizing.ts';
 import {parsePaneWidth} from './layout-sizing.ts';
 import type {SplitDirection} from './companion-splits.ts';
@@ -11,6 +10,7 @@ import {
 	type ResumePane,
 	type ResumeRecord,
 	type ResumeState,
+	sha256,
 } from './program-resume.ts';
 import {GuardedReads, type StateDb} from './state-db.ts';
 
@@ -56,7 +56,7 @@ export interface ResumeRecordDao {
 }
 
 export function tokenHash(token: string): string {
-	return createHash('sha256').update(token).digest('hex');
+	return sha256(token);
 }
 
 type RecordRow = {

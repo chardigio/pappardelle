@@ -295,13 +295,13 @@ export async function listStatusPanes(
 	}
 }
 
-/** The status snapshots of one repo's agent panes. */
 /** What a launch hands the agent pane's monitor for its resume records. */
 export type MonitorResume = Pick<
 	ResumeWatchArgs,
 	'pane' | 'monitorTokenFile' | 'dbPath'
 >;
 
+/** The status snapshots of one repo's agent panes. */
 export interface ProgramStatusDao {
 	/**
 	 * Start the monitor of the session's status pane unless one is running,
@@ -379,7 +379,7 @@ type WindowTimers = {
 	after(ms: number, run: () => void): () => void;
 };
 
-const realTimers: WindowTimers = {
+export const realTimers: WindowTimers = {
 	now: () => performance.now(),
 	after(ms, run) {
 		const timer = setTimeout(run, ms);

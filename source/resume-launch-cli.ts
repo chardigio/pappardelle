@@ -10,8 +10,7 @@
 //     monitor has read and deleted the token file by then
 
 import {parseResumePaneId} from './program-resume.ts';
-import {statusSocket} from './program-status-monitor.ts';
-import {preparePaneLaunch} from './resume-launch.ts';
+import {launchFiles, preparePaneLaunch} from './resume-launch.ts';
 import {resumeMonitorCommand} from './resume-monitor.ts';
 import {tokenHash} from './resume-records-sqlite.ts';
 import {createStateDaos} from './state-daos.ts';
@@ -21,8 +20,8 @@ export async function runLaunchVerb(
 	verb: 'prepare' | 'commit',
 	args: string[],
 ): Promise<number> {
-	const [repo, key, paneId, ...rest] = args;
-	const pane = paneId ? parseResumePaneId(paneId) : undefined;
+	const [repo, key, paneArg, ...rest] = args;
+	const pane = paneArg ? parseResumePaneId(paneArg) : undefined;
 	if (!repo || !key || !pane) return 1;
 	const daos = createStateDaos({repo});
 	if (verb === 'commit') {
@@ -41,21 +40,12 @@ export async function runLaunchVerb(
 	);
 	const pipe =
 		launch && pane.kind !== 'agent'
-			? resumeMonitorCommand({
-					repo,
-					key,
-					pane,
-					tmuxSocket: statusSocket(),
-					monitorTokenFile: launch.monitorTokenFile,
-					dbPath: daos.dbPath,
-				})
+			? resumeMonitorCommand({repo, key, launch, dbPath: daos.dbPath})
 			: '';
 	const argv = buildShellLaunchArgs(
 		command,
 		reportExit === '1',
-		launch
-			? {tokenFile: launch.tokenFile, restoreFile: launch.restoreFile}
-			: {},
+		launchFiles(launch),
 	);
 	process.stdout.write(
 		[

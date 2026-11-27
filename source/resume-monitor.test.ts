@@ -36,7 +36,7 @@ async function setup(
 			key: 'k',
 			pane: agent,
 			panePid: 10,
-			paneId: '%1',
+			tmuxPaneId: '%1',
 			tmuxSocket: 's',
 			monitorTokenFile: tokenFile,
 			dbPath: '',

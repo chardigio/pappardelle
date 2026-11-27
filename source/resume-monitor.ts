@@ -14,7 +14,7 @@ import {
 	type ResumePane,
 	type ResumeTimers,
 } from './program-resume.ts';
-import {readOneShot} from './resume-launch.ts';
+import {readOneShot, type PaneLaunch} from './resume-launch.ts';
 import {
 	SqliteResumeRecordDao,
 	type ResumeRecordDao,
@@ -22,7 +22,12 @@ import {
 import {internalEntryCommand} from './runtime.ts';
 import {openStateDb} from './state-db.ts';
 import {tmuxFormatLiteral} from './tmux-format.ts';
-import {shellQuoteStatus} from './program-status-monitor.ts';
+import {
+	LIVENESS_CHECK_MS,
+	realTimers,
+	shellQuoteStatus,
+	statusSocket,
+} from './program-status-monitor.ts';
 import {
 	TerminalStatusParser,
 	type TerminalStatusEvent,
@@ -42,8 +47,8 @@ export type ResumeWatchArgs = {
 	key: string;
 	pane: ResumePane;
 	panePid: number;
-	/** The tmux pane id, to tell a closed pane from a dead server. */
-	paneId: string;
+	/** To tell a closed pane from a dead server. */
+	tmuxPaneId: string;
 	tmuxSocket: string;
 	monitorTokenFile: string;
 	dbPath: string;
@@ -53,7 +58,7 @@ export function resumeWatchArgv(args: ResumeWatchArgs): string[] {
 	return [
 		resumePaneId(args.pane),
 		String(args.panePid),
-		args.paneId,
+		args.tmuxPaneId,
 		args.tmuxSocket,
 		args.monitorTokenFile,
 		args.dbPath,
@@ -65,13 +70,13 @@ export function parseResumeWatchArgv(
 	key: string,
 	argv: string[],
 ): ResumeWatchArgs | undefined {
-	const [paneId, panePid, tmuxPane, tmuxSocket, monitorTokenFile, dbPath] =
+	const [paneArg, panePid, tmuxPaneId, tmuxSocket, monitorTokenFile, dbPath] =
 		argv;
-	const pane = paneId ? parseResumePaneId(paneId) : undefined;
+	const pane = paneArg ? parseResumePaneId(paneArg) : undefined;
 	if (
 		!pane ||
 		!/^\d+$/.test(panePid ?? '') ||
-		!tmuxPane ||
+		!tmuxPaneId ||
 		!tmuxSocket ||
 		!monitorTokenFile ||
 		!dbPath
@@ -82,7 +87,7 @@ export function parseResumeWatchArgv(
 		key,
 		pane,
 		panePid: Number(panePid),
-		paneId: tmuxPane,
+		tmuxPaneId,
 		tmuxSocket,
 		monitorTokenFile,
 		dbPath,
@@ -93,9 +98,12 @@ export function parseResumeWatchArgv(
  * The pipe-pane command of a companion pane's monitor. tmux fills in the
  * pane's pid and id when it starts it.
  */
-export function resumeMonitorCommand(
-	args: Omit<ResumeWatchArgs, 'panePid' | 'paneId'>,
-): string {
+export function resumeMonitorCommand(args: {
+	repo: string;
+	key: string;
+	launch: Pick<PaneLaunch, 'pane' | 'monitorTokenFile'>;
+	dbPath: string;
+}): string {
 	const words = (values: string[]) =>
 		values
 			.map(value =>
@@ -111,10 +119,10 @@ export function resumeMonitorCommand(
 			'resume-watch',
 			args.repo,
 			args.key,
-			resumePaneId(args.pane),
+			resumePaneId(args.launch.pane),
 		]),
 		"'#{pane_pid}' '#{pane_id}'",
-		words([args.tmuxSocket, args.monitorTokenFile, args.dbPath]),
+		words([statusSocket(), args.launch.monitorTokenFile, args.dbPath]),
 	].join(' ');
 }
 
@@ -123,7 +131,6 @@ export type MonitorStop = 'eof' | 'signal';
 
 export type ResumeWatcher = {
 	event(event: TerminalStatusEvent): void;
-	/** The monitor's liveness tick. */
 	tick(): void;
 	stop(why: MonitorStop): void;
 };
@@ -135,11 +142,13 @@ export type ResumeWatchDeps = {
 	now?: () => number;
 	uid?: number;
 	/** Whether the tmux server answers, and whether the pane is still in it. */
-	paneState?: () => 'server-gone' | 'pane-gone' | 'present';
+	paneState?: () => PaneState;
 };
 
+type PaneState = 'server-gone' | 'pane-gone' | 'present';
+
 function tmuxPaneState(socket: string, paneId: string) {
-	return (): 'server-gone' | 'pane-gone' | 'present' => {
+	return (): PaneState => {
 		const flag = socket.startsWith('/') ? '-S' : '-L';
 		const tmux = (...args: string[]) =>
 			spawnSync('tmux', [flag, socket, ...args], {encoding: 'utf8'});
@@ -151,15 +160,6 @@ function tmuxPaneState(socket: string, paneId: string) {
 			: 'pane-gone';
 	};
 }
-
-const realTimers: ResumeTimers = {
-	after(ms, run) {
-		const timer = setTimeout(run, ms);
-		return () => {
-			clearTimeout(timer);
-		};
-	},
-};
 
 const inertWatcher: ResumeWatcher = {
 	event() {},
@@ -216,14 +216,14 @@ export function watchResume(
 	};
 	const records = new ResumeRecords({
 		panePid: args.panePid,
-		uid: deps.uid ?? process.getuid?.() ?? -1,
+		uid: deps.uid ?? process.getuid!(),
 		inspector: deps.inspector ?? systemProcesses,
 		timers,
 		save,
 		initial: dao.read(args.key, args.pane),
 	});
 	const paneState =
-		deps.paneState ?? tmuxPaneState(args.tmuxSocket, args.paneId);
+		deps.paneState ?? tmuxPaneState(args.tmuxSocket, args.tmuxPaneId);
 	let lastPromptCheck = Number.NEGATIVE_INFINITY;
 	let stopped = false;
 	return {
@@ -263,9 +263,6 @@ export function watchResume(
 		},
 	};
 }
-
-/** How often a resume-only monitor checks owners and its pane's process. */
-const LIVENESS_CHECK_MS = 5000;
 
 /**
  * A companion pane's monitor: it reads the pane's output for OSC 7577 and

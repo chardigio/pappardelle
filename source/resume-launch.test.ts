@@ -8,6 +8,7 @@ import {
 	finishPaneLaunch,
 	preparePaneLaunch,
 	readOneShot,
+	type PaneLaunch,
 } from './resume-launch.ts';
 
 const UID = 501;
@@ -23,6 +24,12 @@ const record = (over: Partial<ResumeRecord> = {}): ResumeRecord => ({
 	cwd: '/repo/sub',
 	...over,
 });
+
+/** What the pane will restore: the directory, then the argv. */
+const restored = (launch: PaneLaunch) =>
+	launch.restoreFile
+		? readFileSync(launch.restoreFile, 'utf8').split('\n').slice(0, -1)
+		: undefined;
 
 async function withRecords(...records: ResumeRecord[]) {
 	const s = testState();
@@ -61,10 +68,6 @@ test('a launch gets a fresh token in two private one-shot files, and the record 
 	expect(readFileSync(launch.restoreFile!, 'utf8')).toBe(
 		'/repo/sub\nclaude\n--resume\nx\n',
 	);
-	expect(launch.restore).toStrictEqual({
-		argv: ['claude', '--resume', 'x'],
-		cwd: '/repo/sub',
-	});
 	expect(
 		preparePaneLaunch({...deps, exists: () => true}, 'k', agent, '/repo')!
 			.token,
@@ -90,7 +93,7 @@ test('the records stay until the pane exists, and a launch that made none keeps 
 		agent,
 		'/repo',
 	)!;
-	expect(made.restore).toBeDefined();
+	expect(made.restoreFile).toBeDefined();
 	await finishPaneLaunch(deps, 'k', made, true);
 	expect(deps.dao.read('k', agent).records).toHaveLength(0);
 	expect(
@@ -105,26 +108,31 @@ test('a reported directory that is gone means no restore; one read from the proc
 	const gone = await withRecords(record());
 	expect(
 		preparePaneLaunch({...gone.deps, exists: () => false}, 'k', agent, '/repo')!
-			.restore,
+			.restoreFile,
 	).toBeUndefined();
 	const fromProcess = await withRecords(record({cwdSource: 'process'}));
 	expect(
-		preparePaneLaunch(
-			{...fromProcess.deps, exists: () => false},
-			'k',
-			agent,
-			'/repo',
-		)!.restore,
-	).toStrictEqual({
-		argv: ['claude', '--resume', 'x'],
-		cwd: '/repo',
-	});
+		restored(
+			preparePaneLaunch(
+				{...fromProcess.deps, exists: () => false},
+				'k',
+				agent,
+				'/repo',
+			)!,
+		),
+	).toStrictEqual(['/repo', 'claude', '--resume', 'x']);
 	const none = await withRecords(
 		record({cwdSource: 'process', cwd: undefined}),
 	);
 	expect(
-		preparePaneLaunch({...none.deps, exists: () => true}, 'k', agent, '/repo')!
-			.restore?.cwd,
+		restored(
+			preparePaneLaunch(
+				{...none.deps, exists: () => true},
+				'k',
+				agent,
+				'/repo',
+			)!,
+		)?.[0],
 	).toBe('/repo');
 });
 
@@ -135,6 +143,6 @@ test("root gets no token and restores nothing, and another user's record never r
 	).toBeUndefined();
 	expect(
 		preparePaneLaunch({...deps, exists: () => true}, 'k', agent, '/repo')!
-			.restore,
+			.restoreFile,
 	).toBeUndefined();
 });

@@ -52,7 +52,7 @@ export type ResumeReport =
 	| {type: 'set'; pid: number; time: number; argv: string[]; cwd?: string}
 	| {type: 'clear'; pid: number; time: number};
 
-function sha256(text: string): string {
+export function sha256(text: string): string {
 	return createHash('sha256').update(text).digest('hex');
 }
 
@@ -323,7 +323,6 @@ export class ResumeRecords {
 		return 'accepted';
 	}
 
-	/** Start the grace window of every owner that is no longer running. */
 	checkOwners(): void {
 		if (this.records.size === 0) return;
 		const processes = this.options.inspector.processes();

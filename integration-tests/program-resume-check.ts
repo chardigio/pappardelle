@@ -3,9 +3,7 @@
 // the server dies, and each pane comes back running its record. Then the
 // rules that keep records honest: a replaced pane, a closed split, an owner
 // that exits, reports with the wrong token or an older time, a space close.
-import {Buffer} from 'node:buffer';
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
 import {
 	existsSync,
 	mkdirSync,
@@ -33,6 +31,7 @@ import {newSpaceIdentity, sessionNamesFor} from '../source/space-identity.ts';
 import {forgetClosedSpace} from '../source/space-cleanup.ts';
 import {createStateDaos} from '../source/state-daos.ts';
 import {resumeDir} from '../source/resume-launch.ts';
+import {buildResumeReport} from '../source/program-resume.ts';
 import {
 	ensureAgentSession,
 	ensureCompanionSession,
@@ -119,7 +118,6 @@ try {
 	const main = {kind: 'main'} as const;
 	const logs = {kind: 'split', name: 'logs'} as const;
 
-	// The first launch of each pane.
 	assert.ok(
 		await ensureAgentSession(
 			key,
@@ -240,13 +238,14 @@ try {
 		{encoding: 'utf8'},
 	).trim();
 	const send = (time: number, args: string[], withToken: string) => {
-		const encode = (text: string) => Buffer.from(text).toString('base64');
-		const body = `pid=${owner.pid}:time=${time}:argv=${[fixture, out, 'agent', ...args].map(text => encode(text)).join(',')}`;
-		const mac = createHash('sha256')
-			.update(`${body}:${withToken}`)
-			.digest('hex');
 		const fd = openSync(tty, 'w');
-		writeSync(fd, `\u001B]7577;${body}:mac=${mac}\u001B\\`);
+		writeSync(
+			fd,
+			buildResumeReport(
+				{pid: owner.pid, time, argv: [fixture, out, 'agent', ...args]},
+				withToken,
+			),
+		);
 		closeSync(fd);
 	};
 	const now = Math.floor(Date.now() / 1000);

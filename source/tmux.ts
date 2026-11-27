@@ -252,8 +252,10 @@ import {
 import type {ResumePane} from './program-resume.ts';
 import {
 	finishPaneLaunch,
+	launchFiles,
 	preparePaneLaunch,
 	type PaneLaunch,
+	type PaneLaunchFiles,
 } from './resume-launch.ts';
 import type {SplitArrangement} from './resume-records-sqlite.ts';
 import {resumeMonitorCommand} from './resume-monitor.ts';
@@ -450,12 +452,6 @@ export function respawnCompanionPane(
 		arrangement,
 	);
 	return result;
-}
-
-function launchFiles(launch: PaneLaunch | undefined): PaneLaunchFiles {
-	return launch
-		? {tokenFile: launch.tokenFile, restoreFile: launch.restoreFile}
-		: {};
 }
 
 const reportedUnknown = new Set<string>();
@@ -705,9 +701,6 @@ export function buildShellLaunchArgs(
 		files.restoreFile ?? '',
 	];
 }
-
-/** The one-shot files a pane's first process reads and deletes. */
-export type PaneLaunchFiles = {tokenFile?: string; restoreFile?: string};
 
 /**
  * Run a record: its directory and argv are the shell's arguments, so no part
@@ -4979,9 +4972,7 @@ export function resumeMonitorPipeArgs(
 		resumeMonitorCommand({
 			repo: repoName ?? getRepoName(),
 			key: issueKey,
-			pane: launch.pane,
-			tmuxSocket: statusSocket(),
-			monitorTokenFile: launch.monitorTokenFile,
+			launch,
 			dbPath: stateDaos!.dbPath,
 		}),
 	];

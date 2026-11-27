@@ -13,7 +13,6 @@ export type ProcessInfo = {
 };
 
 export interface ProcessInspector {
-	/** Every process now running, by pid. */
 	processes(): Map<number, ProcessInfo>;
 	/** A process's working directory, or undefined when the OS won't say. */
 	cwd(pid: number): string | undefined;

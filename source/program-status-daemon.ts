@@ -114,7 +114,7 @@ export class DaemonProgramStatusDao implements ProgramStatusDao {
 							repo,
 							key,
 							panePid: Number(pane.pid),
-							paneId: pane.id,
+							tmuxPaneId: pane.id,
 							tmuxSocket: socket,
 						})
 					: []),

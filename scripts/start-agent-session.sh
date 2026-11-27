@@ -473,11 +473,9 @@ fi
 
 if [[ ${#STATUS_MONITOR[@]} -gt 0 ]]; then
     # A new agent pane's monitor also keeps its resume records.
-    if [[ -n "$RESUME_MONITOR_TOKEN" ]]; then
-        "${STATUS_MONITOR[@]}" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" agent "$RESUME_MONITOR_TOKEN" || true
-    else
-        "${STATUS_MONITOR[@]}" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" || true
-    fi
+    resume_args=()
+    [[ -n "$RESUME_MONITOR_TOKEN" ]] && resume_args=(agent "$RESUME_MONITOR_TOKEN")
+    "${STATUS_MONITOR[@]}" attach "$REPO_NAME" "$ISSUE_KEY" "$AGENT_SESSION" "$PAPPARDELLE_TMUX_SOCKET" "${resume_args[@]}" || true
 fi
 STATUS_GATE="$(tmux "${TMUX_SOCKET_ARGS[@]}" show-option -qv -t "=$AGENT_SESSION:" "$STARTUP_GATE_OPTION")"
 if [[ -n "$STATUS_GATE" ]]; then

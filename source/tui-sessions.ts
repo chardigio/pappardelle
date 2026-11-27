@@ -358,7 +358,6 @@ export function tuiLaunchCommand(options: {
 	].join(' ');
 }
 
-/** tuiLaunchCommand's program and its own arguments, as an argv. */
 export function tuiLaunchArgv(options: {
 	execPath: string;
 	cliPath: string;

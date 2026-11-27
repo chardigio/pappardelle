@@ -36,8 +36,16 @@ export type PaneLaunch = {
 	monitorTokenFile: string;
 	/** The record's directory and argv, read and deleted by the pane. */
 	restoreFile?: string;
-	restore?: {argv: string[]; cwd: string};
 };
+
+/** The one-shot files a pane's first process reads and deletes. */
+export type PaneLaunchFiles = {tokenFile?: string; restoreFile?: string};
+
+export function launchFiles(launch: PaneLaunch | undefined): PaneLaunchFiles {
+	return launch
+		? {tokenFile: launch.tokenFile, restoreFile: launch.restoreFile}
+		: {};
+}
 
 export type LaunchDeps = {
 	dao: ResumeRecordDao;
@@ -70,7 +78,6 @@ function writePrivate(file: string, content: string): void {
 	writeFileSync(file, content, {mode: 0o600, flag: 'wx'});
 }
 
-/** A one-shot file's contents, deleting it. */
 export function readOneShot(file: string): string | undefined {
 	try {
 		return readFileSync(file, 'utf8');
@@ -121,7 +128,6 @@ export function preparePaneLaunch(
 		);
 		return launch;
 	}
-	launch.restore = {argv: record.argv, cwd};
 	launch.restoreFile = path.join(dir, `${id}.restore`);
 	writePrivate(
 		launch.restoreFile,
