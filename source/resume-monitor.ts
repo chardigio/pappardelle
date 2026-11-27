@@ -28,7 +28,6 @@ import {
 	LIVENESS_CHECK_MS,
 	realTimers,
 	shellQuoteStatus,
-	statusSocket,
 } from './program-status-monitor.ts';
 import {
 	TerminalStatusParser,
@@ -98,7 +97,8 @@ export function parseResumeWatchArgv(
 
 /**
  * The pipe-pane command of a companion pane's monitor. tmux fills in the
- * pane's pid and id when it starts it.
+ * pane's pid and id, and its own socket's path, which a socket name would
+ * only reach under the TMUX_TMPDIR of whoever started the server.
  */
 export function resumeMonitorCommand(args: {
 	repo: string;
@@ -123,8 +123,8 @@ export function resumeMonitorCommand(args: {
 			args.key,
 			resumePaneId(args.launch.pane),
 		]),
-		"'#{pane_pid}' '#{pane_id}'",
-		words([statusSocket(), args.launch.monitorTokenFile, args.dbPath]),
+		"'#{pane_pid}' '#{pane_id}' '#{socket_path}'",
+		words([args.launch.monitorTokenFile, args.dbPath]),
 	].join(' ');
 }
 
