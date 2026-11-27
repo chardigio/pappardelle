@@ -1189,6 +1189,8 @@ export function newOuterSessionArgs(
 		...sessionEnvArgs,
 		command,
 		';',
+		...outerDetachOnDestroyArgs(target),
+		';',
 		'set-option',
 		'-t',
 		target,
@@ -1206,6 +1208,27 @@ export function newOuterSessionArgs(
 		target,
 		'set-titles-string',
 		tmuxFormatLiteral(`🍝 ${repoName}`),
+	];
+}
+
+// With the user's `detach-on-destroy off`, quitting one repo's TUI would move
+// the terminal into another repo's TUI session instead of back to the shell.
+function outerDetachOnDestroyArgs(target: string): string[] {
+	return ['set-option', '-t', target, 'detach-on-destroy', 'on'];
+}
+
+/**
+ * Attach to a repo's TUI session. A session created before the TUI set
+ * detach-on-destroy gets it here.
+ */
+export function attachOuterSessionArgs(sessionName: string): string[] {
+	const target = exactSessionTarget(sessionName);
+	return [
+		...outerDetachOnDestroyArgs(target),
+		';',
+		'attach-session',
+		'-t',
+		target,
 	];
 }
 
