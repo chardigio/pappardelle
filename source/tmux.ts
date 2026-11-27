@@ -1189,6 +1189,8 @@ export function newOuterSessionArgs(
 		...sessionEnvArgs,
 		command,
 		';',
+		...outerDetachOnDestroyArgs(sessionName),
+		';',
 		'set-option',
 		'-t',
 		target,
@@ -1207,6 +1209,26 @@ export function newOuterSessionArgs(
 		'set-titles-string',
 		tmuxFormatLiteral(`🍝 ${repoName}`),
 	];
+}
+
+// With the user's `detach-on-destroy off`, quitting one repo's TUI would move
+// the terminal into another repo's outer session instead of back to the shell.
+export function outerDetachOnDestroyArgs(sessionName: string): string[] {
+	return [
+		'set-option',
+		'-t',
+		exactSessionTarget(sessionName),
+		'detach-on-destroy',
+		'on',
+	];
+}
+
+export function attachOuterSession(sessionName: string) {
+	return spawnSync(
+		'tmux',
+		['attach-session', '-t', exactSessionTarget(sessionName)],
+		{stdio: 'inherit'},
+	);
 }
 
 // Bare tmux talks to whichever server $TMUX names. From a claude pane that is

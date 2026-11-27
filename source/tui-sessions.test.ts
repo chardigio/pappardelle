@@ -480,7 +480,9 @@ test('q in its own session closes the whole session', () => {
 	closeTuiLayout('app', layout, h.deps);
 
 	expect(h.events).toStrictEqual(['kill pappardelle-app']);
-	expect(h.layoutCalls).toStrictEqual([]);
+	expect(h.layoutCalls).toStrictEqual([
+		['set-option', '-t', '=pappardelle-app:', 'detach-on-destroy', 'on'],
+	]);
 });
 
 // Left behind, the viewers make the rail pane narrow enough that the next

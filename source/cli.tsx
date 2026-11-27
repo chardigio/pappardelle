@@ -16,11 +16,11 @@ import {
 	sharedSessionListingRunner,
 	cleanupOrphanedOuterSessions,
 	migrateLegacyAgentSessions,
-	exactSessionTarget,
 	killSession,
 	isInTmux,
 	sendKeysToSpaceAgent,
 	newOuterSessionArgs,
+	attachOuterSession,
 	sendToSpaceAgent,
 	type SendToSpaceAgentResult,
 	sessionExists,
@@ -670,12 +670,7 @@ if (!isInTmux() && cli.flags.layout) {
 	if (existing !== undefined) {
 		outerDone?.();
 		startupTrace.current?.finish('delegated');
-		const tmuxArgs = ['attach-session', '-t', exactSessionTarget(existing)];
-		const result = spawnSync('tmux', tmuxArgs, {
-			stdio: 'inherit',
-			env: process.env,
-		});
-		exitWithTmux(result);
+		exitWithTmux(attachOuterSession(existing));
 	}
 
 	const tmuxArgs = newOuterSessionArgs(repoName, startupSessionEnvArgs(), cmd);

@@ -7,6 +7,7 @@ import {
 	clearSousChefKeyArgs,
 	defaultServerTmuxRunner,
 	OUTER_SESSION_PREFIX,
+	outerDetachOnDestroyArgs,
 	outerSessionName,
 	sleepSync,
 	tmuxFailure,
@@ -408,6 +409,13 @@ function isOwnTuiSession(
 	return session !== null && tuiSessionNames(repoName).includes(session);
 }
 
+// A session made by an older build, which a restart keeps, has no
+// detach-on-destroy of its own.
+function closeOwnSession(session: string, deps: CloseLayoutDeps): void {
+	deps.layoutTmux(outerDetachOnDestroyArgs(session));
+	deps.killSession(session);
+}
+
 // One call per pane: tmux skips the rest of a command list after a failure,
 // so a viewer the user already closed would keep the other one open.
 function closeViewerPanes(layout: PaneLayout, deps: CloseLayoutDeps): void {
@@ -430,7 +438,7 @@ export function closeTuiLayout(
 	deps: CloseLayoutDeps,
 ): void {
 	const current = deps.currentSession();
-	if (isOwnTuiSession(repoName, current)) deps.killSession(current);
+	if (isOwnTuiSession(repoName, current)) closeOwnSession(current, deps);
 	else closeViewerPanes(layout, deps);
 }
 
@@ -491,5 +499,5 @@ export function restartOwnTui(
 		`Couldn't restart: ${result.reason}. Relaunch with pappardelle.\nPress any key to close.`,
 	);
 	deps.waitForKey();
-	deps.killSession(current);
+	closeOwnSession(current, deps);
 }

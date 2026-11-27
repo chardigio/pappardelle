@@ -1,4 +1,4 @@
-import {execFileSync, spawnSync} from 'node:child_process';
+import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import {mkdirSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {expect} from 'bun:test';
@@ -15,7 +15,7 @@ import {
 	sessionExists,
 } from './tmux.ts';
 import {tmuxFormatLiteral} from './tmux-format.ts';
-import {reviveTui} from './tui-sessions.ts';
+import {closeTuiLayout, reviveTui} from './tui-sessions.ts';
 
 function privateDefaultServer(): void {
 	const dir = tempDir('pappardelle-tmux-');
@@ -180,5 +180,113 @@ tmuxTest(
 				{encoding: 'utf8'},
 			).trim(),
 		).toBe(repo);
+	},
+);
+
+// A control-mode client stands in for the user's terminal: tmux tells it
+// %session-changed when it attaches or moves it to another session, %exit when
+// it detaches.
+function movedTo(output: string, session: string): boolean {
+	return output
+		.split('\n')
+		.some(
+			line =>
+				line.startsWith('%session-changed ') && line.endsWith(` ${session}`),
+		);
+}
+
+async function expectQuitReturnsToShell(
+	createSession: (tmux: ReturnType<typeof tmuxOn>, session: string) => void,
+	quit: (tmux: ReturnType<typeof tmuxOn>, session: string) => void,
+): Promise<void> {
+	const dir = tempDir('pappardelle-tmux-');
+	const conf = join(dir, 'tmux.conf');
+	writeFileSync(conf, 'set -g detach-on-destroy off\n');
+	const socket = join(dir, 's');
+	const tmux = tmuxOn(socket, conf);
+	teardown(() => tmux('kill-server'));
+	const other = outerSessionName('other');
+	expect(tmux('new-session', '-d', '-s', other, 'sleep 60').status).toBe(0);
+	const session = outerSessionName('pasta');
+	createSession(tmux, session);
+
+	const client = spawn('tmux', [
+		'-S',
+		socket,
+		'-f',
+		conf,
+		'-C',
+		'attach-session',
+		'-t',
+		exactSessionTarget(session),
+	]);
+	let output = '';
+	client.stdout.on('data', chunk => {
+		output += String(chunk);
+	});
+	const closed = new Promise<void>(resolve => {
+		client.on('close', () => {
+			resolve();
+		});
+	});
+	teardown(() => client.kill());
+	await until(() => movedTo(output, session), {
+		what: 'the client to attach to the outer session',
+		frame: () => output,
+	});
+
+	quit(tmux, session);
+	await until(() => output.includes('%exit') || movedTo(output, other), {
+		what: 'the client to leave the quit outer session',
+		frame: () => output,
+	});
+	const left = output;
+	client.kill();
+	await closed;
+
+	expect(movedTo(left, other)).toBe(false);
+	expect(left).toContain('%exit');
+	expect(tmux('has-session', '-t', exactSessionTarget(other)).status).toBe(0);
+}
+
+tmuxTest(
+	'quitting a TUI returns its terminal to the shell when the user keeps detach-on-destroy off',
+	async () => {
+		await expectQuitReturnsToShell(
+			tmux => {
+				const [command, ...rest] = newOuterSessionArgs('pasta', [], 'sleep 60');
+				expect(tmux(command!, '-d', ...rest).status).toBe(0);
+			},
+			(tmux, session) => {
+				tmux('kill-session', '-t', exactSessionTarget(session));
+			},
+		);
+	},
+);
+
+tmuxTest(
+	'q in an outer session an older build made returns the terminal to the shell',
+	async () => {
+		await expectQuitReturnsToShell(
+			(tmux, session) => {
+				expect(
+					tmux('new-session', '-d', '-s', session, 'sleep 60').status,
+				).toBe(0);
+			},
+			(tmux, session) => {
+				closeTuiLayout(
+					'pasta',
+					{listPaneId: '', agentViewerPaneId: '', companionViewerPaneId: ''},
+					{
+						currentSession: () => session,
+						layoutTmux: args => tmux(...args),
+						killSession(name) {
+							tmux('kill-session', '-t', exactSessionTarget(name));
+						},
+						splitPanes: () => [],
+					},
+				);
+			},
+		);
 	},
 );
