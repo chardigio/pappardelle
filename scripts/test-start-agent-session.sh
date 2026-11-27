@@ -1028,6 +1028,81 @@ done
 
 # ==========================================================================
 
+# Both launch paths restore (see integration-tests/program-resume-check.ts for
+# the TUI's). This one needs the built executable, which keeps the records.
+section "a pane restores its OSC 7577 record after the server dies"
+if [[ -x "$SCRIPT_DIR/../dist/pappardelle" ]]; then
+    RESUME_KEY="${TEST_PREFIX}-resume"
+    RESUME_WT="$TMPDIR_ROOT/resume-worktree"
+    RESUME_OUT="$TMPDIR_ROOT/resume-out"
+    RESUME_FIXTURE="$SCRIPT_DIR/../integration-tests/program-resume-fixture.sh"
+    RESUME_AGENT="agent-$TEST_REPO-$RESUME_KEY"
+    mkdir -p "$RESUME_WT" "$RESUME_OUT"
+    resume_start() {
+        start_session --issue-key "$RESUME_KEY" --repo-name "$TEST_REPO" --worktree "$RESUME_WT" \
+            --agent-command "$RESUME_FIXTURE" --agent-is-claude false --agent-resume-args "" \
+            --agent-args "$RESUME_OUT agent $1" --companion-command "'$RESUME_FIXTURE' '$RESUME_OUT' main $2" 2>/dev/null
+    }
+    # wait_for <what> <command...>: up to 20 s for the command to succeed.
+    wait_for() {
+        local what="$1" tries=0
+        shift
+        until "$@"; do
+            tries=$((tries + 1))
+            if [[ $tries -ge 100 ]]; then
+                fail "$what"
+                return 0
+            fi
+            sleep 0.2
+        done
+        pass "$what"
+    }
+    # shellcheck disable=SC2329 # called through has_record
+    records_of() {
+        python3 -c 'import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+print(db.execute("SELECT count(*) FROM resume_records WHERE key = ? AND pane = ?", sys.argv[2:]).fetchone()[0])' \
+            "$HOME/.pappardelle/state.db" "$RESUME_KEY" "$1" 2>/dev/null
+    }
+    # shellcheck disable=SC2329 # called through wait_for
+    has_record() { [[ "$(records_of "$1")" == 1 ]]; }
+    # shellcheck disable=SC2329 # called through wait_for
+    started_with() { tr '\0' ' ' < "$RESUME_OUT/$1.argv" 2>/dev/null | grep -q " $2 "; }
+    # shellcheck disable=SC2329 # called through wait_for
+    no_token_files() { [[ -z "$(find "$HOME/.pappardelle/resume" -type f 2>/dev/null)" ]]; }
+
+    resume_start first one
+    wait_for "the agent's report becomes a record" has_record agent
+    wait_for "the companion main pane's report becomes a record" has_record main
+    wait_for "no token file is left once the panes and monitors read theirs" no_token_files
+    AGENT_TOKEN=$(cat "$RESUME_OUT/agent.token")
+    MAIN_TOKEN=$(cat "$RESUME_OUT/main.token")
+    assert_eq "the agent pane's token is a fresh one" 43 "${#AGENT_TOKEN}"
+    if [[ -n "$MAIN_TOKEN" && "$MAIN_TOKEN" != "$AGENT_TOKEN" ]]; then
+        pass "the companion pane gets a token of its own"
+    else
+        fail "the companion pane gets a token of its own"
+    fi
+    # shellcheck disable=SC2016 # expanded by the window's shell
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" new-window -t "=$RESUME_AGENT:" \
+        "printf '%s' \"\${OSC7577_TOKEN:-none}\" > '$RESUME_OUT/window.token'"
+    wait_for "a second window in the agent session starts" test -s "$RESUME_OUT/window.token"
+    assert_eq "a second window in the agent session gets no token" none "$(cat "$RESUME_OUT/window.token")"
+
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-server 2>/dev/null || true
+    sleep 1
+    rm -f "$RESUME_OUT/agent.argv" "$RESUME_OUT/main.argv"
+    resume_start second two
+    wait_for "the agent pane restores its record, not the new command" started_with agent first
+    wait_for "the companion main pane restores its record" started_with main one
+    wait_for "the restored programs report again" has_record agent
+    tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-server 2>/dev/null || true
+else
+    skip "no dist/pappardelle; run bun run build"
+fi
+
+# ==========================================================================
+
 # The inner server never exits on its own, and a server left running fails
 # the guard's leak check.
 tmux -L "$PAPPARDELLE_TMUX_SOCKET" kill-server 2>/dev/null || true

@@ -126,7 +126,7 @@ jobs:
         run: test "$(tmux -V)" = "tmux $TMUX_FLOOR_VERSION"
 
       - name: Verify program status transport, lifecycle, cleanup and app
-        run: bun run test:integration program-status program-status-lifecycle program-status-cleanup program-status-app
+        run: bun run test:integration program-status program-status-lifecycle program-status-cleanup program-status-app program-resume
 
   shell-tests:
     name: Shell Tests
@@ -188,6 +188,10 @@ jobs:
       # half needs osascript.
       - name: Workspace launcher quoting and viewer rebuild
         run: ./scripts/test-workspace-launchers.sh
+
+      # The resume case needs the executable.
+      - name: Build the executable
+        run: bun install --frozen-lockfile && bun run build
 
       # The history case skips where zsh is missing.
       - name: Agent and companion session start

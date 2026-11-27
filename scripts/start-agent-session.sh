@@ -338,14 +338,25 @@ new_launch_session() {
         new_inner_session "$session" "$@" \
             /bin/sh -c 'tmux "$1" "$2" wait-for "$3"; shift 3; exec "$@"' sh "${TMUX_SOCKET_ARGS[@]}" "$STATUS_GATE" \
             "${PANE_ARGV[@]}" \
-            ';' set-option -t "=$session:" "$STARTUP_GATE_OPTION" "$STATUS_GATE"
+            ';' set-option -t "=$session:" "$STARTUP_GATE_OPTION" "$STATUS_GATE" ||
+            { discard_launch; return 1; }
     else
-        new_inner_session "$session" "$@" "${PANE_ARGV[@]}" "${pipe[@]}"
+        new_inner_session "$session" "$@" "${PANE_ARGV[@]}" "${pipe[@]}" ||
+            { discard_launch; return 1; }
     fi
     # Before the monitor can save: a launch's token is the pane's once it runs.
     if [[ -n "$RESUME_TOKEN_HASH" ]]; then
         "${STATUS_MONITOR[@]}" commit "$REPO_NAME" "$ISSUE_KEY" "$pane" "$RESUME_TOKEN_HASH" || true
     fi
+}
+
+# A launch whose pane was never made leaves its records for the next one, and
+# none of its one-shot files. They share the monitor token file's name
+# (preparePaneLaunch in resume-launch.ts).
+discard_launch() {
+    [[ -n "$RESUME_MONITOR_TOKEN" ]] || return 0
+    local launch="${RESUME_MONITOR_TOKEN%.monitor-token}"
+    rm -f "$launch.token" "$launch.monitor-token" "$launch.restore"
 }
 
 # A resumable pane's argv, from the binary, which also gives it a fresh
