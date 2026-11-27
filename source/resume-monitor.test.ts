@@ -75,10 +75,12 @@ async function setup(
 
 test('an accepted report is saved, and a closed pipe on a dead server keeps it', async () => {
 	const f = await setup('server-gone');
-	f.watcher.event({
-		type: 'resume',
-		body: report(`pid=20:time=${NOW}:${argv}`, 'tok'),
-	});
+	expect(
+		f.watcher.event({
+			type: 'resume',
+			body: report(`pid=20:time=${NOW}:${argv}`, 'tok'),
+		}),
+	).toBe('accepted');
 	await f.flush();
 	expect(f.dao.read('k', agent).records.map(each => each.argv)).toStrictEqual([
 		['claude'],

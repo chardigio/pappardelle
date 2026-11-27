@@ -8,6 +8,7 @@ import {
 	existsSync,
 	mkdirSync,
 	openSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	statSync,
@@ -259,6 +260,20 @@ try {
 	send(now + 2, ['forged'], 'not-the-token');
 	await delay(1500);
 	assert.deepEqual(records(agent)[0]!.argv.slice(3), ['newer']);
+	const traced = readdirSync(path.join(harness.root, 'trace'))
+		.flatMap(name =>
+			readFileSync(path.join(harness.root, 'trace', name), 'utf8')
+				.split('\n')
+				.filter(Boolean),
+		)
+		.map(line => JSON.parse(line) as Record<string, unknown>)
+		.filter(entry => entry['type'] === 'resume');
+	for (const outcome of ['accepted', 'ignored: stale', 'ignored: mac'])
+		assert.ok(
+			traced.some(entry => entry['outcome'] === outcome),
+			`the status trace records ${outcome}`,
+		);
+	assert.ok(traced.every(entry => !('body' in entry)));
 	console.log(
 		'PASS reports with another token or an older time change nothing',
 	);

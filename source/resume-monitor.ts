@@ -11,6 +11,7 @@ import {
 	ResumeRecords,
 	resumePaneId,
 	verifyResumeReport,
+	type ResumeOutcome,
 	type ResumePane,
 	type ResumeTimers,
 } from './program-resume.ts';
@@ -131,7 +132,8 @@ export function resumeMonitorCommand(args: {
 export type MonitorStop = 'eof' | 'signal';
 
 export type ResumeWatcher = {
-	event(event: TerminalStatusEvent): void;
+	/** What a resume report did, for the status trace. */
+	event(event: TerminalStatusEvent): ResumeOutcome | undefined;
 	tick(): void;
 	stop(why: MonitorStop): void;
 };
@@ -163,7 +165,7 @@ function tmuxPaneState(socket: string, paneId: string) {
 }
 
 const inertWatcher: ResumeWatcher = {
-	event() {},
+	event: () => undefined,
 	tick() {},
 	stop() {},
 };
@@ -231,20 +233,29 @@ export function watchResume(
 	let stopped = false;
 	return {
 		event(event) {
-			if (stopped) return;
+			if (stopped) return undefined;
 			if (event.type === 'resume') {
-				if (!token) return;
-				const outcome = records.handle(
-					verifyResumeReport(event.body, token, Math.floor(now() / 1000)),
+				if (!token) return 'ignored: no token';
+				const report = verifyResumeReport(
+					event.body,
+					token,
+					Math.floor(now() / 1000),
 				);
-				log.debug(`OSC 7577 in ${label}: ${outcome}`);
-			} else if (
+				const outcome = records.handle(report);
+				const from = 'pid' in report && report.pid ? ` from ${report.pid}` : '';
+				log.debug(`OSC 7577 in ${label}${from}: ${outcome}`);
+				return outcome;
+			}
+
+			if (
 				event.type === 'prompt' &&
 				now() - lastPromptCheck >= PROMPT_CHECK_MS
 			) {
 				lastPromptCheck = now();
 				records.checkOwners();
 			}
+
+			return undefined;
 		},
 		tick() {
 			if (!stopped) records.checkOwners();

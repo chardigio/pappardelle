@@ -450,23 +450,27 @@ export function monitorPane(
 		});
 	};
 	const publishing = new PublishWindow(publish);
+	const trace = (entry: object) => {
+		if (!traceDir) return;
+		try {
+			mkdirSync(traceDir, {recursive: true});
+			const file = path.join(
+				traceDir,
+				`${segment(key)}--${pane.generation}.jsonl`,
+			);
+			const line = `${JSON.stringify({at: Date.now(), ...entry})}\n`;
+			traceBytes += Buffer.byteLength(line);
+			if (traceBytes <= 1024 * 1024) appendFileSync(file, line);
+		} catch {}
+	};
 	const parser = new TerminalStatusParser(event => {
 		if (event.type === 'resume') {
-			resume?.event(event);
+			// The body holds the argv and the mac.
+			const outcome = resume?.event(event);
+			if (outcome) trace({type: 'resume', outcome});
 			return;
 		}
-		if (traceDir) {
-			try {
-				mkdirSync(traceDir, {recursive: true});
-				const trace = path.join(
-					traceDir,
-					`${segment(key)}--${pane.generation}.jsonl`,
-				);
-				const line = `${JSON.stringify({at: Date.now(), ...event})}\n`;
-				traceBytes += Buffer.byteLength(line);
-				if (traceBytes <= 1024 * 1024) appendFileSync(trace, line);
-			} catch {}
-		}
+		trace(event);
 		if (event.type === 'query') return;
 		if (event.type === 'report') store.apply(event.report);
 		else if (event.type === 'prompt') {
