@@ -37,8 +37,13 @@ import {
 	ensureAgentSession,
 	ensureCompanionSession,
 	initTmuxState,
+	socketTmuxRunner,
 	syncCompanionSplits,
 } from '../source/tmux.ts';
+import {
+	defaultRestartCommandDeps,
+	hardRestart,
+} from '../source/restart-command.ts';
 import {
 	StatusHarness,
 	projectRoot,
@@ -160,13 +165,24 @@ try {
 		'PASS companion panes record their reports, and a split keeps its arrangement',
 	);
 
-	// The server dies; the records outlive it.
-	await harness.tmux(['kill-server']);
+	// `restart --hard` ends the server; the records outlive it.
+	const inner = socketTmuxRunner(harness.socket);
+	assert.equal(
+		await hardRestart(true, {
+			...defaultRestartCommandDeps(),
+			tmux: inner,
+			innerTmux: inner,
+			knownRepos: () => [],
+			onInnerServer: false,
+			print() {},
+		}),
+		0,
+	);
 	await delay(1000);
 	for (const pane of [agent, main, logs]) assert.equal(records(pane).length, 1);
 	for (const name of ['agent', 'main', 'logs'])
 		rmSync(path.join(out, `${name}.argv`));
-	console.log('PASS records survive the server');
+	console.log('PASS records survive restart --hard');
 
 	assert.ok(
 		await ensureAgentSession(
