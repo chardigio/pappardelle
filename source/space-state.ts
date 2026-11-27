@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import {setImmediate as yieldToInput} from 'node:timers/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import {resolveAgentProfileName, type PappardelleConfig} from './config.ts';
+import {spaceAgentProfileName, type PappardelleConfig} from './config.ts';
 import {isAgyCommand, isClaudeAgentProfile} from './config-launch-flags.ts';
 import type {AgentSessionsDao} from './agent-sessions.ts';
 import type {PipelineStatus} from './providers/types.ts';
@@ -148,6 +148,7 @@ export async function findLatestSessionJsonl(
 export type SpaceAgentKind = 'claude' | 'agy' | 'other';
 
 export function resolveSpaceAgentKind(
+	key: string,
 	state: SpaceState | null,
 	config?: PappardelleConfig | null,
 ): {kind: SpaceAgentKind; agentProfileName: string} {
@@ -155,7 +156,7 @@ export function resolveSpaceAgentKind(
 	const agentProfileName =
 		launched?.name ??
 		(config
-			? resolveAgentProfileName(config, state?.issueTitle, state?.profile)
+			? spaceAgentProfileName(config, key, state?.issueTitle, state?.profile)
 			: 'claude');
 	const defined = config?.agent_profiles?.[agentProfileName];
 	const isClaude =
@@ -217,6 +218,7 @@ export async function findSpaceTranscript(options: {
 	claudeProjectsDir?: string;
 }): Promise<SpaceTranscript | null> {
 	const {kind, agentProfileName} = resolveSpaceAgentKind(
+		options.issueKey,
 		options.state ?? null,
 		options.config,
 	);

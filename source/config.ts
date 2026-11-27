@@ -19,6 +19,7 @@ import type {TrackerProviderName, VcsProviderName} from './providers/types.ts';
 import type {PaneWidth, PaneWidths} from './layout-sizing.ts';
 import {DEFAULT_SPLIT, type SplitDirection} from './companion-splits.ts';
 import {logger} from './logger.ts';
+import {MAIN_WORKTREE_KEY} from './space-utils.ts';
 import {unwrapBeadsJson} from './providers/beads-json.ts';
 import {
 	ConfigNotFoundError,
@@ -182,7 +183,7 @@ export interface AgentProfileConfig {
 	 * Environment variables set on the agent session when it is created, so
 	 * they reach the launch and the resume attempt alike. Merged per variable
 	 * across config layers. Space-only variables belong on the profiles spaces
-	 * select, not the top-level `agent_profile` the sous-chef launches with.
+	 * select, not the one the sous-chef launches with.
 	 */
 	env?: Record<string, string>;
 }
@@ -366,6 +367,25 @@ export type ResolvedCompanionSplit = CompanionSplitConfig & {
 	split: SplitDirection;
 };
 
+export interface SousChefConfig {
+	/**
+	 * The main checkout's agent is told it coordinates the other spaces. Off by
+	 * default.
+	 */
+	enabled?: boolean;
+	/**
+	 * The agent profile the main checkout's agent launches with while sous-chef
+	 * mode is on. Absent or '' ⇒ the top-level `agent_profile`.
+	 */
+	agent_profile?: string;
+	/**
+	 * tmux key (e.g. `M-s`) that jumps to the sous-chef: it selects the main
+	 * space and focuses its agent pane from any pane in Pappardelle's window.
+	 * `false` or '' turns it off. Absent ⇒ DEFAULT_SOUS_CHEF_KEY.
+	 */
+	key?: string | false;
+}
+
 export interface PappardelleConfig {
 	version: number;
 	default_profile?: string;
@@ -401,17 +421,7 @@ export interface PappardelleConfig {
 	 * behavior is identical to master when the field is absent or false.
 	 */
 	auto_remove_when_done?: boolean;
-	/**
-	 * tmux key (e.g. `M-s`) that jumps to the sous-chef: it selects the main
-	 * space and focuses its agent pane from any pane in Pappardelle's window.
-	 * `false` turns it off. Absent ⇒ DEFAULT_SOUS_CHEF_KEY.
-	 */
-	sous_chef_key?: string | false;
-	/**
-	 * When true, an agent session in the repo but outside any space (the
-	 * main checkout's) is told it coordinates the other spaces. Off by default.
-	 */
-	sous_chef?: boolean;
+	sous_chef?: SousChefConfig;
 	/** Optional CLI and model for the approval classifier gate used by `pappardelle answer`. */
 	approval_classifier?: ApprovalClassifierConfig;
 	/**
@@ -1842,7 +1852,7 @@ export function sousChefLaunch(
 		'command' | 'isClaude' | 'promptArgs' | 'skillPrefix'
 	>,
 ): SousChefLaunch | undefined {
-	if (config?.sous_chef !== true) return undefined;
+	if (config?.sous_chef?.enabled !== true) return undefined;
 	if (agentProfile && !supportsSousChefPrompt(agentProfile)) {
 		return {name: SOUS_CHEF_NAME};
 	}
@@ -2059,7 +2069,8 @@ export const DEFAULT_RESOLVED_AGENT_PROFILE: ResolvedAgentProfile =
 	resolveAgentProfile('claude', BUILTIN_CLAUDE_AGENT_PROFILE);
 
 /**
- * Resolve which agent profile runs in a workspace's agent pane.
+ * Resolve which agent profile a workspace profile's spaces run, the main
+ * space aside (see spaceAgentProfileName).
  *
  * Name resolution follows the launch-field convention: the matched profile's
  * `agent_profile` → top-level `agent_profile` → `'claude'`, where the profile layer wins on
@@ -2121,10 +2132,11 @@ export function getNamedAgentProfile(
 
 /**
  * The agent profile a space is running: the one last launched in it (if still
- * defined in config), else the default resolved for its workspace profile.
+ * defined in config), else the one it launches with (spaceAgentProfileName).
  */
 export function getSpaceAgentProfile(
 	config: PappardelleConfig,
+	key: string,
 	state?: {
 		agentProfile?: {name: string};
 		issueTitle?: string;
@@ -2135,7 +2147,7 @@ export function getSpaceAgentProfile(
 	const name =
 		launched && checkAgentProfile(config, launched).kind === 'known'
 			? launched
-			: resolveAgentProfileName(config, state?.issueTitle, state?.profile);
+			: spaceAgentProfileName(config, key, state?.issueTitle, state?.profile);
 	return getNamedAgentProfile(config, name, state?.issueTitle, state?.profile);
 }
 
@@ -2150,6 +2162,28 @@ export function resolveAgentProfileName(
 		name = profile.agent_profile;
 	}
 	return name === '' ? 'claude' : name;
+}
+
+/**
+ * The agent profile a space launches with: the main space runs the
+ * sous-chef's own while sous-chef mode is on and names one, and every other
+ * space the one its workspace profile resolves to.
+ */
+export function spaceAgentProfileName(
+	config: PappardelleConfig,
+	key: string,
+	issueTitle?: string,
+	profileName?: string,
+): string {
+	const sousChef = config.sous_chef;
+	if (
+		key === MAIN_WORKTREE_KEY &&
+		sousChef?.enabled === true &&
+		sousChef.agent_profile
+	) {
+		return sousChef.agent_profile;
+	}
+	return resolveAgentProfileName(config, issueTitle, profileName);
 }
 
 /**
@@ -2299,8 +2333,8 @@ export const DEFAULT_SOUS_CHEF_KEY = 'M-s';
 export function getSousChefKey(
 	config: PappardelleConfig | null,
 ): string | null {
-	const key = config?.sous_chef_key;
-	if (key === false) return null;
+	const key = config?.sous_chef?.key;
+	if (key === false || key === '') return null;
 	return key ?? DEFAULT_SOUS_CHEF_KEY;
 }
 

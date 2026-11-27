@@ -50,6 +50,9 @@ import {
 	matchProfilesByInputKeyPrefix,
 	DEFERRED_PROFILE_DISPLAY_NAME,
 	getAgentProfile,
+	getSpaceAgentProfile,
+	mergeConfigLayers,
+	spaceAgentProfileName,
 	listAgentProfiles,
 	checkAgentProfile,
 	loadAgentProfileSources,
@@ -3753,7 +3756,7 @@ test('getRailGroups falls back to the default groups', () => {
 });
 
 // ============================================================================
-// sous_chef_key
+// sous_chef
 // ============================================================================
 
 test('getSousChefKey defaults to M-s, also when the config failed to load', () => {
@@ -3764,6 +3767,79 @@ test('getSousChefKey defaults to M-s, also when the config failed to load', () =
 
 test('getSousChefKey returns the configured key, and null when turned off', () => {
 	const base = testConfig();
-	expect(getSousChefKey({...base, sous_chef_key: 'M-j'})).toBe('M-j');
-	expect(getSousChefKey({...base, sous_chef_key: false})).toBe(null);
+	expect(getSousChefKey({...base, sous_chef: {key: 'M-j'}})).toBe('M-j');
+	expect(getSousChefKey({...base, sous_chef: {key: false}})).toBe(null);
+	expect(getSousChefKey({...base, sous_chef: {key: ''}})).toBe(null);
+	expect(getSousChefKey({...base, sous_chef: {enabled: true}})).toBe('M-s');
+});
+
+function sousChefTestConfig(
+	sousChef: PappardelleConfig['sous_chef'],
+): PappardelleConfig {
+	return agentProfileTestConfig({
+		workspace_aware_agents: true,
+		agent_profile: 'codex',
+		agent_profiles: {
+			codex: {command: 'codex'},
+			neon: {command: 'agy', model: 'gemini-4-neon-high'},
+		},
+		profiles: {
+			plain: {
+				...createProfile(['plainwork'], 'Plain'),
+				agent_profile: 'claude',
+			},
+		},
+		sous_chef: sousChef,
+	});
+}
+
+test('the main space launches on sous_chef.agent_profile while sous-chef mode is on', () => {
+	const config = sousChefTestConfig({enabled: true, agent_profile: 'neon'});
+	expect(spaceAgentProfileName(config, 'main')).toBe('neon');
+	expect(getSpaceAgentProfile(config, 'main', null)).toMatchObject({
+		name: 'neon',
+		command: 'agy',
+		model: 'gemini-4-neon-high',
+	});
+});
+
+test('worker spaces keep their own agent profile when the sous-chef names one', () => {
+	const config = sousChefTestConfig({enabled: true, agent_profile: 'neon'});
+	expect(spaceAgentProfileName(config, 'STA-1', undefined, 'plain')).toBe(
+		'claude',
+	);
+	expect(spaceAgentProfileName(config, 'STA-2')).toBe('codex');
+});
+
+test('the main space falls back to the top-level agent_profile', () => {
+	for (const sousChef of [
+		{enabled: true},
+		{enabled: true, agent_profile: ''},
+		{enabled: false, agent_profile: 'neon'},
+		undefined,
+	]) {
+		expect(spaceAgentProfileName(sousChefTestConfig(sousChef), 'main')).toBe(
+			'codex',
+		);
+	}
+});
+
+test('a launch recorded for the main space wins over sous_chef.agent_profile', () => {
+	const config = sousChefTestConfig({enabled: true, agent_profile: 'neon'});
+	expect(
+		getSpaceAgentProfile(config, 'main', {agentProfile: {name: 'codex'}}).name,
+	).toBe('codex');
+});
+
+test('sous_chef merges field by field across config layers', () => {
+	const merged = mergeConfigLayers([
+		{sous_chef: {agent_profile: 'neon', key: 'M-j'}},
+		{sous_chef: {enabled: true}},
+		{sous_chef: {key: false}},
+	]);
+	expect(merged['sous_chef']).toStrictEqual({
+		agent_profile: 'neon',
+		enabled: true,
+		key: false,
+	});
 });

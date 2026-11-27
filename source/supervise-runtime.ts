@@ -147,7 +147,11 @@ function agyQuotaTargetForSpace(
 	if (report.app && report.app !== 'antigravity') return null;
 	const load = readConfig();
 	if (load.kind === 'valid') {
-		const profile = getSpaceAgentProfile(load.config, spaceState.read(key));
+		const profile = getSpaceAgentProfile(
+			load.config,
+			key,
+			spaceState.read(key),
+		);
 		const unwrapped = unwrapCommand(profile.command);
 		if (unwrapped && path.posix.basename(unwrapped.word) === 'agy') {
 			return {

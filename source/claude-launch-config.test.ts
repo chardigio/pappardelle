@@ -568,7 +568,7 @@ test('sousChefLaunch uses the resolved agent skillPrefix and wires through agy a
 
 	for (const c of cases) {
 		const config = makeConfig({
-			sous_chef: true,
+			sous_chef: {enabled: true},
 			...(c.agent && {
 				agent_profiles: {target: c.agent},
 				agent_profile: 'target',
@@ -591,7 +591,7 @@ test('sousChefLaunch uses the resolved agent skillPrefix and wires through agy a
 			agent_profile: 'agy',
 		}),
 	);
-	expect(sousChefLaunch(makeConfig({sous_chef: false}), agyProfile)).toBe(
-		undefined,
-	);
+	expect(
+		sousChefLaunch(makeConfig({sous_chef: {enabled: false}}), agyProfile),
+	).toBe(undefined);
 });

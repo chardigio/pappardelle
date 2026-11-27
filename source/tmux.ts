@@ -135,7 +135,6 @@ import {
 	DEFAULT_RESOLVED_AGENT_PROFILE,
 	checkAgentProfile,
 	type ConfigLoad,
-	getAgentProfile,
 	getNamedAgentProfile,
 	getSpaceAgentProfile,
 	getCompanionCommand,
@@ -151,6 +150,7 @@ import {
 	type ResolvedAgentProfile,
 	SOUS_CHEF_NAME,
 	sousChefLaunch,
+	spaceAgentProfileName,
 	type AgentLaunch,
 	workspaceAwareAgents,
 } from './config.ts';
@@ -2789,7 +2789,7 @@ export function runningAgentProfile(
 	issueKey: string,
 	issueTitle?: string,
 ): ResolvedAgentProfile {
-	return getSpaceAgentProfile(config, {
+	return getSpaceAgentProfile(config, issueKey, {
 		agentProfile: spaceState().read(issueKey)?.agentProfile,
 		issueTitle,
 		profile: savedSpaceProfile(issueKey),
@@ -3057,7 +3057,12 @@ async function attachViewers(
 		skipPermissions = getDangerouslySkipPermissions(config);
 		companionCommand = getCompanionCommand(config, issueTitle, profileName);
 		configuredSplits = getCompanionSplits(config, issueTitle, profileName);
-		agentProfile = getAgentProfile(config, issueTitle, profileName);
+		agentProfile = getNamedAgentProfile(
+			config,
+			spaceAgentProfileName(config, issueKey, issueTitle, profileName),
+			issueTitle,
+			profileName,
+		);
 		launch = {
 			rules: workspaceAwareAgents(config),
 			...(issueKey === MAIN_WORKTREE_KEY
