@@ -26,6 +26,9 @@ if [[ -z "${XDG_RUNTIME_DIR:-}" ]] || ! command -v systemd-run >/dev/null || ! c
     exit 0
 fi
 
+# A version manager's bun shim finds its config through HOME, so it would fail
+# under the throwaway HOME below. Ahead of the guard, which puts its tmux first.
+PATH="$(dirname "$(bun -e 'console.log(process.execPath)')"):$PATH"
 TMUX_GUARD_ENV=$("$SCRIPT_DIR/../test/helpers/tmux-guard-env.sh") || exit 1
 eval "$TMUX_GUARD_ENV"
 TMUX_REFUSALS=${PAPPARDELLE_TEST_TMUX_REFUSALS:-}
@@ -34,9 +37,6 @@ ROOT="$(mktemp -d /tmp/pq-XXXXXX)"
 REPO_NAME="pappardelle-qa-$(basename "$ROOT" | cut -d- -f2 | tr '[:upper:]' '[:lower:]')"
 REPO="$ROOT/$REPO_NAME"
 export TMUX_TMPDIR="$ROOT/t"
-# A version manager's bun shim finds its config through HOME, so it would fail
-# under the throwaway one.
-PATH="$(dirname "$(bun -e 'console.log(process.execPath)')"):$PATH"
 export HOME="$ROOT/home"
 mkdir -p "$REPO" "$TMUX_TMPDIR" "$HOME"
 SOCKET=""
