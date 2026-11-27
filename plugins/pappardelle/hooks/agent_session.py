@@ -214,23 +214,29 @@ def process_start(pid: int) -> Optional[str]:
     return started if result.returncode == 0 and started else None
 
 
+def tmux_socket_args(socket: str) -> list[str]:
+    """tmux's flag for a socket: a path, or a name under tmux's own directory
+    (statusSocketFlag in source/program-status-monitor.ts)."""
+    return ["-S" if socket.startswith("/") else "-L", socket]
+
+
 def tmux_agent_pane(cwd: str) -> Optional[AgentPane]:
-    """The space whose agent session holds cwd, and that session's first pane."""
+    """The space whose agent session holds cwd, and that session's first pane,
+    on the tmux server the space was created on."""
     tmux = shutil.which("tmux")
     if not tmux:
         return None
-    socket = os.environ.get("PAPPARDELLE_TMUX_SOCKET") or "pappardelle_inner"
-
-    def run(*args: str) -> Optional[str]:
-        result = subprocess.run(
-            [tmux, "-L", socket, *args], capture_output=True, text=True, timeout=5
-        )
-        return result.stdout if result.returncode == 0 else None
-
     row = state_db.space_at_path(cwd)
     if row is None:
         return None
-    panes = run("list-panes", "-s", "-t", f"={row.agent_session}:", "-F", "#{pane_pid}")
+    target = f"={row.agent_session}:"
+    result = subprocess.run(
+        [tmux, *tmux_socket_args(row.tmux_socket), "list-panes", "-s", "-t", target, "-F", "#{pane_pid}"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    panes = result.stdout if result.returncode == 0 else None
     if not panes or not panes.split()[0].isdigit():
         return None
     return AgentPane(Space(row.repo, row.key), int(panes.split()[0]))

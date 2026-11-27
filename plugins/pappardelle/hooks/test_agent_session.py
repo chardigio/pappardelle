@@ -712,28 +712,37 @@ def test_a_hook_outside_tmux_and_any_space_is_not_recorded():
     assert entries() == {}
 
 
-@pytest.fixture
-def tmux_server(monkeypatch: pytest.MonkeyPatch):
+@pytest.fixture(params=["-L", "-S"])
+def tmux_server(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """A tmux server on a socket stored either way a space can store it: a name
+    under TMUX_TMPDIR, or a path. Yields the tmux flag and the stored socket."""
     if not shutil.which("tmux"):
         pytest.skip("tmux not installed")
-    guarded_tmux_tmpdir()
+    tmpdir = guarded_tmux_tmpdir()
     # A server of its own per test: kill-server returns before the server has
     # exited, and the next test's tmux could reach the one shutting down.
     name = f"agent-session-test-{uuid.uuid4().hex[:8]}"
-    monkeypatch.setenv("PAPPARDELLE_TMUX_SOCKET", name)
+    flag = request.param
+    socket = os.path.join(tmpdir, name) if flag == "-S" else name
+    # The space's stored socket decides, whatever the hook's environment says.
+    monkeypatch.setenv("PAPPARDELLE_TMUX_SOCKET", "elsewhere")
 
-    def tmux(*args: str) -> None:
-        subprocess.run(["tmux", "-L", name, *args], check=True, capture_output=True)
-
-    yield tmux
-    subprocess.run(["tmux", "-L", name, "kill-server"], capture_output=True)
+    yield flag, socket
+    subprocess.run(["tmux", flag, socket, "kill-server"], capture_output=True)
 
 
-def test_the_space_comes_from_the_stored_space_holding_the_cwd(tmp_path: Path, tmux_server, state_db: Path):
+def test_the_space_comes_from_the_stored_space_holding_the_cwd(
+    tmp_path: Path, tmux_server: tuple[str, str], state_db: Path
+):
+    flag, socket = tmux_server
     worktree = tmp_path / "STA-1"
     (worktree / "sub").mkdir(parents=True)
-    tmux_server("new-session", "-d", "-s", "hand-named-agent", "-c", str(tmp_path))
-    record_space(state_db, "repo", "STA-1", str(worktree), "hand-named-agent")
+    subprocess.run(
+        ["tmux", flag, socket, "new-session", "-d", "-s", "hand-named-agent", "-c", str(tmp_path)],
+        check=True,
+        capture_output=True,
+    )
+    record_space(state_db, "repo", "STA-1", str(worktree), "hand-named-agent", socket)
     pane = agent_session.tmux_agent_pane(str(worktree / "sub"))
     assert pane is not None
     assert pane.space == Space("repo", "STA-1")
