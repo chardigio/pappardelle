@@ -251,7 +251,8 @@ export function runInCompanion(
 	const created = createCompanionSplit(
 		space.identity,
 		{...options, name: options.pane},
-		{runner: space.runner},
+		// The command asked for runs, not what a split of the same name left.
+		{runner: space.runner, restore: false},
 	);
 	if (!created.ok) throw new CompanionError(created.reason);
 	return {created: true};

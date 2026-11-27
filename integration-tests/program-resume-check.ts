@@ -289,9 +289,47 @@ try {
 	);
 	console.log('PASS an owner that exits loses its record');
 
+	// After the next server death, `companion run` on a split that left a
+	// record runs the command it was given, and a split killed from outside
+	// while the server runs takes its records with it.
+	const notes = {kind: 'split', name: 'notes'} as const;
+	runInCompanion(key, {
+		pane: 'notes',
+		split: 'down',
+		command: run('notes', 'one'),
+	});
+	await recorded(notes, ['one'], "the notes split's report is recorded");
+	await harness.tmux(['kill-server']);
+	await delay(1000);
+	assert.equal(records(notes).length, 1);
+	assert.ok(
+		await ensureCompanionSession(key, worktree, run('main', 'fallback')),
+	);
+	runInCompanion(key, {
+		pane: 'notes',
+		split: 'down',
+		command: run('notes', 'asked'),
+	});
+	await started(
+		'notes',
+		['asked'],
+		'companion run runs the command it was given',
+	);
+	await recorded(notes, ['asked'], 'and its report replaces the old record');
+	await harness.tmux(['kill-session', '-t', `=${sessions.companion}~notes:`]);
+	await untilSeen(
+		() => records(notes),
+		value => value.length === 0,
+		'a split killed from outside drops its records',
+	);
+	console.log(
+		'PASS companion run over an old record, and a split killed from outside',
+	);
+
 	// Closing the space forgets everything it left.
 	await forgetClosedSpace(daos, repo, key);
-	for (const pane of [agent, main, logs]) assert.equal(records(pane).length, 0);
+	for (const pane of [agent, main, logs, notes])
+		assert.equal(records(pane).length, 0);
 	assert.ok(!existsSync(resumeDir(daos.stateDir, repo, key)));
 	console.log('PASS a space close forgets its records');
 } finally {
