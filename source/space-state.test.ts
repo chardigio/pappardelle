@@ -489,28 +489,50 @@ test('resolveSpaceAgentKind distinguishes claude, agy (including env wrappers), 
 		},
 		profiles: {dev: {display_name: 'Dev'}},
 	};
-	expect(resolveSpaceAgentKind(null, null)).toStrictEqual({
+	expect(resolveSpaceAgentKind('STA-1', null, null)).toStrictEqual({
 		kind: 'claude',
 		agentProfileName: 'claude',
 	});
 	expect(
 		resolveSpaceAgentKind(
+			'STA-1',
 			{agentProfile: {name: 'wrapped', isClaude: false}},
 			config,
 		),
 	).toStrictEqual({kind: 'agy', agentProfileName: 'wrapped'});
 	expect(
 		resolveSpaceAgentKind(
+			'STA-1',
 			{agentProfile: {name: 'codex', isClaude: false}},
 			config,
 		),
 	).toStrictEqual({kind: 'other', agentProfileName: 'codex'});
 	expect(
 		resolveSpaceAgentKind(
+			'STA-1',
 			{agentProfile: {name: 'custom-missing', isClaude: false}},
 			null,
 		),
 	).toStrictEqual({kind: 'other', agentProfileName: 'custom-missing'});
+});
+
+test('resolveSpaceAgentKind gives an unlaunched main space the sous-chef agent profile', () => {
+	const config: PappardelleConfig = {
+		version: 1,
+		team_prefix: 'STA',
+		workspace_aware_agents: true,
+		sous_chef: {enabled: true, agent_profile: 'neon'},
+		agent_profiles: {neon: {command: 'agy'}},
+		profiles: {dev: {display_name: 'Dev'}},
+	};
+	expect(resolveSpaceAgentKind('main', null, config)).toStrictEqual({
+		kind: 'agy',
+		agentProfileName: 'neon',
+	});
+	expect(resolveSpaceAgentKind('STA-1', null, config)).toStrictEqual({
+		kind: 'claude',
+		agentProfileName: 'claude',
+	});
 });
 
 test('extractRecapFromJsonl supports agy truncation and format-scoped caching', async () => {

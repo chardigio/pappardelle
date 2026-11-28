@@ -533,7 +533,7 @@ interface AgentProfileConfig {
 	effort_args?: string; // Flag template containing {effort}. Built in for claude, codex and agy.
 	mode_args?: string; // Flag template containing {mode}. Built in for agy ("--mode {mode}").
 	prompt_args?: string; // Template with {prompt} once, for a CLI that won't take a bare prompt. Built in for agy ("-i {prompt}").
-	skill_prefix?: string; // Goes before a skill name (initialization_command, sous_chef, send_skill). "$" for codex, "/" otherwise.
+	skill_prefix?: string; // Goes before a skill name (initialization_command, the sous-chef launch prompt, send_skill). "$" for codex, "/" otherwise.
 	env?: Record<string, string>; // Variables set on the agent's tmux session. Strings only, no PAPPARDELLE_ names. Merged per variable across layers.
 }
 
@@ -894,8 +894,8 @@ profiles:
 | `model_args`   | `string`  | built in | Flag template containing `{model}`. Built in for claude, codex and agy; any other CLI needs it before `model` can be set.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `effort_args`  | `string`  | built in | Flag template containing `{effort}`. Built in for claude, codex and agy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `mode_args`    | `string`  | built in | Flag template containing `{mode}`. Built in for agy (`--mode {mode}`); any other CLI needs it before `mode` can be set.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `prompt_args`  | `string`  | built in | How the launch prompt reaches the CLI, with `{prompt}` standing in for it exactly once. Built in for agy (`-i {prompt}`), which refuses a bare prompt; any other agent gets the prompt as its last bare argument. Applies to the prompt `idow` launches with and the `sous_chef` launch prompt; a relaunch with no prompt leaves it out.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `skill_prefix` | `string`  | built in | What goes before a skill name: the `initialization_command` at launch, the `sous_chef` launch prompt, and `send_skill` keybindings. Built in: `$` for codex (codex runs skills as `$name` and keeps `/` for its own commands), `/` for anything else.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `prompt_args`  | `string`  | built in | How the launch prompt reaches the CLI, with `{prompt}` standing in for it exactly once. Built in for agy (`-i {prompt}`), which refuses a bare prompt; any other agent gets the prompt as its last bare argument. Applies to the prompt `idow` launches with and the sous-chef launch prompt; a relaunch with no prompt leaves it out.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `skill_prefix` | `string`  | built in | What goes before a skill name: the `initialization_command` at launch, the sous-chef launch prompt, and `send_skill` keybindings. Built in: `$` for codex (codex runs skills as `$name` and keeps `/` for its own commands), `/` for anything else.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `env`          | `map`     | `{}`     | Environment variables for the agent, e.g. `{CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '1'}`. Set on the agent's tmux session when it is created, so they reach the resume attempt and the fresh launch alike, plus the shell left in the pane after the agent exits; the companion doesn't get them. Values must be strings (quote `'1'`), names must be valid variable names, and `PAPPARDELLE_` names are rejected since Pappardelle sets those. Layers merge it per variable, so a repo file can add or override one without repeating the rest. A change reaches a running space only once its session is recreated. Not for secrets: values are visible in tmux's environment and the `tmux new-session` argv. Values travel as `tmux new-session` arguments, which tmux caps at about 16KB in total, so keep them short. Adding env to `claude` means defining `agent_profiles.claude`, which needs `command: claude` like any other entry. |
 
 **Semantics:**
@@ -905,7 +905,7 @@ profiles:
 - Resolution: workspace profile `agent_profile` → top-level `agent_profile` → `claude`. An explicit `agent_profile: ''` at the profile level clears an inherited reference back to claude.
 - Referencing an undefined agent profile is a validation error, as is an `agent_profiles` entry without a `command`. `idow` fails the same way on an undefined name.
 - `model`, `effort` and `mode` reach the CLI through their templates, placed after `args` and before the resume args, so codex's `resume` subcommand still follows every flag. Values that aren't a bare token are single-quoted for the shell (`'claude-opus-5[1m]'`). Setting `model`, `effort` or `mode` on a CLI with no template, or a template without its placeholder, is a validation error in the TUI and an error in `idow`.
-- `env` is per agent profile, so the sous-chef, which launches with the top-level `agent_profile`, gets it only if that profile sets it. To give spaces a variable the sous-chef shouldn't have (Claude Code's `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE`, say), put it on the agent profiles workspace profiles select and leave the top-level one without it. `env:` replaces `command: env X=1 claude`, which also loses claude gating without `is_claude: true`
+- `env` is per agent profile, so the sous-chef, which launches with `sous_chef.agent_profile` (or the top-level `agent_profile`), gets it only if that profile sets it. To give spaces a variable the sous-chef shouldn't have (Claude Code's `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE`, say), put it on the agent profiles workspace profiles select and leave the sous-chef's without it. `env:` replaces `command: env X=1 claude`, which also loses claude gating without `is_claude: true`
 - Claude agent profiles that set no `model` or `effort` of their own fall back to the deprecated `claude.model` / `claude.effort` (see [Claude Configuration](#claude-configuration)); other CLIs never read those
 
 **Claude gating.** Several behaviors Pappardelle injects are Claude Code features, not generic agent features: the `~/.claude.json` pre-trust write, the `--name`/`--dangerously-skip-permissions` flags, the `--model`/`--effort` templates, and the `--resume {session_id}` default. Whether an agent gets them is decided by the agent profile's explicit `is_claude` when set, else by whether the basename of the command's first token equals `claude`:
@@ -1110,26 +1110,6 @@ auto_remove_when_done?: boolean;
 - No safety guards: a Done ticket is removed even if its branch has uncommitted changes or an open PR. Pair with `pre_workspace_deinit` if you want a guard.
 - Piggybacks on the 10s `loadSpaces` refresh, so newly-Done tickets disappear within a poll cycle.
 
-## Sous-chef key
-
-The top-level `sous_chef_key` sets the key that jumps to the sous-chef: from any pane in the Pappardelle window (the rail, an agent pane or a companion pane), it selects the `main` space and focuses its agent pane. It is on by default with `M-s` (Option+s). When the rail has focus, plain `s` does the same; it is an overridable default like `g`, so a custom `s` keybinding replaces it.
-
-```yaml
-sous_chef_key: M-j # default: M-s; false turns it off
-```
-
-```typescript
-sous_chef_key?: string | false;
-```
-
-- The value is a tmux key name, as `bind-key` takes it: `M-s` for Option+s, `C-g` for Ctrl+g, `F12`
-- The default `M-s` is zsh's `spell-word` in emacs mode, which shells inside the Pappardelle window lose; pick another key if you use it
-- `M-` keys need the terminal to send Option as Meta (an "Option as Meta" or "Option as Alt" setting on macOS)
-- Pappardelle binds the key in tmux's root table, so it replaces a root binding of your own for the same key. The binding acts only in Pappardelle's window: in any other window the key is passed on to the program running there, and it keeps being passed on after Pappardelle quits
-- Set it in `.pappardelle.local.yml` to change it for yourself only
-- If Pappardelle is killed without a clean exit while running inside a window of your own tmux session, the key stays bound in that window until Pappardelle runs there again or the window closes
-- `pappardelle highlight main --focus` does the same from a script
-
 ## Workspace-Aware Agents
 
 The top-level `workspace_aware_agents` flag lets agents in the repo see and change their workspace. Off by default.
@@ -1145,29 +1125,60 @@ workspace_aware_agents?: boolean;
 - **On:**
   - the pappardelle MCP server serves its tools (`companion_*`, `space_*`, `spaces_list`, `link_pr` and the rest) in this repo
   - the server's instructions tell each agent which space it's in, to keep the companion showing its work, and how to message other spaces
-  - Codex and Pi get the companion rules at launch, and agy gets a git-excluded rule file (`.agents/rules/pappardelle.md`) in its worktree with its space identity, messaging rules (`space_send`), companion rules and, for `main` with `sous_chef: true`, the sous-chef routine
+  - Codex and Pi get the companion rules at launch, and agy gets a git-excluded rule file (`.agents/rules/pappardelle.md`) in its worktree with its space identity, messaging rules (`space_send`), companion rules and, for `main` with `sous_chef.enabled: true`, the sous-chef routine
 - **Off:** the server serves nothing in this repo, as if it weren't a Pappardelle repo, and agents launch without the rules. The `pappardelle` CLI verbs work either way
 - The MCP server reads the flag when an agent starts, and the rules go in at launch, so a running agent keeps what it started with
 
 ## Sous-Chef Mode
 
-The top-level `sous_chef` flag tells the agent in the main checkout that it coordinates the repo's spaces. Off by default. It needs `workspace_aware_agents: true`, since the sous-chef works through the MCP tools; config validation rejects it without.
+The top-level `sous_chef` map runs the agent in the main checkout as the coordinator of the repo's spaces, and sets which agent profile it runs and the key that jumps to it.
 
 ```yaml
-sous_chef: true # default: false
+sous_chef:
+  enabled: true # default: false
+  agent_profile: claude # default: the top-level agent_profile
+  key: M-s # default: M-s; false or '' turns it off
 ```
 
 ```typescript
-sous_chef?: boolean;
+sous_chef?: {
+	enabled?: boolean;
+	agent_profile?: string;
+	key?: string | false;
+};
 ```
 
+| Field           | Type              | Default                   | Description                                                                                                                                                                                                                   |
+| --------------- | ----------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`       | `boolean`         | `false`                   | Turns sous-chef mode on. Needs `workspace_aware_agents: true`, since the sous-chef works through the MCP tools; config validation rejects it without.                                                                         |
+| `agent_profile` | `string`          | top-level `agent_profile` | The agent profile the main checkout's agent launches with while `enabled` is true, a name from `agent_profiles:` (or `claude`). `''` or leaving it out uses the top-level `agent_profile`. Workspace profiles keep their own. |
+| `key`           | `string \| false` | `M-s`                     | The tmux key that jumps to the sous-chef. See [Sous-chef key](#sous-chef-key).                                                                                                                                                |
+
+- Each field merges on its own across config layers, so `~/.pappardelle/.pappardelle.yml` can name the sous-chef's `agent_profile` for every repo while each repo sets `enabled`
 - The main checkout's agent launches with `<skill_prefix>sous-chef` as its first prompt when it is Claude, Codex (`$sous-chef`), agy (`-i '/sous-chef'`), or a profile that sets `prompt_args`, so it opens on the board. A resumed conversation gets the prompt too. Claude agents also get `--name sous-chef`
 - The rail and the agent pane's frame show the main space as `sous-chef`. The CLI and MCP tools still take the key `main`
 - The pappardelle MCP server tells a session in the repo but outside any space to keep the other spaces moving: watch them with `space_watch`, bring each prompt and question to you, and answer on your word
-- It tells Claude agents inside a space they can reach the coordinator with SendMessage to `sous-chef`, and tells agy spaces to reach `main` with `space_send`
+- It tells Claude agents inside a space to reach the coordinator with SendMessage to `sous-chef` when the sous-chef runs Claude, and with `space_send` to `main` when it runs another agent. agy spaces are always told to use `space_send`
 - The launch applies when the TUI next starts the main checkout's agent session. To apply it now, end that session (`/exit`, then `exit` in the shell left behind) and select the main row again
 - Put your own instructions for the sous-chef in `SOUS-CHEF.md` at the main checkout's root, such as which spaces to prioritize, what it may approve without asking, or how to report. `/sous-chef` reads it first and follows it over its own routine, and the MCP instructions point the sous-chef at it so it still applies after the conversation is compacted. Commit it to share it, or leave it untracked to keep it to yourself
 - A main checkout running Pi or another unregistered CLI without `prompt_args` gets the MCP instructions and the rail label, without a rename or bare `/sous-chef` prompt
+
+### Sous-chef key
+
+`sous_chef.key` sets the key that jumps to the sous-chef: from any pane in the Pappardelle window (the rail, an agent pane or a companion pane), it selects the `main` space and focuses its agent pane. It is on by default with `M-s` (Option+s), whether or not `enabled` is set. When the rail has focus, plain `s` does the same; it is an overridable default like `g`, so a custom `s` keybinding replaces it.
+
+```yaml
+sous_chef:
+  key: M-j # default: M-s; false or '' turns it off
+```
+
+- The value is a tmux key name, as `bind-key` takes it: `M-s` for Option+s, `C-g` for Ctrl+g, `F12`
+- The default `M-s` is zsh's `spell-word` in emacs mode, which shells inside the Pappardelle window lose; pick another key if you use it
+- `M-` keys need the terminal to send Option as Meta (an "Option as Meta" or "Option as Alt" setting on macOS)
+- Pappardelle binds the key in tmux's root table, so it replaces a root binding of your own for the same key. The binding acts only in Pappardelle's window: in any other window the key is passed on to the program running there, and it keeps being passed on after Pappardelle quits
+- Set it in `.pappardelle.local.yml` to change it for yourself only
+- If Pappardelle is killed without a clean exit while running inside a window of your own tmux session, the key stays bound in that window until Pappardelle runs there again or the window closes
+- `pappardelle highlight main --focus` does the same from a script
 
 ## State Database
 
@@ -1603,7 +1614,7 @@ All standard template variables are available: `${SCRIPT_DIR}`, `${WORKTREE_PATH
 
 You can create a `.pappardelle.local.yml` file in the same directory as `.pappardelle.yml` for personal keybinding overrides. This file is gitignored so it won't create noise in version control.
 
-The local file uses the same schema and is merged key by key over `.pappardelle.yml`, so any top-level setting (such as `sous_chef_key`) can be overridden there. The `keybindings` section is merged by key, with three operations:
+The local file uses the same schema and is merged key by key over `.pappardelle.yml`, so any setting (such as `sous_chef.key`) can be overridden there. The `keybindings` section is merged by key, with three operations:
 
 - **Add**: Keybindings with keys not in the base config are added
 - **Override**: Keybindings whose key matches a base keybinding replace it entirely

@@ -293,22 +293,13 @@ export function configErrors(config: unknown): string[] {
 		errors.push('auto_remove_when_done: must be a boolean');
 	}
 
-	const sousChefKey = cfg['sous_chef_key'];
-	if (
-		sousChefKey !== undefined &&
-		sousChefKey !== false &&
-		(typeof sousChefKey !== 'string' || sousChefKey.trim() === '')
-	) {
-		errors.push('sous_chef_key: must be a tmux key name or false');
-	}
-	if (cfg['sous_chef'] !== undefined && typeof cfg['sous_chef'] !== 'boolean') {
-		errors.push('sous_chef: must be a boolean');
-	} else if (
-		cfg['sous_chef'] === true &&
-		cfg['workspace_aware_agents'] !== true
-	) {
+	if (cfg['sous_chef'] !== undefined) {
 		errors.push(
-			'sous_chef: needs workspace_aware_agents: true, since the sous-chef works through its tools',
+			...validateSousChef(
+				cfg['sous_chef'],
+				cfg['workspace_aware_agents'] === true,
+				agentProfileNames,
+			),
 		);
 	}
 
@@ -800,6 +791,46 @@ function validateInitializationCommandField(
 		typeof container['initialization_command'] !== 'string'
 	) {
 		errors.push(`${prefix}initialization_command: must be a string`);
+	}
+	return errors;
+}
+
+function validateSousChef(
+	value: unknown,
+	workspaceAware: boolean,
+	agentProfileNames: Set<string>,
+): string[] {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		return ['sous_chef: must be a map (enabled, agent_profile, key)'];
+	}
+	const sousChef = value as Record<string, unknown>;
+	const errors: string[] = [];
+	const {enabled, key} = sousChef;
+	if (enabled !== undefined && typeof enabled !== 'boolean') {
+		errors.push('sous_chef.enabled: must be a boolean');
+	} else if (enabled === true && !workspaceAware) {
+		errors.push(
+			'sous_chef.enabled: needs workspace_aware_agents: true, since the sous-chef works through its tools',
+		);
+	}
+	if (sousChef['agent_profile'] !== undefined) {
+		errors.push(
+			...validateAgentProfileReference(
+				sousChef['agent_profile'],
+				'sous_chef.agent_profile',
+				agentProfileNames,
+			),
+		);
+	}
+	if (
+		key !== undefined &&
+		key !== false &&
+		key !== '' &&
+		(typeof key !== 'string' || key.trim() === '')
+	) {
+		errors.push(
+			"sous_chef.key: must be a tmux key name, or false or '' to turn it off",
+		);
 	}
 	return errors;
 }

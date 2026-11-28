@@ -56,9 +56,9 @@ team_prefix: ENG
 # rendered through model_args/effort_args. claude, codex and agy need only
 # command/model/effort: their flags, prompt and resume args are built in
 # (scripts/builtin-agents.json), and any field set here overrides them.
-# `env` sets variables for that agent only. The sous-chef launches with the
-# top-level `agent_profile`, so env meant only for spaces goes on the profiles
-# spaces select, not that one.
+# `env` sets variables for that agent only. The sous-chef launches with
+# sous_chef.agent_profile (or the top-level `agent_profile`), so env meant only
+# for spaces goes on the profiles spaces select, not that one.
 # agent_profiles:
 #   claude:
 #     command: claude
@@ -101,7 +101,10 @@ team_prefix: ENG
 # is told to watch the other spaces and bring their prompts to you.
 # Off by default, and needs workspace_aware_agents. Put your own instructions
 # for it in SOUS-CHEF.md at the repo root.
-# sous_chef: true
+# sous_chef:
+#   enabled: true
+#   agent_profile: claude   # Default: the top-level agent_profile
+#   key: M-s                # Jumps to the sous-chef. false or '' turns it off
 
 # Override the ticket-rail color for named issue statuses. Names match
 # case-insensitively; values are hex (#rgb / #rrggbb) or an ANSI color name

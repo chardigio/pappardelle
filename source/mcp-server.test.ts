@@ -153,6 +153,7 @@ test('callerIsAgy checks the resolved profile instead of AGY_CLI_OSC7501', async
 	// Claude caller gets agy=false so SendMessage instructions stay intact.
 	const claudeInstructions = workspaceInstructions('STA-1', 'repo', {
 		sousChef: true,
+		sousChefTakesSendMessage: true,
 		agy: callerIsAgy({
 			caller: {kind: 'env', key: 'STA-1'},
 			config,
@@ -282,10 +283,19 @@ test('only an opted-in session outside a space is told to coordinate', () => {
 	expect(workspaceInstructions(undefined, 'repo', {sousChef: true})).toMatch(
 		/Sous-chef mode is on/,
 	);
-	const inSpace = workspaceInstructions('STA-1', 'repo', {sousChef: true});
+	const inSpace = workspaceInstructions('STA-1', 'repo', {
+		sousChef: true,
+		sousChefTakesSendMessage: true,
+	});
 	expect(inSpace).not.toMatch(/Sous-chef mode/);
 	expect(inSpace).toMatch(/SendMessage to `sous-chef`/);
 	expect(workspaceInstructions('STA-1', 'repo')).not.toMatch(/sous-chef/);
+});
+
+test('a space is told to reach a non-Claude sous-chef with space_send', () => {
+	const inSpace = workspaceInstructions('STA-1', 'repo', {sousChef: true});
+	expect(inSpace).toMatch(/reach it with `space_send` to `main`/);
+	expect(inSpace).not.toMatch(/SendMessage to `sous-chef`/);
 });
 
 test('the coordinator is pointed at SOUS-CHEF.md only in sous-chef mode', () => {

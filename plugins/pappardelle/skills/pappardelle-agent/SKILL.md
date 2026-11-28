@@ -22,7 +22,7 @@ Get a space's worktree path, branch, profile, tmux socket, session names and tar
 
 Never drive tmux directly. The sessions are on another socket, and Pappardelle handles naming, exact-match targets, and quoting.
 
-In Claude Code, talk to another Claude space with `SendMessage` and `ListAgents`: sessions are named by space key (`SendMessage({to: "STA-696", message: "..."})`, or `sous-chef` for `main` when `sous_chef: true`), and the recipient sees who sent it and can reply. When either side isn't Claude Code (agy, Codex, OpenCode, Pi, etc.), use `spaces_list` and `space_send` instead (never `SendMessage`, which only exists in Claude Code); `space_send` types into that agent's TUI and prepends `[from <caller>]` on non-command prompts.
+In Claude Code, talk to another Claude space with `SendMessage` and `ListAgents`: sessions are named by space key (`SendMessage({to: "STA-696", message: "..."})`, or `sous-chef` for `main` when `sous_chef.enabled` is true and the sous-chef runs Claude Code), and the recipient sees who sent it and can reply. When either side isn't Claude Code (agy, Codex, OpenCode, Pi, etc.), use `spaces_list` and `space_send` instead (never `SendMessage`, which only exists in Claude Code); `space_send` types into that agent's TUI and prepends `[from <caller>]` on non-command prompts.
 
 ## Without the MCP tools
 

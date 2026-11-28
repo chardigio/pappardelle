@@ -2403,7 +2403,7 @@ export default function App({
 			for (const [name, rail] of lookup) {
 				const worktreePath = getWorktreePath(name);
 				const state = spaceState.read(name);
-				const {kind} = resolveSpaceAgentKind(state, configMemo);
+				const {kind} = resolveSpaceAgentKind(name, state, configMemo);
 				const transcript = await findSpaceTranscript({
 					issueKey: name,
 					worktreePath,

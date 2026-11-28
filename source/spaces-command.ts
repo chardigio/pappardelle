@@ -291,7 +291,7 @@ export async function gatherSpaces(deps: SpacesDeps): Promise<SpacesReport> {
 			const entry: Partial<SpaceEntry> & {name: string} = {name};
 			const identity = identities.get(name);
 			const state = deps.spaceState.read(name);
-			const {kind} = resolveSpaceAgentKind(state, deps.config);
+			const {kind} = resolveSpaceAgentKind(name, state, deps.config);
 			const pane = identity
 				? (panesBySocket
 						.get(identity.tmux.socket)

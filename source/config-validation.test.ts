@@ -1606,29 +1606,68 @@ test('validateConfig rejects issue_watchlist with whitespace-only key_prefix', (
 	).toBeTruthy();
 });
 
-test('validateConfig rejects sous_chef without workspace_aware_agents', () => {
-	const raw = {
-		version: 1,
-		profiles: {test: {display_name: 'Test'}},
-		sous_chef: true,
-	};
-	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
-	expect(
-		error?.message.includes('sous_chef: needs workspace_aware_agents'),
-	).toBeTruthy();
+const withSousChef = (
+	sousChef: unknown,
+	extra: Record<string, unknown> = {},
+) => ({
+	version: 1,
+	profiles: {test: {display_name: 'Test'}},
+	workspace_aware_agents: true,
+	agent_profiles: {neon: {command: 'agy'}},
+	sous_chef: sousChef,
+	...extra,
+});
+
+function sousChefError(raw: Record<string, unknown>): string | undefined {
+	return thrownBy(() => validateConfig(raw), ConfigValidationError)?.message;
+}
+
+test('validateConfig accepts the sous_chef map', () => {
 	expect(() =>
-		validateConfig({...raw, workspace_aware_agents: true}),
+		validateConfig(
+			withSousChef({enabled: true, agent_profile: 'neon', key: 'M-j'}),
+		),
+	).not.toThrow();
+	expect(() => validateConfig(withSousChef({}))).not.toThrow();
+	expect(() =>
+		validateConfig(withSousChef({enabled: true, agent_profile: ''})),
 	).not.toThrow();
 });
 
-test('validateConfig rejects sous_chef with a non-boolean value', () => {
-	const raw = {
-		version: 1,
-		profiles: {test: {display_name: 'Test'}},
-		sous_chef: 'on',
-	};
-	const error = thrownBy(() => validateConfig(raw), ConfigValidationError);
-	expect(error?.message.includes('sous_chef: must be a boolean')).toBeTruthy();
+for (const value of [true, false, 'on', ['enabled']]) {
+	test(`validateConfig rejects sous_chef ${JSON.stringify(value)}`, () => {
+		expect(sousChefError(withSousChef(value))).toContain(
+			'sous_chef: must be a map (enabled, agent_profile, key)',
+		);
+	});
+}
+
+test('validateConfig rejects sous_chef.enabled without workspace_aware_agents', () => {
+	expect(
+		sousChefError(
+			withSousChef({enabled: true}, {workspace_aware_agents: false}),
+		),
+	).toContain('sous_chef.enabled: needs workspace_aware_agents: true');
+	expect(() =>
+		validateConfig(
+			withSousChef({enabled: false}, {workspace_aware_agents: false}),
+		),
+	).not.toThrow();
+});
+
+test('validateConfig rejects a non-boolean sous_chef.enabled', () => {
+	expect(sousChefError(withSousChef({enabled: 'yes'}))).toContain(
+		'sous_chef.enabled: must be a boolean',
+	);
+});
+
+test('validateConfig rejects a sous_chef.agent_profile that names no agent profile', () => {
+	expect(sousChefError(withSousChef({agent_profile: 'nope'}))).toContain(
+		'sous_chef.agent_profile: agent profile "nope" not found in agent_profiles',
+	);
+	expect(sousChefError(withSousChef({agent_profile: 3}))).toContain(
+		'sous_chef.agent_profile: must be a string',
+	);
 });
 
 // ============================================================================
@@ -2702,32 +2741,17 @@ test('validateConfig rejects groups that the rail could not place', () => {
 	).toBe(true);
 });
 
-// ============================================================================
-// sous_chef_key
-// ============================================================================
-
-const withSousChefKey = (value: unknown) => ({
-	version: 1,
-	profiles: {test: {display_name: 'Test'}},
-	sous_chef_key: value,
+test("validateConfig accepts a sous_chef.key name, false or ''", () => {
+	for (const key of ['M-j', false, '']) {
+		expect(() => validateConfig(withSousChef({key}))).not.toThrow();
+	}
 });
 
-test('validateConfig accepts a sous_chef_key name or false', () => {
-	expect(() => validateConfig(withSousChefKey('M-j'))).not.toThrow();
-	expect(() => validateConfig(withSousChefKey(false))).not.toThrow();
-});
-
-for (const value of ['', '  ', true, 3]) {
-	test(`validateConfig rejects sous_chef_key ${JSON.stringify(value)}`, () => {
-		const error = thrownBy(
-			() => validateConfig(withSousChefKey(value)),
-			ConfigValidationError,
+for (const key of ['  ', true, 3]) {
+	test(`validateConfig rejects sous_chef.key ${JSON.stringify(key)}`, () => {
+		expect(sousChefError(withSousChef({key}))).toContain(
+			"sous_chef.key: must be a tmux key name, or false or '' to turn it off",
 		);
-		expect(
-			error?.message.includes(
-				'sous_chef_key: must be a tmux key name or false',
-			),
-		).toBe(true);
 	});
 }
 
