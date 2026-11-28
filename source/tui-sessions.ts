@@ -352,6 +352,18 @@ export function tuiLaunchCommand(options: {
 	home: string;
 	exists?: (file: string) => boolean;
 }): string {
+	return [
+		...tuiLaunchArgv(options).map(arg => shellQuote(arg)),
+		...options.args,
+	].join(' ');
+}
+
+export function tuiLaunchArgv(options: {
+	execPath: string;
+	cliPath: string;
+	home: string;
+	exists?: (file: string) => boolean;
+}): string[] {
 	const exists = options.exists ?? existsSync;
 	const releaseExecutable = path.join(
 		options.home,
@@ -361,15 +373,11 @@ export function tuiLaunchCommand(options: {
 		'pappardelle',
 	);
 	const shim = path.join(options.home, '.local', 'bin', 'pappardelle');
-	const command =
-		path.resolve(options.cliPath) === releaseExecutable && exists(shim)
-			? shellQuote(shim)
-			: options.execPath === options.cliPath
-				? shellQuote(options.execPath)
-				: [options.execPath, ...bunIsolationArgs, options.cliPath]
-						.map(arg => shellQuote(arg))
-						.join(' ');
-	return [command, ...options.args].join(' ');
+	if (path.resolve(options.cliPath) === releaseExecutable && exists(shim))
+		return [shim];
+	return options.execPath === options.cliPath
+		? [options.execPath]
+		: [options.execPath, ...bunIsolationArgs, options.cliPath];
 }
 
 // What a restart runs after an install: the shim the installer just rewrote,

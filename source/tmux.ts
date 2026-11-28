@@ -249,6 +249,17 @@ import {
 	type ProgramStatusSnapshot,
 	type StatusPane,
 } from './program-status-monitor.ts';
+import type {ResumePane} from './program-resume.ts';
+import {
+	finishPaneLaunch,
+	launchFiles,
+	preparePaneLaunch,
+	type PaneLaunch,
+	type PaneLaunchFiles,
+} from './resume-launch.ts';
+import type {SplitArrangement} from './resume-records-sqlite.ts';
+import {resumeMonitorCommand} from './resume-monitor.ts';
+import {forgetClosedSpace} from './space-cleanup.ts';
 
 // Re-export sizing constants and functions for external use
 export {
@@ -300,6 +311,147 @@ function spaceIdentities(): SpaceIdentityDao {
 function programStatus(): ProgramStatusDao {
 	if (!stateDaos) throw new Error('initTmuxState() was not called');
 	return stateDaos.programStatus;
+}
+
+/**
+ * The launch of one of a space's resumable panes. A launch that can't be
+ * prepared still starts the pane, with no token and nothing restored.
+ */
+function prepareResumeLaunch(
+	identity: SpaceIdentity,
+	pane: ResumePane,
+	startDir: string,
+	restore = true,
+): PaneLaunch | undefined {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	try {
+		return preparePaneLaunch(
+			{
+				dao: stateDaos.resumeRecords,
+				repo: identity.repo,
+				stateDir: stateDaos.stateDir,
+			},
+			identity.key,
+			pane,
+			startDir,
+			{restore},
+		);
+	} catch (error) {
+		log.warn(
+			`Could not prepare the resume token of ${identity.key}`,
+			error instanceof Error ? error : undefined,
+		);
+		return undefined;
+	}
+}
+
+async function finishResumeLaunch(
+	identity: SpaceIdentity,
+	launch: PaneLaunch | undefined,
+	created: boolean,
+	arrangement?: SplitArrangement,
+): Promise<void> {
+	if (!stateDaos) throw new Error('initTmuxState() was not called');
+	try {
+		await finishPaneLaunch(
+			{dao: stateDaos.resumeRecords},
+			identity.key,
+			launch,
+			created,
+			arrangement,
+		);
+	} catch (error) {
+		log.warn(
+			`Could not record the resume launch of ${identity.key}`,
+			error instanceof Error ? error : undefined,
+		);
+	}
+}
+
+/** A split's arrangement as it is now, for when its records bring it back. */
+export function keepResumeArrangement(
+	spaceKey: string,
+	split: Pick<CompanionSplit, 'name' | 'split' | 'size' | 'order'>,
+): void {
+	stateDaos?.resumeRecords
+		.setArrangement(
+			spaceKey,
+			{kind: 'split', name: split.name},
+			{
+				split: split.split,
+				size: split.size,
+				order: split.order,
+			},
+		)
+		.catch((error: unknown) => {
+			log.warn(
+				`Could not keep the arrangement of ${split.name} in ${spaceKey}`,
+				error instanceof Error ? error : undefined,
+			);
+		});
+}
+
+/** A companion pane closed on purpose takes its records with it. */
+export function forgetResumePane(spaceKey: string, pane: ResumePane): void {
+	stateDaos?.resumeRecords.remove(spaceKey, pane).catch((error: unknown) => {
+		log.warn(
+			`Could not drop the resume records of ${spaceKey}`,
+			error instanceof Error ? error : undefined,
+		);
+	});
+}
+
+/**
+ * Replace the program of a running companion pane. respawn-pane keeps the
+ * pane's pipe open, so the old monitor's pipe is closed first and a new one
+ * started with the new program's token. A replaced pane restores nothing,
+ * and its records go once it runs the new program.
+ */
+export function respawnCompanionPane(
+	identity: SpaceIdentity,
+	pane: ResumePane,
+	paneId: string,
+	command: string,
+	runner: OuterTmuxRunner,
+	arrangement?: SplitArrangement,
+): ReturnType<OuterTmuxRunner> {
+	const launch = prepareResumeLaunch(
+		identity,
+		pane,
+		identity.worktreePath,
+		false,
+	);
+	const respawn = [
+		'respawn-pane',
+		'-k',
+		'-t',
+		paneId,
+		// #{session_path} keeps the command in the worktree even after the user
+		// has cd'd elsewhere in the pane.
+		'-c',
+		'#{session_path}',
+		...buildShellLaunchArgs(command, false, launchFiles(launch)),
+	];
+	const result = runner(
+		launch
+			? [
+					'pipe-pane',
+					'-t',
+					paneId,
+					';',
+					...respawn,
+					';',
+					...resumeMonitorPipeArgs(identity.key, identity.repo, paneId, launch),
+				]
+			: respawn,
+	);
+	void finishResumeLaunch(
+		identity,
+		launch,
+		!result.error && result.status === 0,
+		arrangement,
+	);
+	return result;
 }
 
 const reportedUnknown = new Set<string>();
@@ -523,18 +675,48 @@ export function innerSessionExists(sessionName: string): boolean {
 export function buildShellLaunchArgs(
 	command: string,
 	reportExit = false,
+	files: PaneLaunchFiles = {},
 ): string[] {
 	const shell = process.env['SHELL'] || '/bin/sh';
 	return [
 		'/bin/sh',
 		'-c',
-		reportExit
-			? '"$1" -ic "$2$(printf "\\n:")"; printf "\\033]133;A\\007"; exec "$1" -l'
-			: '"$1" -ic "$2$(printf "\\n:")"; exec "$1" -l',
+		[
+			'shell=$1 script=$2 token=$3 restore=$4; shift 4',
+			// Only the pane's first process gets a token, and never one that the
+			// tmux server or a shell passed on.
+			'if [ -n "$token" ] && OSC7577_TOKEN=$(cat -- "$token" 2>/dev/null); then export OSC7577_TOKEN; else unset OSC7577_TOKEN; fi',
+			'[ -z "$token" ] || rm -f -- "$token"',
+			'set --',
+			'if [ -n "$restore" ]; then while IFS= read -r line; do set -- "$@" "$line"; done < "$restore"; rm -f -- "$restore"; fi',
+			// A plain shell runs no command first, so its rc files run once.
+			reportExit
+				? '"$shell" -ic "$script$(printf "\\n:")" "$shell" "$@"; printf "\\033]133;A\\007"; exec "$shell" -l'
+				: '[ -z "$script" ] || "$shell" -ic "$script$(printf "\\n:")" "$shell" "$@"; exec "$shell" -l',
+		].join('\n'),
 		'sh',
 		shell,
-		command,
+		files.restoreFile ? restoreScript(command) : command,
+		files.tokenFile ?? '',
+		files.restoreFile ?? '',
 	];
+}
+
+/**
+ * Run a record: its directory and argv are the shell's arguments, so no part
+ * of them is ever parsed as shell source. A non-interactive /bin/sh does the
+ * cd and exec, since it reads no rc file that could define functions named
+ * after either. What the pane runs today runs only when the record's program
+ * could not start.
+ */
+function restoreScript(fallback: string): string {
+	const run = `/bin/sh -c '[ $# -gt 1 ] && cd -- "$1" || exit 127; shift; exec "$@"' sh "$@"`;
+	if (fallback.trim() === '') return run;
+	return [
+		`${run}; __pappardelle_resume=$?`,
+		`if [ "$__pappardelle_resume" -eq 126 ] || [ "$__pappardelle_resume" -eq 127 ]; then printf '\\033[A\\033[2K'; ${fallback}`,
+		'fi',
+	].join('\n');
 }
 
 /**
@@ -1590,7 +1772,7 @@ export function cleanupOrphanedInnerSessions(
 		// status it reports is the space's own.
 		for (const key of reapedKeys)
 			if (!failedKeys.has(key) && !owned.keys.has(key))
-				void programStatus().remove(key);
+				void forgetClosedSpace(stateDaos!, repoName ?? getRepoName(), key);
 		return killed;
 	} catch {
 		return 0;
@@ -3363,6 +3545,8 @@ async function rememberSplitDrags(
 		split.stored = dragged;
 		if (listed) listed.size = dragged;
 		log.info(`Companion split ${split.session} resized by hand: ${dragged}`);
+		if (listed && shownSplitsSpace)
+			keepResumeArrangement(shownSplitsSpace, {...listed, size: dragged});
 		try {
 			await run(innerTmuxArgs(splitOptionArgs(split.session, 'size', dragged)));
 		} catch (err) {
@@ -3457,12 +3641,27 @@ async function seedCompanionSplits(
 	const order = Date.now();
 	let failed = false;
 	let started = false;
-	for (const [index, split] of configured.entries()) {
+	// A split opened with `companion run` comes back when it left a record.
+	const recorded = (
+		stateDaos?.resumeRecords.splitsWithRecords(identity.key) ?? []
+	)
+		.filter(({name}) => !configured.some(split => split.name === name))
+		.map(({name, arrangement}, index) => ({
+			name,
+			command: '',
+			split: arrangement.split,
+			...(arrangement.size === null ? {} : {size: arrangement.size}),
+			// After the configured splits, as when they were first made; the
+			// listing is already in their stored order.
+			order: order + configured.length + index,
+		}));
+	const toStart = [
+		...configured.map((split, index) => ({...split, order: order + index})),
+		...recorded,
+	];
+	for (const split of toStart) {
 		if (splits.some(existing => existing.name === split.name)) continue;
-		const result = createCompanionSplit(identity, {
-			...split,
-			order: order + index,
-		});
+		const result = createCompanionSplit(identity, split);
 		if (result.ok) {
 			started = true;
 		} else {
@@ -4462,6 +4661,7 @@ async function attachStartupMonitor(
 	issueKey: string,
 	session: string,
 	run: AsyncTmuxRunner,
+	launch?: PaneLaunch,
 ): Promise<void> {
 	const done = startupTrace.current?.begin('monitor-ready');
 	try {
@@ -4470,6 +4670,11 @@ async function attachStartupMonitor(
 			session,
 			statusSocket(),
 			run,
+			launch && {
+				pane: launch.pane,
+				monitorTokenFile: launch.monitorTokenFile,
+				dbPath: stateDaos!.dbPath,
+			},
 		);
 		done?.(pane && !pane.dead ? 'ok' : 'unavailable');
 	} catch (error) {
@@ -4622,6 +4827,11 @@ export async function ensureAgentSession(
 
 	// Native agents report at startup, before an ungated monitor could attach.
 	const gate = `pappardelle-status-${randomUUID()}`;
+	const resumeLaunch = prepareResumeLaunch(
+		identity,
+		{kind: 'agent'},
+		worktreePath,
+	);
 	const launchArgs = [
 		'/bin/sh',
 		'-c',
@@ -4638,6 +4848,7 @@ export async function ensureAgentSession(
 				launch,
 			),
 			true,
+			launchFiles(resumeLaunch),
 		),
 	];
 
@@ -4674,9 +4885,14 @@ export async function ensureAgentSession(
 				...hideStatusBarArgs(sessionName),
 				...INNER_SERVER_KEEP_ALIVE_ARGS,
 			]),
-		);
+		).catch(async (error: unknown) => {
+			await finishResumeLaunch(identity, resumeLaunch, false);
+			throw error;
+		});
+		// Before the gate opens, so the monitor's first save finds its token.
+		await finishResumeLaunch(identity, resumeLaunch, true);
 		try {
-			await attachStartupMonitor(issueKey, sessionName, run);
+			await attachStartupMonitor(issueKey, sessionName, run, resumeLaunch);
 		} finally {
 			await releaseStartupGate(sessionName, run, gate);
 		}
@@ -4709,6 +4925,7 @@ function companionSessionArgs(
 	cwd: string,
 	command: string,
 	repoName?: string,
+	launch?: PaneLaunch,
 ): string[] {
 	return [
 		'new-session',
@@ -4718,9 +4935,46 @@ function companionSessionArgs(
 		'-c',
 		tmuxFormatLiteral(cwd),
 		...spaceSessionEnvArgs(issueKey, repoName),
-		...(command.trim() === '' ? [] : buildShellLaunchArgs(command)),
+		...(command.trim() === '' && !launch
+			? []
+			: buildShellLaunchArgs(command, false, launchFiles(launch))),
+		...(launch
+			? [
+					';',
+					...resumeMonitorPipeArgs(
+						issueKey,
+						repoName,
+						exactSessionTarget(sessionName),
+						launch,
+					),
+				]
+			: []),
 		...hideStatusBarArgs(sessionName),
 		...INNER_SERVER_KEEP_ALIVE_ARGS,
+	];
+}
+
+/**
+ * pipe-pane for a companion pane's resume monitor. In the same command list
+ * as the command that starts the pane, it sees the program's first output.
+ */
+export function resumeMonitorPipeArgs(
+	issueKey: string,
+	repoName: string | undefined,
+	target: string,
+	launch: PaneLaunch,
+): string[] {
+	return [
+		'pipe-pane',
+		'-o',
+		'-t',
+		target,
+		resumeMonitorCommand({
+			repo: repoName ?? getRepoName(),
+			key: issueKey,
+			launch,
+			dbPath: stateDaos!.dbPath,
+		}),
 	];
 }
 
@@ -4742,7 +4996,7 @@ export function createCompanionSplit(
 		size?: PaneWidth;
 		order?: number;
 	},
-	options: {runner?: OuterTmuxRunner} = {},
+	options: {runner?: OuterTmuxRunner; restore?: boolean} = {},
 ): CreateSplitResult {
 	const runner = options.runner ?? defaultInnerTmuxRunner;
 	const failure = (args: string[], result: ReturnType<OuterTmuxRunner>) =>
@@ -4759,25 +5013,35 @@ export function createCompanionSplit(
 	if (cwd.error || cwd.status !== 0)
 		return {ok: false, reason: failure(pathArgs, cwd)};
 	const session = splitSessionName(main, split.name);
+	const startDir = cwd.stdout.trim();
+	const pane = {kind: 'split', name: split.name} as const;
+	const launch = prepareResumeLaunch(identity, pane, startDir, options.restore);
+	const order = split.order ?? Date.now();
 	const createArgs = [
 		...companionSessionArgs(
 			identity.key,
 			session,
-			cwd.stdout.trim(),
+			startDir,
 			split.command,
 			identity.repo,
+			launch,
 		),
 		';',
 		...splitOptionArgs(session, 'split', split.split),
 		';',
-		...splitOptionArgs(session, 'order', split.order ?? Date.now()),
+		...splitOptionArgs(session, 'order', order),
 		...(split.size === undefined
 			? []
 			: [';', ...splitOptionArgs(session, 'size', split.size)]),
 	];
 	const created = runner(createArgs);
-	if (created.error || created.status !== 0)
-		return {ok: false, reason: failure(createArgs, created)};
+	const ok = !created.error && created.status === 0;
+	void finishResumeLaunch(identity, launch, ok, {
+		split: split.split,
+		size: split.size ?? null,
+		order,
+	});
+	if (!ok) return {ok: false, reason: failure(createArgs, created)};
 	return {ok: true, session};
 }
 
@@ -4822,6 +5086,7 @@ export async function ensureCompanionSession(
 		return false;
 	}
 
+	const launch = prepareResumeLaunch(identity, {kind: 'main'}, worktreePath);
 	try {
 		await run(
 			innerTmuxArgs(
@@ -4830,9 +5095,15 @@ export async function ensureCompanionSession(
 					sessionName,
 					worktreePath,
 					companionCommand,
+					identity.repo,
+					launch,
 				),
 			),
-		);
+		).catch(async (error: unknown) => {
+			await finishResumeLaunch(identity, launch, false);
+			throw error;
+		});
+		await finishResumeLaunch(identity, launch, true);
 
 		// `pappardelle companion` addresses panes by name; the first one is main.
 		// It names main itself when this fails, so the failure doesn't matter.

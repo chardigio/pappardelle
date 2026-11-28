@@ -1,3 +1,6 @@
+// First, so nothing this process starts inherits the terminal's OSC 7577 token.
+// eslint-disable-next-line import-x/no-unassigned-import
+import './resume-token.ts';
 import {Buffer} from 'node:buffer';
 import {spawnSync} from 'node:child_process';
 import process from 'node:process';

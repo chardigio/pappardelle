@@ -17,6 +17,7 @@ import {
 } from './companion.ts';
 import type {OuterTmuxRunner} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
+import {killProcessesNaming} from '../test/helpers/processes.ts';
 import {REAL_TMUX_TIMEOUT_MS, until} from '../test/helpers/wait.ts';
 
 const dir = realpathSync(mkdtempSync(`${tmpdir()}/pc-`));
@@ -84,6 +85,7 @@ afterAll(async () => {
 
 afterAll(() => {
 	spawnSync('tmux', ['-S', socket, 'kill-server'], {env});
+	killProcessesNaming(socket);
 	rmSync(dir, {recursive: true, force: true});
 });
 

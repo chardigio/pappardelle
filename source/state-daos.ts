@@ -27,6 +27,10 @@ import {statusSocket, type ProgramStatusDao} from './program-status-monitor.ts';
 import type {StateColorDao} from './providers/state-color-cache.ts';
 import {SqliteStateColorDao} from './providers/state-color-cache-sqlite.ts';
 import type {ScheduleDao} from './schedule.ts';
+import {
+	type ResumeRecordDao,
+	SqliteResumeRecordDao,
+} from './resume-records-sqlite.ts';
 import {SqliteScheduleDao} from './schedule-sqlite.ts';
 import type {IdentityDefaults, SpaceIdentityDao} from './space-identity.ts';
 import {SqliteSpaceIdentityDao} from './space-identity-sqlite.ts';
@@ -63,6 +67,10 @@ export type StateDaos = {
 	holds: HoldDao;
 	prLinkStamp: PrLinkStampDao;
 	programStatus: ProgramStatusDao;
+	resumeRecords: ResumeRecordDao;
+	/** Where the state files and the database live, for a process this one starts. */
+	stateDir: string;
+	dbPath: string;
 	tuiMarker: TuiMarkerDao;
 	updateCheck: UpdateCheckDao;
 	/**
@@ -138,6 +146,9 @@ export function createStateDaos(options: StateDaoOptions): StateDaos {
 		schedules: new SqliteScheduleDao(openDb, repo),
 		holds: new SqliteHoldDao(openDb, repo),
 		prLinkStamp: new SqlitePrLinkStampDao(openDb, clock),
+		resumeRecords: new SqliteResumeRecordDao(openDb, repo),
+		stateDir,
+		dbPath,
 		tuiMarker: new SqliteTuiMarkerDao(openDb, repo),
 		updateCheck: new SqliteUpdateCheckDao(openDb),
 		claudeStatus: new DaemonClaudeStatusDao(statusClient),

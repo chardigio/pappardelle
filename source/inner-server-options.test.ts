@@ -8,6 +8,7 @@ import {teardown} from '../test/helpers/teardown.ts';
 import {ensureCompanionSession} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {tempDir} from '../test/helpers/temp-dir.ts';
+import {killProcessesNaming} from '../test/helpers/processes.ts';
 import {getRepoName} from './config.ts';
 
 // tmux.ts names a space's sessions from the stores.
@@ -46,6 +47,9 @@ function privateInnerServer(tmuxConf = '') {
 		}
 
 		spawnSync('tmux', ['-S', socket, 'kill-server']);
+		// The companions' resume monitors run Bun with this HOME, and one still
+		// starting would make HOME/.bun after the directory is removed.
+		killProcessesNaming(socket);
 	});
 	const tmux = (...args: string[]) =>
 		spawnSync('tmux', ['-S', socket, ...args], {encoding: 'utf8'});

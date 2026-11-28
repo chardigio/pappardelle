@@ -35,20 +35,23 @@ function runWithStubShell(command: string): string[] {
 		restoreShell(previousShell);
 	}
 
-	return readFileSync(log, 'utf-8').split('\0').slice(0, -1);
+	return readFileSync(log, 'utf-8')
+		.replaceAll(stub, 'STUB')
+		.split('\0')
+		.slice(0, -1);
 }
 
 test('runs the command in an interactive shell, then a login shell', () => {
 	const command = `claude --model 'claude-opus-5[1m]' --continue || { printf '\\033[A'; false; }`;
 	expect(runWithStubShell(command)).toStrictEqual([
-		`<-ic><${command}\n:>`,
+		`<-ic><${command}\n:><STUB>`,
 		'<-l>',
 	]);
 });
 
 test('a trailing comment in the command does not swallow the login shell', () => {
 	expect(runWithStubShell('gitui # my note')).toStrictEqual([
-		'<-ic><gitui # my note\n:>',
+		'<-ic><gitui # my note\n:><STUB>',
 		'<-l>',
 	]);
 });

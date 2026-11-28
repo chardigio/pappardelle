@@ -1,3 +1,6 @@
+// First, so nothing this process starts inherits the terminal's OSC 7577 token.
+// eslint-disable-next-line import-x/no-unassigned-import
+import './resume-token.ts';
 // The compiled process can run one of these without initializing the UI.
 const internalEntries: Record<string, () => Promise<unknown>> = {
 	'--internal-status-monitor': async () =>

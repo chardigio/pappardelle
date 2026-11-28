@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+// First, so nothing this process starts inherits the terminal's OSC 7577 token.
+import {inheritedResumeToken} from './resume-token.ts';
 import {routeDrops} from './drop-routing.ts';
 import {
 	startStartupTrace,
@@ -83,7 +85,13 @@ import {isSuperviseVerb} from './supervise-args.ts';
 import {runOpenSpaceCommand} from './open-space-command.ts';
 import {waitForAgentStart} from './agent-start.ts';
 import {hookStatusKey} from './claude-status.ts';
-import {reviveTui, tuiLaunchCommand, tuiSessionNames} from './tui-sessions.ts';
+import {
+	reviveTui,
+	tuiLaunchArgv,
+	tuiLaunchCommand,
+	tuiSessionNames,
+} from './tui-sessions.ts';
+import {buildResumeReport} from './program-resume.ts';
 import {
 	readTmuxVersion,
 	tmuxTooOldMessage,
@@ -636,11 +644,39 @@ if (tmuxVersion && tmuxVersionTooOld(tmuxVersion.version)) {
 	process.exit(1);
 }
 
+/**
+ * Ask the terminal Pappardelle runs in (Rex, say) to start it again in this
+ * directory after the terminal restarts. Without the arguments: they may
+ * describe a new space, which would make another one on every restore. This
+ * process stays until the tmux client it runs exits, and Rex drops the
+ * record when it does, so it never sends `clear`.
+ */
+function reportResumeCommand(): void {
+	const token = inheritedResumeToken();
+	if (!token || !process.stdout.isTTY) return;
+	process.stdout.write(
+		buildResumeReport(
+			{
+				pid: process.pid,
+				time: Math.floor(Date.now() / 1000),
+				argv: tuiLaunchArgv({
+					execPath: process.execPath,
+					cliPath: cliFilePath(),
+					home: homedir(),
+				}),
+				cwd: process.cwd(),
+			},
+			token,
+		),
+	);
+}
+
 // If not in tmux, re-exec inside tmux
 if (!isInTmux() && cli.flags.layout) {
 	const outerDone = startupTrace.current?.begin('outer-bootstrap');
 	const repoName = getRepoName();
 	let existing = tuiSessionNames(repoName).find(name => sessionExists(name));
+	reportResumeCommand();
 	const cmd = tuiLaunchCommand({
 		execPath: process.execPath,
 		cliPath: cliFilePath(),

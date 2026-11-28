@@ -20,6 +20,8 @@
 #   7. Opens profile-configured apps, links, and commands (if --open)
 
 set -e
+# Each pane gets a token of its own; one from the terminal this runs in is never passed on.
+unset OSC7577_TOKEN
 
 SCRIPT_NAME="idow"
 

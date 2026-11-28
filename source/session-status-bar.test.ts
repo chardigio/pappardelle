@@ -6,6 +6,7 @@ import {sessionNamesFor} from './space-identity.ts';
 import {expect, beforeAll, afterAll} from 'bun:test';
 import {tmuxTest} from '../test/helpers/tmux-test.ts';
 import {teardown} from '../test/helpers/teardown.ts';
+import {killProcessesNaming} from '../test/helpers/processes.ts';
 import {ensureCompanionSession} from './tmux.ts';
 import {testTmuxState} from '../test/helpers/state.ts';
 import {getRepoName} from './config.ts';
@@ -50,6 +51,9 @@ tmuxTest(
 			if (previous === undefined) delete process.env['PAPPARDELLE_TMUX_SOCKET'];
 			else process.env['PAPPARDELLE_TMUX_SOCKET'] = previous;
 			spawnSync('tmux', ['-S', socket, 'kill-server']);
+			// The companion's resume monitor still starting would write under
+			// the state directory after it is removed.
+			killProcessesNaming(socket);
 			rmSync(root, {recursive: true, force: true});
 		});
 

@@ -9,8 +9,10 @@ import {
 } from './companion-splits.ts';
 import type {PaneWidth} from './layout-sizing.ts';
 import {
-	buildShellLaunchArgs,
 	createCompanionSplit,
+	forgetResumePane,
+	keepResumeArrangement,
+	respawnCompanionPane,
 	defaultInnerTmuxRunner,
 	exactSessionTarget,
 	storedIdentity,
@@ -191,10 +193,12 @@ function paneTarget(space: Space, name: string): string {
 
 function setSplitSize(
 	runner: OuterTmuxRunner,
+	spaceKey: string,
 	split: CompanionSplit,
 	size: PaneWidth,
 ): void {
 	tmux(runner, splitOptionArgs(split.session, 'size', size));
+	keepResumeArrangement(spaceKey, {...split, size});
 }
 
 function refuseMainSize(pane: string): void {
@@ -220,30 +224,35 @@ export function runInCompanion(
 	if (options.size !== undefined) refuseMainSize(options.pane);
 
 	const space = loadSpace(spaceKey, deps);
-	const launch = buildShellLaunchArgs(options.command);
 	const split = space.splits.find(each => each.name === options.pane);
 	const existing = options.pane === MAIN_PANE ? space.main : split;
 	if (existing) {
-		// #{session_path} keeps the command in the worktree even after the user
-		// has cd'd elsewhere in the pane.
-		tmux(space.runner, [
-			'respawn-pane',
-			'-k',
-			'-t',
+		const result = respawnCompanionPane(
+			space.identity,
+			split ? {kind: 'split', name: split.name} : {kind: 'main'},
 			existing.paneId,
-			'-c',
-			'#{session_path}',
-			...launch,
-		]);
+			options.command,
+			space.runner,
+			split && {
+				split: split.split,
+				size: options.size ?? split.size,
+				order: split.order,
+			},
+		);
+		if (result.error || result.status !== 0)
+			throw new CompanionError(
+				`tmux respawn-pane failed: ${result.stderr?.trim() || result.error?.message || `exit ${result.status}`}`,
+			);
 		if (split && options.size !== undefined)
-			setSplitSize(space.runner, split, options.size);
+			setSplitSize(space.runner, space.identity.key, split, options.size);
 		return {created: false};
 	}
 
 	const created = createCompanionSplit(
 		space.identity,
 		{...options, name: options.pane},
-		{runner: space.runner},
+		// The command asked for runs, not what a split of the same name left.
+		{runner: space.runner, restore: false},
 	);
 	if (!created.ok) throw new CompanionError(created.reason);
 	return {created: true};
@@ -305,7 +314,12 @@ export function resizeCompanionPane(
 ): void {
 	refuseMainSize(options.pane);
 	const space = loadSpace(spaceKey, deps);
-	setSplitSize(space.runner, findSplit(space, options.pane), options.size);
+	setSplitSize(
+		space.runner,
+		spaceKey,
+		findSplit(space, options.pane),
+		options.size,
+	);
 }
 
 export function closeCompanionPane(
@@ -325,6 +339,7 @@ export function closeCompanionPane(
 		'-t',
 		exactSessionTarget(findSplit(space, pane).session),
 	]);
+	forgetResumePane(space.identity.key, {kind: 'split', name: pane});
 }
 
 export function listCompanion(

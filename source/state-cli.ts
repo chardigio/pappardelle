@@ -1,6 +1,9 @@
 // `--internal-state <verb>`: state changes that bash asks the binary to make,
 // so that scripts never write state files or SQL themselves.
 
+// First, so nothing this process starts inherits the terminal's OSC 7577 token.
+// eslint-disable-next-line import-x/no-unassigned-import
+import './resume-token.ts';
 import {homedir} from 'node:os';
 import {parseArgs} from 'node:util';
 import {statusSocket} from './program-status-monitor.ts';

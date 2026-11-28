@@ -213,6 +213,42 @@ const MIGRATIONS: string[] = [
 	// have been imported. json_sync is emptied then, not dropped, so that a
 	// build from before reads its files as gone, not as changed.
 	`CREATE TABLE json_import (imported_at INTEGER NOT NULL) STRICT`,
+	// A resumable pane's current token hash, and a split's arrangement so a
+	// split opened with \`companion run\` can be made again.
+	`CREATE TABLE resume_panes (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		pane TEXT NOT NULL,
+		token_hash TEXT NOT NULL,
+		split TEXT CHECK (split IN ('right', 'down')),
+		size TEXT,
+		split_order INTEGER,
+		PRIMARY KEY (repo, key, pane)
+	) STRICT;
+	CREATE TABLE resume_records (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		pane TEXT NOT NULL,
+		pid INTEGER NOT NULL,
+		started TEXT NOT NULL,
+		uid INTEGER NOT NULL,
+		depth INTEGER NOT NULL,
+		time INTEGER NOT NULL,
+		argv TEXT NOT NULL,
+		cwd TEXT,
+		cwd_source TEXT NOT NULL CHECK (cwd_source IN ('report', 'process')),
+		PRIMARY KEY (repo, key, pane, pid),
+		FOREIGN KEY (repo, key, pane) REFERENCES resume_panes ON DELETE CASCADE
+	) STRICT;
+	CREATE TABLE resume_times (
+		repo TEXT NOT NULL,
+		key TEXT NOT NULL,
+		pane TEXT NOT NULL,
+		pid INTEGER NOT NULL,
+		time INTEGER NOT NULL,
+		PRIMARY KEY (repo, key, pane, pid),
+		FOREIGN KEY (repo, key, pane) REFERENCES resume_panes ON DELETE CASCADE
+	) STRICT`,
 ];
 
 let defaultPathForTests: string | undefined;
@@ -412,11 +448,31 @@ function enableWal(db: Database): void {
 	}
 }
 
+/**
+ * Only this user may read the database: it holds resume records, commands
+ * that run as the user, and the spec says other users must not read them.
+ * SQLite gives the -wal and -shm files the database's mode when it makes
+ * them, so the file is made 0600 before SQLite opens it.
+ */
+function keepPrivate(dbPath: string): void {
+	const dir = path.dirname(dbPath);
+	fs.mkdirSync(dir, {recursive: true, mode: 0o700});
+	fs.chmodSync(dir, 0o700);
+	fs.closeSync(fs.openSync(dbPath, 'a', 0o600));
+	for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+		try {
+			fs.chmodSync(file, 0o600);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+		}
+	}
+}
+
 /** The process's connection to the database at `dbPath`, opened on first use. */
 export function openStateDb(dbPath: string): StateDb {
 	const existing = connections.get(dbPath);
 	if (existing) return existing;
-	fs.mkdirSync(path.dirname(dbPath), {recursive: true});
+	keepPrivate(dbPath);
 	const db = new Database(dbPath, {create: true, strict: true});
 	try {
 		db.run(`PRAGMA busy_timeout = ${OPEN_BUSY_TIMEOUT_MS}`);

@@ -8,6 +8,7 @@ import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
 import {createLogger} from './logger.ts';
 import {
 	type LocatedStatusPane,
+	type MonitorResume,
 	checkedProgramSnapshot,
 	listStatusPanes,
 	markerPid,
@@ -30,6 +31,7 @@ import {
 	type StatusTmuxRunner,
 	type ProgramStatusSnapshot,
 } from './program-status-monitor.ts';
+import {resumeWatchArgv} from './resume-monitor.ts';
 import {internalEntryCommand} from './runtime.ts';
 import {firstChange, StatusClient} from './status-client.ts';
 import {backgroundTimers, type StatusTimers} from './status-protocol.ts';
@@ -51,9 +53,10 @@ export class DaemonProgramStatusDao implements ProgramStatusDao {
 		session: string,
 		socket?: string,
 		run?: StatusTmuxRunner,
+		resume?: MonitorResume,
 	): Promise<StatusPane | null> {
 		const panes = await listStatusPanes(socket, run);
-		return this.monitor(key, session, panes.get(session), socket, run);
+		return this.monitor(key, session, panes.get(session), socket, run, resume);
 	}
 
 	async monitor(
@@ -62,6 +65,7 @@ export class DaemonProgramStatusDao implements ProgramStatusDao {
 		located: LocatedStatusPane | undefined,
 		socket = statusSocket(),
 		run: StatusTmuxRunner = runStatusTmux,
+		resume?: MonitorResume,
 	): Promise<StatusPane | null> {
 		const {repo, dir} = this;
 		try {
@@ -104,6 +108,16 @@ export class DaemonProgramStatusDao implements ProgramStatusDao {
 				// pipe-pane starts the monitor with the tmux server's environment,
 				// which may name another socket than this process uses.
 				this.socketPath,
+				...(resume
+					? resumeWatchArgv({
+							...resume,
+							repo,
+							key,
+							panePid: Number(pane.pid),
+							tmuxPaneId: pane.id,
+							tmuxSocket: socket,
+						})
+					: []),
 			]
 				.map(value => shellQuoteStatus(value))
 				.join(' ');

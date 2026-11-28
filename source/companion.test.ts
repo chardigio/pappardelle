@@ -224,9 +224,25 @@ test('run on an existing split respawns it and keeps the new size', () => {
 	);
 	expect(result).toStrictEqual({created: false});
 	expect(tmux.calls.some(c => c[0] === 'new-session')).toBe(false);
+	// The old monitor's pipe closes before the respawn, and the new program
+	// gets a monitor of its own: respawn-pane keeps a pipe open.
+	const call = tmux.calls.find(c => c.includes('respawn-pane'))!;
+	expect(call.slice(0, 4)).toStrictEqual(['pipe-pane', '-t', '%4', ';']);
+	const respawn = call.indexOf('respawn-pane');
+	expect(call.slice(respawn, respawn + 6)).toStrictEqual([
+		'respawn-pane',
+		'-k',
+		'-t',
+		'%4',
+		'-c',
+		'#{session_path}',
+	]);
 	expect(
-		tmux.calls.find(c => c[0] === 'respawn-pane')!.slice(0, 6),
-	).toStrictEqual(['respawn-pane', '-k', '-t', '%4', '-c', '#{session_path}']);
+		call.slice(
+			call.lastIndexOf('pipe-pane'),
+			call.lastIndexOf('pipe-pane') + 4,
+		),
+	).toStrictEqual(['pipe-pane', '-o', '-t', '%4']);
 	expect(tmux.splits[0]).toMatchObject({split: 'down', size: '12'});
 });
 
